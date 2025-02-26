@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VOTABLE version="1.4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns="http://www.ivoa.net/xml/VOTable/v1.3"
+  xsi:schemaLocation="http://www.ivoa.net/xml/VOTable/v1.3 http://www.ivoa.net/xml/VOTable/v1.3">
+ <DESCRIPTION>
+   VizieR Astronomical Server vizier.cds.unistra.fr
+    Date: 2025-02-22T07:46:48 [V7.4.5]
+   Explanations and Statistics of UCDs:			See LINK below
+   In case of problem, please report to:	cds-question@unistra.fr
+ </DESCRIPTION>
+<!-- VOTable description at http://www.ivoa.net/Documents/latest/VOT.html -->
+<INFO name="service_protocol" value="ASU">  IVOID of the protocol through which the data was retrieved</INFO>
+<INFO name="request_date" value="2025-02-22T07:46:48">  Query execution date</INFO>
+<INFO name="request" value="https://vizier.cds.unistra.fr/viz-bin/votable?-oc.form=dec&amp;-out.max=100&amp;-order=I&amp;-c.eq=J2000&amp;-c.r=  2&amp;-c.u=arcmin&amp;-c.geom=r&amp;-out.src=J/ApJ/682/964/table4,J/ApJ/682/964/table5&amp;-source=J/ApJ/682/964/table4 J/ApJ/682/964/table5&amp;-out=SDSS&amp;-out=zFG&amp;-out=zBG&amp;-out=Imag&amp;-out=n_Imag&amp;-out=Name&amp;-joincol={J/ApJ/682/964/table4}.{Name}&amp;-joincol=Name&amp;-out=L(V555)&amp;-out=Re&amp;-out=b/a&amp;-out=sigma&amp;-out=Mph&amp;-out=Mul&amp;-out=Lens&amp;-out=n_Lens&amp;-out=Sloan&amp;-out=_RA&amp;-out=_DE&amp;-out=bSIE&amp;-out=qSIE&amp;-out=PASIE&amp;-out=LSIE/LdV&amp;-out=bLTM&amp;-out=gammaLTM&amp;-out=PAgLTM&amp;-out=LLTM/LdV&amp;-out=Nsrc&amp;-out=Ring?&amp;-out=Good?&amp;">  Full request URL (POST)</INFO>
+<INFO name="contact" value="cds-question@unistra.fr">  Email or URL to contact publisher</INFO>
+<INFO name="server_software" value="7.4.5">  Software version</INFO>
+<INFO name="publisher" value="CDS">  Data centre that produced the VOTable</INFO>
+
+<RESOURCE ID="join" name="#Join">
+<DESCRIPTION> Join tables J/ApJ/682/964/table4,J/ApJ/682/964/table5
+</DESCRIPTION>
+  <COOSYS ID="J2000" system="eq_FK5" equinox="J2000"/>
+<TABLE ID="J_ApJ_682_964_table4_J_ApJ_682_964_table5" name="J/ApJ/682/964/table4,J/ApJ/682/964/table5"><!--Fields from table J/ApJ/682/964/table4-->
+    <!-- Definitions of GROUPs and FIELDs -->
+
+<!-- +++No column could be found to attach a LINK in table: J/ApJ/682/964/table4 -->
+    <FIELD name="SDSS1" ucd="meta.id;meta.main" datatype="char" arraysize="18*"><!-- ucd="ID_ALTERNATIVE" -->
+      <DESCRIPTION>SDSS name (HHMMSS.ss+DDMMSS.s) (1)</DESCRIPTION>
+      <VALUES null=" " />
+    </FIELD>
+    <FIELD name="Plate1" ucd="meta.id;instr.plate" datatype="short" width="4" type="hidden"><!-- ucd="NUMBER" -->
+      <DESCRIPTION>SDSS Plate number</DESCRIPTION>
+      <VALUES null="-32768" />
+    </FIELD>
+    <FIELD name="MJD1" ucd="meta.id" datatype="int" width="5" type="hidden"><!-- ucd="ID_NUMBER" -->
+      <DESCRIPTION>SDSS MJD number</DESCRIPTION>
+      <VALUES null="-2147483648" />
+    </FIELD>
+    <FIELD name="Fiber1" ucd="meta.id" datatype="short" width="3" type="hidden"><!-- ucd="ID_FIBER" -->
+      <DESCRIPTION>SDSS Fiber number</DESCRIPTION>
+      <VALUES null="-32768" />
+    </FIELD>
+    <FIELD name="zFG1" ucd="src.redshift" datatype="float" width="7" precision="4"><!-- ucd="REDSHIFT_HC" -->
+      <DESCRIPTION>Foreground galaxy redshift (directly from SDSS database)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="zBG1" ucd="src.redshift" datatype="float" width="7" precision="4"><!-- ucd="REDSHIFT_HC" -->
+      <DESCRIPTION>Background galaxy redshift (measured as described in Bolton et al. 2004AJ....127.1860B)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="Imag1" ucd="phot.mag;em.opt.I" datatype="float" width="5" precision="2" unit="mag"><!-- ucd="PHOT_HST_F814W" -->
+      <DESCRIPTION>? HST-ACS I_814_ magnitude (2)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="n_Imag1" ucd="meta.note" datatype="char" arraysize="1"><!-- ucd="NOTE" -->
+      <DESCRIPTION>[sd] Origin of Imag (3)</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/VizieR?-6N&amp;-info=XML&amp;-out.add=.&amp;&amp;lt;&amp;quot;Note&amp;quot;&amp;catid=16820964&amp;notid=3&amp;-out.emph=${n_Imag}"/>
+    </FIELD>
+    <FIELD name="Name1" ucd="meta.id" datatype="char" arraysize="10*"><!-- ucd="DATA_LINK" -->
+      <DESCRIPTION>System name (JHHMM-DDMM), as in table5</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/nph-htx/A?%5cifmatch%7bA%7d%7b${Lens}%7d%5cyMORE%7bget%20model%20parameters%7d%7b-source=$AT/table5%5c%26Name=${Name}%7d%7b${Name}%7d%5celse%7b${Name}%7d%5cfi"/>
+    </FIELD>
+    <FIELD name="L(V555)1" ucd="phys.luminosity" datatype="float" width="5" precision="1" unit="GsolLum"><!-- ucd="PHYS_LUMINOSITY_GENERAL" -->
+      <DESCRIPTION>? Rest-frame luminosity in V555 band (5)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="Re1" ucd="phys.angSize" datatype="float" width="5" precision="2" unit="arcsec"><!-- ucd="EXTENSION_RAD" -->
+      <DESCRIPTION>? Effective radius (6)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="b/a1" ucd="phys.angSize;arith.ratio" datatype="float" width="5" precision="2"><!-- ucd="PHYS_AXIS-RATIO" -->
+      <DESCRIPTION>? Ratio of minor to major axes for the de Vaucouleurs image models</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="sigma1" ucd="phys.veloc.dispersion" datatype="short" width="3" unit="km/s"><!-- ucd="VELOC_DISP" -->
+      <DESCRIPTION>? Velocity dispersion, uncorrected for aperture effects</DESCRIPTION>
+      <VALUES null="-32768" />
+    </FIELD>
+    <FIELD name="Mph1" ucd="meta.code;src.morph" datatype="char" arraysize="1"><!-- ucd="MORPH_CODE" -->
+      <DESCRIPTION>[ELU] Foreground-galaxy morphology code (8)</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/VizieR?-6N&amp;-info=XML&amp;-out.add=.&amp;&amp;lt;&amp;quot;Note&amp;quot;&amp;catid=16820964&amp;notid=8&amp;-out.emph=${Mph}"/>
+    </FIELD>
+    <FIELD name="Mul1" ucd="meta.code.multip" datatype="char" arraysize="1"><!-- ucd="CODE_MULT_INDEX" -->
+      <DESCRIPTION>[MS] Foreground-galaxy multiplicity code (9)</DESCRIPTION>
+      <VALUES null=" " />
+    </FIELD>
+    <FIELD name="Lens1" ucd="meta.code" datatype="char" arraysize="1"><!-- ucd="DATA_LINK" -->
+      <DESCRIPTION>[AXB] Lens status code (10)</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/VizieR?-6N&amp;-info=XML&amp;-out.add=.&amp;&amp;lt;&amp;quot;Note&amp;quot;&amp;catid=16820964&amp;notid=10&amp;-out.emph=${Lens}"/>
+    </FIELD>
+    <FIELD name="n_Lens1" ucd="meta.note" datatype="char" arraysize="1"><!-- ucd="?" -->
+      <DESCRIPTION>[*] Note on Lens status in notes.dat file (11)</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/VizieR?-6N&amp;-info=XML&amp;-out.add=.&amp;-source=$AT/notes&amp;Name=${Name}"/>
+    </FIELD>
+    <FIELD name="Sloan1" ucd="meta.ref.url" datatype="char" arraysize="5*"><!-- ucd="DATA_LINK" -->
+      <DESCRIPTION>Show the SDSS spectrum</DESCRIPTION>
+      <VALUES null=" " />
+      <LINK gref="SDSS.sp3,w ${Plate} ${MJD} ${Fiber}"/>
+    </FIELD>
+    <FIELD name="_RA1" ucd="pos.eq.ra;meta.main" ref="J2000" datatype="double" width="9" precision="5" unit="deg"><!-- ucd="POS_EQ_RA_MAIN" -->
+      <DESCRIPTION>Right ascension (derived from SDSS) for Eq=J2000</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="_DE1" ucd="pos.eq.dec;meta.main" ref="J2000" datatype="double" width="9" precision="5" unit="deg"><!-- ucd="POS_EQ_DEC_MAIN" -->
+      <DESCRIPTION>Declination (derived from SDSS) for Eq=J2000</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+<!--Fields from table J/ApJ/682/964/table5-->
+    <!-- Definitions of GROUPs and FIELDs -->
+
+<!-- +++No column could be found to attach a LINK in table: J/ApJ/682/964/table5 -->
+    <FIELD name="bSIE2" ucd="phys.angSize;src" datatype="float" width="5" precision="2" unit="arcsec"><!-- ucd="?" -->
+      <DESCRIPTION>SIE (singularisothermal elliposoid) Einstein radius, quoted for an intermediate-axis normalization</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="qSIE2" ucd="phys.size.axisRatio" datatype="float" width="5" precision="2"><!-- ucd="?" -->
+      <DESCRIPTION>Mass minor-to-major axis ratios of SIE models</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="PASIE2" ucd="pos.posAng" datatype="float" width="5" precision="1" unit="deg"><!-- ucd="?" -->
+      <DESCRIPTION>Position angle (of SIE major axis), measured in degrees east of north</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="LSIE/LdV2" ucd="phys.luminosity;arith.ratio" datatype="float" width="6" precision="3"><!-- ucd="?" -->
+      <DESCRIPTION>Luminosity enclosed within SIE Einstein radii (1)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="bLTM2" ucd="phys.angSize;src" datatype="float" width="5" precision="2" unit="arcsec"><!-- ucd="?" -->
+      <DESCRIPTION>LTM Einstein radius, quoted for an intermediate-axis normalization</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="gammaLTM2" ucd="stat.fit.param" datatype="float" width="5" precision="2"><!-- ucd="?" -->
+      <DESCRIPTION>External shear value for LTM models</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="PAgLTM2" ucd="pos.posAng" datatype="float" width="5" precision="1" unit="deg"><!-- ucd="?" -->
+      <DESCRIPTION>Position angle (of LTM external shear), measured in degrees east of north</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="LLTM/LdV2" ucd="phys.luminosity;arith.ratio" datatype="float" width="6" precision="3"><!-- ucd="?" -->
+      <DESCRIPTION>Luminosity enclosed within LTM Einstein radii (1)</DESCRIPTION>
+      <VALUES null="NaN" />
+    </FIELD>
+    <FIELD name="Nsrc2" ucd="meta.number" datatype="unsignedByte" width="1"><!-- ucd="?" -->
+      <DESCRIPTION>Number of source-plane components used to model background galaxy</DESCRIPTION>
+      <VALUES null="255" />
+    </FIELD>
+    <FIELD name="Ring?2" ucd="meta.code" datatype="char" arraysize="3"><!-- ucd="?" -->
+      <DESCRIPTION>[Yes/No ] Ring subset? (2)</DESCRIPTION>
+      <VALUES null=" " />
+    </FIELD>
+    <FIELD name="Good?2" ucd="meta.code" datatype="char" arraysize="3"><!-- ucd="?" -->
+      <DESCRIPTION>[Yes/No ] Good sigma_SDSS_ ? (3)</DESCRIPTION>
+      <VALUES null=" " />
+    </FIELD>
+<DATA><TABLEDATA>
+<TR><TD>000802.96-000408.2</TD><TD>669</TD><TD>52559</TD><TD>156</TD><TD>0.4400</TD><TD>1.1924</TD><TD>18.65</TD><TD>d</TD><TD>J0008-0004</TD><TD>86.7</TD><TD>1.71</TD><TD>0.83</TD><TD></TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>002.01233</TD><TD>-00.06894</TD><TD>1.16</TD><TD>0.70</TD><TD>35.2</TD><TD>0.393</TD><TD>1.14</TD><TD>0.09</TD><TD>37.6</TD><TD>0.387</TD><TD>3</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>002907.77-005550.5</TD><TD>391</TD><TD>51782</TD><TD>88</TD><TD>0.2270</TD><TD>0.9313</TD><TD>17.09</TD><TD>d</TD><TD>J0029-0055</TD><TD>76.3</TD><TD>2.16</TD><TD>0.84</TD><TD>229</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>007.28237</TD><TD>-00.93069</TD><TD>0.96</TD><TD>0.89</TD><TD>25.4</TD><TD>0.284</TD><TD>0.95</TD><TD>0.01</TD><TD>33.1</TD><TD>0.282</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>003753.21-094220.1</TD><TD>655</TD><TD>52162</TD><TD>392</TD><TD>0.1955</TD><TD>0.6322</TD><TD>16.26</TD><TD>s</TD><TD>J0037-0942</TD><TD>120.5</TD><TD>2.19</TD><TD>0.73</TD><TD>279</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>009.47171</TD><TD>-09.70558</TD><TD>1.53</TD><TD>0.84</TD><TD>15.9</TD><TD>0.404</TD><TD>1.52</TD><TD>0.01</TD><TD>67.1</TD><TD>0.401</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>004402.90+011312.6</TD><TD>393</TD><TD>51794</TD><TD>456</TD><TD>0.1196</TD><TD>0.1965</TD><TD>15.73</TD><TD>s</TD><TD>J0044+0113</TD><TD>68.8</TD><TD>2.61</TD><TD>0.76</TD><TD>266</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>011.01208</TD><TD>+01.22017</TD><TD>0.79</TD><TD>0.66</TD><TD>7.4</TD><TD>0.218</TD><TD>0.76</TD><TD>0.12</TD><TD>19.4</TD><TD>0.211</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>010933.73+150032.5</TD><TD>422</TD><TD>51811</TD><TD>508</TD><TD>0.2939</TD><TD>0.5248</TD><TD>17.75</TD><TD>s</TD><TD>J0109+1500</TD><TD>77.2</TD><TD>1.38</TD><TD>0.78</TD><TD>251</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>017.39054</TD><TD>+15.00903</TD><TD>0.69</TD><TD>0.55</TD><TD>99.8</TD><TD>0.321</TD><TD>0.68</TD><TD>0.07</TD><TD>83.8</TD><TD>0.317</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>015758.94-005626.1</TD><TD>700</TD><TD>52199</TD><TD>20</TD><TD>0.5132</TD><TD>0.9243</TD><TD>18.64</TD><TD>d</TD><TD>J0157-0056</TD><TD>117.3</TD><TD>1.06</TD><TD>0.69</TD><TD></TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>029.49558</TD><TD>-00.94058</TD><TD>0.79</TD><TD>0.72</TD><TD>102.6</TD><TD>0.401</TD><TD>0.67</TD><TD>0.24</TD><TD>103.1</TD><TD>0.362</TD><TD>3</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>021652.54-081345.3</TD><TD>668</TD><TD>52162</TD><TD>428</TD><TD>0.3317</TD><TD>0.5235</TD><TD>16.93</TD><TD>d</TD><TD>J0216-0813</TD><TD>206.4</TD><TD>2.67</TD><TD>0.79</TD><TD>333</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>034.21892</TD><TD>-08.22925</TD><TD>1.16</TD><TD>0.79</TD><TD>73.3</TD><TD>0.283</TD><TD>1.15</TD><TD>0.03</TD><TD>78.6</TD><TD>0.282</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>025245.21+003958.4</TD><TD>807</TD><TD>52295</TD><TD>614</TD><TD>0.2803</TD><TD>0.9818</TD><TD>18.04</TD><TD>d</TD><TD>J0252+0039</TD><TD>55.8</TD><TD>1.39</TD><TD>0.94</TD><TD>164</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>043.18837</TD><TD>+00.66622</TD><TD>1.04</TD><TD>0.93</TD><TD>106.2</TD><TD>0.441</TD><TD>1.03</TD><TD>0.01</TD><TD>99.2</TD><TD>0.439</TD><TD>3</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>033012.14-002051.9</TD><TD>810</TD><TD>52672</TD><TD>252</TD><TD>0.3507</TD><TD>1.0709</TD><TD>18.16</TD><TD>d</TD><TD>J0330-0020</TD><TD>82.3</TD><TD>1.20</TD><TD>0.77</TD><TD>212</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>052.55058</TD><TD>-00.34775</TD><TD>1.10</TD><TD>0.81</TD><TD>113.2</TD><TD>0.459</TD><TD>1.04</TD><TD>0.07</TD><TD>113.9</TD><TD>0.443</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>040535.41-045552.4</TD><TD>465</TD><TD>51910</TD><TD>406</TD><TD>0.0753</TD><TD>0.8098</TD><TD>16.45</TD><TD>s</TD><TD>J0405-0455</TD><TD>15.8</TD><TD>1.36</TD><TD>0.69</TD><TD>160</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>061.39754</TD><TD>-04.93122</TD><TD>0.80</TD><TD>0.72</TD><TD>21.0</TD><TD>0.355</TD><TD>0.79</TD><TD>0.05</TD><TD>23.5</TD><TD>0.354</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>072804.95+383525.7</TD><TD>1733</TD><TD>53047</TD><TD>154</TD><TD>0.2058</TD><TD>0.6877</TD><TD>16.74</TD><TD>d</TD><TD>J0728+3835</TD><TD>91.2</TD><TD>1.78</TD><TD>0.74</TD><TD>214</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>112.02062</TD><TD>+38.59047</TD><TD>1.25</TD><TD>0.85</TD><TD>67.6</TD><TD>0.392</TD><TD>1.25</TD><TD>0.01</TD><TD>170.6</TD><TD>0.393</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>073728.45+321618.6</TD><TD>541</TD><TD>51959</TD><TD>145</TD><TD>0.3223</TD><TD>0.5812</TD><TD>17.04</TD><TD>d</TD><TD>J0737+3216</TD><TD>177.8</TD><TD>2.82</TD><TD>0.85</TD><TD>338</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>114.36854</TD><TD>+32.27183</TD><TD>1.00</TD><TD>0.67</TD><TD>98.8</TD><TD>0.239</TD><TD>0.97</TD><TD>0.10</TD><TD>97.8</TD><TD>0.233</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>082242.32+265243.5</TD><TD>1267</TD><TD>52932</TD><TD>253</TD><TD>0.2414</TD><TD>0.5941</TD><TD>16.99</TD><TD>d</TD><TD>J0822+2652</TD><TD>95.4</TD><TD>1.82</TD><TD>0.74</TD><TD>259</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>125.67633</TD><TD>+26.87875</TD><TD>1.17</TD><TD>0.88</TD><TD>68.2</TD><TD>0.370</TD><TD>1.14</TD><TD>0.01</TD><TD>10.5</TD><TD>0.365</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>084128.81+382413.7</TD><TD>828</TD><TD>52317</TD><TD>12</TD><TD>0.1159</TD><TD>0.6567</TD><TD>15.34</TD><TD>d</TD><TD>J0841+3824</TD><TD>94.6</TD><TD>4.21</TD><TD>0.58</TD><TD>225</TD><TD>L</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>130.37004</TD><TD>+38.40381</TD><TD>1.41</TD><TD>0.79</TD><TD>91.4</TD><TD>0.242</TD><TD>1.36</TD><TD>0.05</TD><TD>10.2</TD><TD>0.236</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>090315.19+411609.1</TD><TD>1200</TD><TD>52668</TD><TD>398</TD><TD>0.4304</TD><TD>1.0645</TD><TD>17.95</TD><TD>d</TD><TD>J0903+4116</TD><TD>144.7</TD><TD>1.78</TD><TD>0.89</TD><TD></TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>135.81329</TD><TD>+41.26919</TD><TD>1.29</TD><TD>0.90</TD><TD>161.3</TD><TD>0.396</TD><TD>1.27</TD><TD>0.02</TD><TD>142.4</TD><TD>0.393</TD><TD>2</TD><TD>Yes</TD><TD>No</TD></TR>
+<TR><TD>091205.31+002901.2</TD><TD>472</TD><TD>51955</TD><TD>429</TD><TD>0.1642</TD><TD>0.3239</TD><TD>15.57</TD><TD>d</TD><TD>J0912+0029</TD><TD>156.4</TD><TD>3.87</TD><TD>0.67</TD><TD>326</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>138.02212</TD><TD>+00.48367</TD><TD>1.63</TD><TD>0.56</TD><TD>8.2</TD><TD>0.288</TD><TD>1.62</TD><TD>0.10</TD><TD>5.1</TD><TD>0.286</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>093543.93-000334.8</TD><TD>476</TD><TD>52314</TD><TD>177</TD><TD>0.3475</TD><TD>0.4670</TD><TD>16.75</TD><TD>s</TD><TD>J0935-0003</TD><TD>268.5</TD><TD>4.24</TD><TD>0.90</TD><TD>396</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>143.93304</TD><TD>-00.05967</TD><TD>0.87</TD><TD>0.69</TD><TD>22.2</TD><TD>0.160</TD><TD>0.81</TD><TD>0.13</TD><TD>27.0</TD><TD>0.152</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>093600.77+091335.8</TD><TD>1303</TD><TD>53050</TD><TD>78</TD><TD>0.1897</TD><TD>0.5880</TD><TD>16.52</TD><TD>d</TD><TD>J0936+0913</TD><TD>90.5</TD><TD>2.11</TD><TD>0.81</TD><TD>243</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>144.00321</TD><TD>+09.22661</TD><TD>1.09</TD><TD>0.89</TD><TD>160.1</TD><TD>0.315</TD><TD>1.09</TD><TD>0.02</TD><TD>16.7</TD><TD>0.315</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>094656.68+100652.8</TD><TD>1305</TD><TD>52757</TD><TD>503</TD><TD>0.2219</TD><TD>0.6085</TD><TD>17.09</TD><TD>d</TD><TD>J0946+1006</TD><TD>73.2</TD><TD>2.35</TD><TD>0.96</TD><TD>263</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>146.73617</TD><TD>+10.11467</TD><TD>1.38</TD><TD>0.81</TD><TD>159.2</TD><TD>0.355</TD><TD>1.39</TD><TD>0.08</TD><TD>157.9</TD><TD>0.357</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>095519.72+010144.4</TD><TD>268</TD><TD>51633</TD><TD>336</TD><TD>0.1109</TD><TD>0.3159</TD><TD>16.97</TD><TD>s</TD><TD>J0955+0101</TD><TD>18.9</TD><TD>1.09</TD><TD>0.39</TD><TD>192</TD><TD>L</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>148.83217</TD><TD>+01.02900</TD><TD>0.91</TD><TD>0.82</TD><TD>62.5</TD><TD>0.458</TD><TD>1.03</TD><TD>0.27</TD><TD>27.6</TD><TD>0.499</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>095629.78+510006.6</TD><TD>902</TD><TD>52409</TD><TD>68</TD><TD>0.2405</TD><TD>0.4699</TD><TD>16.68</TD><TD>d</TD><TD>J0956+5100</TD><TD>122.7</TD><TD>2.19</TD><TD>0.73</TD><TD>334</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>149.12408</TD><TD>+51.00183</TD><TD>1.33</TD><TD>0.63</TD><TD>146.2</TD><TD>0.356</TD><TD>1.30</TD><TD>0.11</TD><TD>144.2</TD><TD>0.351</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>095900.96+441639.4</TD><TD>942</TD><TD>52703</TD><TD>499</TD><TD>0.2369</TD><TD>0.5315</TD><TD>16.90</TD><TD>d</TD><TD>J0959+4416</TD><TD>97.6</TD><TD>1.98</TD><TD>0.87</TD><TD>244</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>149.75400</TD><TD>+44.27761</TD><TD>0.96</TD><TD>0.92</TD><TD>57.4</TD><TD>0.310</TD><TD>0.96</TD><TD>0.00</TD><TD>35.0</TD><TD>0.310</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>095944.07+041017.0</TD><TD>572</TD><TD>52289</TD><TD>495</TD><TD>0.1260</TD><TD>0.5350</TD><TD>16.92</TD><TD>d</TD><TD>J0959+0410</TD><TD>25.9</TD><TD>1.39</TD><TD>0.60</TD><TD>197</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>149.93362</TD><TD>+04.17139</TD><TD>0.99</TD><TD>0.86</TD><TD>66.9</TD><TD>0.397</TD><TD>1.01</TD><TD>0.07</TD><TD>142.1</TD><TD>0.402</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>101622.86+385903.3</TD><TD>1427</TD><TD>52996</TD><TD>461</TD><TD>0.1679</TD><TD>0.4394</TD><TD>16.71</TD><TD>d</TD><TD>J1016+3859</TD><TD>56.7</TD><TD>1.46</TD><TD>0.85</TD><TD>247</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>154.09525</TD><TD>+38.98425</TD><TD>1.09</TD><TD>0.78</TD><TD>46.4</TD><TD>0.414</TD><TD>1.06</TD><TD>0.08</TD><TD>38.9</TD><TD>0.406</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>102026.54+112241.1</TD><TD>1598</TD><TD>53033</TD><TD>353</TD><TD>0.2822</TD><TD>0.5530</TD><TD>17.21</TD><TD>d</TD><TD>J1020+1122</TD><TD>110.5</TD><TD>1.59</TD><TD>0.79</TD><TD>282</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>155.11058</TD><TD>+11.37808</TD><TD>1.20</TD><TD>0.80</TD><TD>135.8</TD><TD>0.413</TD><TD>1.21</TD><TD>0.10</TD><TD>152.6</TD><TD>0.416</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>102332.26+423001.8</TD><TD>1359</TD><TD>53002</TD><TD>418</TD><TD>0.1912</TD><TD>0.6960</TD><TD>16.77</TD><TD>d</TD><TD>J1023+4230</TD><TD>70.1</TD><TD>1.77</TD><TD>0.85</TD><TD>242</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>155.88442</TD><TD>+42.50050</TD><TD>1.41</TD><TD>0.87</TD><TD>170.4</TD><TD>0.435</TD><TD>1.40</TD><TD>0.03</TD><TD>168.8</TD><TD>0.433</TD><TD>3</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>102922.94+042001.8</TD><TD>576</TD><TD>52325</TD><TD>433</TD><TD>0.1045</TD><TD>0.6154</TD><TD>16.13</TD><TD>d</TD><TD>J1029+0420</TD><TD>36.7</TD><TD>1.56</TD><TD>0.52</TD><TD>210</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>157.34558</TD><TD>+04.33383</TD><TD>1.01</TD><TD>0.84</TD><TD>93.9</TD><TD>0.378</TD><TD>1.10</TD><TD>0.17</TD><TD>48.0</TD><TD>0.401</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>103235.84+532234.9</TD><TD>905</TD><TD>52643</TD><TD>100</TD><TD>0.1334</TD><TD>0.3290</TD><TD>17.05</TD><TD>d</TD><TD>J1032+5322</TD><TD>25.5</TD><TD>0.81</TD><TD>0.44</TD><TD>296</TD><TD>L</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>158.14933</TD><TD>+53.37636</TD><TD>1.03</TD><TD>0.76</TD><TD>139.7</TD><TD>0.582</TD><TD>1.12</TD><TD>0.08</TD><TD>46.2</TD><TD>0.606</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>110024.39+532913.9</TD><TD>1011</TD><TD>52652</TD><TD>175</TD><TD>0.3171</TD><TD>0.8581</TD><TD>17.18</TD><TD>s</TD><TD>J1100+5329</TD><TD>143.6</TD><TD>2.24</TD><TD>0.58</TD><TD></TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>165.10162</TD><TD>+53.48719</TD><TD>1.52</TD><TD>0.53</TD><TD>105.3</TD><TD>0.384</TD><TD>1.43</TD><TD>0.19</TD><TD>113.4</TD><TD>0.369</TD><TD>2</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>110308.21+532228.2</TD><TD>1011</TD><TD>52652</TD><TD>156</TD><TD>0.1582</TD><TD>0.7353</TD><TD>16.43</TD><TD>d</TD><TD>J1103+5322</TD><TD>63.7</TD><TD>1.95</TD><TD>0.46</TD><TD>196</TD><TD>U</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>165.78421</TD><TD>+53.37450</TD><TD>1.02</TD><TD>0.52</TD><TD>51.7</TD><TD>0.342</TD><TD>1.04</TD><TD>0.05</TD><TD>71.9</TD><TD>0.348</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>110646.15+522837.8</TD><TD>1011</TD><TD>52652</TD><TD>7</TD><TD>0.0955</TD><TD>0.4069</TD><TD>15.52</TD><TD>s</TD><TD>J1106+5228</TD><TD>51.4</TD><TD>1.68</TD><TD>0.63</TD><TD>262</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>166.69229</TD><TD>+52.47717</TD><TD>1.23</TD><TD>0.76</TD><TD>56.3</TD><TD>0.407</TD><TD>1.23</TD><TD>0.02</TD><TD>52.3</TD><TD>0.406</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>111250.60+082610.4</TD><TD>1221</TD><TD>52751</TD><TD>28</TD><TD>0.2730</TD><TD>0.6295</TD><TD>17.22</TD><TD>s</TD><TD>J1112+0826</TD><TD>101.9</TD><TD>1.50</TD><TD>0.77</TD><TD>320</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>168.21083</TD><TD>+08.43622</TD><TD>1.49</TD><TD>0.75</TD><TD>146.5</TD><TD>0.503</TD><TD>1.37</TD><TD>0.03</TD><TD>166.7</TD><TD>0.482</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>113405.89+602713.5</TD><TD>952</TD><TD>52409</TD><TD>524</TD><TD>0.1528</TD><TD>0.4742</TD><TD>16.44</TD><TD>s</TD><TD>J1134+6027</TD><TD>59.1</TD><TD>2.02</TD><TD>0.83</TD><TD>239</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>173.52454</TD><TD>+60.45375</TD><TD>1.10</TD><TD>0.77</TD><TD>102.1</TD><TD>0.343</TD><TD>0.88</TD><TD>0.23</TD><TD>90.2</TD><TD>0.298</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>114257.35+100111.8</TD><TD>1226</TD><TD>52734</TD><TD>306</TD><TD>0.2218</TD><TD>0.5039</TD><TD>17.10</TD><TD>d</TD><TD>J1142+1001</TD><TD>75.8</TD><TD>1.91</TD><TD>0.89</TD><TD>221</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>175.73896</TD><TD>+10.01994</TD><TD>0.98</TD><TD>0.83</TD><TD>99.5</TD><TD>0.320</TD><TD>0.92</TD><TD>0.06</TD><TD>89.8</TD><TD>0.307</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>114329.64-014430.0</TD><TD>328</TD><TD>52282</TD><TD>535</TD><TD>0.1060</TD><TD>0.4019</TD><TD>14.96</TD><TD>d</TD><TD>J1143-0144</TD><TD>108.5</TD><TD>4.80</TD><TD>0.80</TD><TD>269</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>175.87350</TD><TD>-01.74167</TD><TD>1.68</TD><TD>0.75</TD><TD>120.1</TD><TD>0.267</TD><TD>1.66</TD><TD>0.04</TD><TD>119.4</TD><TD>0.265</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>115310.79+461205.3</TD><TD>1446</TD><TD>53080</TD><TD>211</TD><TD>0.1797</TD><TD>0.8751</TD><TD>17.20</TD><TD>d</TD><TD>J1153+4612</TD><TD>41.9</TD><TD>1.16</TD><TD>0.90</TD><TD>226</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>178.29496</TD><TD>+46.20147</TD><TD>1.05</TD><TD>0.77</TD><TD>21.6</TD><TD>0.460</TD><TD>1.05</TD><TD>0.09</TD><TD>31.1</TD><TD>0.462</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>120444.07+035806.4</TD><TD>842</TD><TD>52376</TD><TD>208</TD><TD>0.1644</TD><TD>0.6307</TD><TD>16.84</TD><TD>s</TD><TD>J1204+0358</TD><TD>48.1</TD><TD>1.47</TD><TD>0.97</TD><TD>267</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>181.18362</TD><TD>+03.96844</TD><TD>1.31</TD><TD>0.84</TD><TD>65.4</TD><TD>0.455</TD><TD>1.27</TD><TD>0.08</TD><TD>64.6</TD><TD>0.446</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>120540.44+491029.4</TD><TD>969</TD><TD>52442</TD><TD>134</TD><TD>0.2150</TD><TD>0.4808</TD><TD>16.56</TD><TD>d</TD><TD>J1205+4910</TD><TD>110.4</TD><TD>2.59</TD><TD>0.72</TD><TD>281</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>181.41850</TD><TD>+49.17483</TD><TD>1.22</TD><TD>0.70</TD><TD>156.6</TD><TD>0.302</TD><TD>1.20</TD><TD>0.06</TD><TD>158.3</TD><TD>0.299</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>121340.58+670829.0</TD><TD>493</TD><TD>51957</TD><TD>145</TD><TD>0.1229</TD><TD>0.6402</TD><TD>15.60</TD><TD>d</TD><TD>J1213+6708</TD><TD>81.1</TD><TD>3.23</TD><TD>0.77</TD><TD>292</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>183.41908</TD><TD>+67.14139</TD><TD>1.42</TD><TD>0.83</TD><TD>14.5</TD><TD>0.297</TD><TD>1.38</TD><TD>0.02</TD><TD>164.6</TD><TD>0.292</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>121826.70+083050.3</TD><TD>1625</TD><TD>53140</TD><TD>415</TD><TD>0.1350</TD><TD>0.7172</TD><TD>15.74</TD><TD>d</TD><TD>J1218+0830</TD><TD>87.2</TD><TD>3.18</TD><TD>0.72</TD><TD>219</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>184.61125</TD><TD>+08.51397</TD><TD>1.45</TD><TD>0.75</TD><TD>51.5</TD><TD>0.300</TD><TD>1.44</TD><TD>0.03</TD><TD>54.9</TD><TD>0.299</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>125028.26+052349.1</TD><TD>847</TD><TD>52426</TD><TD>549</TD><TD>0.2318</TD><TD>0.7953</TD><TD>16.70</TD><TD>d</TD><TD>J1250+0523</TD><TD>115.4</TD><TD>1.81</TD><TD>0.97</TD><TD>252</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>192.61775</TD><TD>+05.39697</TD><TD>1.13</TD><TD>0.96</TD><TD>130.8</TD><TD>0.366</TD><TD>1.11</TD><TD>0.01</TD><TD>140.5</TD><TD>0.362</TD><TD>5</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>125135.71-020805.2</TD><TD>337</TD><TD>51997</TD><TD>480</TD><TD>0.2243</TD><TD>0.7843</TD><TD>17.25</TD><TD>s</TD><TD>J1251-0208</TD><TD>63.8</TD><TD>2.61</TD><TD>0.51</TD><TD></TD><TD>L</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>192.89879</TD><TD>-02.13478</TD><TD>0.84</TD><TD>0.67</TD><TD>33.9</TD><TD>0.218</TD><TD>0.85</TD><TD>0.07</TD><TD>156.5</TD><TD>0.221</TD><TD>2</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>140228.21+632133.5</TD><TD>605</TD><TD>52353</TD><TD>503</TD><TD>0.2046</TD><TD>0.4814</TD><TD>16.33</TD><TD>d</TD><TD>J1402+6321</TD><TD>122.1</TD><TD>2.70</TD><TD>0.77</TD><TD>267</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>210.61754</TD><TD>+63.35931</TD><TD>1.35</TD><TD>0.83</TD><TD>64.4</TD><TD>0.316</TD><TD>1.36</TD><TD>0.02</TD><TD>34.4</TD><TD>0.317</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>140329.49+000641.4</TD><TD>302</TD><TD>51688</TD><TD>354</TD><TD>0.1888</TD><TD>0.4730</TD><TD>17.11</TD><TD>s</TD><TD>J1403+0006</TD><TD>52.8</TD><TD>1.46</TD><TD>0.81</TD><TD>213</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>210.87287</TD><TD>+00.11150</TD><TD>0.83</TD><TD>0.81</TD><TD>140.8</TD><TD>0.354</TD><TD>0.83</TD><TD>0.05</TD><TD>169.4</TD><TD>0.354</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>141622.34+513630.4</TD><TD>1045</TD><TD>52725</TD><TD>464</TD><TD>0.2987</TD><TD>0.8111</TD><TD>17.57</TD><TD>d</TD><TD>J1416+5136</TD><TD>87.5</TD><TD>1.43</TD><TD>0.76</TD><TD>240</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>214.09308</TD><TD>+51.60844</TD><TD>1.37</TD><TD>0.94</TD><TD>71.4</TD><TD>0.483</TD><TD>1.36</TD><TD>0.04</TD><TD>96.7</TD><TD>0.482</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>142015.85+601914.8</TD><TD>788</TD><TD>52338</TD><TD>605</TD><TD>0.0629</TD><TD>0.5351</TD><TD>15.08</TD><TD>d</TD><TD>J1420+6019</TD><TD>32.8</TD><TD>2.06</TD><TD>0.57</TD><TD>205</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>215.06604</TD><TD>+60.32078</TD><TD>1.04</TD><TD>0.67</TD><TD>111.3</TD><TD>0.329</TD><TD>1.07</TD><TD>0.01</TD><TD>108.7</TD><TD>0.335</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>143004.10+410557.1</TD><TD>1349</TD><TD>52797</TD><TD>406</TD><TD>0.2850</TD><TD>0.5753</TD><TD>16.87</TD><TD>d</TD><TD>J1430+4105</TD><TD>149.4</TD><TD>2.55</TD><TD>0.79</TD><TD>322</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>217.51708</TD><TD>+41.09919</TD><TD>1.52</TD><TD>0.68</TD><TD>111.7</TD><TD>0.355</TD><TD>1.46</TD><TD>0.10</TD><TD>110.3</TD><TD>0.344</TD><TD>6</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>143213.34+631703.8</TD><TD>499</TD><TD>51988</TD><TD>5</TD><TD>0.1230</TD><TD>0.6643</TD><TD>15.16</TD><TD>d</TD><TD>J1432+6317</TD><TD>122.5</TD><TD>5.85</TD><TD>0.96</TD><TD>199</TD><TD>L</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>218.05558</TD><TD>+63.28439</TD><TD>1.26</TD><TD>0.96</TD><TD>130.4</TD><TD>0.153</TD><TD>1.25</TD><TD>0.01</TD><TD>152.0</TD><TD>0.151</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>143627.54-000029.2</TD><TD>306</TD><TD>51637</TD><TD>35</TD><TD>0.2852</TD><TD>0.8049</TD><TD>17.24</TD><TD>s</TD><TD>J1436-0000</TD><TD>112.2</TD><TD>2.24</TD><TD>0.75</TD><TD>224</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>219.11475</TD><TD>-00.00811</TD><TD>1.12</TD><TD>0.72</TD><TD>156.2</TD><TD>0.315</TD><TD>1.08</TD><TD>0.07</TD><TD>162.6</TD><TD>0.308</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>144319.62+030408.2</TD><TD>587</TD><TD>52026</TD><TD>205</TD><TD>0.1338</TD><TD>0.4187</TD><TD>17.06</TD><TD>s</TD><TD>J1443+0304</TD><TD>26.1</TD><TD>0.94</TD><TD>0.62</TD><TD>209</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>220.83175</TD><TD>+03.06894</TD><TD>0.81</TD><TD>0.73</TD><TD>78.1</TD><TD>0.438</TD><TD>0.78</TD><TD>0.08</TD><TD>97.9</TD><TD>0.427</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>145128.19-023936.4</TD><TD>921</TD><TD>52380</TD><TD>293</TD><TD>0.1254</TD><TD>0.5203</TD><TD>16.09</TD><TD>d</TD><TD>J1451-0239</TD><TD>61.0</TD><TD>2.48</TD><TD>0.98</TD><TD>223</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>222.86746</TD><TD>-02.66011</TD><TD>1.04</TD><TD>0.97</TD><TD>106.3</TD><TD>0.277</TD><TD>1.03</TD><TD>0.02</TD><TD>113.8</TD><TD>0.274</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>152506.70+332747.4</TD><TD>1387</TD><TD>53118</TD><TD>532</TD><TD>0.3583</TD><TD>0.7173</TD><TD>17.11</TD><TD>d</TD><TD>J1525+3327</TD><TD>204.0</TD><TD>2.90</TD><TD>0.61</TD><TD>264</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>231.27792</TD><TD>+33.46317</TD><TD>1.31</TD><TD>0.51</TD><TD>134.3</TD><TD>0.292</TD><TD>1.30</TD><TD>0.11</TD><TD>132.5</TD><TD>0.291</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>153150.07-010545.7</TD><TD>314</TD><TD>51641</TD><TD>124</TD><TD>0.1596</TD><TD>0.7439</TD><TD>16.08</TD><TD>s</TD><TD>J1531-0105</TD><TD>112.6</TD><TD>2.50</TD><TD>0.68</TD><TD>279</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>232.95862</TD><TD>-01.09603</TD><TD>1.71</TD><TD>0.77</TD><TD>142.9</TD><TD>0.393</TD><TD>1.71</TD><TD>0.03</TD><TD>139.4</TD><TD>0.393</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>153812.92+581709.8</TD><TD>615</TD><TD>52347</TD><TD>594</TD><TD>0.1428</TD><TD>0.5312</TD><TD>16.66</TD><TD>s</TD><TD>J1538+5817</TD><TD>42.0</TD><TD>1.58</TD><TD>0.82</TD><TD>189</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>234.55383</TD><TD>+58.28606</TD><TD>1.00</TD><TD>0.89</TD><TD>152.1</TD><TD>0.365</TD><TD>0.99</TD><TD>0.01</TD><TD>146.6</TD><TD>0.363</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>162132.99+393144.6</TD><TD>1172</TD><TD>52759</TD><TD>318</TD><TD>0.2449</TD><TD>0.6021</TD><TD>16.81</TD><TD>s</TD><TD>J1621+3931</TD><TD>113.2</TD><TD>2.14</TD><TD>0.73</TD><TD>236</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>245.38746</TD><TD>+39.52906</TD><TD>1.29</TD><TD>0.77</TD><TD>148.7</TD><TD>0.358</TD><TD>1.29</TD><TD>0.03</TD><TD>161.9</TD><TD>0.358</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>162746.45-005357.6</TD><TD>364</TD><TD>52000</TD><TD>84</TD><TD>0.2076</TD><TD>0.5241</TD><TD>16.91</TD><TD>d</TD><TD>J1627-0053</TD><TD>85.1</TD><TD>1.98</TD><TD>0.85</TD><TD>290</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>246.94354</TD><TD>-00.89933</TD><TD>1.23</TD><TD>0.91</TD><TD>10.5</TD><TD>0.360</TD><TD>1.22</TD><TD>0.00</TD><TD>60.6</TD><TD>0.359</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>163028.16+452036.3</TD><TD>626</TD><TD>52057</TD><TD>518</TD><TD>0.2479</TD><TD>0.7933</TD><TD>16.79</TD><TD>d</TD><TD>J1630+4520</TD><TD>118.4</TD><TD>1.96</TD><TD>0.84</TD><TD>276</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>247.61733</TD><TD>+45.34342</TD><TD>1.78</TD><TD>0.87</TD><TD>74.9</TD><TD>0.475</TD><TD>1.78</TD><TD>0.02</TD><TD>84.1</TD><TD>0.475</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>163602.62+470729.6</TD><TD>627</TD><TD>52144</TD><TD>464</TD><TD>0.2282</TD><TD>0.6745</TD><TD>17.03</TD><TD>s</TD><TD>J1636+4707</TD><TD>81.5</TD><TD>1.68</TD><TD>0.78</TD><TD>231</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>249.01092</TD><TD>+47.12489</TD><TD>1.09</TD><TD>0.79</TD><TD>98.2</TD><TD>0.380</TD><TD>1.08</TD><TD>0.04</TD><TD>91.9</TD><TD>0.380</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>223840.20-075456.0</TD><TD>722</TD><TD>52224</TD><TD>442</TD><TD>0.1371</TD><TD>0.7126</TD><TD>16.20</TD><TD>d</TD><TD>J2238-0754</TD><TD>61.2</TD><TD>2.33</TD><TD>0.74</TD><TD>198</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>339.66750</TD><TD>-07.91556</TD><TD>1.27</TD><TD>0.85</TD><TD>137.4</TD><TD>0.335</TD><TD>1.28</TD><TD>0.00</TD><TD>72.2</TD><TD>0.335</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>230053.15+002238.0</TD><TD>677</TD><TD>52606</TD><TD>520</TD><TD>0.2285</TD><TD>0.4635</TD><TD>17.07</TD><TD>d</TD><TD>J2300+0022</TD><TD>83.1</TD><TD>1.83</TD><TD>0.80</TD><TD>279</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>345.22146</TD><TD>+00.37722</TD><TD>1.24</TD><TD>0.71</TD><TD>87.8</TD><TD>0.391</TD><TD>1.21</TD><TD>0.08</TD><TD>90.0</TD><TD>0.386</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>230321.72+142217.9</TD><TD>743</TD><TD>52262</TD><TD>304</TD><TD>0.1553</TD><TD>0.5170</TD><TD>16.10</TD><TD>d</TD><TD>J2303+1422</TD><TD>112.9</TD><TD>3.28</TD><TD>0.64</TD><TD>255</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>345.84050</TD><TD>+14.37164</TD><TD>1.62</TD><TD>0.61</TD><TD>35.3</TD><TD>0.318</TD><TD>1.60</TD><TD>0.07</TD><TD>33.8</TD><TD>0.316</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>232120.93-093910.3</TD><TD>645</TD><TD>52203</TD><TD>517</TD><TD>0.0819</TD><TD>0.5324</TD><TD>14.66</TD><TD>s</TD><TD>J2321-0939</TD><TD>84.6</TD><TD>4.11</TD><TD>0.78</TD><TD>249</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>350.33721</TD><TD>-09.65286</TD><TD>1.60</TD><TD>0.86</TD><TD>135.2</TD><TD>0.258</TD><TD>1.60</TD><TD>0.01</TD><TD>172.6</TD><TD>0.258</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>234111.57+000018.7</TD><TD>682</TD><TD>52525</TD><TD>594</TD><TD>0.1860</TD><TD>0.8070</TD><TD>16.36</TD><TD>d</TD><TD>J2341+0000</TD><TD>98.7</TD><TD>3.15</TD><TD>0.59</TD><TD>207</TD><TD>E</TD><TD>S</TD><TD>A</TD><TD></TD><TD>Sloan</TD><TD>355.29821</TD><TD>+00.00519</TD><TD>1.44</TD><TD>0.76</TD><TD>96.6</TD><TD>0.295</TD><TD>1.47</TD><TD>0.07</TD><TD>143.3</TD><TD>0.299</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+</TABLEDATA></DATA>
+</TABLE>
+</RESOURCE>
+<INFO name="matches" value="63">matching records</INFO>
+
+<INFO name="Warning" value="METAtime not set"/>
+<INFO name="Warning" value="No center provided++++"/>
+<INFO name="Error" value="unkonwn type for moc option"/>
+<INFO name="QUERY_STATUS" value="ERROR">
+unkonwn type for moc option
+</INFO>
+</VOTABLE>

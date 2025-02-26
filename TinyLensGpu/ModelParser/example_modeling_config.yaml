@@ -1,0 +1,163 @@
+dataset:
+  data_path: "data/data.fits"
+  noise_path: "data/noise.fits"
+  psf_path: "data/psf.fits"
+  pixel_scale: 0.05
+
+model_components:
+  lens_mass_list:
+    - type: "SIE"
+      params:
+        theta_E: 
+          prior_type: "uniform"
+          prior_settings: [0.0, 3.0]
+          limits: [0.0, 10.0]
+          fixed: false
+        e1:   
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        e2: 
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        center_x: 
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.1]
+          limits: [-1.0, 1.0]
+          fixed: true
+          fixed_value: 0.0
+        center_y: 
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.1]
+          limits: [-1.0, 1.0]
+          fixed: true
+          fixed_value: 0.0
+    - type: "SHEAR"
+      params:
+        gamma1:
+          prior_type: "uniform"
+          prior_settings: [-0.2, 0.2]
+          limits: [-0.5, 0.5]
+          fixed: false
+        gamma2:
+          prior_type: "uniform"
+          prior_settings: [-0.2, 0.2]
+          limits: [-0.5, 0.5]
+          fixed: false
+  source_light_list:
+    - type: "Sersic"
+      params:
+        R_sersic: 
+          prior_type: "uniform"
+          prior_settings: [0.0, 10.0]
+          limits: [0.0, 10.0]
+          fixed: false
+        n_sersic:
+          prior_type: "uniform"
+          prior_settings: [0.3, 6.0]
+          limits: [0.3, 6.0]
+          fixed: false
+        Ie:
+          prior_type: "log_uniform"
+          prior_settings: [1e-5, 1e5]
+          limits: [0.0, 1e5]
+          fixed: false
+        e1:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false  
+        e2:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        center_x:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: false
+        center_y:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: false
+    - type: "Gaussian"
+      params:
+        amp:
+          prior_type: "log_uniform"
+          prior_settings: [1e-5, 1e5]
+          limits: [0.0, 1e5]
+          fixed: false
+        sigma:
+          prior_type: "uniform"
+          prior_settings: [0.0, 3.0]
+          limits: [0.0, 3.0]
+          fixed: false
+        center_x:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: true
+          fixed_value: 
+            component_type: "source_light_list"
+            component_idx: 0
+            parameter: "center_x"
+        center_y:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: true
+          fixed_value: 
+            component_type: "source_light_list"
+            component_idx: 0
+            parameter: "center_y"
+  lens_light_list:
+    - type: "Sersic"
+      params:
+        R_sersic: 
+          prior_type: "uniform"
+          prior_settings: [0.0, 10.0]
+          limits: [0.0, 10.0]
+          fixed: false  
+        n_sersic:
+          prior_type: "uniform"
+          prior_settings: [0.3, 6.0]
+          limits: [0.3, 6.0]
+          fixed: false
+        e1:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        e2:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        center_x:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: true
+          fixed_value:
+            component_type: "lens_mass_list"
+            component_idx: 0
+            parameter: "center_x"
+        center_y:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: true
+          fixed_value:
+            component_type: "lens_mass_list"
+            component_idx: 0
+            parameter: "center_y"
+        Ie:
+          prior_type: "log_uniform"
+          prior_settings: [1e-5, 1e5]
+          limits: [0.0, 1e5]
+          fixed: false

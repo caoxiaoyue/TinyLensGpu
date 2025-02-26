@@ -1,0 +1,101 @@
+dataset:
+  data_path: "data/image.fits"
+  noise_path: "data/noise.fits"
+  psf_path: "data/psf.fits"
+  pixel_scale: 0.074
+
+model_components:
+  lens_mass_list:
+    - type: "SIE"
+      params:
+        theta_E:
+          prior_type: "uniform"
+          prior_settings: [0.001, 3.001]
+          limits: [0.0, 10.0]
+          fixed: false
+        e1:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        e2:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        center_x:
+          fixed: true
+          fixed_value: 0.0
+        center_y:
+          fixed: true
+          fixed_value: 0.0
+    - type: "SHEAR"
+      params:
+        gamma1:
+          prior_type: "uniform"
+          prior_settings: [-0.2, 0.2]
+          limits: [-0.5, 0.5]
+          fixed: false
+        gamma2:
+          prior_type: "uniform"
+          prior_settings: [-0.2, 0.2]
+          limits: [-0.5, 0.5]
+          fixed: false
+
+  source_light_list:
+    - type: "Sersic"
+      params:
+        R_sersic:
+          prior_type: "uniform"
+          prior_settings: [0.001, 2.001]
+          limits: [0.0, 5.0]
+          fixed: false
+        n_sersic:
+          prior_type: "uniform"
+          prior_settings: [0.3, 2.3]
+          limits: [0.3, 6.0]
+          fixed: false
+        e1:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        e2:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.3]
+          limits: [-1.0, 1.0]
+          fixed: false
+        center_x:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: false
+        center_y:
+          prior_type: "gaussian"
+          prior_settings: [0.0, 0.5]
+          limits: [-3.0, 3.0]
+          fixed: false
+        Ie:
+          use_linear: true
+
+  lens_light_list: []
+
+inference:
+  type: "sampler"
+  method: "nautilus"
+  settings:
+    nlive: 200
+    batch_size: 200
+
+solver_type: "nnls" #or "normal"
+
+output:
+  path: "output"
+  figures:
+    results: "model_results.png"
+    corner: "model_corner.png"
+  tables:
+    samples: "result_samples.csv"
+    summary: "result_summary.csv" #save the median, 16th and 84th percentiles, the evidence, and the log-likelihood values
+  datasets:
+    subplot: "dataset_subplot.png"

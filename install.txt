@@ -1,0 +1,6 @@
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install jaxns
+pip install tensorflow_probability
+pip install etils
+pip install numba
+sudo ln -s /opt/cuda /usr/local/cuda-12.2 #12.2 is the cuda version, see https://github.com/google/jax/issues/6039 

@@ -1,0 +1,272 @@
+dataset:
+  data_path: dataset/J0029-0055/image.fits
+  noise_path: dataset/J0029-0055/noise.fits
+  pixel_scale: 0.05
+  psf_path: dataset/J0029-0055/psf.fits
+inference:
+  method: nautilus
+  settings:
+    batch_size: 100
+    nlive: 200
+    verbose: true
+  type: sampler
+model_components:
+  lens_light_list:
+  - params:
+      Ie:
+        use_linear: true
+      R_sersic:
+        fixed: false
+        limits:
+        - 0.0
+        - 10.0
+        prior_settings:
+        - 0.01
+        - 10.0
+        prior_type: uniform
+      center_x:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_mass_list
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_mass_list
+          parameter: center_y
+      e1:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      e2:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      n_sersic:
+        fixed: true
+        fixed_value: 4.0
+    type: Sersic
+  - params:
+      Ie:
+        use_linear: true
+      R_sersic:
+        fixed: false
+        limits:
+        - 0.0
+        - 10.0
+        prior_settings:
+        - 0.01
+        - 10.0
+        prior_type: uniform
+      center_x:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_mass_list
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_mass_list
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_light_list
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: lens_light_list
+          parameter: e2
+      n_sersic:
+        fixed: true
+        fixed_value: 1.0
+    type: Sersic
+  lens_mass_list:
+  - params:
+      center_x:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.1
+        prior_type: gaussian
+      center_y:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.1
+        prior_type: gaussian
+      e1:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      e2:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      theta_E:
+        fixed: false
+        limits:
+        - 0.0
+        - 10.0
+        prior_settings:
+        - 0.3
+        - 3.5
+        prior_type: uniform
+    type: SIE
+  - params:
+      gamma1:
+        fixed: false
+        limits:
+        - -0.5
+        - 0.5
+        prior_settings:
+        - -0.2
+        - 0.2
+        prior_type: uniform
+      gamma2:
+        fixed: false
+        limits:
+        - -0.5
+        - 0.5
+        prior_settings:
+        - -0.2
+        - 0.2
+        prior_type: uniform
+    type: SHEAR
+  source_light_list:
+  - params:
+      Ie:
+        use_linear: true
+      R_sersic:
+        fixed: false
+        limits:
+        - 0.0
+        - 10.0
+        prior_settings:
+        - 0.001
+        - 10.0
+        prior_type: uniform
+      center_x:
+        fixed: false
+        limits:
+        - -3.5
+        - 3.5
+        prior_settings:
+        - 0.0
+        - 0.5
+        prior_type: gaussian
+      center_y:
+        fixed: false
+        limits:
+        - -3.5
+        - 3.5
+        prior_settings:
+        - 0.0
+        - 0.5
+        prior_type: gaussian
+      e1:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      e2:
+        fixed: false
+        limits:
+        - -1.0
+        - 1.0
+        prior_settings:
+        - 0.0
+        - 0.3
+        prior_type: gaussian
+      n_sersic:
+        fixed: true
+        fixed_value: 4.0
+    type: Sersic
+  - params:
+      Ie:
+        use_linear: true
+      R_sersic:
+        fixed: false
+        limits:
+        - 0.0
+        - 10.0
+        prior_settings:
+        - 0.001
+        - 10.0
+        prior_type: uniform
+      center_x:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: source_light_list
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: source_light_list
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: source_light_list
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_idx: 0
+          component_type: source_light_list
+          parameter: e2
+      n_sersic:
+        fixed: true
+        fixed_value: 1.0
+    type: Sersic
+output:
+  datasets:
+    subplot: dataset_subplot.png
+  figures:
+    corner: model_corner.png
+    results: model_results.png
+  path: results/J0029-0055
+  tables:
+    samples: result_samples.csv
+    summary: result_summary.csv
+solver_type: nnls

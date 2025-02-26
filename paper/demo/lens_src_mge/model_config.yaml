@@ -1,0 +1,725 @@
+dataset:
+  data_path: data/image.fits
+  noise_path: data/noise.fits
+  psf_path: data/psf.fits
+  pixel_scale: 0.074
+model_components:
+  lens_mass_list:
+  - type: SIE
+    params:
+      theta_E:
+        prior_type: uniform
+        prior_settings:
+        - 0.001
+        - 3.001
+        limits:
+        - 0.0
+        - 10.0
+        fixed: false
+      e1:
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+        fixed: false
+      e2:
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+        fixed: false
+      center_x:
+        fixed: true
+        fixed_value: 0.0
+      center_y:
+        fixed: true
+        fixed_value: 0.0
+  - type: SHEAR
+    params:
+      gamma1:
+        prior_type: uniform
+        prior_settings:
+        - -0.2
+        - 0.2
+        limits:
+        - -0.5
+        - 0.5
+        fixed: false
+      gamma2:
+        prior_type: uniform
+        prior_settings:
+        - -0.2
+        - 0.2
+        limits:
+        - -0.5
+        - 0.5
+        fixed: false
+  source_light_list:
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.01
+      center_x:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.5
+        limits:
+        - -3.0
+        - 3.0
+      center_y:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.5
+        limits:
+        - -3.0
+        - 3.0
+      e1:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+      e2:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.016681005372000592
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.027825594022071243
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.046415888336127774
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.0774263682681127
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.1291549665014884
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.21544346900318834
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.3593813663804626
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.5994842503189409
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 1.0
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: source_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  lens_light_list:
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.01
+      center_x:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.1
+        limits:
+        - -3.0
+        - 3.0
+      center_y:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.1
+        limits:
+        - -3.0
+        - 3.0
+      e1:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+      e2:
+        fixed: false
+        prior_type: gaussian
+        prior_settings:
+        - 0.0
+        - 0.3
+        limits:
+        - -1.0
+        - 1.0
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.018846716378431196
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.03551987182490267
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.06694329500821695
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.1261661294457514
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.23778172582285131
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.4481404746557166
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 0.8445976423531825
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 1.5917892219322096
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+  - type: Gaussian
+    params:
+      sigma:
+        fixed: true
+        fixed_value: 3.0
+      center_x:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_x
+      center_y:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: center_y
+      e1:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e1
+      e2:
+        fixed: true
+        fixed_value:
+          component_type: lens_light_list
+          component_idx: 0
+          parameter: e2
+      flux:
+        use_linear: true
+inference:
+  type: sampler
+  method: nautilus
+  settings:
+    nlive: 200
+    batch_size: 100
+output:
+  path: output
+  figures:
+    results: model_results.png
+    corner: model_corner.png
+  tables:
+    samples: result_samples.csv
+    summary: result_summary.csv
+  datasets:
+    subplot: dataset_subplot.png
+solver_type: nnls

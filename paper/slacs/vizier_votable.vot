@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VOTABLE version="1.4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns="http://www.ivoa.net/xml/VOTable/v1.3"
+  xsi:schemaLocation="http://www.ivoa.net/xml/VOTable/v1.3 http://www.ivoa.net/xml/VOTable/v1.3">
+ <DESCRIPTION>
+   VizieR Astronomical Server vizier.cds.unistra.fr
+    Date: 2023-12-17T19:08:20 [V7.32.6]
+   Explanations and Statistics of UCDs:			See LINK below
+   In case of problem, please report to:	cds-question@unistra.fr
+ </DESCRIPTION>
+<!-- VOTable description at http://www.ivoa.net/Documents/latest/VOT.html -->
+<INFO name='protocol' value='ASU'/>
+<INFO name='request_date' value='2023-12-17T19:08:20'/>
+<INFO name='request_post' value='https://vizier.cds.unistra.fr//viz-bin/votable'>
+-oc.form=dec
+-out.max=100
+-order=I
+-nav=cat:J/ApJ/682/964&amp;tab:{J/ApJ/682/964/table5}&amp;key:source=J/ApJ/682/964/table5&amp;HTTPPRM:&amp;&amp;-ref=VIZ657f469116ef27&amp;-out.max=100&amp;-out.form=HTML Table&amp;-order=I&amp;-oc.form=sexa&amp;-out.src=J/ApJ/682/964/table5&amp;-out=Name&amp;-out=bSIE&amp;-out=qSIE&amp;-out=PASIE&amp;-out=LSIE/LdV&amp;-out=bLTM&amp;-out=gammaLTM&amp;-out=PAgLTM&amp;-out=LLTM/LdV&amp;-out=Nsrc&amp;-out=Ring?&amp;-out=Good?&amp;-meta.ucd=2&amp;-meta=1&amp;-meta.foot=1&amp;-usenav=1&amp;-bmark=POST&amp;
+-out.src=J/ApJ/682/964/table5
+-source=J/ApJ/682/964/table5
+-out=Name
+-out=bSIE
+-out=qSIE
+-out=PASIE
+-out=LSIE/LdV
+-out=bLTM
+-out=gammaLTM
+-out=PAgLTM
+-out=LLTM/LdV
+-out=Nsrc
+-out=Ring?
+-out=Good?
+</INFO>
+<INFO name='contact' value='cds-question@unistra.fr'/>
+<INFO name='version' value='7.32.6'/>
+<INFO ID="MaxTuples" name="-out.max" value="100"/>
+
+<!--
+Execution Reports
+ -->
+
+<RESOURCE ID="yCat_16820964" name="J/ApJ/682/964">
+  <DESCRIPTION>Sloan lens ACS survey. V. (Bolton+, 2008)</DESCRIPTION>  <INFO name='ivoid' value='ivo://cds.vizier/j/apj/682/964'/>
+  <INFO name='publisher' value='CDS'/>
+  <INFO name='creator' value='Bolton A.S.'/>
+  <INFO name='related_resource' value='bibcode:2008ApJ...682..964B'/>
+  <INFO name='landing_page' value='https://cdsarc.cds.unistra.fr/viz-bin/cat/J/ApJ/682/964'/>
+  <INFO name='publication_id' value='doi:10.26093/cds/vizier.16820964'/>
+  <INFO name='publication_date' value='2009-11-07'/>
+  <INFO name='curation_level' value='RESEARCH'/>
+  <INFO name='rights' value='https://cds.unistra.fr/vizier-org/licences_vizier.html'/>
+
+  <TABLE ID="J_ApJ_682_964_table5" name="J/ApJ/682/964/table5">
+    <DESCRIPTION>SLACS HST-ACS grade-A strong lens model parameters</DESCRIPTION>
+    <!-- Definitions of GROUPs and FIELDs -->
+
+<!-- +++No column could be found to attach a LINK in table: J/ApJ/682/964/table5 -->
+    <FIELD name="Name" ucd="meta.id;pos.frame" datatype="char" arraysize="10*"><!-- ucd="DATA_LINK" -->
+      <DESCRIPTION>System name (JHHMM-DDMM)</DESCRIPTION>
+      <LINK href="http://vizier.cds.unistra.fr/viz-bin/VizieR-5?-info=XML&amp;-out.add=.&amp;-source=J/ApJ/682/964/table4&amp;Name=${Name}"/>
+    </FIELD>
+    <FIELD name="bSIE" ucd="phys.angSize;src" datatype="float" width="5" precision="2" unit="arcsec"><!-- ucd="?" -->
+      <DESCRIPTION>SIE (singularisothermal elliposoid) Einstein radius, quoted for an intermediate-axis normalization</DESCRIPTION>
+    </FIELD>
+    <FIELD name="qSIE" ucd="phys.size.axisRatio" datatype="float" width="5" precision="2"><!-- ucd="?" -->
+      <DESCRIPTION>Mass minor-to-major axis ratios of SIE models</DESCRIPTION>
+    </FIELD>
+    <FIELD name="PASIE" ucd="pos.posAng" datatype="float" width="5" precision="1" unit="deg"><!-- ucd="?" -->
+      <DESCRIPTION>Position angle (of SIE major axis), measured in degrees east of north</DESCRIPTION>
+    </FIELD>
+    <FIELD name="LSIE/LdV" ucd="phys.luminosity;arith.ratio" datatype="float" width="6" precision="3"><!-- ucd="?" -->
+      <DESCRIPTION>Luminosity enclosed within SIE Einstein radii (1)</DESCRIPTION>
+    </FIELD>
+    <FIELD name="bLTM" ucd="phys.angSize;src" datatype="float" width="5" precision="2" unit="arcsec"><!-- ucd="?" -->
+      <DESCRIPTION>LTM Einstein radius, quoted for an intermediate-axis normalization</DESCRIPTION>
+    </FIELD>
+    <FIELD name="gammaLTM" ucd="stat.fit.param" datatype="float" width="5" precision="2"><!-- ucd="?" -->
+      <DESCRIPTION>External shear value for LTM models</DESCRIPTION>
+    </FIELD>
+    <FIELD name="PAgLTM" ucd="pos.posAng" datatype="float" width="5" precision="1" unit="deg"><!-- ucd="?" -->
+      <DESCRIPTION>Position angle (of LTM external shear), measured in degrees east of north</DESCRIPTION>
+    </FIELD>
+    <FIELD name="LLTM/LdV" ucd="phys.luminosity;arith.ratio" datatype="float" width="6" precision="3"><!-- ucd="?" -->
+      <DESCRIPTION>Luminosity enclosed within LTM Einstein radii (1)</DESCRIPTION>
+    </FIELD>
+    <FIELD name="Nsrc" ucd="meta.number" datatype="unsignedByte" width="1"><!-- ucd="?" -->
+      <DESCRIPTION>Number of source-plane components used to model background galaxy</DESCRIPTION>
+    </FIELD>
+    <FIELD name="Ring?" ucd="meta.code" datatype="char" arraysize="3"><!-- ucd="?" -->
+      <DESCRIPTION>[Yes/No ] Ring subset? (2)</DESCRIPTION>
+    </FIELD>
+    <FIELD name="Good?" ucd="meta.code" datatype="char" arraysize="3"><!-- ucd="?" -->
+      <DESCRIPTION>[Yes/No ] Good sigma_SDSS_ ? (3)</DESCRIPTION>
+    </FIELD>
+<DATA><TABLEDATA>
+<TR><TD>J0008-0004</TD><TD>1.16</TD><TD>0.70</TD><TD>35.2</TD><TD>0.393</TD><TD>1.14</TD><TD>0.09</TD><TD>37.6</TD><TD>0.387</TD><TD>3</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>J0029-0055</TD><TD>0.96</TD><TD>0.89</TD><TD>25.4</TD><TD>0.284</TD><TD>0.95</TD><TD>0.01</TD><TD>33.1</TD><TD>0.282</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0037-0942</TD><TD>1.53</TD><TD>0.84</TD><TD>15.9</TD><TD>0.404</TD><TD>1.52</TD><TD>0.01</TD><TD>67.1</TD><TD>0.401</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0044+0113</TD><TD>0.79</TD><TD>0.66</TD><TD>7.4</TD><TD>0.218</TD><TD>0.76</TD><TD>0.12</TD><TD>19.4</TD><TD>0.211</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0109+1500</TD><TD>0.69</TD><TD>0.55</TD><TD>99.8</TD><TD>0.321</TD><TD>0.68</TD><TD>0.07</TD><TD>83.8</TD><TD>0.317</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0157-0056</TD><TD>0.79</TD><TD>0.72</TD><TD>102.6</TD><TD>0.401</TD><TD>0.67</TD><TD>0.24</TD><TD>103.1</TD><TD>0.362</TD><TD>3</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>J0216-0813</TD><TD>1.16</TD><TD>0.79</TD><TD>73.3</TD><TD>0.283</TD><TD>1.15</TD><TD>0.03</TD><TD>78.6</TD><TD>0.282</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0252+0039</TD><TD>1.04</TD><TD>0.93</TD><TD>106.2</TD><TD>0.441</TD><TD>1.03</TD><TD>0.01</TD><TD>99.2</TD><TD>0.439</TD><TD>3</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0330-0020</TD><TD>1.10</TD><TD>0.81</TD><TD>113.2</TD><TD>0.459</TD><TD>1.04</TD><TD>0.07</TD><TD>113.9</TD><TD>0.443</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0405-0455</TD><TD>0.80</TD><TD>0.72</TD><TD>21.0</TD><TD>0.355</TD><TD>0.79</TD><TD>0.05</TD><TD>23.5</TD><TD>0.354</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0728+3835</TD><TD>1.25</TD><TD>0.85</TD><TD>67.6</TD><TD>0.392</TD><TD>1.25</TD><TD>0.01</TD><TD>170.6</TD><TD>0.393</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0737+3216</TD><TD>1.00</TD><TD>0.67</TD><TD>98.8</TD><TD>0.239</TD><TD>0.97</TD><TD>0.10</TD><TD>97.8</TD><TD>0.233</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0822+2652</TD><TD>1.17</TD><TD>0.88</TD><TD>68.2</TD><TD>0.370</TD><TD>1.14</TD><TD>0.01</TD><TD>10.5</TD><TD>0.365</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0841+3824</TD><TD>1.41</TD><TD>0.79</TD><TD>91.4</TD><TD>0.242</TD><TD>1.36</TD><TD>0.05</TD><TD>10.2</TD><TD>0.236</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0903+4116</TD><TD>1.29</TD><TD>0.90</TD><TD>161.3</TD><TD>0.396</TD><TD>1.27</TD><TD>0.02</TD><TD>142.4</TD><TD>0.393</TD><TD>2</TD><TD>Yes</TD><TD>No</TD></TR>
+<TR><TD>J0912+0029</TD><TD>1.63</TD><TD>0.56</TD><TD>8.2</TD><TD>0.288</TD><TD>1.62</TD><TD>0.10</TD><TD>5.1</TD><TD>0.286</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0935-0003</TD><TD>0.87</TD><TD>0.69</TD><TD>22.2</TD><TD>0.160</TD><TD>0.81</TD><TD>0.13</TD><TD>27.0</TD><TD>0.152</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0936+0913</TD><TD>1.09</TD><TD>0.89</TD><TD>160.1</TD><TD>0.315</TD><TD>1.09</TD><TD>0.02</TD><TD>16.7</TD><TD>0.315</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0946+1006</TD><TD>1.38</TD><TD>0.81</TD><TD>159.2</TD><TD>0.355</TD><TD>1.39</TD><TD>0.08</TD><TD>157.9</TD><TD>0.357</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0955+0101</TD><TD>0.91</TD><TD>0.82</TD><TD>62.5</TD><TD>0.458</TD><TD>1.03</TD><TD>0.27</TD><TD>27.6</TD><TD>0.499</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0956+5100</TD><TD>1.33</TD><TD>0.63</TD><TD>146.2</TD><TD>0.356</TD><TD>1.30</TD><TD>0.11</TD><TD>144.2</TD><TD>0.351</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J0959+4416</TD><TD>0.96</TD><TD>0.92</TD><TD>57.4</TD><TD>0.310</TD><TD>0.96</TD><TD>0.00</TD><TD>35.0</TD><TD>0.310</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J0959+0410</TD><TD>0.99</TD><TD>0.86</TD><TD>66.9</TD><TD>0.397</TD><TD>1.01</TD><TD>0.07</TD><TD>142.1</TD><TD>0.402</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1016+3859</TD><TD>1.09</TD><TD>0.78</TD><TD>46.4</TD><TD>0.414</TD><TD>1.06</TD><TD>0.08</TD><TD>38.9</TD><TD>0.406</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1020+1122</TD><TD>1.20</TD><TD>0.80</TD><TD>135.8</TD><TD>0.413</TD><TD>1.21</TD><TD>0.10</TD><TD>152.6</TD><TD>0.416</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1023+4230</TD><TD>1.41</TD><TD>0.87</TD><TD>170.4</TD><TD>0.435</TD><TD>1.40</TD><TD>0.03</TD><TD>168.8</TD><TD>0.433</TD><TD>3</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1029+0420</TD><TD>1.01</TD><TD>0.84</TD><TD>93.9</TD><TD>0.378</TD><TD>1.10</TD><TD>0.17</TD><TD>48.0</TD><TD>0.401</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1032+5322</TD><TD>1.03</TD><TD>0.76</TD><TD>139.7</TD><TD>0.582</TD><TD>1.12</TD><TD>0.08</TD><TD>46.2</TD><TD>0.606</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1100+5329</TD><TD>1.52</TD><TD>0.53</TD><TD>105.3</TD><TD>0.384</TD><TD>1.43</TD><TD>0.19</TD><TD>113.4</TD><TD>0.369</TD><TD>2</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>J1103+5322</TD><TD>1.02</TD><TD>0.52</TD><TD>51.7</TD><TD>0.342</TD><TD>1.04</TD><TD>0.05</TD><TD>71.9</TD><TD>0.348</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1106+5228</TD><TD>1.23</TD><TD>0.76</TD><TD>56.3</TD><TD>0.407</TD><TD>1.23</TD><TD>0.02</TD><TD>52.3</TD><TD>0.406</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1112+0826</TD><TD>1.49</TD><TD>0.75</TD><TD>146.5</TD><TD>0.503</TD><TD>1.37</TD><TD>0.03</TD><TD>166.7</TD><TD>0.482</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1134+6027</TD><TD>1.10</TD><TD>0.77</TD><TD>102.1</TD><TD>0.343</TD><TD>0.88</TD><TD>0.23</TD><TD>90.2</TD><TD>0.298</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1142+1001</TD><TD>0.98</TD><TD>0.83</TD><TD>99.5</TD><TD>0.320</TD><TD>0.92</TD><TD>0.06</TD><TD>89.8</TD><TD>0.307</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1143-0144</TD><TD>1.68</TD><TD>0.75</TD><TD>120.1</TD><TD>0.267</TD><TD>1.66</TD><TD>0.04</TD><TD>119.4</TD><TD>0.265</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1153+4612</TD><TD>1.05</TD><TD>0.77</TD><TD>21.6</TD><TD>0.460</TD><TD>1.05</TD><TD>0.09</TD><TD>31.1</TD><TD>0.462</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1204+0358</TD><TD>1.31</TD><TD>0.84</TD><TD>65.4</TD><TD>0.455</TD><TD>1.27</TD><TD>0.08</TD><TD>64.6</TD><TD>0.446</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1205+4910</TD><TD>1.22</TD><TD>0.70</TD><TD>156.6</TD><TD>0.302</TD><TD>1.20</TD><TD>0.06</TD><TD>158.3</TD><TD>0.299</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1213+6708</TD><TD>1.42</TD><TD>0.83</TD><TD>14.5</TD><TD>0.297</TD><TD>1.38</TD><TD>0.02</TD><TD>164.6</TD><TD>0.292</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1218+0830</TD><TD>1.45</TD><TD>0.75</TD><TD>51.5</TD><TD>0.300</TD><TD>1.44</TD><TD>0.03</TD><TD>54.9</TD><TD>0.299</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1250+0523</TD><TD>1.13</TD><TD>0.96</TD><TD>130.8</TD><TD>0.366</TD><TD>1.11</TD><TD>0.01</TD><TD>140.5</TD><TD>0.362</TD><TD>5</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1251-0208</TD><TD>0.84</TD><TD>0.67</TD><TD>33.9</TD><TD>0.218</TD><TD>0.85</TD><TD>0.07</TD><TD>156.5</TD><TD>0.221</TD><TD>2</TD><TD>No</TD><TD>No</TD></TR>
+<TR><TD>J1402+6321</TD><TD>1.35</TD><TD>0.83</TD><TD>64.4</TD><TD>0.316</TD><TD>1.36</TD><TD>0.02</TD><TD>34.4</TD><TD>0.317</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1403+0006</TD><TD>0.83</TD><TD>0.81</TD><TD>140.8</TD><TD>0.354</TD><TD>0.83</TD><TD>0.05</TD><TD>169.4</TD><TD>0.354</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1416+5136</TD><TD>1.37</TD><TD>0.94</TD><TD>71.4</TD><TD>0.483</TD><TD>1.36</TD><TD>0.04</TD><TD>96.7</TD><TD>0.482</TD><TD>3</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1420+6019</TD><TD>1.04</TD><TD>0.67</TD><TD>111.3</TD><TD>0.329</TD><TD>1.07</TD><TD>0.01</TD><TD>108.7</TD><TD>0.335</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1430+4105</TD><TD>1.52</TD><TD>0.68</TD><TD>111.7</TD><TD>0.355</TD><TD>1.46</TD><TD>0.10</TD><TD>110.3</TD><TD>0.344</TD><TD>6</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1432+6317</TD><TD>1.26</TD><TD>0.96</TD><TD>130.4</TD><TD>0.153</TD><TD>1.25</TD><TD>0.01</TD><TD>152.0</TD><TD>0.151</TD><TD>2</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1436-0000</TD><TD>1.12</TD><TD>0.72</TD><TD>156.2</TD><TD>0.315</TD><TD>1.08</TD><TD>0.07</TD><TD>162.6</TD><TD>0.308</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1443+0304</TD><TD>0.81</TD><TD>0.73</TD><TD>78.1</TD><TD>0.438</TD><TD>0.78</TD><TD>0.08</TD><TD>97.9</TD><TD>0.427</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1451-0239</TD><TD>1.04</TD><TD>0.97</TD><TD>106.3</TD><TD>0.277</TD><TD>1.03</TD><TD>0.02</TD><TD>113.8</TD><TD>0.274</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1525+3327</TD><TD>1.31</TD><TD>0.51</TD><TD>134.3</TD><TD>0.292</TD><TD>1.30</TD><TD>0.11</TD><TD>132.5</TD><TD>0.291</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1531-0105</TD><TD>1.71</TD><TD>0.77</TD><TD>142.9</TD><TD>0.393</TD><TD>1.71</TD><TD>0.03</TD><TD>139.4</TD><TD>0.393</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1538+5817</TD><TD>1.00</TD><TD>0.89</TD><TD>152.1</TD><TD>0.365</TD><TD>0.99</TD><TD>0.01</TD><TD>146.6</TD><TD>0.363</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1621+3931</TD><TD>1.29</TD><TD>0.77</TD><TD>148.7</TD><TD>0.358</TD><TD>1.29</TD><TD>0.03</TD><TD>161.9</TD><TD>0.358</TD><TD>1</TD><TD>No</TD><TD>Yes</TD></TR>
+<TR><TD>J1627-0053</TD><TD>1.23</TD><TD>0.91</TD><TD>10.5</TD><TD>0.360</TD><TD>1.22</TD><TD>0.00</TD><TD>60.6</TD><TD>0.359</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1630+4520</TD><TD>1.78</TD><TD>0.87</TD><TD>74.9</TD><TD>0.475</TD><TD>1.78</TD><TD>0.02</TD><TD>84.1</TD><TD>0.475</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J1636+4707</TD><TD>1.09</TD><TD>0.79</TD><TD>98.2</TD><TD>0.380</TD><TD>1.08</TD><TD>0.04</TD><TD>91.9</TD><TD>0.380</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J2238-0754</TD><TD>1.27</TD><TD>0.85</TD><TD>137.4</TD><TD>0.335</TD><TD>1.28</TD><TD>0.00</TD><TD>72.2</TD><TD>0.335</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J2300+0022</TD><TD>1.24</TD><TD>0.71</TD><TD>87.8</TD><TD>0.391</TD><TD>1.21</TD><TD>0.08</TD><TD>90.0</TD><TD>0.386</TD><TD>1</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J2303+1422</TD><TD>1.62</TD><TD>0.61</TD><TD>35.3</TD><TD>0.318</TD><TD>1.60</TD><TD>0.07</TD><TD>33.8</TD><TD>0.316</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J2321-0939</TD><TD>1.60</TD><TD>0.86</TD><TD>135.2</TD><TD>0.258</TD><TD>1.60</TD><TD>0.01</TD><TD>172.6</TD><TD>0.258</TD><TD>2</TD><TD>Yes</TD><TD>Yes</TD></TR>
+<TR><TD>J2341+0000</TD><TD>1.44</TD><TD>0.76</TD><TD>96.6</TD><TD>0.295</TD><TD>1.47</TD><TD>0.07</TD><TD>143.3</TD><TD>0.299</TD><TD>4</TD><TD>Yes</TD><TD>Yes</TD></TR>
+</TABLEDATA></DATA>
+</TABLE>
+<INFO name="matches" value="63">matching records</INFO>
+</RESOURCE>
+</VOTABLE>

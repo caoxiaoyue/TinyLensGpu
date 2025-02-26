@@ -1,0 +1,6 @@
+mytest/
+**/*pyc
+**egg-info
+*yml
+workspace/
+**/csst_mocks.pklz
