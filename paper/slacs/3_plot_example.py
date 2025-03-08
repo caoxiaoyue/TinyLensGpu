@@ -6,6 +6,7 @@ import scienceplots
 import numpy as np
 import gzip
 import pickle
+from matplotlib.colors import LogNorm
 
 # Use scientific journal style
 plt.style.use(['science', 'nature', "no-latex"])
@@ -34,6 +35,7 @@ from TinyLensGpu.Simulator.Image import util
 
 # Load lens models
 lens_names = ["J0029-0055", "J0044+0113", "J0157-0056"]
+# lens_names = ["J0029-0055", "J0044+0113", "J0216-0813"]
 lens_model_list = []
 
 for this_lens_name in lens_names:
@@ -41,7 +43,7 @@ for this_lens_name in lens_names:
         lens_model = pickle.load(f)
     lens_model_list.append(lens_model)
 
-with gzip.open(f'../test2/results/J0157-0056/lens_model.pkl.gz', 'rb') as f:
+with gzip.open(f'../test2/results/{lens_names[2]}/lens_model.pkl.gz', 'rb') as f:
     lens_model = pickle.load(f)
 lens_model_list.append(lens_model)
 
@@ -71,31 +73,48 @@ columnwidth = 3.33  # Standard column width (inches)
 aspect_ratio = 1
 fig, axes = plt.subplots(4, 4, figsize=(columnwidth*4 + 3*0.5, 4*columnwidth*aspect_ratio + 3*0.2), constrained_layout=True)
 
+this_cmap = plt.cm.inferno.copy()
+this_cmap.set_bad('white')
+
 for i, lens_model in enumerate(lens_model_list):
     half_width = lens_model.image_map.shape[0] * 0.5 * lens_model.data_config['pixel_scale']
     extent = [-half_width, half_width, -half_width, half_width]
     
-    # Panel 1: Observed Data
+    # Determine data range for consistent scaling
+    # data_min = np.min(lens_model.image_map[lens_model.image_map > 0])  # Minimum non-zero value
+    data_min = np.percentile(np.abs(lens_model.image_map), 5)
+    data_max = np.percentile(np.abs(lens_model.image_map), 100)
+    
+    # Panel 1: Observed Data with log scale to show both faint arcs and bright lens
+    if i == 1: print(lens_model.image_map.min(), lens_model.image_map.max())
     ax = axes[i, 0]
-    im = ax.imshow(lens_model.image_map, origin='lower', cmap='inferno', extent=extent)
+    # Use SymLogNorm for better visualization of bright and dark features
+    norm = LogNorm(vmin=data_min, vmax=data_max)
+    im = ax.imshow(lens_model.image_map, origin='lower', cmap=this_cmap, extent=extent, norm=norm)
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     ax.set_title("Data", fontsize=12)
     
-    # Panel 2: Lens Light Subtracted Data
+    # Panel 2: Lens Light Subtracted Data with vmin=0
     ax = axes[i, 1]
-    im = ax.imshow(lens_model.image_map - lens_model.image_lens_light, origin='lower', cmap='inferno', extent=extent)
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    lens_sub_img = lens_model.image_map - lens_model.image_lens_light
+    # Set minimum to 0 to avoid negative values
+    vmin = np.min(lens_model.image_lensed_source)
+    vmax = np.max(lens_model.image_lensed_source)
+    im2 = ax.imshow(lens_sub_img, origin='lower', cmap=this_cmap, extent=extent, vmin=vmin, vmax=vmax)
+    cbar = fig.colorbar(im2, ax=ax, fraction=0.046, pad=0.04)
     ax.set_title("Lens Light Subtracted", fontsize=12)
     
-    # Panel 3: Model Lensed Source
+    # Panel 3: Model Lensed Source with same vmin/vmax as col 2
     ax = axes[i, 2]
-    im = ax.imshow(lens_model.image_lensed_source, origin='lower', cmap='inferno', extent=extent)
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    # Use same vmin/vmax as the lens-subtracted image for direct comparison
+    im3 = ax.imshow(lens_model.image_lensed_source, origin='lower', cmap=this_cmap, 
+                   extent=extent, vmin=vmin, vmax=vmax)
+    cbar = fig.colorbar(im3, ax=ax, fraction=0.046, pad=0.04)
     ax.set_title("Model Lensed Source", fontsize=12)
 
     # Panel 4: Model Source
     ax = axes[i, 3]
-    im = ax.imshow(source_image_list[i], origin='lower', cmap='inferno', extent=extent)
+    im = ax.imshow(source_image_list[i], origin='lower', cmap=this_cmap, extent=extent)
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     ax.set_title("Model Source", fontsize=12)
 
