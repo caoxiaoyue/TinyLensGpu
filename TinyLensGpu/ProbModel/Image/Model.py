@@ -54,7 +54,7 @@ class ImageProbModel(ABC):
             param_dict, 
             bs=bs, 
             use_linear=self.use_linear, 
-            return_intensity=False, 
+            return_intensity=True, 
             image_map=image_map, 
             noise_map=noise_map,
             xgrid_sub=xgrid_sub,
@@ -75,7 +75,7 @@ class ImageProbModel(ABC):
 
 
     def likelihood(self, param_dict, bs=1, debug=True):
-        image_model = self.forward_model(
+        image_model, intensity_list = self.forward_model(
             param_dict, 
             bs=bs, 
             image_map=self.image_data, 
@@ -84,6 +84,17 @@ class ImageProbModel(ABC):
             ygrid_sub=self.sim_obj.ygrid_sub,
             psf_kernel=self.sim_obj.psf_kernel,
         )
+
+        intensity_list = np.asarray(intensity_list) #shape: [n_profiles, bs]
+        nnls_success = np.all(intensity_list >= 0.0)
+        if not nnls_success:
+            if intensity_list.ndim != 1:
+                #check the fraction of failed batch
+                n_profiles = intensity_list.shape[0]
+                bool_list = (np.sum(intensity_list>=0, axis=0) == n_profiles)
+                print('fraction of unsuccessful NNLS: ', np.count_nonzero(bool_list)/bs)
+            raise ValueError("NNLS failed to find a solution")
+
         like =  self._likelihood_helper(
             image_model, 
             self.image_data, 

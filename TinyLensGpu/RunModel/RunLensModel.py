@@ -352,6 +352,8 @@ class RunLensModel:
             print("best objective value:", self.best_value)
         print("linear parameter names:", self.model_parser.linear_param_names)
         print("linear parameter values:", self.intensity_list)
+        print("the float accuracy used:", self.image_lensed_source.dtype)
+        
         
     def save_results(self):
         """Save inference results to CSV files"""
