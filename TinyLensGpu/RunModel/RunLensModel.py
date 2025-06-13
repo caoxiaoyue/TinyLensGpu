@@ -122,6 +122,7 @@ class RunLensModel:
         except:
             print("No mask used, fit the whole image.")
             self.mask = None
+        self.noise_map = np.where(self.mask, 1e8, self.noise_map)
 
         
     def plot_data(self):

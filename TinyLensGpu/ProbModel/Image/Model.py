@@ -85,15 +85,16 @@ class ImageProbModel(ABC):
             psf_kernel=self.sim_obj.psf_kernel,
         )
 
-        intensity_list = np.asarray(intensity_list) #shape: [n_profiles, bs]
-        nnls_success = np.all(intensity_list >= 0.0)
-        if not nnls_success:
-            if intensity_list.ndim != 1:
-                #check the fraction of failed batch
-                n_profiles = intensity_list.shape[0]
-                bool_list = (np.sum(intensity_list>=0, axis=0) == n_profiles)
-                print('fraction of unsuccessful NNLS: ', np.count_nonzero(bool_list)/bs)
-            raise ValueError("NNLS failed to find a solution")
+        if self.sim_obj.solver_type == "nnls":
+            intensity_list = np.asarray(intensity_list) #shape: [n_profiles, bs]
+            nnls_success = np.all(intensity_list >= 0.0)
+            if not nnls_success:
+                if intensity_list.ndim != 1:
+                    #check the fraction of failed batch
+                    n_profiles = intensity_list.shape[0]
+                    bool_list = (np.sum(intensity_list>=0, axis=0) == n_profiles)
+                    print('fraction of unsuccessful NNLS: ', np.count_nonzero(bool_list)/bs)
+                raise ValueError("NNLS failed to find a solution")
 
         like =  self._likelihood_helper(
             image_model, 
