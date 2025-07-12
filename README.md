@@ -112,7 +112,27 @@ Finally, run `python run_model.py` in the terminal to do the lens modeling.
 For additional examples, refer to the scripts in the `paper/demo` folder.
 
 ## Citation
-If you find this work useful, please cite Cao et al. (2025, in preparation). Additionally, TinyLensGpu has benefited from several other open-source lens modeling projects. Please consider crediting them in your work as well:
+If you find this work useful, please cite Cao et al. (2025). The BibTeX entry is provided below for your convenience.
+```
+@ARTICLE{2025MNRAS.540.3121C,
+       author = {{Cao}, Xiaoyue and {Li}, Ran and {Li}, Nan and {Chen}, Yun and {Li}, Rui and {Shan}, Huanyuan and {Li}, Tian},
+        title = "{CSST strong lensing preparation: fast modelling of galaxy{\textendash}galaxy strong lenses in the big data era}",
+      journal = {\mnras},
+     keywords = {gravitational lensing: strong, Astrophysics - Instrumentation and Methods for Astrophysics, Astrophysics - Cosmology and Nongalactic Astrophysics},
+         year = 2025,
+        month = jul,
+       volume = {540},
+       number = {4},
+        pages = {3121-3134},
+          doi = {10.1093/mnras/staf891},
+archivePrefix = {arXiv},
+       eprint = {2503.08586},
+ primaryClass = {astro-ph.IM},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2025MNRAS.540.3121C},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```
+Additionally, TinyLensGpu has benefited from several other open-source lens modeling projects. Please consider crediting them in your work as well:
 - [gigalens](https://github.com/giga-lens/gigalens)
 - [PyAutoLens](https://github.com/Jammy2211/PyAutoLens)
 - [herculens](https://github.com/Herculens/herculens)
