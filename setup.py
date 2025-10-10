@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from setuptools import setup
+from setuptools import setup, find_packages
 # This setup is suitable for "python setup.py develop".
 setup(
     name='TinyLensGpu',
@@ -9,5 +9,5 @@ setup(
     author='xiaoyue cao',
     author_email='cxylzlx@gmail.com',
     url='https://gitlab.com/cxylzlx/TinyLensGpu',
-    packages=['TinyLensGpu'],
+    packages=find_packages(),
 )

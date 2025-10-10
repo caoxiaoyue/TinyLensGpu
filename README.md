@@ -22,6 +22,15 @@ git clone https://github.com/caoxiaoyue/TinyLensGpu #clone the TinyLensGpu repos
 conda develop TinyLensGpu #install TinyLensGpu in the conda environment
 ```
 
+## Testing
+
+TinyLensGpu includes a comprehensive test suite with **85 tests** covering all major functionality:
+
+```bash
+# Run all tests
+pytest
+```
+
 ## Usage
 Use the YAML file to configure the model settings. For example, the following YAML file named `model_config.yaml` fits only the lens light distribution using a Sérsic profile.
 
