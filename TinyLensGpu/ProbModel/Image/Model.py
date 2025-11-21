@@ -21,6 +21,7 @@ class ImageProbModel(ABC):
         phys_model: PhysicalModel,
         mask: Optional[np.ndarray] = None,
         solver_type: str = 'nnls',
+        position_likelihood: Optional[Dict] = None,
     ):
         self.image_data = jnp.array(image_data)
         self.noise_map = jnp.array(noise_map)
@@ -38,6 +39,7 @@ class ImageProbModel(ABC):
         )
         self.use_linear = use_linear
         self.unmask = jnp.array(~sim_config.mask)
+        self.position_like_config = position_likelihood
 
     @functools.partial(jit, static_argnums=(0,2))
     def forward_model(
@@ -105,6 +107,10 @@ class ImageProbModel(ABC):
         )
         like = np.asarray(like)
 
+        if self.position_like_config is not None:
+            penalty = self._position_likelihood_penalty(param_dict, bs)
+            like = like + penalty
+
         if debug:
             #check if there is nan in like
             if np.isnan(like).any():
@@ -124,3 +130,43 @@ class ImageProbModel(ABC):
                 return -np.inf
 
         return like
+
+    def _position_likelihood_penalty(self, param_dict, bs: int):
+        cfg = self.position_like_config
+        if cfg is None:
+            return np.zeros((bs,), dtype=np.float64)
+        positions = cfg.get('positions', [])
+        if positions is None or len(positions) < 2:
+            return np.zeros((bs,), dtype=np.float64)
+        threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
+        min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
+
+        px = jnp.array([p[0] for p in positions])
+        py = jnp.array([p[1] for p in positions])
+
+        penalties = []
+        for b in range(bs):
+            lens_params_batch = []
+            if len(param_dict) > 0 and len(param_dict[0]) > 0:
+                for comp in param_dict[0]:
+                    comp_scalar = {}
+                    for k, v in comp.items():
+                        if hasattr(v, 'shape') and v.ndim > 0:
+                            comp_scalar[k] = v[b]
+                        else:
+                            comp_scalar[k] = v
+                    lens_params_batch.append(comp_scalar)
+            beta_x, beta_y = self.sim_obj._beta(px, py, lens_params_batch)
+            dx = beta_x[:, None] - beta_x[None, :]
+            dy = beta_y[:, None] - beta_y[None, :]
+            dist = jnp.sqrt(dx*dx + dy*dy)
+            max_sep = jnp.max(dist)
+            exceed = jnp.maximum(0.0, max_sep - threshold)
+            if threshold <= 0.0 or exceed <= 0.0:
+                pen = 0.0
+            else:
+                ratio = exceed / threshold
+                pen_continuous = min_like * (1.0 - float(jnp.exp(-ratio)))
+                pen = float(jnp.clip(pen_continuous, min_like, 0.0))
+            penalties.append(pen)
+        return np.asarray(penalties, dtype=np.float64)

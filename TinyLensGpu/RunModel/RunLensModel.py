@@ -132,9 +132,15 @@ class RunLensModel:
         hw_psf = self.psf_map.shape[0] * self.data_config['pixel_scale'] * 0.5
         extent_psf = [-hw_psf, hw_psf, -hw_psf, hw_psf]
 
+        position_likelihood = self.config.get('position_likelihood', None)
+        if position_likelihood is not None:
+            positions = np.array(position_likelihood['positions'])
+
         plt.figure(figsize=(6, 6))
         plt.subplot(2, 2, 1)
         plt.imshow(self.image_map, origin='lower', extent=extent, cmap="jet")
+        if position_likelihood is not None:
+            plt.scatter(positions[:, 0], positions[:, 1], marker='x', color='red')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('Image')
         plt.ylabel('arcsec')
@@ -154,6 +160,8 @@ class RunLensModel:
         plt.subplot(2, 2, 4)
         plt.imshow(self.image_map/self.noise_map, origin='lower', extent=extent, cmap="jet")
         plt.colorbar(fraction=0.046, pad=0.04)
+        if position_likelihood is not None:
+            plt.scatter(positions[:, 0], positions[:, 1], marker='x', color='red')
         plt.title('SNR')
         plt.xlabel('arcsec')
         plt.tight_layout()
@@ -180,6 +188,7 @@ class RunLensModel:
             use_linear=(self.model_parser.n_linear_params>0),
             mask=self.mask,
             solver_type=self.model_parser.solver_type,
+            position_likelihood=self.config.get('position_likelihood', None),
         )
         
     def setup_inference(self):
@@ -398,6 +407,10 @@ class RunLensModel:
         half_width = self.image_map.shape[0]*0.5*self.data_config['pixel_scale']
         extent = [-half_width, half_width, -half_width, half_width]
         
+        position_likelihood = self.config.get('position_likelihood', None)
+        if position_likelihood is not None:
+            positions = np.array(position_likelihood['positions'])
+        
         # Create figure with 6 subplots
         plt.figure(figsize=(17, 10))
         
@@ -405,6 +418,8 @@ class RunLensModel:
         plt.subplot(231)
         plt.imshow(self.image_map, origin='lower', cmap='jet', extent=extent)
         plt.colorbar(fraction=0.046, pad=0.04)
+        if position_likelihood is not None:
+            plt.scatter(positions[:, 0], positions[:, 1], marker='x', color='red')
         plt.xlabel("Arcsec")
         plt.ylabel("Arcsec")
         plt.title("Data")
