@@ -1,4 +1,5 @@
 # TinyLensGpu
+
 `TinyLensGpu` is a GPU-accelerated software for galaxy-galaxy strong gravitational lens modeling, built using JAX. It is designed to process the vast influx of lensing data from upcoming space telescopes such as Euclid, CSST, and Roman.
 
 On a consumer-grade RTX 4060 Ti GPU, TinyLensGpu can model a typical 200×200-pixel lensing image in approximately 100–200 seconds. This performance is comparable to that of the previous [gigalens](https://github.com/giga-lens/gigalens) software, which requires four H100 super GPUs to achieve similar speeds—demonstrating the efficiency of `TinyLensGpu` on standard hardware.
@@ -6,6 +7,17 @@ On a consumer-grade RTX 4060 Ti GPU, TinyLensGpu can model a typical 200×200-pi
 We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Space Telescope lenses, achieving strong performance in automated lens analysis. The fraction of catastrophic outliers, where automated modeling fails, is approximately 5–10%.
 
 Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using parametric models such as Sérsic, Gaussian, and multi-Gaussian expansion models. In future updates, we plan to incorporate a pixelated source model to enhance its capabilities.
+
+## 🆕 Caskade Integration (v2.0)
+
+TinyLensGpu now features a **caskade-based implementation** that provides:
+- **Modular architecture**: All physical components (SIE, Shear, Sersic, Gaussian) are implemented as `caskade.Module` objects
+- **Automatic parameter management**: Parameters automatically support dynamic (sampling), static (fixed), linear (NNLS), and pointer (linked) modes
+- **Improved batch processing**: Seamless handling of large batch sizes for nested sampling
+- **Backward compatibility**: Existing YAML configurations work without modification
+- **Enhanced maintainability**: Cleaner code structure with `@ck.forward` decorators
+
+See [CASKADE_GUIDE.md](CASKADE_GUIDE.md) for detailed usage instructions and migration guide.
 
 ## Installation
 
@@ -15,20 +27,28 @@ sudo pacman -S cuda cudnn #for arch linux, install cuda and cudnn
 conda activate tinylens_gpu #activate the conda environment
 pip install -U "jax[cuda12]" #install jax with cuda 12 support
 pip install numba #install numba
-pip install nautilus-sampler dynesty 
+pip install nautilus-sampler dynesty
 pip install astropy matplotlib corner pyyaml
 conda install jupyter
-git clone https://github.com/caoxiaoyue/TinyLensGpu #clone the TinyLensGpu repository, suppose you place itin the current directory
+pip install "caskade[jax]"  # Required for caskade-based implementation
+git clone https://github.com/caoxiaoyue/TinyLensGpu #clone the TinyLensGpu repository, suppose you place it in the current directory
 conda develop TinyLensGpu #install TinyLensGpu in the conda environment
 ```
 
 ## Testing
 
-TinyLensGpu includes a comprehensive test suite with **85 tests** covering all major functionality:
+TinyLensGpu includes a comprehensive test suite with **90+ tests** covering all major functionality:
 
 ```bash
 # Run all tests
 pytest
+
+# Run specific test suites
+pytest tests/test_caskade_models.py      # Test caskade model implementations
+pytest tests/test_config_parser.py        # Test configuration parsing
+pytest tests/test_lens_simulator.py       # Test forward simulation
+pytest tests/test_caskade_inference.py    # Test inference system
+pytest tests/test_demo_lens_src.py        # Test full demo workflow
 ```
 
 ## Usage
@@ -109,11 +129,11 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 # os.environ["JAX_PLATFORMS"] = "cpu"
 
-from TinyLensGpu.RunModel.RunLensModel import RunLensModel
+from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
 config_path = 'model_config.yaml'
 
 
-lens_model = RunLensModel(config_path)
+lens_model = RunCaskadeLensModel(config_path)
 lens_model.run() 
 ``` 
 Finally, run `python run_model.py` in the terminal to do the lens modeling.

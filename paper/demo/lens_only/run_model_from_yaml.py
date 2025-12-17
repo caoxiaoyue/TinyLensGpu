@@ -12,7 +12,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 # os.environ["JAX_PLATFORMS"] = "cpu"
 
-from TinyLensGpu.RunModel.RunLensModel import RunLensModel
+from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
 config_path = 'model_config_nautilus.yaml'
 # you can choose other optimizers/samplers
 # config_path = 'model_config_dynesty.yaml'
@@ -20,7 +20,7 @@ config_path = 'model_config_nautilus.yaml'
 # config_path = 'model_config_basin_hopping.yaml'
 # config_path = 'model_config_direct.yaml'
 
-lens_model = RunLensModel(config_path)
+lens_model = RunCaskadeLensModel(config_path)
 lens_model.run() 
 
 with gzip.open('output/lens_model.pkl.gz', 'wb') as f:
