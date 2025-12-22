@@ -11,8 +11,8 @@
 ### 示例代码
 
 ```python
-from TinyLensGpu.CaskadeModels import ParamU, GaussianEllipse
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models import ParamU, GaussianEllipse
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
 
 # MGE 参数（从 YAML 或 MGE 拟合获得）
 mge_sigmas = [0.01, 0.015, 0.023, ...]  # 高斯宽度

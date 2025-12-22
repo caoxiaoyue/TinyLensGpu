@@ -32,8 +32,8 @@ python run_model.py
 ### 示例代码结构
 
 ```python
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
 from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 
 # 1. 创建组件
@@ -95,7 +95,7 @@ A: 参考对应目录的 `run_model.py`，将 YAML 中的参数转换为 `ParamU
 A: 使用 `ParamU` 创建参数，然后用 `build_lens_model` 组合：
 
 ```python
-from TinyLensGpu.CaskadeModels.mass import SIE, Shear
+from TinyLensGpu.Models.mass import SIE, Shear
 
 sie = SIE(theta_E=ParamU("theta_E", 1.5, ...))
 shear = Shear(gamma1=ParamU("gamma1", 0.0, ...))

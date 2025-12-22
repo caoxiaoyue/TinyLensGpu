@@ -1,6 +1,6 @@
 # TinyLensGpu Test Documentation
 
-This document provides comprehensive documentation for the TinyLensGpu test suite, covering both the original ModelParser tests and the new caskade-based tests.
+This document provides comprehensive documentation for the TinyLensGpu test suite, covering both the original ModelParser tests and the new  tests.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ TinyLensGpu includes **90+ tests** covering all major functionality:
 
 | Category | Test Count | Purpose |
 |----------|-----------|---------|
-| **Caskade Models** | 20+ | Physical models (SIE, Shear, Sersic, Gaussian) |
+| **Models** | 20+ | Physical models (SIE, Shear, Sersic, Gaussian) |
 | **Configuration** | 15+ | YAML parsing and parameter management |
 | **Simulation** | 20+ | Forward modeling and ray-tracing |
 | **Inference** | 15+ | Likelihood, sampling, optimization |
@@ -56,8 +56,8 @@ pytest --cov=TinyLensGpu --cov-report=html
 ### Run Specific Test Suites
 
 ```bash
-# Caskade model tests
-pytest tests/test_caskade_models.py
+# model tests
+pytest tests/test_image_models.py
 
 # Configuration parser tests
 pytest tests/test_config_parser.py
@@ -82,10 +82,10 @@ pytest tests/test_simulator.py
 
 ```bash
 # Run specific test class
-pytest tests/test_caskade_models.py::TestSIE
+pytest tests/test_image_models.py::TestSIE
 
 # Run specific test method
-pytest tests/test_caskade_models.py::TestSIE::test_sie_creation
+pytest tests/test_image_models.py::TestSIE::test_sie_creation
 
 # Run tests matching pattern
 pytest -k "test_sie"
@@ -112,9 +112,9 @@ pytest -m "not jit"
 
 | Module | Coverage | Status |
 |--------|---------|--------|
-| `CaskadeModels/` | 95%+ | ✅ Excellent |
-| `CaskadeSimulator/` | 90%+ | ✅ Excellent |
-| `CaskadeInference/` | 85%+ | ✅ Good |
+| `Models/` | 95%+ | ✅ Excellent |
+| `Simulator/` | 90%+ | ✅ Excellent |
+| `LinearSolver/` | 85%+ | ✅ Good |
 | `ProbModel/` | 80%+ | ✅ Good |
 | `Profile/` (legacy) | 90%+ | ✅ Excellent |
 | `Simulator/` (legacy) | 85%+ | ✅ Good |
@@ -131,11 +131,11 @@ open htmlcov/index.html  # View in browser
 
 ## Test Files Reference
 
-### Caskade System Tests (New)
+### System Tests (New)
 
-#### `test_caskade_models.py` (20+ tests)
+#### `test_image_models.py` (20+ tests)
 
-**Purpose**: Test all caskade-based physical models
+**Purpose**: Test all  physical models
 
 **Test Classes**:
 - `TestSIE`: SIE mass model (5 tests)
@@ -173,14 +173,14 @@ open htmlcov/index.html  # View in browser
 **Example**:
 ```python
 # Run SIE tests
-pytest tests/test_caskade_models.py::TestSIE -v
+pytest tests/test_image_models.py::TestSIE -v
 
 # Run all model tests
-pytest tests/test_caskade_models.py -v
+pytest tests/test_image_models.py -v
 ```
 
 **Key Validations**:
-- ✓ Caskade module creation and initialization
+- ✓ module creation and initialization
 - ✓ Parameter conversion (torch.Tensor → JAX arrays)
 - ✓ Numerical accuracy (comparison with reference values)
 - ✓ Batch processing efficiency
@@ -287,8 +287,8 @@ pytest tests/test_lens_simulator.py::TestLinearSolver -v
 **Purpose**: Test inference system (likelihood, parameter conversion, sampling)
 
 **Test Classes**:
-- `TestCaskadeImageProbModel`: Probability model (5 tests)
-  - `test_prob_model_creation`: Verify CaskadeImageProbModel creation
+- `TestImageProbModel`: Probability model (5 tests)
+  - `test_prob_model_creation`: Verify ImageProbModel creation
   - `test_forward_model`: Test forward model simulation
   - `test_likelihood_computation`: Test likelihood calculation
   - `test_position_likelihood`: Test position likelihood penalty
@@ -311,7 +311,7 @@ pytest tests/test_lens_simulator.py::TestLinearSolver -v
 **Example**:
 ```python
 # Run probability model tests
-pytest tests/test_caskade_inference.py::TestCaskadeImageProbModel -v
+pytest tests/test_caskade_inference.py::TestImageProbModel -v
 
 # Run all inference tests
 pytest tests/test_caskade_inference.py -v
@@ -583,7 +583,7 @@ Now tests run automatically before every commit!
 
 | Test Suite | Runtime | Tests |
 |-----------|---------|-------|
-| `test_caskade_models.py` | ~5 sec | 22 tests |
+| `test_image_models.py` | ~5 sec | 22 tests |
 | `test_config_parser.py` | ~3 sec | 15 tests |
 | `test_lens_simulator.py` | ~10 sec | 26 tests |
 | `test_caskade_inference.py` | ~8 sec | 15 tests |

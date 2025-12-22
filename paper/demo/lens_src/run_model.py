@@ -15,11 +15,11 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.mass import SIE, Shear
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood, load_lens_data
-from TinyLensGpu.CaskadeModels.prior_spec import make_prior_transformation
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.mass import SIE, Shear
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
 from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 
 

@@ -1,7 +1,7 @@
 """
-Caskade-based probability model for gravitational lensing image fitting.
+Probability model for gravitational lensing image fitting.
 
-This module provides the probability model using caskade-based PhysicalModel
+This module provides the probability model using PhysicalModel
 and LensSimulator for computing image likelihoods.
 """
 
@@ -12,17 +12,17 @@ import numpy as np
 from typing import Optional, Dict
 from jax import jit
 
-from TinyLensGpu.CaskadeSimulator.lens_simulator import LensSimulator
-from TinyLensGpu.CaskadeSimulator.config import SimulatorConfig
-from TinyLensGpu.CaskadeModels.composite import PhysicalModel
+from TinyLensGpu.Simulator.lens_simulator import LensSimulator
+from TinyLensGpu.Simulator.config import SimulatorConfig
+from TinyLensGpu.Models.composite import PhysicalModel
 
 
-class CaskadeImageProbModel:
+class ImageProbModel:
     """
-    Probability model for gravitational lensing images using caskade.
+    Probability model for gravitational lensing images.
 
     This class computes the likelihood of model parameters given observed data,
-    using a caskade-based forward model (PhysicalModel + LensSimulator).
+    using a forward model (PhysicalModel + LensSimulator).
 
     Parameters
     ----------
@@ -37,7 +37,7 @@ class CaskadeImageProbModel:
     nsub : int
         Subsampling factor for ray-tracing
     phys_model : PhysicalModel
-        Caskade physical model containing mass and light components
+        Physical model containing mass and light components
     use_linear : bool
         Whether to use linear solver for intensity parameters
     mask : array_like, optional
@@ -54,7 +54,7 @@ class CaskadeImageProbModel:
     noise_map : jnp.ndarray
         Noise map
     sim_obj : LensSimulator
-        Caskade lens simulator instance
+        lens simulator instance
     use_linear : bool
         Linear solver flag
     unmask : jnp.ndarray
@@ -254,7 +254,7 @@ class CaskadeImageProbModel:
         return pen
 
     def __repr__(self):
-        return (f"CaskadeImageProbModel("
+        return (f"ImageProbModel("
                 f"npix={self.image_data.shape[0]}, "
                 f"use_linear={self.use_linear}, "
                 f"solver={self.sim_obj.solver_type})")

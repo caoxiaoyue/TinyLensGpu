@@ -1,28 +1,28 @@
-# TinyLensGpu Caskade API Reference
+# TinyLensGpu API Reference
 
-This document provides a comprehensive API reference for all caskade-based modules in TinyLensGpu.
+This document provides a comprehensive API reference for all  modules in TinyLensGpu.
 
 ## Table of Contents
 
-- [CaskadeModels](#caskademodels)
+- [Models](#caskademodels)
   - [Mass Models](#mass-models)
   - [Light Models](#light-models)
   - [Composite Model](#composite-model)
-- [CaskadeSimulator](#caskadesimulator)
-- [CaskadeInference](#caskadeinference)
+- [Simulator](#caskadesimulator)
+- [LinearSolver](#caskadeinference)
 - [ProbModel](#probmodel)
 
 ---
 
-## CaskadeModels
+## Models
 
-The `CaskadeModels` module provides physical models for gravitational lensing, implemented as `caskade.Module` objects.
+The `Models` module provides physical models for gravitational lensing, implemented as `caskade.Module` objects.
 
 ### Mass Models
 
 #### SIE (Singular Isothermal Ellipsoid)
 
-**Module**: `TinyLensGpu.CaskadeModels.mass.SIE`
+**Module**: `TinyLensGpu.Models.mass.SIE`
 
 Singular Isothermal Ellipsoid mass distribution for modeling dark matter halos and galaxy masses.
 
@@ -61,7 +61,7 @@ Compute deflection angles at positions (x, y).
 **Example**:
 ```python
 import caskade as ck
-from TinyLensGpu.CaskadeModels.mass import SIE
+from TinyLensGpu.Models.mass import SIE
 
 # Create SIE model
 sie = SIE(
@@ -87,7 +87,7 @@ alpha_x, alpha_y = sie.deriv(x, y)
 
 #### SHEAR (External Shear)
 
-**Module**: `TinyLensGpu.CaskadeModels.mass.SHEAR`
+**Module**: `TinyLensGpu.Models.mass.SHEAR`
 
 External shear representing tidal gravitational field from large-scale structure.
 
@@ -119,7 +119,7 @@ Compute deflection angles due to external shear.
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeModels.mass import SHEAR
+from TinyLensGpu.Models.mass import SHEAR
 
 shear = SHEAR(
     gamma1=ck.Param("gamma1", 0.05),
@@ -138,7 +138,7 @@ alpha_x, alpha_y = shear.deriv(x, y)
 
 #### SersicEllipse
 
-**Module**: `TinyLensGpu.CaskadeModels.light.SersicEllipse`
+**Module**: `TinyLensGpu.Models.light.SersicEllipse`
 
 Elliptical Sérsic profile for modeling galaxy light distributions.
 
@@ -181,7 +181,7 @@ Compute surface brightness at positions (x, y).
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeModels.light import SersicEllipse
+from TinyLensGpu.Models.light import SersicEllipse
 
 sersic = SersicEllipse(
     R_sersic=ck.Param("R_sersic", 1.0),
@@ -204,7 +204,7 @@ brightness = sersic.light(x, y)
 
 #### GaussianEllipse
 
-**Module**: `TinyLensGpu.CaskadeModels.light.GaussianEllipse`
+**Module**: `TinyLensGpu.Models.light.GaussianEllipse`
 
 Elliptical Gaussian profile for modeling compact light sources or multi-Gaussian expansion (MGE).
 
@@ -241,7 +241,7 @@ Compute surface brightness at positions (x, y).
 
 **Example (Multi-Gaussian Expansion)**:
 ```python
-from TinyLensGpu.CaskadeModels.light import GaussianEllipse
+from TinyLensGpu.Models.light import GaussianEllipse
 
 # Create 15 Gaussian components for MGE
 gaussians = []
@@ -270,7 +270,7 @@ for i in range(1, 15):
 
 #### PhysicalModel
 
-**Module**: `TinyLensGpu.CaskadeModels.composite.PhysicalModel`
+**Module**: `TinyLensGpu.Models.composite.PhysicalModel`
 
 Composite model combining multiple mass and light components.
 
@@ -319,9 +319,9 @@ Compute lens surface brightness at image plane positions.
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeModels.composite import PhysicalModel
-from TinyLensGpu.CaskadeModels.mass import SIE, SHEAR
-from TinyLensGpu.CaskadeModels.light import SersicEllipse
+from TinyLensGpu.Models.composite import PhysicalModel
+from TinyLensGpu.Models.mass import SIE, SHEAR
+from TinyLensGpu.Models.light import SersicEllipse
 
 # Create components
 sie = SIE(theta_E=ck.Param("theta_E", 1.5), ...)
@@ -351,11 +351,11 @@ total_brightness = source_brightness + lens_brightness
 
 ---
 
-## CaskadeSimulator
+## Simulator
 
 ### LensSimulator
 
-**Module**: `TinyLensGpu.CaskadeSimulator.lens_simulator.LensSimulator`
+**Module**: `TinyLensGpu.Simulator.lens_simulator.LensSimulator`
 
 Forward simulator for gravitational lens systems, including ray-tracing, PSF convolution, and linear solving.
 
@@ -394,8 +394,8 @@ Simulate lensed image.
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeSimulator.lens_simulator import LensSimulator
-from TinyLensGpu.CaskadeSimulator.config import SimulatorConfig
+from TinyLensGpu.Simulator.lens_simulator import LensSimulator
+from TinyLensGpu.Simulator.config import SimulatorConfig
 import jax.numpy as jnp
 
 # Create simulator configuration
@@ -435,7 +435,7 @@ image_model, intensities = simulator.simulate(
 
 ### SimulatorConfig
 
-**Module**: `TinyLensGpu.CaskadeSimulator.config.SimulatorConfig`
+**Module**: `TinyLensGpu.Simulator.config.SimulatorConfig`
 
 Configuration for lens simulator.
 
@@ -459,7 +459,7 @@ SimulatorConfig(
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeSimulator.config import SimulatorConfig
+from TinyLensGpu.Simulator.config import SimulatorConfig
 import jax.numpy as jnp
 
 config = SimulatorConfig(
@@ -475,11 +475,11 @@ config = SimulatorConfig(
 
 ---
 
-## CaskadeInference
+## LinearSolver
 
 ### CaskadeConfigParser
 
-**Module**: `TinyLensGpu.CaskadeInference.config_parser.CaskadeConfigParser`
+**Module**: `TinyLensGpu.LinearSolver.config_parser.CaskadeConfigParser`
 
 Parser for YAML configuration files, building caskade models and managing parameter states.
 
@@ -514,7 +514,7 @@ Get parameter information from configuration.
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 
 # Parse configuration
 parser = CaskadeConfigParser('model_config.yaml')
@@ -563,7 +563,7 @@ model_components:
 
 ### RunCaskadeLensModel
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.RunCaskadeLensModel`
+**Module**: `TinyLensGpu.LinearSolver.runner.RunCaskadeLensModel`
 
 Main runner for complete lens modeling workflow.
 
@@ -578,7 +578,7 @@ RunCaskadeLensModel(config_path)
 **Attributes**:
 - `config_parser` (`CaskadeConfigParser`): Configuration parser
 - `phys_model` (`PhysicalModel`): Physical model
-- `prob_model` (`CaskadeImageProbModel`): Probability model
+- `prob_model` (`ImageProbModel`): Probability model
 - `inference` (`CaskadeModelInference`): Inference adapter
 - `results` (`dict`): Inference results
 
@@ -621,7 +621,7 @@ Execute inference (sampling or optimization).
 
 **Example**:
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 import os
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -652,7 +652,7 @@ if 'samples' in runner.results:
 
 #### NautilusCaskadeModelSampler
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.NautilusCaskadeModelSampler`
+**Module**: `TinyLensGpu.LinearSolver.runner.NautilusCaskadeModelSampler`
 
 Adapter for Nautilus nested sampler.
 
@@ -683,7 +683,7 @@ Run Nautilus sampling.
 
 #### DynestyCaskadeModelSampler
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.DynestyCaskadeModelSampler`
+**Module**: `TinyLensGpu.LinearSolver.runner.DynestyCaskadeModelSampler`
 
 Adapter for Dynesty nested sampler.
 
@@ -701,7 +701,7 @@ inference:
 
 #### DifferentialEvolutionCaskadeModelOptimizer
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.DifferentialEvolutionCaskadeModelOptimizer`
+**Module**: `TinyLensGpu.LinearSolver.runner.DifferentialEvolutionCaskadeModelOptimizer`
 
 Adapter for scipy's Differential Evolution optimizer.
 
@@ -728,7 +728,7 @@ Run optimization.
 
 #### BasinHoppingCaskadeModelOptimizer
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.BasinHoppingCaskadeModelOptimizer`
+**Module**: `TinyLensGpu.LinearSolver.runner.BasinHoppingCaskadeModelOptimizer`
 
 Adapter for scipy's Basin Hopping optimizer (global optimization with local minimization).
 
@@ -745,7 +745,7 @@ inference:
 
 #### DirectCaskadeModelOptimizer
 
-**Module**: `TinyLensGpu.CaskadeInference.runner.DirectCaskadeModelOptimizer`
+**Module**: `TinyLensGpu.LinearSolver.runner.DirectCaskadeModelOptimizer`
 
 Adapter for DIRECT (Dividing Rectangles) optimizer.
 
@@ -762,15 +762,15 @@ inference:
 
 ## ProbModel
 
-### CaskadeImageProbModel
+### ImageProbModel
 
-**Module**: `TinyLensGpu.ProbModel.Image.caskade_model.CaskadeImageProbModel`
+**Module**: `TinyLensGpu.ProbModel.Image.image_model.ImageProbModel`
 
 Probability model for computing image likelihood with optional position likelihood constraints.
 
 **Constructor**:
 ```python
-CaskadeImageProbModel(
+ImageProbModel(
     image_data,           # Observed image array
     noise_map,            # Noise map array
     psf_kernel,           # PSF kernel
@@ -818,7 +818,7 @@ Compute log-likelihood.
 
 **Example**:
 ```python
-from TinyLensGpu.ProbModel.Image.caskade_model import CaskadeImageProbModel
+from TinyLensGpu.ProbModel.Image.image_model import ImageProbModel
 import jax.numpy as jnp
 
 # Observed data
@@ -827,7 +827,7 @@ noise_map = jnp.ones((200, 200)) * 0.1
 psf_kernel = jnp.array([[0, 0.1, 0], [0.1, 0.6, 0.1], [0, 0.1, 0]])
 
 # Create probability model
-prob_model = CaskadeImageProbModel(
+prob_model = ImageProbModel(
     image_data=image_data,
     noise_map=noise_map,
     psf_kernel=psf_kernel,
@@ -861,7 +861,7 @@ When configured, the likelihood includes a penalty term that ensures all image p
 
 ## Parameter Modes
 
-Caskade parameters support four modes:
+parameters support four modes:
 
 ### 1. Dynamic (Sampling)
 Parameters varied during inference.
@@ -977,7 +977,7 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 # Run complete modeling
 runner = RunCaskadeLensModel('model_config.yaml')
@@ -1029,7 +1029,7 @@ df.to_csv('output/samples.csv', index=False)
 **Solution**: Normal behavior, subsequent calls are fast
 
 ### Issue: Type errors (torch.Tensor vs JAX)
-**Cause**: Caskade parameters may be torch.Tensor
+**Cause**: parameters may be torch.Tensor
 **Solution**: All forward methods include `jnp.asarray()` conversions
 
 ### Issue: File not found in demos
@@ -1049,7 +1049,7 @@ lens_model.run()
 
 **New code**:
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 lens_model = RunCaskadeLensModel('model_config.yaml')
 lens_model.run()
 ```

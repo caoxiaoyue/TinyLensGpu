@@ -1,5 +1,5 @@
 """
-Simulator configuration for caskade-based lens simulation.
+Simulator configuration for  lens simulation.
 
 This module provides configuration management for gravitational lens
 simulations, including coordinate grids, PSF kernels, and masks.

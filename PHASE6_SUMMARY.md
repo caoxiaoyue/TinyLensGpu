@@ -1,6 +1,6 @@
 # Phase 6 Completion Summary
 
-**Project**: TinyLensGpu ModelParser → Caskade Migration
+**Project**: TinyLensGpu ModelParser → Migration
 **Phase**: Phase 6 (Documentation & Cleanup)
 **Status**: ✅ **COMPLETED**
 **Date**: 2025-12-17
@@ -41,7 +41,7 @@ Phase 6 focused on comprehensive documentation and code quality assessment:
 ### 1. README.md Updates
 
 **Changes**:
-- ✅ Added "🆕 Caskade Integration (v2.0)" section highlighting:
+- ✅ Added "🆕 Integration (v2.0)" section highlighting:
   - Modular architecture
   - Automatic parameter management
   - Improved batch processing
@@ -58,13 +58,13 @@ Phase 6 focused on comprehensive documentation and code quality assessment:
 ### 2. CASKADE_API.md (API Reference)
 
 **Content**:
-- **CaskadeModels**: All physical models
+- **Models**: All physical models
   - Mass models: SIE, SHEAR
   - Light models: SersicEllipse, GaussianEllipse
   - Composite: PhysicalModel
-- **CaskadeSimulator**: LensSimulator, SimulatorConfig
-- **CaskadeInference**: ConfigParser, Runner, all adapters
-- **ProbModel**: CaskadeImageProbModel
+- **Simulator**: LensSimulator, SimulatorConfig
+- **LinearSolver**: ConfigParser, Runner, all adapters
+- **ProbModel**: ImageProbModel
 - **Parameter modes**: dynamic, static, linear, pointer
 - **Prior types**: uniform, gaussian, log_uniform
 - **Batch processing** documentation
@@ -113,7 +113,7 @@ Phase 6 focused on comprehensive documentation and code quality assessment:
 - **Running tests**: Commands for all scenarios
 - **Test coverage**: Per-module coverage metrics
 - **Test files reference**: Detailed documentation of each test file
-  - `test_caskade_models.py` (20+ tests)
+  - `test_image_models.py` (20+ tests)
   - `test_config_parser.py` (15+ tests)
   - `test_lens_simulator.py` (20+ tests)
   - `test_caskade_inference.py` (15+ tests)
@@ -300,10 +300,10 @@ From original Phase 6 objectives:
 
 | Phase | Status | Duration | Key Deliverables |
 |-------|--------|----------|------------------|
-| **Phase 1** | ✅ Complete | 1 week | CaskadeModels (SIE, Shear, Sersic, Gaussian, PhysicalModel) |
+| **Phase 1** | ✅ Complete | 1 week | Models (SIE, Shear, Sersic, Gaussian, PhysicalModel) |
 | **Phase 2** | ✅ Complete | 1 week | CaskadeConfigParser, PriorTransform |
 | **Phase 3** | ✅ Complete | 1 week | LensSimulator, LinearSolver, SimulatorConfig |
-| **Phase 4** | ✅ Complete | 1 week | CaskadeImageProbModel, RunCaskadeLensModel, 5 adapters |
+| **Phase 4** | ✅ Complete | 1 week | ImageProbModel, RunCaskadeLensModel, 5 adapters |
 | **Phase 5** | ✅ Complete | 1 week | Demo validation, CASKADE_GUIDE, full workflow tests |
 | **Phase 6** | ✅ Complete | 1 week | 5 documentation files (3,800+ lines) |
 

@@ -1,4 +1,4 @@
-# Caskade Native Parameter Linking
+# Native Parameter Linking
 
 **Date**: 2025-12-17
 **Update**: Changed from `object.__setattr__` to caskade's native `setattr` for parameter linking
@@ -11,7 +11,7 @@
 
 ---
 
-## Caskade 参数链接机制
+## 参数链接机制
 
 ### 原理
 
@@ -88,7 +88,7 @@ object.__setattr__(target_module, param_name, source_param_obj)
 ```python
 def _apply_parameter_links(self, lens_mass, source_light, lens_light):
     """
-    Apply parameter links using caskade's native pointer mechanism.
+    Apply parameter links 's native pointer mechanism.
 
     When you assign a Param from one module to another (e.g., `module2.param = module1.param`),
     caskade creates an internal link so that both modules share the same parameter value.
@@ -137,7 +137,7 @@ def __init__(self, lens_mass=None, source_light=None, lens_light=None):
 ```bash
 # 参数链接功能测试
 python -c "
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 parser = CaskadeConfigParser('model_config.yaml')
 lens_light = parser.phys_model.lens_light
 
@@ -155,7 +155,7 @@ assert lens_light[14].center_x.value == 7.77
 ### 完整测试套件 ✅
 
 ```bash
-pytest tests/test_caskade_models.py \
+pytest tests/test_image_models.py \
        tests/test_config_parser.py \
        tests/test_caskade_inference.py
 ```

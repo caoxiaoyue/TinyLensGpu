@@ -8,9 +8,9 @@ We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Spac
 
 Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using parametric models such as Sérsic, Gaussian, and multi-Gaussian expansion models. In future updates, we plan to incorporate a pixelated source model to enhance its capabilities.
 
-## 🆕 Caskade Integration (v2.0)
+## 🆕 Integration (v2.0)
 
-TinyLensGpu now features a **caskade-based implementation** that provides:
+TinyLensGpu now features a ** implementation** that provides:
 - **Modular architecture**: All physical components (SIE, Shear, Sersic, Gaussian) are implemented as `caskade.Module` objects
 - **Automatic parameter management**: Parameters automatically support dynamic (sampling), static (fixed), linear (NNLS), and pointer (linked) modes
 - **Improved batch processing**: Seamless handling of large batch sizes for nested sampling
@@ -30,7 +30,7 @@ pip install numba #install numba
 pip install nautilus-sampler dynesty
 pip install astropy matplotlib corner pyyaml
 conda install jupyter
-pip install "caskade[jax]"  # Required for caskade-based implementation
+pip install "caskade[jax]"  # Required for  implementation
 git clone https://github.com/caoxiaoyue/TinyLensGpu #clone the TinyLensGpu repository, suppose you place it in the current directory
 conda develop TinyLensGpu #install TinyLensGpu in the conda environment
 ```
@@ -44,7 +44,7 @@ TinyLensGpu includes a comprehensive test suite with **90+ tests** covering all 
 pytest
 
 # Run specific test suites
-pytest tests/test_caskade_models.py      # Test caskade model implementations
+pytest tests/test_image_models.py      # Test caskade model implementations
 pytest tests/test_config_parser.py        # Test configuration parsing
 pytest tests/test_lens_simulator.py       # Test forward simulation
 pytest tests/test_caskade_inference.py    # Test inference system
@@ -129,7 +129,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 # os.environ["JAX_PLATFORMS"] = "cpu"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 config_path = 'model_config.yaml'
 
 

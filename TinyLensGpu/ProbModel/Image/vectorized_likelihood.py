@@ -11,7 +11,7 @@ from functools import partial
 from jax import jit
 from typing import Optional
 
-from .caskade_model import CaskadeImageProbModel
+from .image_model import ImageProbModel
 
 
 class VectorizedLensLikelihood(ck.Module):
@@ -30,7 +30,7 @@ class VectorizedLensLikelihood(ck.Module):
     
     Parameters
     ----------
-    prob_model : CaskadeImageProbModel
+    prob_model : ImageProbModel
         Probability model for computing likelihoods
     
     Examples
@@ -44,11 +44,11 @@ class VectorizedLensLikelihood(ck.Module):
     ...     param.to_dynamic()
     >>> 
     >>> # Create vectorized likelihood function
-    >>> from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+    >>> from TinyLensGpu.Models.likelihood import make_likelihood
     >>> loglike = make_likelihood(likelihood, vectorized=True)
     """
     
-    def __init__(self, prob_model: CaskadeImageProbModel):
+    def __init__(self, prob_model: ImageProbModel):
         super().__init__("vectorized_lens_likelihood")
         self.prob_model = prob_model
         # Store reference to physical model for parameter access

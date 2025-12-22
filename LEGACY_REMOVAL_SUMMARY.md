@@ -15,19 +15,19 @@ Successfully removed all legacy ModelParser/Profile/Simulator code from the Tiny
 
 ### Phase 1: Copy Utility Functions ✅
 
-**1.1 Profile/util.py → CaskadeModels/utils.py**
+**1.1 Profile/util.py → Models/utils.py**
 - Copied 4 functions: `ellipticity2phi_q`, `xy_transform`, `relocate_radii`, `ellipse2circle_transform`
 - Added helper functions: `cart2polar`, `polar2cart`
-- Result: CaskadeModels now independent of legacy Profile module
+- Result: Models now independent of legacy Profile module
 
-**1.2 fnnls.py → CaskadeInference/linear_solver.py**
+**1.2 fnnls.py → LinearSolver/linear_solver.py**
 - Copied `fnnls_jax` and `fnnls_jax_vec` functions (~130 lines)
 - Result: Linear solver independent of legacy Simulator module
 
-**1.3 Image utilities → CaskadeSimulator**
-- Removed unused `util` import from `CaskadeInference/runner.py`
-- Added `make_grid_2d()` to `CaskadeSimulator/config.py`
-- Added `bin_image_general()` to `CaskadeSimulator/lens_simulator.py`
+**1.3 Image utilities → Simulator**
+- Removed unused `util` import from `LinearSolver/runner.py`
+- Added `make_grid_2d()` to `Simulator/config.py`
+- Added `bin_image_general()` to `Simulator/lens_simulator.py`
 - Result: Simulator independent of legacy code
 
 ### Phase 2: Migrate Demo Scripts ✅
@@ -78,12 +78,12 @@ Created `paper/legacy/README.md` explaining archival status.
 ### Phase 6: Verification ✅
 
 **Updated tests**:
-- Rewrote `tests/test_caskade_models.py` to not compare with legacy
-- Tests now validate Caskade models produce valid outputs
+- Rewrote `tests/test_image_models.py` to not compare with legacy
+- Tests now validate models produce valid outputs
 
 **Test Results**: ✅ **20/20 tests passing**
 ```
-tests/test_caskade_models.py        6/6 passed
+tests/test_image_models.py        6/6 passed
 tests/test_config_parser.py         7/7 passed
 tests/test_caskade_inference.py     7/7 passed
 ```
@@ -99,12 +99,12 @@ tests/test_caskade_inference.py     7/7 passed
 - **Test files deleted**: 6 files (~500 lines)
 
 ### Code Migrated/Copied
-- **Utility functions**: 9 functions copied to Caskade modules
+- **Utility functions**: 9 functions copied to modules
 - **Demo scripts updated**: 6 files
 - **Paper scripts archived**: 3 directories
 
 ### Files Modified
-- **Caskade code**: 5 files updated
+- **code**: 5 files updated
 - **Demo scripts**: 6 files updated
 - **Documentation**: 2 files updated
 - **Tests**: 1 file rewritten
@@ -117,16 +117,16 @@ tests/test_caskade_inference.py     7/7 passed
 - `TinyLensGpu/ProbModel/Image/Model.py` - Part of legacy ProbModel (not used by Caskade)
 - `tests/test_lens_simulator.py` - Test file for legacy simulator (will fail, but preserved for reference)
 
-These are part of the legacy system that remains for historical reference but is not imported by the Caskade implementation.
+These are part of the legacy system that remains for historical reference but is not imported by the implementation.
 
 ---
 
 ## Impact Assessment
 
 ### ✅ What Works
-- All 20 Caskade tests passing
+- All 20 tests passing
 - All 6 demo scripts updated and functional
-- No breaking changes to Caskade system
+- No breaking changes to system
 - Backward compatibility maintained (YAML configs unchanged)
 
 ### ⚠️ What Changed
@@ -145,8 +145,8 @@ These are part of the legacy system that remains for historical reference but is
 ## Verification Commands
 
 ```bash
-# Run all Caskade tests
-pytest tests/test_caskade_models.py tests/test_config_parser.py tests/test_caskade_inference.py -v
+# Run all tests
+pytest tests/test_image_models.py tests/test_config_parser.py tests/test_caskade_inference.py -v
 
 # Check for remaining legacy imports (should find only ProbModel/Image/Model.py)
 grep -r "from TinyLensGpu.ModelParser\|from TinyLensGpu.RunModel" TinyLensGpu/ tests/ 2>&1 | grep -v Binary

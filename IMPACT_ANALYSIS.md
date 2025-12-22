@@ -7,12 +7,12 @@
 
 ## Files Modified
 
-1. **[TinyLensGpu/CaskadeModels/composite.py](TinyLensGpu/CaskadeModels/composite.py)**
+1. **[TinyLensGpu/Models/composite.py](TinyLensGpu/Models/composite.py)**
    - Changed component list storage to use `object.__setattr__`
    - Added `@property` accessors for lists
    - **Impact**: Low-level change, transparent to users
 
-2. **[TinyLensGpu/CaskadeInference/config_parser.py](TinyLensGpu/CaskadeInference/config_parser.py)**
+2. **[TinyLensGpu/LinearSolver/config_parser.py](TinyLensGpu/LinearSolver/config_parser.py)**
    - Fixed `_apply_parameter_links` to use `object.__setattr__`
    - **Impact**: Critical fix for MGE parameter sharing
 
@@ -23,7 +23,7 @@
 ### Core Component Tests
 | Test Suite | Status | Count | Notes |
 |-----------|--------|-------|-------|
-| **test_caskade_models.py** | ✅ PASS | 6/6 | All model tests pass |
+| **test_image_models.py** | ✅ PASS | 6/6 | All model tests pass |
 | **test_config_parser.py** | ✅ PASS | 7/7 | Config parsing works |
 | **test_lens_simulator.py** | ⚠️ ERROR | 0/0 | Circular import (pre-existing) |
 | **test_caskade_inference.py** | ✅ PASS | 7/7 | Inference system works |
@@ -35,7 +35,7 @@
 
 ## Detailed Test Results
 
-### 1. test_caskade_models.py ✅ (6/6 passed)
+### 1. test_image_models.py ✅ (6/6 passed)
 ```
 ✓ TestSIE::test_sie_deflection
 ✓ TestShear::test_shear_deflection
@@ -66,18 +66,18 @@ ERROR: ImportError: cannot import name 'LensSimulator' from partially initialize
 ```
 
 **Root cause**: Circular import between:
-- `CaskadeSimulator.lens_simulator` → imports `LinearSolver`
-- `CaskadeInference.runner` → imports `CaskadeImageProbModel`
-- `ProbModel.Image.caskade_model` → imports `LensSimulator`
+- `Simulator.lens_simulator` → imports `LinearSolver`
+- `LinearSolver.runner` → imports `ImageProbModel`
+- `ProbModel.Image.image_model` → imports `LensSimulator`
 
 **Status**: **Pre-existing issue** (not caused by our changes)
 **Impact**: None on actual functionality (imports work at runtime, just not in test collection)
 
 ### 4. test_caskade_inference.py ✅ (7/7 passed)
 ```
-✓ TestCaskadeImageProbModel::test_prob_model_creation
-✓ TestCaskadeImageProbModel::test_forward_model
-✓ TestCaskadeImageProbModel::test_likelihood_computation
+✓ TestImageProbModel::test_prob_model_creation
+✓ TestImageProbModel::test_forward_model
+✓ TestImageProbModel::test_likelihood_computation
 ✓ TestCaskadeModelInference::test_inference_creation
 ✓ TestCaskadeModelInference::test_params_array2kargs
 ✓ TestCaskadeModelInference::test_prior_transform

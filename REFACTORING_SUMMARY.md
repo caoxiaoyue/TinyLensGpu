@@ -19,7 +19,7 @@
 
 ### 1. 创建 ParamU 参数系统
 
-**新增文件**: `CaskadeModels/param_u.py`
+**新增文件**: `Models/param_u.py`
 
 ```python
 class ParamU(ck.Param):
@@ -38,7 +38,7 @@ class ParamU(ck.Param):
 
 ### 2. 创建程序化模型构建工具
 
-**新增文件**: `CaskadeModels/builder.py`
+**新增文件**: `Models/builder.py`
 
 提供三个核心函数：
 - `build_lens_model()` - 构建物理模型
@@ -47,7 +47,7 @@ class ParamU(ck.Param):
 
 ### 3. 简化先验转换系统
 
-**新增文件**: `CaskadeModels/prior_spec.py`
+**新增文件**: `Models/prior_spec.py`
 
 ```python
 @dataclass(frozen=True)
@@ -69,11 +69,11 @@ class PriorSpec:
 ### 4. 删除的文件（YAML 相关）
 
 ```
-❌ CaskadeInference/config_parser.py       (380+ 行)
-❌ CaskadeInference/config_builder.py      (280+ 行)
-❌ CaskadeInference/runner.py              (54 行，已清理)
-❌ CaskadeInference/runner_v2.py           (370+ 行)
-❌ CaskadeModels/priors.py                 (220+ 行)
+❌ LinearSolver/config_parser.py       (380+ 行)
+❌ LinearSolver/config_builder.py      (280+ 行)
+❌ LinearSolver/runner.py              (54 行，已清理)
+❌ LinearSolver/runner_v2.py           (370+ 行)
+❌ Models/priors.py                 (220+ 行)
 ❌ paper/demo/lens_only/*.yaml             (6 个配置文件)
 ❌ paper/demo/lens_only/run_model_from_yaml.py
 ```
@@ -83,8 +83,8 @@ class PriorSpec:
 ### 5. 更新的文件
 
 **简化的模块导出**:
-- `CaskadeModels/__init__.py` - 导出核心组件和工具
-- `CaskadeInference/__init__.py` - 仅导出线性求解器
+- `Models/__init__.py` - 导出核心组件和工具
+- `LinearSolver/__init__.py` - 仅导出线性求解器
 
 **新的示例**:
 - `paper/demo/lens_only/run_model.py` - 程序化接口示例
@@ -111,12 +111,12 @@ class PriorSpec:
 ### 完整示例（类似 example_v4.py）
 
 ```python
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.builder import (
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.builder import (
     build_lens_model, build_likelihood, load_lens_data
 )
-from TinyLensGpu.CaskadeModels.prior_spec import make_prior_transformation
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
 from TinyLensGpu.ProbModel.Image.lens_likelihood import LensLikelihood
 from nautilus import Sampler
 
@@ -207,7 +207,7 @@ sampler.run(verbose=True, n_eff=800)
 
 ```
 TinyLensGpu/
-├── CaskadeModels/
+├── Models/
 │   ├── param_u.py          # ParamU 参数类
 │   ├── builder.py          # 程序化构建工具
 │   ├── prior_spec.py       # 先验规格
@@ -219,13 +219,13 @@ TinyLensGpu/
 │   └── light/              # 光分布模型
 │       ├── sersic.py
 │       └── gaussian.py
-├── CaskadeInference/
+├── LinearSolver/
 │   └── linear_solver.py    # 线性求解器
-├── CaskadeSimulator/
+├── Simulator/
 │   ├── config.py           # 模拟器配置
 │   └── lens_simulator.py   # 透镜模拟器
 ├── ProbModel/Image/
-│   ├── caskade_model.py    # 概率模型
+│   ├── image_model.py    # 概率模型
 │   └── lens_likelihood.py  # 似然包装器
 └── paper/demo/lens_only/
     ├── run_model.py        # 主示例
@@ -288,7 +288,7 @@ Inference Complete!
 
 ### 重构范围
 
-#### 1. **LensSimulator** (`CaskadeSimulator/lens_simulator.py`)
+#### 1. **LensSimulator** (`Simulator/lens_simulator.py`)
 
 **变更前**:
 ```python
@@ -319,7 +319,7 @@ def simulate(self, ...):
 - ✅ 数组维度简化（去掉批处理维度）
 - ✅ 代码行数减少 ~30%
 
-#### 2. **LinearSolver** (`CaskadeInference/linear_solver.py`)
+#### 2. **LinearSolver** (`LinearSolver/linear_solver.py`)
 
 **变更前**:
 ```python
@@ -354,7 +354,7 @@ def prepare_linear_system(...):
 - ❌ 删除 `bs` 参数
 - ✅ 数组形状简化（2D → 1D）
 
-#### 3. **CaskadeImageProbModel** (`ProbModel/Image/caskade_model.py`)
+#### 3. **ImageProbModel** (`ProbModel/Image/image_model.py`)
 
 **变更前**:
 ```python
@@ -507,7 +507,7 @@ sampler = Sampler(prior, loglike, n_dim=ndim,
 |------|---------|---------|
 | `lens_simulator.py` | ~80 行 | -25% |
 | `linear_solver.py` | ~120 行 | -35% |
-| `caskade_model.py` | ~60 行 | -20% |
+| `image_model.py` | ~60 行 | -20% |
 | `Model.py` | ~50 行 | -30% |
 | **总计** | **~310 行** | **-27%** |
 
@@ -536,9 +536,9 @@ sampler = Sampler(prior, loglike, n_dim=ndim,
 ### 示例：完整工作流
 
 ```python
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models.likelihood import make_likelihood
 from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 

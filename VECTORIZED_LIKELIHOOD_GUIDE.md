@@ -39,7 +39,7 @@ class LinearRegressionLikelihood(ck.Module):
 ```python
 # vectorized_likelihood.py
 class VectorizedLensLikelihood(ck.Module):
-    def __init__(self, prob_model: CaskadeImageProbModel):
+    def __init__(self, prob_model: ImageProbModel):
         super().__init__("vectorized_lens_likelihood")
         self.prob_model = prob_model
         self.phys_model = prob_model.sim_obj.phys_model
@@ -62,9 +62,9 @@ class VectorizedLensLikelihood(ck.Module):
 ## 使用方法
 
 ```python
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
 from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models.likelihood import make_likelihood
 
 # 1. 构建模型
 phys_model = build_lens_model(lens_light=[sersic])
@@ -110,12 +110,12 @@ sampler.run(verbose=True)
 ```python
 """使用 VectorizedLensLikelihood 的完整示例"""
 
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.builder import (
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.builder import (
     build_lens_model, build_likelihood, load_lens_data
 )
-from TinyLensGpu.CaskadeModels.prior_spec import make_prior_transformation
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
 from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 

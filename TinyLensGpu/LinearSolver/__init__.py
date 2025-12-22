@@ -1,5 +1,5 @@
 """
-Caskade-based inference utilities for gravitational lensing.
+Linear solver utilities for gravitational lensing.
 
 This module provides linear solver utilities for intensity parameter optimization.
 

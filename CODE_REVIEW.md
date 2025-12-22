@@ -31,7 +31,7 @@
 
 ```
 TinyLensGpu/
-├── CaskadeModels/      ⭐⭐⭐⭐⭐ 优秀
+├── Models/      ⭐⭐⭐⭐⭐ 优秀
 │   ├── param_u.py      # 参数类，设计优雅
 │   ├── builder.py      # 构建工具，接口清晰
 │   ├── prior_spec.py   # 先验规格，函数式风格
@@ -39,13 +39,13 @@ TinyLensGpu/
 │   ├── composite.py    # 组合模型，设计巧妙
 │   ├── mass/           # 质量模型
 │   └── light/          # 光分布模型
-├── CaskadeInference/   ⭐⭐⭐⭐ 良好
+├── LinearSolver/   ⭐⭐⭐⭐ 良好
 │   └── linear_solver.py # 线性求解器
-├── CaskadeSimulator/   ⭐⭐⭐⭐⭐ 优秀
+├── Simulator/   ⭐⭐⭐⭐⭐ 优秀
 │   ├── config.py       # 配置类
 │   └── lens_simulator.py # 模拟器
 └── ProbModel/Image/    ⭐⭐⭐⭐ 良好
-    ├── caskade_model.py
+    ├── image_model.py
     └── lens_likelihood.py
 ```
 
@@ -536,7 +536,7 @@ def build_likelihood(
     use_linear: bool = False,
     mask: Optional[np.ndarray] = None,
     solver_type: str = 'nnls',
-) -> "CaskadeImageProbModel":
+) -> "ImageProbModel":
     """
     Build likelihood model from physical model and data.
     
@@ -563,7 +563,7 @@ def build_likelihood(
     
     Returns
     -------
-    CaskadeImageProbModel
+    ImageProbModel
         Probability model for computing likelihoods
     
     Examples
@@ -600,7 +600,7 @@ def make_prior_transformation(
 
 # 使用 TYPE_CHECKING 避免循环导入
 if TYPE_CHECKING:
-    from ..ProbModel.Image.caskade_model import CaskadeImageProbModel
+    from ..ProbModel.Image.image_model import ImageProbModel
 ```
 
 **评分**: ⭐⭐⭐⭐⭐ (5/5)
@@ -705,7 +705,7 @@ tests/
 ```python
 # tests/unit/test_param_u.py
 import pytest
-from TinyLensGpu.CaskadeModels import ParamU
+from TinyLensGpu.Models import ParamU
 
 def test_param_u_creation():
     """测试 ParamU 创建"""
@@ -725,7 +725,7 @@ def test_param_u_validation():
 
 def test_prior_transformation():
     """测试先验转换"""
-    from TinyLensGpu.CaskadeModels.prior_spec import PriorSpec
+    from TinyLensGpu.Models.prior_spec import PriorSpec
     import jax.numpy as jnp
     
     spec = PriorSpec("test", "uniform", (0.0, 1.0))
@@ -736,8 +736,8 @@ def test_prior_transformation():
 # tests/integration/test_model_building.py
 def test_build_complete_model():
     """测试完整模型构建"""
-    from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-    from TinyLensGpu.CaskadeModels.builder import build_lens_model
+    from TinyLensGpu.Models import ParamU, SersicEllipse
+    from TinyLensGpu.Models.builder import build_lens_model
     
     sersic = SersicEllipse(
         R_sersic=ParamU("R_sersic", 1.0),
@@ -866,25 +866,25 @@ except:  # ⚠️ 可能隐藏安全相关的异常
 #### 🔴 高优先级 (1-2 周)
 
 1. **修复 builder.py:191 裸 except 子句**
-   - 文件: `CaskadeModels/builder.py`
+   - 文件: `Models/builder.py`
    - 行数: 191
    - 工作量: 30 分钟
 
 2. **优化 likelihood.py 批处理性能**
-   - 文件: `CaskadeModels/likelihood.py`
+   - 文件: `Models/likelihood.py`
    - 行数: 51-60
    - 工作量: 2 小时
    - 预期加速: 10-100x
 
 3. **添加输入验证到 build_lens_model**
-   - 文件: `CaskadeModels/builder.py`
+   - 文件: `Models/builder.py`
    - 行数: 21-66
    - 工作量: 1 小时
 
 #### 🟡 中优先级 (2-4 周)
 
 4. **改进 Sersic bn 计算精度**
-   - 文件: `CaskadeModels/light/sersic.py`
+   - 文件: `Models/light/sersic.py`
    - 行数: 99
    - 工作量: 2 小时
 

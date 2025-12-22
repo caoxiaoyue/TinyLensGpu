@@ -1,5 +1,5 @@
 """
-External Shear mass profile using caskade.
+External Shear mass profile .
 
 This module implements the external shear contribution to the lensing
 deflection field using the caskade framework.

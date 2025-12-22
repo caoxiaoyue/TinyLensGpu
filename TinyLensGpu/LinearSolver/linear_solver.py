@@ -5,7 +5,7 @@ This module provides linear solvers (NNLS and normal least squares) adapted
 for use with caskade models, handling batch processing and regularization.
 
 The FNNLS implementation was copied from the legacy Simulator.Image.fnnls module
-to make the Caskade implementation independent of legacy code.
+to make the implementation independent of legacy code.
 """
 
 import jax

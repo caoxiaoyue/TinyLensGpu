@@ -9,10 +9,10 @@ pip install -e .
 ## 最简示例
 
 ```python
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood, load_lens_data
-from TinyLensGpu.CaskadeModels.prior_spec import make_prior_transformation
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
 from TinyLensGpu.ProbModel.Image.lens_likelihood import LensLikelihood
 from nautilus import Sampler
 
@@ -106,7 +106,7 @@ prob_model = build_likelihood(
 
 ### 质量模型
 ```python
-from TinyLensGpu.CaskadeModels import SIE, Shear
+from TinyLensGpu.Models import SIE, Shear
 
 # SIE 质量分布
 sie = SIE(
@@ -126,7 +126,7 @@ shear = Shear(
 
 ### 光分布模型
 ```python
-from TinyLensGpu.CaskadeModels import SersicEllipse, GaussianEllipse
+from TinyLensGpu.Models import SersicEllipse, GaussianEllipse
 
 # Sersic 轮廓
 sersic = SersicEllipse(

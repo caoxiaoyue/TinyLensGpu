@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide demonstrates how to use the new caskade-based inference system for gravitational lens modeling.
+This guide demonstrates how to use the new  inference system for gravitational lens modeling.
 
 ## Quick Start
 
@@ -12,7 +12,7 @@ This guide demonstrates how to use the new caskade-based inference system for gr
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 # Initialize runner
 runner = RunCaskadeLensModel('model_config.yaml')
@@ -47,7 +47,7 @@ print(f"Best merit: {runner.results['fun']}")
 ### Running with Sampler (Full Inference)
 
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 # Initialize and setup
 runner = RunCaskadeLensModel('model_config.yaml')
@@ -217,7 +217,7 @@ position_likelihood:
 
 ## Comparison: Original vs Caskade
 
-| Feature | Original | Caskade |
+| Feature | Original | |
 |---------|----------|---------|
 | Config Format | YAML | Same (backward compatible) |
 | Parameter System | Manual dict passing | caskade Param objects |
@@ -250,7 +250,7 @@ python tests/test_demo_lens_src.py
    from TinyLensGpu.RunModel.RunLensModel import RunLensModel
 
    # New
-   from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+   from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
    ```
 3. Rest of the code remains the same!
 

@@ -16,7 +16,7 @@
 ### 1. **遗产概率模型**
 - ❌ `TinyLensGpu/ProbModel/Image/Model.py` (173 行)
   - 引用了不存在的 `TinyLensGpu.Simulator` 模块
-  - 已被 `CaskadeImageProbModel` 完全替代
+  - 已被 `ImageProbModel` 完全替代
   - 无任何实际使用
 
 ### 2. **过时的测试文件**
@@ -70,7 +70,7 @@
 
 ```
 TinyLensGpu/
-├── CaskadeModels/          # 现代化模型系统
+├── Models/          # 现代化模型系统
 │   ├── param_u.py          # ParamU 参数类
 │   ├── builder.py          # 程序化构建工具
 │   ├── prior_spec.py       # 先验规格
@@ -78,13 +78,13 @@ TinyLensGpu/
 │   ├── composite.py        # 组合模型
 │   ├── mass/               # 质量模型
 │   └── light/              # 光分布模型
-├── CaskadeSimulator/       # 现代化模拟器
+├── Simulator/       # 现代化模拟器
 │   ├── config.py
 │   └── lens_simulator.py
-├── CaskadeInference/       # 推断工具
+├── LinearSolver/       # 推断工具
 │   └── linear_solver.py
 ├── ProbModel/Image/        # 概率模型
-│   ├── caskade_model.py    # ✅ 现代化实现
+│   ├── image_model.py    # ✅ 现代化实现
 │   └── vectorized_likelihood.py
 └── Inference/              # 推断接口
     ├── base.py
@@ -99,16 +99,16 @@ TinyLensGpu/
 ```python
 ✅ 所有核心模块导入成功
 
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse, SIE, Shear
-from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood
-from TinyLensGpu.CaskadeModels.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood, CaskadeImageProbModel
-from TinyLensGpu.CaskadeSimulator.lens_simulator import LensSimulator
-from TinyLensGpu.CaskadeInference.linear_solver import LinearSolver
+from TinyLensGpu.Models import ParamU, SersicEllipse, SIE, Shear
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models.likelihood import make_likelihood
+from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood, ImageProbModel
+from TinyLensGpu.Simulator.lens_simulator import LensSimulator
+from TinyLensGpu.LinearSolver.linear_solver import LinearSolver
 ```
 
 ### 剩余测试文件
-- ✅ `tests/test_caskade_models.py` - 测试现代化模型
+- ✅ `tests/test_image_models.py` - 测试现代化模型
 - ✅ `tests/test_util.py` - 工具函数测试
 - ✅ `tests/conftest.py` - 简化的测试配置
 
@@ -133,7 +133,7 @@ from TinyLensGpu.CaskadeInference.linear_solver import LinearSolver
 - 删除所有过时的比较测试
 
 ✅ **代码库更加现代化**
-- 只保留基于 Caskade 的实现
+- 只保留基于 的实现
 - 只保留程序化接口
 - 只保留 JAX vmap 批处理方式
 
@@ -155,11 +155,11 @@ from TinyLensGpu.CaskadeInference.linear_solver import LinearSolver
 
 ❌ **遗产 Simulator 模块**
 - `TinyLensGpu.Simulator.Image.Simulator`
-- 已完全被 `CaskadeSimulator` 替代
+- 已完全被 `Simulator` 替代
 
 ❌ **遗产 ImageProbModel**
 - `TinyLensGpu.ProbModel.Image.Model.ImageProbModel`
-- 已完全被 `CaskadeImageProbModel` 替代
+- 已完全被 `ImageProbModel` 替代
 
 ❌ **YAML 配置系统**
 - 所有 YAML 配置解析器已删除
@@ -177,8 +177,8 @@ prob_model = ImageProbModel(...)
 
 **新方式**:
 ```python
-from TinyLensGpu.ProbModel.Image import CaskadeImageProbModel
-prob_model = CaskadeImageProbModel(...)
+from TinyLensGpu.ProbModel.Image import ImageProbModel
+prob_model = ImageProbModel(...)
 ```
 
 ---
@@ -188,9 +188,9 @@ prob_model = CaskadeImageProbModel(...)
 通过这次清理，TinyLensGpu 代码库：
 
 1. ✅ **完全移除了遗产代码** - 删除 ~1,034 行过时代码
-2. ✅ **统一了实现方式** - 只保留现代化的 Caskade 实现
+2. ✅ **统一了实现方式** - 只保留现代化的 实现
 3. ✅ **简化了测试** - 删除 5 个过时测试文件
 4. ✅ **降低了维护成本** - 无需维护两套系统
 5. ✅ **提高了代码质量** - 更简洁、更清晰、更易维护
 
-**代码库现在完全基于现代化的 Caskade + JAX vmap 架构，没有任何遗产代码负担！** 🎊
+**代码库现在完全基于现代化的 + JAX vmap 架构，没有任何遗产代码负担！** 🎊

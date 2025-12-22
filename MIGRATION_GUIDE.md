@@ -2,7 +2,7 @@
 
 ⚠️ **HISTORICAL DOCUMENT**
 
-**Note**: As of 2025-12-17, the migration to Caskade is complete and the legacy ModelParser/Profile/Simulator code has been removed from the codebase. This guide is preserved for historical reference only.
+**Note**: As of 2025-12-17, the migration to is complete and the legacy ModelParser/Profile/Simulator code has been removed from the codebase. This guide is preserved for historical reference only.
 
 **For new users**: You should use the Caskade-based implementation directly. See [CASKADE_GUIDE.md](CASKADE_GUIDE.md) for getting started.
 
@@ -10,7 +10,7 @@
 
 ---
 
-This guide provides step-by-step instructions for migrating from the old ModelParser-based system to the new caskade-based implementation.
+This guide provides step-by-step instructions for migrating from the old ModelParser-based system to the new  implementation.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ This guide provides step-by-step instructions for migrating from the old ModelPa
 
 ## Why Migrate?
 
-The caskade-based implementation offers several advantages:
+The  implementation offers several advantages:
 
 ### **Benefits**
 ✅ **Modular Architecture**: All components are `caskade.Module` objects with clean interfaces
@@ -40,7 +40,7 @@ The caskade-based implementation offers several advantages:
 
 ### **What Changes**
 🔄 **Import Statements**: `RunLensModel` → `RunCaskadeLensModel`
-🔄 **Internal Architecture**: Profile modules → CaskadeModels
+🔄 **Internal Architecture**: Profile modules → Models
 ✔️ **Configuration Files**: No changes required (backward compatible)
 ✔️ **Inference Methods**: Same samplers and optimizers supported
 ✔️ **Output Format**: Identical results and file formats
@@ -70,7 +70,7 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 config_path = 'model_config.yaml'
 lens_model = RunCaskadeLensModel(config_path)  # Only this line changes!
@@ -103,7 +103,7 @@ print(ck.__version__)  # Should be >= 1.0.0
 
 | Old Import | New Import |
 |-----------|-----------|
-| `from TinyLensGpu.RunModel.RunLensModel import RunLensModel` | `from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel` |
+| `from TinyLensGpu.RunModel.RunLensModel import RunLensModel` | `from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel` |
 | `RunLensModel(...)` | `RunCaskadeLensModel(...)` |
 
 ### Step 3: Verify Configuration Files
@@ -128,7 +128,7 @@ def test_my_lens():
 
 **New**:
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 def test_my_lens():
     runner = RunCaskadeLensModel('test_config.yaml')
@@ -141,7 +141,7 @@ def test_my_lens():
 Test your migration with a quick optimization run before full sampling:
 
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 # Load your configuration
 runner = RunCaskadeLensModel('model_config.yaml')
@@ -149,7 +149,7 @@ runner.load_data()
 runner.setup_model()
 
 # Override with quick optimizer for testing
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 parser = CaskadeConfigParser('model_config.yaml')
 bounds = parser.prior_transform.get_param_bounds()
 
@@ -196,14 +196,14 @@ samples = lens_model.results['samples']
 log_evidence = lens_model.results['log_evidence']
 ```
 
-**After (Caskade System)**:
+**After (System)**:
 ```python
 #%%
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 config_path = 'model_config.yaml'
 lens_model = RunCaskadeLensModel(config_path)
@@ -230,7 +230,7 @@ runner.run_inference()
 
 **After**:
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 runner = RunCaskadeLensModel('model_config.yaml')
 runner.load_data()
@@ -258,8 +258,8 @@ phys_model = parser.build_physical_model()
 
 **After**:
 ```python
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 
 # Manual setup
 parser = CaskadeConfigParser('model_config.yaml')
@@ -368,7 +368,7 @@ Run the comprehensive test suite to verify your migration:
 
 ```bash
 # Test all caskade functionality
-pytest tests/test_caskade_models.py       # Physical models
+pytest tests/test_image_models.py       # Physical models
 pytest tests/test_config_parser.py        # Configuration parsing
 pytest tests/test_lens_simulator.py       # Forward simulation
 pytest tests/test_caskade_inference.py    # Inference system
@@ -386,7 +386,7 @@ Create a validation script to compare old vs new:
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 
 def validate_migration(config_path):
     """
@@ -457,7 +457,7 @@ old_runner.run()
 old_samples = old_runner.results['samples']
 
 # Run new system
-from TinyLensGpu.CaskadeInference.runner import RunCaskadeLensModel
+from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
 new_runner = RunCaskadeLensModel('model_config.yaml')
 new_runner.run()
 new_samples = new_runner.results['samples']
@@ -496,7 +496,7 @@ pip install "caskade[jax]"
 TypeError: where requires ndarray or scalar arguments, got <class 'torch.Tensor'>
 ```
 
-**Cause**: Caskade parameters may be torch.Tensor in mixed backend mode.
+**Cause**: parameters may be torch.Tensor in mixed backend mode.
 
 **Solution**: Already fixed in all caskade models! All `@ck.forward` methods include `jnp.asarray()` conversions. If you encounter this in custom code:
 
@@ -582,7 +582,7 @@ ValueError: bounds must be provided for differential evolution
 
 **Solution**:
 ```python
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 
 parser = CaskadeConfigParser('model_config.yaml')
 bounds = parser.prior_transform.get_param_bounds()
@@ -631,7 +631,7 @@ elif 'x' in runner.results:
 
 Tested on **lens_src demo** (200×200 image, SIE+Shear+2 Sérsic, 15 dynamic + 2 linear params):
 
-| Metric | Old System | Caskade System | Change |
+| Metric | Old System | System | Change |
 |--------|-----------|---------------|--------|
 | **Optimizer (10 iter)** | 0.25 min | 0.23 min | **-8%** ✓ |
 | **JIT Compilation** | 12.5 sec | 14.4 sec | +15% |
@@ -639,11 +639,11 @@ Tested on **lens_src demo** (200×200 image, SIE+Shear+2 Sérsic, 15 dynamic + 2
 | **Likelihood (bs=800)** | N/A | 1.2 sec | - |
 | **Memory Usage** | ~4 GB | ~4 GB | Same |
 
-**Summary**: Caskade system has **comparable or slightly better** performance, with cleaner code architecture.
+**Summary**: system has **comparable or slightly better** performance, with cleaner code architecture.
 
 ### Batch Processing Efficiency
 
-Caskade excels at batch processing (important for nested sampling):
+excels at batch processing (important for nested sampling):
 
 | Batch Size | Time per Sample (ms) | Efficiency |
 |-----------|---------------------|-----------|
@@ -662,8 +662,8 @@ Batch processing is highly efficient thanks to JAX's `vmap` and caskade's automa
 The caskade system supports custom linear solvers:
 
 ```python
-from TinyLensGpu.CaskadeSimulator.lens_simulator import LensSimulator
-from TinyLensGpu.CaskadeSimulator.config import SimulatorConfig
+from TinyLensGpu.Simulator.lens_simulator import LensSimulator
+from TinyLensGpu.Simulator.config import SimulatorConfig
 
 # Use NNLS solver (non-negative, more physical)
 simulator = LensSimulator(phys_model, sim_config, solver_type='nnls')
@@ -694,7 +694,7 @@ This adds a penalty to the likelihood if image positions don't map to a consiste
 For advanced use cases, you can manually manage caskade parameters:
 
 ```python
-from TinyLensGpu.CaskadeInference.config_parser import CaskadeConfigParser
+from TinyLensGpu.LinearSolver.config_parser import CaskadeConfigParser
 
 parser = CaskadeConfigParser('model_config.yaml')
 phys_model = parser.phys_model

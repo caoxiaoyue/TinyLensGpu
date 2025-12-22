@@ -2,7 +2,7 @@
 Utility functions for caskade models.
 
 These functions were originally from the Profile.util module but are now
-copied here to make the Caskade implementation independent of legacy code.
+copied here to make the implementation independent of legacy code.
 """
 
 import jax.numpy as jnp

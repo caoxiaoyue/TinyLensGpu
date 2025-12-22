@@ -1,5 +1,5 @@
 """
-Gravitational lens simulator using caskade models.
+Gravitational lens simulator  models.
 
 This module provides the main simulation engine for gravitational lensing,
 handling ray-tracing, PSF convolution, and linear parameter solving.
@@ -12,9 +12,9 @@ from jax import jit
 from typing import Optional
 import numpy as np
 
-from ..CaskadeModels.composite import PhysicalModel
+from ..Models.composite import PhysicalModel
 from .config import SimulatorConfig
-from ..CaskadeInference.linear_solver import LinearSolver, prepare_linear_system
+from ..LinearSolver.linear_solver import LinearSolver, prepare_linear_system
 
 
 def bin_image_general(img, nsub):
@@ -56,7 +56,7 @@ def bin_image_general(img, nsub):
 
 class LensSimulator:
     """
-    Gravitational lens simulator using caskade models.
+    Gravitational lens simulator  models.
 
     This class performs forward simulation of gravitational lensing,
     including ray-tracing, surface brightness calculation, PSF convolution,
@@ -306,7 +306,7 @@ class LensSimulator:
 
         return img, None
 
-    @functools.partial(jit, static_argnums=(0, 5, 6))
+    @functools.partial(jit, static_argnums=(0, 6, 7))
     def _simulate_linear(
         self,
         img_lens_sub: jnp.ndarray,

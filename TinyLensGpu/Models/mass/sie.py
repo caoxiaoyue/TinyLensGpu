@@ -1,5 +1,5 @@
 """
-Singular Isothermal Ellipsoid (SIE) mass profile using caskade.
+Singular Isothermal Ellipsoid (SIE) mass profile .
 
 This module implements the SIE mass distribution profile using the caskade
 framework for modular, composable gravitational lensing models.

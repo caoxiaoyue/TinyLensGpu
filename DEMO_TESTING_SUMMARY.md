@@ -16,11 +16,11 @@
 **Solution**: Use `object.__setattr__(module, param_name, param_obj)` to bypass caskade's interception and directly assign the Param object reference.
 
 **Files Modified**:
-1. **[TinyLensGpu/CaskadeModels/composite.py](TinyLensGpu/CaskadeModels/composite.py#L63-L65)**
+1. **[TinyLensGpu/Models/composite.py](TinyLensGpu/Models/composite.py#L63-L65)**
    - Used `object.__setattr__` to store component lists as regular Python lists
    - Added properties to access lists
 
-2. **[TinyLensGpu/CaskadeInference/config_parser.py](TinyLensGpu/CaskadeInference/config_parser.py#L286-L288)**
+2. **[TinyLensGpu/LinearSolver/config_parser.py](TinyLensGpu/LinearSolver/config_parser.py#L286-L288)**
    - Used `object.__setattr__` in `_apply_parameter_links` method
    - Now successfully creates shared Param objects (56 links for 15-component MGE)
 
@@ -137,7 +137,7 @@ Applied 56 parameter links
 
 ## Technical Details
 
-### Caskade Module Attribute Assignment
+### Module Attribute Assignment
 
 **Wrong** (creates new Param):
 ```python
@@ -206,10 +206,10 @@ The caskade integration is **production-ready** with:
 
 ## Files Modified in This Session
 
-1. **[TinyLensGpu/CaskadeModels/composite.py](TinyLensGpu/CaskadeModels/composite.py)**
+1. **[TinyLensGpu/Models/composite.py](TinyLensGpu/Models/composite.py)**
    - Fixed component list storage to avoid NodeList conversion
 
-2. **[TinyLensGpu/CaskadeInference/config_parser.py](TinyLensGpu/CaskadeInference/config_parser.py)**
+2. **[TinyLensGpu/LinearSolver/config_parser.py](TinyLensGpu/LinearSolver/config_parser.py)**
    - Fixed `_apply_parameter_links` to use `object.__setattr__`
    - Now correctly creates shared Param objects
 

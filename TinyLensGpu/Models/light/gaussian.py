@@ -1,5 +1,5 @@
 """
-Gaussian light profile using caskade.
+Gaussian light profile .
 
 This module implements the elliptical Gaussian light profile using the
 caskade framework. Gaussian profiles are commonly used in Multi-Gaussian

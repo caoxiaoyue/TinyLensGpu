@@ -1,9 +1,9 @@
 """
-Caskade-based implementations of gravitational lensing models.
+Implementations of gravitational lensing models.
 
-This module provides caskade implementations of physical models for
-gravitational lensing, including mass profiles, light profiles, and
-programmatic model building utilities.
+This module provides physical models for gravitational lensing,
+including mass profiles, light profiles, and programmatic model
+building utilities.
 
 Main Components
 ---------------

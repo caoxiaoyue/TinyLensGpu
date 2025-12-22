@@ -88,7 +88,7 @@ def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
     Parameters
     ----------
     module : ck.Module
-        Caskade module to extract priors from
+        module to extract priors from
     
     Returns
     -------
@@ -102,7 +102,7 @@ def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
     
     Examples
     --------
-    >>> from TinyLensGpu.CaskadeModels import SersicEllipse, ParamU
+    >>> from TinyLensGpu.Models import SersicEllipse, ParamU
     >>> sersic = SersicEllipse(
     ...     R_sersic=ParamU("R_sersic", 1.0, prior_type="uniform", prior_settings=[0.1, 2.0])
     ... )
@@ -142,7 +142,7 @@ def make_prior_transformation(module: ck.Module) -> Tuple[callable, List[PriorSp
     Parameters
     ----------
     module : ck.Module
-        Caskade module with dynamic parameters
+        module with dynamic parameters
     
     Returns
     -------

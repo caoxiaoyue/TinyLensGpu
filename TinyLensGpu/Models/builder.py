@@ -22,7 +22,7 @@ from .composite import PhysicalModel
 import caskade as ck
 
 if TYPE_CHECKING:
-    from ..ProbModel.Image.caskade_model import CaskadeImageProbModel
+    from ..ProbModel.Image.image_model import ImageProbModel
 
 
 def build_lens_model(
@@ -107,7 +107,7 @@ def build_likelihood(
     mask: Optional[np.ndarray] = None,
     solver_type: str = 'nnls',
     position_likelihood: Optional[dict] = None,
-) -> "CaskadeImageProbModel":
+) -> "ImageProbModel":
     """
     Build likelihood model from physical model and data.
     
@@ -139,7 +139,7 @@ def build_likelihood(
     
     Returns
     -------
-    CaskadeImageProbModel
+    ImageProbModel
         Probability model for computing likelihoods
     
     Examples
@@ -159,9 +159,9 @@ def build_likelihood(
     ... )
     """
     # Lazy import to avoid circular dependency
-    from ..ProbModel.Image.caskade_model import CaskadeImageProbModel
+    from ..ProbModel.Image.image_model import ImageProbModel
     
-    return CaskadeImageProbModel(
+    return ImageProbModel(
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,

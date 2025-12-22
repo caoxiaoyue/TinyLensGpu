@@ -1,5 +1,5 @@
 """
-Sersic light profile using caskade.
+Sersic light profile .
 
 This module implements the elliptical Sersic light profile using the
 caskade framework for modular, composable light distributions.
