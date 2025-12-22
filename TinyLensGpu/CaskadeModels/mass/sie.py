@@ -8,6 +8,7 @@ framework for modular, composable gravitational lensing models.
 import caskade as ck
 import jax.numpy as jnp
 from ..utils import ellipticity2phi_q, xy_transform, relocate_radii
+from ..param_u import ParamU
 
 
 class SIE(ck.Module):
@@ -32,14 +33,12 @@ class SIE(ck.Module):
                  center_x=None, center_y=None):
         super().__init__()
 
-        # Define parameters using ck.Param
-        # These can be set to dynamic (for sampling), static (fixed),
-        # or pointer (linked to another parameter)
-        self.theta_E = ck.Param("theta_E", theta_E)
-        self.e1 = ck.Param("e1", e1)
-        self.e2 = ck.Param("e2", e2)
-        self.center_x = ck.Param("center_x", center_x)
-        self.center_y = ck.Param("center_y", center_y)
+        # Define parameters using ParamU (or convert if already ParamU)
+        self.theta_E = theta_E if isinstance(theta_E, ParamU) else ParamU("theta_E", theta_E)
+        self.e1 = e1 if isinstance(e1, ParamU) else ParamU("e1", e1)
+        self.e2 = e2 if isinstance(e2, ParamU) else ParamU("e2", e2)
+        self.center_x = center_x if isinstance(center_x, ParamU) else ParamU("center_x", center_x)
+        self.center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", center_y)
 
     @ck.forward
     def deriv(self, x, y, theta_E=None, e1=None, e2=None,

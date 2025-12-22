@@ -9,6 +9,7 @@ Expansion (MGE) decompositions of galaxy light distributions.
 import caskade as ck
 import jax.numpy as jnp
 from ..utils import ellipse2circle_transform
+from ..param_u import ParamU
 
 
 class GaussianEllipse(ck.Module):
@@ -38,13 +39,13 @@ class GaussianEllipse(ck.Module):
                  center_x=None, center_y=None):
         super().__init__()
 
-        # Define parameters using ck.Param
-        self.flux = ck.Param("flux", flux)
-        self.sigma = ck.Param("sigma", sigma)
-        self.e1 = ck.Param("e1", e1)
-        self.e2 = ck.Param("e2", e2)
-        self.center_x = ck.Param("center_x", center_x)
-        self.center_y = ck.Param("center_y", center_y)
+        # Define parameters using ParamU (or convert if already ParamU)
+        self.flux = flux if isinstance(flux, ParamU) else ParamU("flux", flux)
+        self.sigma = sigma if isinstance(sigma, ParamU) else ParamU("sigma", sigma)
+        self.e1 = e1 if isinstance(e1, ParamU) else ParamU("e1", e1)
+        self.e2 = e2 if isinstance(e2, ParamU) else ParamU("e2", e2)
+        self.center_x = center_x if isinstance(center_x, ParamU) else ParamU("center_x", center_x)
+        self.center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", center_y)
 
     @ck.forward
     def light(self, x, y, flux=None, sigma=None, e1=None, e2=None,

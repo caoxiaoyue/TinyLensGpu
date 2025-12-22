@@ -1,31 +1,17 @@
 """
-Caskade-based inference system for gravitational lensing.
+Caskade-based inference utilities for gravitational lensing.
 
-This module provides configuration parsing, parameter management, and
-inference runners using the caskade framework.
+This module provides linear solver utilities for intensity parameter optimization.
+
+Main Classes
+------------
+LinearSolver : Linear solver for intensity parameters (NNLS or normal equations)
+prepare_linear_system : Prepare linear system for solving
 """
 
-from .config_parser import CaskadeConfigParser
-from .runner import (
-    CaskadeModelInference,
-    NautilusCaskadeModelSampler,
-    DynestyCaskadeModelSampler,
-    DifferentialEvolutionCaskadeModelOptimizer,
-    BasinHoppingCaskadeModelOptimizer,
-    DirectCaskadeModelOptimizer,
-    RunCaskadeLensModel,
-)
 from .linear_solver import LinearSolver, prepare_linear_system
 
 __all__ = [
-    'CaskadeConfigParser',
-    'CaskadeModelInference',
-    'NautilusCaskadeModelSampler',
-    'DynestyCaskadeModelSampler',
-    'DifferentialEvolutionCaskadeModelOptimizer',
-    'BasinHoppingCaskadeModelOptimizer',
-    'DirectCaskadeModelOptimizer',
-    'RunCaskadeLensModel',
     'LinearSolver',
     'prepare_linear_system',
 ]

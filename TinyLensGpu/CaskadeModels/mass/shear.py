@@ -7,6 +7,7 @@ deflection field using the caskade framework.
 
 import caskade as ck
 import jax.numpy as jnp
+from ..param_u import ParamU
 
 
 class Shear(ck.Module):
@@ -27,9 +28,9 @@ class Shear(ck.Module):
     def __init__(self, gamma1=None, gamma2=None):
         super().__init__()
 
-        # Define parameters using ck.Param
-        self.gamma1 = ck.Param("gamma1", gamma1)
-        self.gamma2 = ck.Param("gamma2", gamma2)
+        # Define parameters using ParamU (or convert if already ParamU)
+        self.gamma1 = gamma1 if isinstance(gamma1, ParamU) else ParamU("gamma1", gamma1)
+        self.gamma2 = gamma2 if isinstance(gamma2, ParamU) else ParamU("gamma2", gamma2)
 
     @ck.forward
     def deriv(self, x, y, gamma1=None, gamma2=None):

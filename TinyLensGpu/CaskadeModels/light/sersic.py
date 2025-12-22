@@ -8,6 +8,7 @@ caskade framework for modular, composable light distributions.
 import caskade as ck
 import jax.numpy as jnp
 from ..utils import ellipse2circle_transform
+from ..param_u import ParamU
 
 
 class SersicEllipse(ck.Module):
@@ -40,14 +41,14 @@ class SersicEllipse(ck.Module):
                  center_x=None, center_y=None, Ie=None):
         super().__init__()
 
-        # Define parameters using ck.Param
-        self.R_sersic = ck.Param("R_sersic", R_sersic)
-        self.n_sersic = ck.Param("n_sersic", n_sersic)
-        self.e1 = ck.Param("e1", e1)
-        self.e2 = ck.Param("e2", e2)
-        self.center_x = ck.Param("center_x", center_x)
-        self.center_y = ck.Param("center_y", center_y)
-        self.Ie = ck.Param("Ie", Ie)
+        # Define parameters using ParamU (or convert if already ParamU)
+        self.R_sersic = R_sersic if isinstance(R_sersic, ParamU) else ParamU("R_sersic", R_sersic)
+        self.n_sersic = n_sersic if isinstance(n_sersic, ParamU) else ParamU("n_sersic", n_sersic)
+        self.e1 = e1 if isinstance(e1, ParamU) else ParamU("e1", e1)
+        self.e2 = e2 if isinstance(e2, ParamU) else ParamU("e2", e2)
+        self.center_x = center_x if isinstance(center_x, ParamU) else ParamU("center_x", center_x)
+        self.center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", center_y)
+        self.Ie = Ie if isinstance(Ie, ParamU) else ParamU("Ie", Ie)
 
     @ck.forward
     def light(self, x, y, R_sersic=None, n_sersic=None, e1=None, e2=None,
