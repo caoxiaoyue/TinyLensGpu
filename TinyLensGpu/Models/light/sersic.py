@@ -5,8 +5,10 @@ This module implements the elliptical Sersic light profile using the
 caskade framework for modular, composable light distributions.
 """
 
+from typing import Optional
 import caskade as ck
 import jax.numpy as jnp
+from jax import Array
 from ..utils import ellipse2circle_transform
 from ..param_u import ParamU
 
@@ -37,8 +39,10 @@ class SersicEllipse(ck.Module):
         Intensity at the effective radius (can be linear parameter)
     """
 
-    def __init__(self, R_sersic=None, n_sersic=None, e1=None, e2=None,
-                 center_x=None, center_y=None, Ie=None):
+    def __init__(self, R_sersic: Optional[float] = None, n_sersic: Optional[float] = None, 
+                 e1: Optional[float] = None, e2: Optional[float] = None,
+                 center_x: Optional[float] = None, center_y: Optional[float] = None, 
+                 Ie: Optional[float] = None) -> None:
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)
@@ -51,8 +55,10 @@ class SersicEllipse(ck.Module):
         self.Ie = Ie if isinstance(Ie, ParamU) else ParamU("Ie", Ie)
 
     @ck.forward
-    def light(self, x, y, R_sersic=None, n_sersic=None, e1=None, e2=None,
-              center_x=None, center_y=None, Ie=None):
+    def light(self, x: Array, y: Array, R_sersic: Optional[Array] = None, 
+              n_sersic: Optional[Array] = None, e1: Optional[Array] = None, 
+              e2: Optional[Array] = None, center_x: Optional[Array] = None, 
+              center_y: Optional[Array] = None, Ie: Optional[Array] = None) -> Array:
         """
         Compute surface brightness at given positions.
 

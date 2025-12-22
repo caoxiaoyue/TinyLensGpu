@@ -5,10 +5,12 @@ These functions were originally from the Profile.util module but are now
 copied here to make the implementation independent of legacy code.
 """
 
+from typing import Tuple
 import jax.numpy as jnp
+from jax import Array
 
 
-def ellipticity2phi_q(e1, e2):
+def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
     """
     Convert ellipticity to phi and q.
     Args:
@@ -27,7 +29,7 @@ def ellipticity2phi_q(e1, e2):
     return phi, q
 
 
-def xy_transform(x, y, xc, yc, phi):
+def xy_transform(x: Array, y: Array, xc: Array, yc: Array, phi: Array) -> Tuple[Array, Array]:
     """
     Transform coordinates to the lens frame.
     Args:
@@ -49,19 +51,19 @@ def xy_transform(x, y, xc, yc, phi):
     return x_rot, y_rot
 
 
-def cart2polar(x, y):
+def cart2polar(x: Array, y: Array) -> Tuple[Array, Array]:
     r = jnp.sqrt(x**2+y**2)
     phi = jnp.arctan2(y, x)
     return r, phi
 
 
-def polar2cart(r, phi):
+def polar2cart(r: Array, phi: Array) -> Tuple[Array, Array]:
     x = r*jnp.cos(phi)
     y = r*jnp.sin(phi)
     return x, y
 
 
-def relocate_radii(x, y):
+def relocate_radii(x: Array, y: Array) -> Tuple[Array, Array, Array]:
     """Handle numerical singularity at origin."""
     r, theta = cart2polar(x, y)
     r = jnp.where(r < 1e-5, 1e-5, r)
@@ -69,7 +71,8 @@ def relocate_radii(x, y):
     return x, y, r
 
 
-def ellipse2circle_transform(x, y, e1, e2, center_x, center_y):
+def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array, 
+                            center_x: Array, center_y: Array) -> Tuple[Array, Array]:
     phi_G, q = ellipticity2phi_q(e1, e2)
     xt1, xt2 = xy_transform(x, y, center_x, center_y, phi_G)
     return xt1 * jnp.sqrt(q), xt2 / jnp.sqrt(q)

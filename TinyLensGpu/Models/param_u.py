@@ -5,7 +5,7 @@ This module provides a parameter class that stores prior information
 for automatic transformation in nested sampling and optimization.
 """
 
-from typing import Literal, Sequence, Optional
+from typing import Literal, Sequence, Optional, Any
 import caskade as ck
 
 
@@ -57,19 +57,19 @@ class ParamU(ck.Param):
     def __init__(
         self,
         name: str,
-        value=None,
+        value: Optional[float] = None,
         *,
         prior_type: Literal["uniform", "gaussian", "log_uniform"] = "uniform",
         prior_settings: Optional[Sequence[float]] = None,
         limits: Optional[Sequence[float]] = None,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(name, value, **kwargs)
         self.prior_type = prior_type
         self.prior_settings = prior_settings
         self.limits = limits
     
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"ParamU(name={self.name}, value={self.value}, "
                 f"prior_type={self.prior_type}, "
                 f"prior_settings={self.prior_settings}, "

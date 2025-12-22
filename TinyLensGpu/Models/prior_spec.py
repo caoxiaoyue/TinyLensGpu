@@ -8,8 +8,9 @@ and utilities for extracting prior specs from caskade modules with ParamU parame
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Tuple, List
+from typing import Literal, Tuple, List, Callable
 import jax.numpy as jnp
+from jax import Array
 from jax.scipy.special import erfinv
 import caskade as ck
 
@@ -43,18 +44,18 @@ class PriorSpec:
     settings: Tuple[float, float]
     limits: Tuple[float, float] | None = None
     
-    def transform(self, u: jnp.ndarray) -> jnp.ndarray:
+    def transform(self, u: Array) -> Array:
         """
         Transform unit samples to parameter space.
         
         Parameters
         ----------
-        u : jnp.ndarray
+        u : Array
             Unit cube samples in [0, 1]
         
         Returns
         -------
-        jnp.ndarray
+        Array
             Transformed parameter values
         """
         u = jnp.clip(u, 1e-9, 1 - 1e-9)
@@ -135,7 +136,7 @@ def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
     return specs
 
 
-def make_prior_transformation(module: ck.Module) -> Tuple[callable, List[PriorSpec]]:
+def make_prior_transformation(module: ck.Module) -> Tuple[Callable[[Array], Array], List[PriorSpec]]:
     """
     Create prior transformation function for nested sampler.
     

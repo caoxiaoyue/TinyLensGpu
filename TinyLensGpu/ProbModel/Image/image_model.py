@@ -8,9 +8,9 @@ and LensSimulator for computing image likelihoods.
 import functools
 import jax.numpy as jnp
 import jax
+from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict
-from jax import jit
+from typing import Optional, Dict, Tuple, Union
 
 from TinyLensGpu.Simulator.lens_simulator import LensSimulator
 from TinyLensGpu.Simulator.config import SimulatorConfig
@@ -75,7 +75,7 @@ class ImageProbModel:
         mask: Optional[np.ndarray] = None,
         solver_type: str = 'nnls',
         position_likelihood: Optional[Dict] = None,
-    ):
+    ) -> None:
         self.image_data = jnp.array(image_data)
         self.noise_map = jnp.array(noise_map)
 
@@ -99,7 +99,7 @@ class ImageProbModel:
         self.unmask = jnp.array(~sim_config.mask)
         self.position_like_config = position_likelihood
 
-    def forward_model(self):
+    def forward_model(self) -> Tuple[Array, Optional[Array]]:
         """
         Run forward model to generate simulated image.
 
@@ -123,11 +123,11 @@ class ImageProbModel:
     @functools.partial(jit, static_argnums=(0,))
     def _likelihood_helper(
         self,
-        image_model: jnp.ndarray,
-        image_data: jnp.ndarray,
-        noise_map: jnp.ndarray,
-        unmask: jnp.ndarray,
-    ):
+        image_model: Array,
+        image_data: Array,
+        noise_map: Array,
+        unmask: Array,
+    ) -> float:
         """
         Compute chi-square likelihood.
 
@@ -151,7 +151,7 @@ class ImageProbModel:
         chi2_image = chi2_image * unmask
         return -0.5 * jnp.sum(chi2_image)
 
-    def likelihood(self, debug: bool = True):
+    def likelihood(self, debug: bool = True) -> float:
         """
         Compute log-likelihood of current model parameters.
 
@@ -205,7 +205,7 @@ class ImageProbModel:
 
         return like
 
-    def _position_likelihood_penalty(self):
+    def _position_likelihood_penalty(self) -> float:
         """
         Compute position likelihood penalty.
 
@@ -253,7 +253,7 @@ class ImageProbModel:
 
         return pen
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"ImageProbModel("
                 f"npix={self.image_data.shape[0]}, "
                 f"use_linear={self.use_linear}, "

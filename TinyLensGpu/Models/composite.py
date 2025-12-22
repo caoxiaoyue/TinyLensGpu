@@ -6,7 +6,8 @@ profiles into a complete gravitational lensing model using the caskade framework
 """
 
 import caskade as ck
-from typing import List, Optional
+from jax import Array
+from typing import List, Optional, Tuple, Dict
 
 
 class PhysicalModel(ck.Module):
@@ -55,7 +56,7 @@ class PhysicalModel(ck.Module):
         lens_mass: Optional[List[ck.Module]] = None,
         source_light: Optional[List[ck.Module]] = None,
         lens_light: Optional[List[ck.Module]] = None,
-    ):
+    ) -> None:
         super().__init__()
 
         # Store component lists as regular Python lists (not caskade NodeList)
@@ -79,22 +80,22 @@ class PhysicalModel(ck.Module):
             setattr(self, f"lens_light_{i}", light)
 
     @property
-    def lens_mass(self):
+    def lens_mass(self) -> List[ck.Module]:
         """Access lens mass components as a list."""
         return self._lens_mass_list
 
     @property
-    def source_light(self):
+    def source_light(self) -> List[ck.Module]:
         """Access source light components as a list."""
         return self._source_light_list
 
     @property
-    def lens_light(self):
+    def lens_light(self) -> List[ck.Module]:
         """Access lens light components as a list."""
         return self._lens_light_list
 
     @ck.forward
-    def deflection(self, x, y):
+    def deflection(self, x: Array, y: Array) -> Tuple[Array, Array]:
         """
         Calculate total deflection from all mass components.
 
@@ -126,7 +127,7 @@ class PhysicalModel(ck.Module):
         return beta_x, beta_y
 
     @ck.forward
-    def source_surface_brightness(self, beta_x, beta_y):
+    def source_surface_brightness(self, beta_x: Array, beta_y: Array) -> Array:
         """
         Calculate total source surface brightness.
 
@@ -148,7 +149,7 @@ class PhysicalModel(ck.Module):
         return total
 
     @ck.forward
-    def lens_surface_brightness(self, x, y):
+    def lens_surface_brightness(self, x: Array, y: Array) -> Array:
         """
         Calculate total lens surface brightness.
 
@@ -169,7 +170,7 @@ class PhysicalModel(ck.Module):
             total = total + light_model.light(x, y)
         return total
 
-    def get_component_counts(self):
+    def get_component_counts(self) -> Dict[str, int]:
         """
         Get the number of components in each category.
 

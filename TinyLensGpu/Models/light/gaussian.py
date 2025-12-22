@@ -6,8 +6,10 @@ caskade framework. Gaussian profiles are commonly used in Multi-Gaussian
 Expansion (MGE) decompositions of galaxy light distributions.
 """
 
+from typing import Optional
 import caskade as ck
 import jax.numpy as jnp
+from jax import Array
 from ..utils import ellipse2circle_transform
 from ..param_u import ParamU
 
@@ -35,8 +37,9 @@ class GaussianEllipse(ck.Module):
         Center y-coordinate in arcseconds
     """
 
-    def __init__(self, flux=None, sigma=None, e1=None, e2=None,
-                 center_x=None, center_y=None):
+    def __init__(self, flux: Optional[float] = None, sigma: Optional[float] = None, 
+                 e1: Optional[float] = None, e2: Optional[float] = None,
+                 center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)
@@ -48,8 +51,10 @@ class GaussianEllipse(ck.Module):
         self.center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", center_y)
 
     @ck.forward
-    def light(self, x, y, flux=None, sigma=None, e1=None, e2=None,
-              center_x=None, center_y=None):
+    def light(self, x: Array, y: Array, flux: Optional[Array] = None, 
+              sigma: Optional[Array] = None, e1: Optional[Array] = None, 
+              e2: Optional[Array] = None, center_x: Optional[Array] = None, 
+              center_y: Optional[Array] = None) -> Array:
         """
         Compute surface brightness at given positions.
 

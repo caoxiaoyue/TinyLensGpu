@@ -1,0 +1,34 @@
+# TinyLensGpu Requirements
+# Core dependencies for running TinyLensGpu
+
+# JAX - GPU-accelerated numerical computing
+jax[cuda12]>=0.4.20
+
+# Caskade - Modular framework for composable models
+caskade[jax]>=0.1.0
+
+# Core scientific computing
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0
+
+# Astronomy and FITS file handling
+astropy>=5.0.0
+
+# Visualization
+matplotlib>=3.5.0
+
+# Data analysis and plotting
+corner>=2.2.0
+
+# Configuration file parsing
+pyyaml>=6.0
+
+# JIT compilation for CPU fallback
+numba>=0.57.0
+
+# Nested sampling algorithms
+nautilus-sampler>=0.6.0
+dynesty>=2.0.0
+
+# Optional: UltraNest (uncomment if needed)
+# ultranest>=3.5.0

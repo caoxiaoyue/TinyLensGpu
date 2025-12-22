@@ -8,8 +8,8 @@ handling ray-tracing, PSF convolution, and linear parameter solving.
 import functools
 import jax.numpy as jnp
 import jax.scipy as jsp
-from jax import jit
-from typing import Optional
+from jax import jit, Array
+from typing import Optional, Tuple, Union
 import numpy as np
 
 from ..Models.composite import PhysicalModel
@@ -17,7 +17,7 @@ from .config import SimulatorConfig
 from ..LinearSolver.linear_solver import LinearSolver, prepare_linear_system
 
 
-def bin_image_general(img, nsub):
+def bin_image_general(img: Array, nsub: int) -> Array:
     """
     Bin an image by averaging over nsub x nsub blocks.
 
@@ -88,7 +88,7 @@ class LensSimulator:
         phys_model: PhysicalModel,
         sim_config: SimulatorConfig,
         solver_type: str = 'nnls'
-    ):
+    ) -> None:
         self.phys_model = phys_model
         self.sim_config = sim_config
         self.solver_type = solver_type
@@ -112,7 +112,7 @@ class LensSimulator:
         xgrid_sub: Optional[np.ndarray] = None,
         ygrid_sub: Optional[np.ndarray] = None,
         psf_kernel: Optional[np.ndarray] = None,
-    ):
+    ) -> Union[Array, Tuple[Array, Array]]:
         """
         Simulate gravitational lensing image for a single parameter set.
 
@@ -208,12 +208,12 @@ class LensSimulator:
 
     def _generate_ideal_model(
         self,
-        xgrid_sub: jnp.ndarray,
-        ygrid_sub: jnp.ndarray,
+        xgrid_sub: Array,
+        ygrid_sub: Array,
         n_src: int,
         n_lens_light: int,
         n_lens_mass: int,
-    ):
+    ) -> Tuple[Array, Array]:
         """
         Generate ideal model image before PSF convolution.
 
@@ -270,10 +270,10 @@ class LensSimulator:
     @functools.partial(jit, static_argnums=(0,))
     def _simulate_nonlinear(
         self,
-        img_lens_sub: jnp.ndarray,
-        img_arc_sub: jnp.ndarray,
-        psf_kernel: jnp.ndarray,
-    ):
+        img_lens_sub: Array,
+        img_arc_sub: Array,
+        psf_kernel: Array,
+    ) -> Tuple[Array, None]:
         """
         Non-linear simulation (no intensity optimization).
 
@@ -309,14 +309,14 @@ class LensSimulator:
     @functools.partial(jit, static_argnums=(0, 6, 7))
     def _simulate_linear(
         self,
-        img_lens_sub: jnp.ndarray,
-        img_arc_sub: jnp.ndarray,
-        psf_kernel: jnp.ndarray,
-        image_map: jnp.ndarray,
-        noise_map: jnp.ndarray,
+        img_lens_sub: Array,
+        img_arc_sub: Array,
+        psf_kernel: Array,
+        image_map: Array,
+        noise_map: Array,
         n_lens_light: int,
         n_src: int,
-    ):
+    ) -> Tuple[Array, Array]:
         """
         Linear simulation with intensity optimization.
 
@@ -382,7 +382,7 @@ class LensSimulator:
 
         return img, X_vec
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"LensSimulator("
                 f"n_mass={len(self.phys_model.lens_mass)}, "
                 f"n_src={len(self.phys_model.source_light)}, "

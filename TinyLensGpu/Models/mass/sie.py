@@ -5,8 +5,10 @@ This module implements the SIE mass distribution profile using the caskade
 framework for modular, composable gravitational lensing models.
 """
 
+from typing import Optional, Tuple
 import caskade as ck
 import jax.numpy as jnp
+from jax import Array
 from ..utils import ellipticity2phi_q, xy_transform, relocate_radii
 from ..param_u import ParamU
 
@@ -29,8 +31,9 @@ class SIE(ck.Module):
         Center y-coordinate in arcseconds
     """
 
-    def __init__(self, theta_E=None, e1=None, e2=None,
-                 center_x=None, center_y=None):
+    def __init__(self, theta_E: Optional[float] = None, e1: Optional[float] = None, 
+                 e2: Optional[float] = None, center_x: Optional[float] = None, 
+                 center_y: Optional[float] = None) -> None:
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)
@@ -41,8 +44,9 @@ class SIE(ck.Module):
         self.center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", center_y)
 
     @ck.forward
-    def deriv(self, x, y, theta_E=None, e1=None, e2=None,
-              center_x=None, center_y=None):
+    def deriv(self, x: Array, y: Array, theta_E: Optional[Array] = None, 
+              e1: Optional[Array] = None, e2: Optional[Array] = None,
+              center_x: Optional[Array] = None, center_y: Optional[Array] = None) -> Tuple[Array, Array]:
         """
         Calculate deflection angles for SIE profile.
 

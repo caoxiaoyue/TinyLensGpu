@@ -7,10 +7,11 @@ simulations, including coordinate grids, PSF kernels, and masks.
 
 import numpy as np
 import jax.numpy as jnp
-from typing import Optional
+from jax import Array
+from typing import Optional, Tuple
 
 
-def make_grid_2d(npix, dpix, nsub=1):
+def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
     """
     Generate 2D coordinate grids for image plane.
 
@@ -84,7 +85,7 @@ class SimulatorConfig:
         psf_kernel: Optional[np.ndarray] = None,
         nsub: int = 1,
         mask: Optional[np.ndarray] = None,
-    ):
+    ) -> None:
         self.dpix = dpix
         self.npix = npix
 
@@ -108,7 +109,7 @@ class SimulatorConfig:
         )
 
     @staticmethod
-    def get_coords(npix: int, dpix: float, nsub: int = 1):
+    def get_coords(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array, Array, Array]:
         """
         Generate coordinate grids for image simulation.
 
@@ -130,6 +131,6 @@ class SimulatorConfig:
         xgrid_sub, ygrid_sub = make_grid_2d(npix, dpix, nsub)
         return xgrid, ygrid, xgrid_sub, ygrid_sub
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"SimulatorConfig(npix={self.npix}, dpix={self.dpix}, "
                 f"nsub={self.nsub}, psf_shape={self.psf_kernel.shape})")

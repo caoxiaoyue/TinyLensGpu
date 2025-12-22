@@ -8,13 +8,14 @@ The FNNLS implementation was copied from the legacy Simulator.Image.fnnls module
 to make the implementation independent of legacy code.
 """
 
+from typing import Tuple, Callable, Optional
 import jax
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 
 
 @jax.jit
-def fnnls_jax(Z, x, epsilon=None):
+def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Array, float]:
     """
     JAX implementation of the Fast Non-Negative Least Squares (FNNLS) algorithm.
 
@@ -133,12 +134,12 @@ class LinearSolver:
         Solver type, either 'nnls' or 'normal' (default: 'nnls')
     """
 
-    def __init__(self, solver_type: str = 'nnls'):
+    def __init__(self, solver_type: str = 'nnls') -> None:
         if solver_type not in ['nnls', 'normal']:
             raise ValueError("solver_type must be either 'nnls' or 'normal'")
         self.solver_type = solver_type
 
-    def solve(self, A_mat, D_vec):
+    def solve(self, A_mat: Array, D_vec: Array) -> Tuple[Array, Optional[float]]:
         """
         Solve linear system AX = D.
 
@@ -164,7 +165,7 @@ class LinearSolver:
 
 
 @jit
-def solve_linear(A, b):
+def solve_linear(A: Array, b: Array) -> Array:
     """
     Normal least squares solver using pseudoinverse.
 
@@ -196,17 +197,17 @@ def solve_linear(A, b):
 
 
 def prepare_linear_system(
-    img_lens_sub,
-    img_arc_sub,
-    psf_kernel,
-    image_map,
-    noise_map,
-    nsub,
-    n_lens_light,
-    n_src,
-    bin_func,
-    fftconvolve_func
-):
+    img_lens_sub: Array,
+    img_arc_sub: Array,
+    psf_kernel: Array,
+    image_map: Array,
+    noise_map: Array,
+    nsub: int,
+    n_lens_light: int,
+    n_src: int,
+    bin_func: Callable[[Array, int], Array],
+    fftconvolve_func: Callable
+) -> Tuple[Array, Array]:
     """
     Prepare linear system for intensity solving.
 

@@ -5,8 +5,10 @@ This module implements the external shear contribution to the lensing
 deflection field using the caskade framework.
 """
 
+from typing import Optional, Tuple
 import caskade as ck
 import jax.numpy as jnp
+from jax import Array
 from ..param_u import ParamU
 
 
@@ -25,7 +27,7 @@ class Shear(ck.Module):
         Shear component 2
     """
 
-    def __init__(self, gamma1=None, gamma2=None):
+    def __init__(self, gamma1: Optional[float] = None, gamma2: Optional[float] = None) -> None:
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)
@@ -33,7 +35,8 @@ class Shear(ck.Module):
         self.gamma2 = gamma2 if isinstance(gamma2, ParamU) else ParamU("gamma2", gamma2)
 
     @ck.forward
-    def deriv(self, x, y, gamma1=None, gamma2=None):
+    def deriv(self, x: Array, y: Array, gamma1: Optional[Array] = None, 
+              gamma2: Optional[Array] = None) -> Tuple[Array, Array]:
         """
         Calculate deflection angles for external shear.
 
