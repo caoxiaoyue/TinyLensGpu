@@ -117,30 +117,6 @@ def fnnls_jax(Z, x, epsilon=None):
     return d, res
 
 
-@jax.jit
-def fnnls_jax_vec(Z, x):
-    """
-    Vectorized Fast Non-Negative Least Squares solver using JAX's vmap.
-
-    This implementation vectorizes the original fnnls function over the batch dimension
-    using JAX's vmap functionality.
-
-    Args:
-        Z: Matrix of shape (m, n, b) where b is the batch size
-        x: Vector of shape (m, b)
-    Returns:
-        Tuple of:
-        - Solution vector of shape (n, b)
-        - Residual norms of shape (b,)
-    """
-    # Use vmap to vectorize over the batch dimension
-    # in_axes=(-1, -1) means the last axis of both Z and x is the batch dimension
-    # out_axes=-1 means the output will have the batch dimension as the last axis
-    return jax.vmap(fnnls_jax, in_axes=(-1, -1), out_axes=-1)(Z, x)
-
-
-# Alias for backward compatibility
-fnnls_vec = fnnls_jax_vec
 
 
 class LinearSolver:
@@ -148,7 +124,7 @@ class LinearSolver:
     Linear solver for intensity parameters.
 
     Supports two solver types:
-    - 'nnls': Non-negative least squares (recommended for光学 components)
+    - 'nnls': Non-negative least squares (recommended for optical components)
     - 'normal': Standard least squares
 
     Parameters
@@ -162,70 +138,59 @@ class LinearSolver:
             raise ValueError("solver_type must be either 'nnls' or 'normal'")
         self.solver_type = solver_type
 
-    def solve(self, A_mat, D_mat):
+    def solve(self, A_mat, D_vec):
         """
         Solve linear system AX = D.
 
         Parameters
         ----------
         A_mat : array_like
-            Design matrix, shape [m, n, bs]
-        D_mat : array_like
-            Data vector, shape [m, bs]
+            Design matrix, shape [m, n]
+        D_vec : array_like
+            Data vector, shape [m]
 
         Returns
         -------
         X_vec : array_like
-            Solution vector, shape [n, bs]
+            Solution vector, shape [n]
         residuals : array_like or None
             Residuals (only for NNLS), None for normal solver
         """
         if self.solver_type == 'nnls':
-            return fnnls_vec(A_mat, D_mat)
+            return fnnls_jax(A_mat, D_vec)
         else:
-            X_vec = solve_linear_vec(A_mat, D_mat)
+            X_vec = solve_linear(A_mat, D_vec)
             return X_vec, None
 
 
 @jit
-def solve_linear_vec(A, b):
+def solve_linear(A, b):
     """
-    Vectorized normal least squares solver using pseudoinverse.
+    Normal least squares solver using pseudoinverse.
 
-    Solves the least squares problem min ||AX - b||^2 using the
+    Solves the least squares problem min ||Ax - b||^2 using the
     normal equations and pseudoinverse.
 
     Parameters
     ----------
     A : array_like
-        Design matrix of shape [m, n, bs] where m >= n
+        Design matrix of shape [m, n] where m >= n
     b : array_like
-        Data vector of shape [m, bs]
+        Data vector of shape [m]
 
     Returns
     -------
     x : array_like
-        Solution vector of shape [n, bs]
+        Solution vector of shape [n]
     """
     # Compute A^T A
-    ATA = jnp.einsum('ijl,jkl->ikl',
-                     jnp.transpose(A, (1, 0, 2)), A)  # shape: [n, n, bs]
-
-    # Transpose for pinv
-    ATA = jnp.transpose(ATA, (2, 0, 1))  # shape: [bs, n, n]
+    ATA = A.T @ A  # shape: [n, n]
 
     # Compute pseudoinverse
-    ATA_inv = jnp.linalg.pinv(ATA, rcond=1e-6)  # shape: [bs, n, n]
-
-    # Transpose back
-    ATA_inv = jnp.transpose(ATA_inv, (1, 2, 0))  # shape: [n, n, bs]
+    ATA_inv = jnp.linalg.pinv(ATA, rcond=1e-6)  # shape: [n, n]
 
     # Compute solution: x = (A^T A)^-1 A^T b
-    x = jnp.einsum(
-        'ijl, jl->il',
-        jnp.einsum('ijl, jkl->ikl', ATA_inv, jnp.transpose(A, (1, 0, 2))),  # [n, m, bs]
-        b,  # [m, bs]
-    )
+    x = ATA_inv @ (A.T @ b)
 
     return x
 
@@ -237,7 +202,6 @@ def prepare_linear_system(
     image_map,
     noise_map,
     nsub,
-    bs,
     n_lens_light,
     n_src,
     bin_func,
@@ -252,19 +216,17 @@ def prepare_linear_system(
     Parameters
     ----------
     img_lens_sub : array_like
-        Lens light images at subsampled resolution, shape [ny_sub, nx_sub, bs, n_lens]
+        Lens light images at subsampled resolution, shape [ny_sub, nx_sub, n_lens]
     img_arc_sub : array_like
-        Source light images at subsampled resolution, shape [ny_sub, nx_sub, bs, n_src]
+        Source light images at subsampled resolution, shape [ny_sub, nx_sub, n_src]
     psf_kernel : array_like
-        PSF kernel, shape [ny_psf, nx_psf, bs]
+        PSF kernel, shape [ny_psf, nx_psf]
     image_map : array_like
         Observed image, shape [ny, nx]
     noise_map : array_like
         Noise map, shape [ny, nx]
     nsub : int
         Subsampling factor
-    bs : int
-        Batch size
     n_lens_light : int
         Number of lens light components
     n_src : int
@@ -277,55 +239,48 @@ def prepare_linear_system(
     Returns
     -------
     A_mat : array_like
-        Design matrix, shape [m, n_lens+n_src, bs]
-    D_mat : array_like
-        Data vector, shape [m, bs]
+        Design matrix, shape [m, n_lens+n_src]
+    D_vec : array_like
+        Data vector, shape [m]
     """
     # Flatten observed image and noise
     img_1d = jnp.ravel(image_map)  # shape: [ny*nx]
     n_1d = jnp.ravel(noise_map)    # shape: [ny*nx]
     snr_1d = img_1d / n_1d
 
-    # Prepare PSF kernels
-    psf_kernel_lens = jnp.repeat(psf_kernel, n_lens_light, axis=-1)
-    psf_kernel_src = jnp.repeat(psf_kernel, n_src, axis=-1)
+    # Bin and convolve each component
+    img_lens = bin_func(img_lens_sub, nsub)  # [ny, nx, n_lens]
+    img_arc = bin_func(img_arc_sub, nsub)    # [ny, nx, n_src]
 
-    # Reshape for convolution
-    img_lens_sub = jnp.reshape(img_lens_sub,
-                                (img_lens_sub.shape[0], img_lens_sub.shape[1], -1))
-    img_arc_sub = jnp.reshape(img_arc_sub,
-                               (img_arc_sub.shape[0], img_arc_sub.shape[1], -1))
+    # Convolve each component with PSF
+    img_lens_convolved = jnp.zeros_like(img_lens)
+    img_arc_convolved = jnp.zeros_like(img_arc)
 
-    # Bin and convolve
-    img_lens = bin_func(img_lens_sub, nsub)
-    img_lens = fftconvolve_func(img_lens, psf_kernel_lens, mode='same', axes=(0, 1))
+    for i in range(n_lens_light):
+        img_lens_convolved = img_lens_convolved.at[..., i].set(
+            fftconvolve_func(img_lens[..., i], psf_kernel, mode='same')
+        )
 
-    img_arc = bin_func(img_arc_sub, nsub)
-    img_arc = fftconvolve_func(img_arc, psf_kernel_src, mode='same', axes=(0, 1))
-
-    # Reshape back
-    img_lens = jnp.reshape(img_lens, (img_lens.shape[0], img_lens.shape[1], bs, n_lens_light))
-    img_arc = jnp.reshape(img_arc, (img_arc.shape[0], img_arc.shape[1], bs, n_src))
+    for i in range(n_src):
+        img_arc_convolved = img_arc_convolved.at[..., i].set(
+            fftconvolve_func(img_arc[..., i], psf_kernel, mode='same')
+        )
 
     # Concatenate and reshape
-    img = jnp.concatenate([img_arc, img_lens], axis=-1)  # [ny, nx, bs, n_total]
-    img = jnp.reshape(img, (-1, bs, n_src + n_lens_light))  # [ny*nx, bs, n_total]
-
-    # Transpose for solver
-    img = jnp.transpose(img, (0, 2, 1))  # [ny*nx, n_total, bs]
+    img = jnp.concatenate([img_arc_convolved, img_lens_convolved], axis=-1)  # [ny, nx, n_total]
+    img = jnp.reshape(img, (-1, n_src + n_lens_light))  # [ny*nx, n_total]
 
     # Prepare data vector
-    D_mat = jnp.repeat(snr_1d[..., jnp.newaxis], bs, axis=-1)  # [ny*nx, bs]
+    D_vec = snr_1d  # [ny*nx]
 
     # Prepare design matrix (weighted by noise)
-    A_mat = img / n_1d[:, jnp.newaxis, jnp.newaxis]  # [ny*nx, n_total, bs]
+    A_mat = img / n_1d[:, jnp.newaxis]  # [ny*nx, n_total]
 
     # Add regularization (see https://arxiv.org/pdf/2403.16253 eq.15)
     n_total = n_lens_light + n_src
     Reg_mat = jnp.eye(n_total) * 0.001  # [n_total, n_total]
-    Reg_mat = jnp.repeat(Reg_mat[..., jnp.newaxis], bs, axis=-1)  # [n_total, n_total, bs]
 
-    A_mat = jnp.concatenate([A_mat, Reg_mat], axis=0)  # [ny*nx+n_total, n_total, bs]
-    D_mat = jnp.concatenate([D_mat, jnp.zeros((n_total, bs))], axis=0)  # [ny*nx+n_total, bs]
+    A_mat = jnp.concatenate([A_mat, Reg_mat], axis=0)  # [ny*nx+n_total, n_total]
+    D_vec = jnp.concatenate([D_vec, jnp.zeros(n_total)], axis=0)  # [ny*nx+n_total]
 
-    return A_mat, D_mat
+    return A_mat, D_vec

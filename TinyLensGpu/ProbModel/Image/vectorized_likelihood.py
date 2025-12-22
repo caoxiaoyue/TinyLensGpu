@@ -77,11 +77,11 @@ class VectorizedLensLikelihood(ck.Module):
         
         Returns
         -------
-        log_like : float or jnp.ndarray
+        log_like : float
             Log-likelihood value
         """
         # Run forward model (caskade handles parameter passing)
-        image_model, intensity_list = self.prob_model.forward_model(bs=1)
+        image_model, intensity_list = self.prob_model.forward_model()
         
         # Compute chi-square likelihood
         log_like = self.prob_model._likelihood_helper(
@@ -89,14 +89,8 @@ class VectorizedLensLikelihood(ck.Module):
             image_data=self.prob_model.image_data,
             noise_map=self.prob_model.noise_map,
             unmask=self.prob_model.unmask,
-            bs=1,
         )
         
-        # Return scalar
-        if hasattr(log_like, "shape") and log_like.shape == ():
-            return log_like
-        elif hasattr(log_like, "__len__") and len(log_like) == 1:
-            return log_like[0]
         return log_like
     
     def __repr__(self):

@@ -12,7 +12,7 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import numpy as np
-from TinyLensGpu.CaskadeModels import ParamU, SersicEllipse
+from TinyLensGpu.CaskadeModels import ParamU
 from TinyLensGpu.CaskadeModels.light import GaussianEllipse
 from TinyLensGpu.CaskadeModels.mass import SIE, Shear
 from TinyLensGpu.CaskadeModels.builder import build_lens_model, build_likelihood, load_lens_data

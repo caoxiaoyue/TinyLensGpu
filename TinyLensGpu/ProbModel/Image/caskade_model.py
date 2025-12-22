@@ -99,41 +99,34 @@ class CaskadeImageProbModel:
         self.unmask = jnp.array(~sim_config.mask)
         self.position_like_config = position_likelihood
 
-    def forward_model(self, bs: int = 1):
+    def forward_model(self):
         """
-        Run forward model to generate simulated images.
+        Run forward model to generate simulated image.
 
         With caskade, parameters are already set in the PhysicalModel,
         so we don't need to pass them explicitly.
 
-        Parameters
-        ----------
-        bs : int, optional
-            Batch size (default: 1)
-
         Returns
         -------
         image_model : jnp.ndarray
-            Simulated images, shape (npix, npix) or (npix, npix, bs)
+            Simulated image, shape (npix, npix)
         intensity_list : jnp.ndarray or None
             Intensity values if linear solver used, else None
         """
         return self.sim_obj.simulate(
-            bs=bs,
             use_linear=self.use_linear,
             return_intensity=True,
             image_map=self.image_data if self.use_linear else None,
             noise_map=self.noise_map if self.use_linear else None,
         )
 
-    @functools.partial(jit, static_argnums=(0, 5))
+    @functools.partial(jit, static_argnums=(0,))
     def _likelihood_helper(
         self,
         image_model: jnp.ndarray,
         image_data: jnp.ndarray,
         noise_map: jnp.ndarray,
         unmask: jnp.ndarray,
-        bs: int = 1,
     ):
         """
         Compute chi-square likelihood.
@@ -141,31 +134,24 @@ class CaskadeImageProbModel:
         Parameters
         ----------
         image_model : jnp.ndarray
-            Model images, shape (npix, npix) or (npix, npix, bs)
+            Model image, shape (npix, npix)
         image_data : jnp.ndarray
             Observed image, shape (npix, npix)
         noise_map : jnp.ndarray
             Noise map, shape (npix, npix)
         unmask : jnp.ndarray
             Boolean mask, shape (npix, npix)
-        bs : int
-            Batch size
 
         Returns
         -------
-        log_like : jnp.ndarray
-            Log-likelihood values, shape (bs,) or scalar
+        log_like : float
+            Log-likelihood value
         """
-        if bs > 1:
-            image_data = jnp.repeat(image_data[..., jnp.newaxis], bs, axis=-1)
-            noise_map = jnp.repeat(noise_map[..., jnp.newaxis], bs, axis=-1)
-            unmask = jnp.repeat(unmask[..., jnp.newaxis], bs, axis=-1)
-
         chi2_image = (image_model - image_data) ** 2 / noise_map ** 2
         chi2_image = chi2_image * unmask
-        return -0.5 * jnp.sum(chi2_image, axis=(0, 1))
+        return -0.5 * jnp.sum(chi2_image)
 
-    def likelihood(self, bs: int = 1, debug: bool = True):
+    def likelihood(self, debug: bool = True):
         """
         Compute log-likelihood of current model parameters.
 
@@ -174,29 +160,22 @@ class CaskadeImageProbModel:
 
         Parameters
         ----------
-        bs : int, optional
-            Batch size (default: 1)
         debug : bool, optional
             Whether to check for NaN/Inf values (default: True)
 
         Returns
         -------
-        log_like : float or array_like
-            Log-likelihood value(s)
+        log_like : float
+            Log-likelihood value
         """
         # Run forward model
-        image_model, intensity_list = self.forward_model(bs=bs)
+        image_model, intensity_list = self.forward_model()
 
         # Check NNLS success
         if self.use_linear and self.sim_obj.solver_type == "nnls":
             intensity_list = np.asarray(intensity_list)
             nnls_success = np.all(intensity_list >= 0.0)
             if not nnls_success:
-                if intensity_list.ndim != 1:
-                    # Check fraction of failed batch
-                    n_profiles = intensity_list.shape[0]
-                    bool_list = (np.sum(intensity_list >= 0, axis=0) == n_profiles)
-                    print(f'Fraction of unsuccessful NNLS: {np.count_nonzero(bool_list)/bs}')
                 raise ValueError("NNLS failed to find a solution")
 
         # Compute chi-square likelihood
@@ -205,52 +184,46 @@ class CaskadeImageProbModel:
             self.image_data,
             self.noise_map,
             self.unmask,
-            bs,
         )
-        like = np.asarray(like)
+        like = float(np.asarray(like))
 
         # Add position likelihood penalty if configured
         if self.position_like_config is not None:
-            penalty = self._position_likelihood_penalty(bs)
+            penalty = self._position_likelihood_penalty()
             like = like + penalty
 
         # Debug checks
         if debug:
-            if np.isnan(like).any():
+            if np.isnan(like):
                 import warnings
                 warnings.warn("NaN detected in likelihood calculation")
                 return -np.inf
-            if np.isinf(like).any():
+            if np.isinf(like):
                 import warnings
                 warnings.warn("Inf detected in likelihood calculation")
                 return -np.inf
 
         return like
 
-    def _position_likelihood_penalty(self, bs: int):
+    def _position_likelihood_penalty(self):
         """
         Compute position likelihood penalty.
 
         This enforces that multiple lensed images of the same source
         should map to the same location in the source plane.
 
-        Parameters
-        ----------
-        bs : int
-            Batch size
-
         Returns
         -------
-        penalties : np.ndarray
-            Penalty values, shape (bs,)
+        penalty : float
+            Penalty value
         """
         cfg = self.position_like_config
         if cfg is None:
-            return np.zeros((bs,), dtype=np.float64)
+            return 0.0
 
         positions = cfg.get('positions', [])
         if positions is None or len(positions) < 2:
-            return np.zeros((bs,), dtype=np.float64)
+            return 0.0
 
         threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
         min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
@@ -259,29 +232,26 @@ class CaskadeImageProbModel:
         px = jnp.array([p[0] for p in positions])
         py = jnp.array([p[1] for p in positions])
 
-        penalties = []
-        for b in range(bs):
-            # Compute deflection to source plane
-            # With caskade, deflection is computed directly from PhysicalModel
-            beta_x, beta_y = self.sim_obj.phys_model.deflection(px, py)
+        # Compute deflection to source plane
+        # With caskade, deflection is computed directly from PhysicalModel
+        beta_x, beta_y = self.sim_obj.phys_model.deflection(px, py)
 
-            # Compute pairwise distances in source plane
-            dx = beta_x[:, None] - beta_x[None, :]
-            dy = beta_y[:, None] - beta_y[None, :]
-            dist = jnp.sqrt(dx * dx + dy * dy)
-            max_sep = jnp.max(dist)
+        # Compute pairwise distances in source plane
+        dx = beta_x[:, None] - beta_x[None, :]
+        dy = beta_y[:, None] - beta_y[None, :]
+        dist = jnp.sqrt(dx * dx + dy * dy)
+        max_sep = jnp.max(dist)
 
-            # Compute penalty
-            exceed = jnp.maximum(0.0, max_sep - threshold)
-            if threshold <= 0.0 or exceed <= 0.0:
-                pen = 0.0
-            else:
-                ratio = exceed / threshold
-                pen_continuous = min_like * (1.0 - float(jnp.exp(-ratio)))
-                pen = float(jnp.clip(pen_continuous, min_like, 0.0))
-            penalties.append(pen)
+        # Compute penalty
+        exceed = jnp.maximum(0.0, max_sep - threshold)
+        if threshold <= 0.0 or exceed <= 0.0:
+            pen = 0.0
+        else:
+            ratio = exceed / threshold
+            pen_continuous = min_like * (1.0 - float(jnp.exp(-ratio)))
+            pen = float(jnp.clip(pen_continuous, min_like, 0.0))
 
-        return np.asarray(penalties, dtype=np.float64)
+        return pen
 
     def __repr__(self):
         return (f"CaskadeImageProbModel("

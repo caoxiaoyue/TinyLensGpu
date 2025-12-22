@@ -25,14 +25,12 @@ class AbstractInference(ABC):
 
     def likelihood(self, array):
         """
-        Returns the log likelihood of the parameters
+        Returns the log likelihood of the parameters.
+        
+        For batch processing, use JAX vmap to vectorize this function.
         """
-        if array.ndim == 1:
-            bs =1
-        else:
-            bs = array.shape[0]
         kargs = self.params_array2kargs(array)
-        return self.prob_model.likelihood(kargs, bs)
+        return self.prob_model.likelihood(kargs)
 
 
     @abstractmethod
