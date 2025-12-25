@@ -14,7 +14,7 @@ TinyLensGpu now ships with a fully programmatic modeling API (see `paper/demo/*/
 
 - **ParamU-powered components** – All physical components (SIE, Shear, Sérsic, Gaussian, MGE) expose priors, bounds, and modes (dynamic/static/linear/pointer) through `ParamU`.
 - **Direct Python configs** – Define complete models in Python; no YAML is required for new workflows.
-- **Vectorized likelihoods** – `VectorizedLensLikelihood` + JAX `vmap` deliver 10–100× throughput for batched nested sampling.
+- **Vectorized likelihoods** – `ImageProbModel` + JAX `vmap` deliver 10–100× throughput for batched nested sampling.
 - **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
 - **Type hints & IDE support** – All builders expose precise signatures for faster iteration.
 
@@ -60,7 +60,7 @@ Every demo under `paper/demo/*` contains a `run_model.py` that follows the same 
 2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
 3. **Select dynamic/static parameters** – Call `.to_dynamic()`, `.to_static(value)`, or rely on `.to_linear()` defaults for flux-like parameters.
 4. **Build physics + likelihood** – `build_lens_model` (assemble components) → `build_likelihood` (set pixel scale, `nsub`, solver, optional position likelihood, etc.).
-5. **Vectorize and sample** – Wrap with `VectorizedLensLikelihood`, then create `prior, prior_specs = make_prior_transformation(likelihood)` and `loglike = make_likelihood(...)`. Feed both into Nautilus/Dynesty.
+5. **Vectorize and sample** – Use `prob_model` directly as the likelihood object, then create `prior, prior_specs = make_prior_transformation(prob_model)` and `loglike = make_likelihood(prob_model, ...)`. Feed both into Nautilus/Dynesty.
 
 ### Minimal example
 
@@ -73,7 +73,6 @@ from TinyLensGpu.Models.mass import SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 
 image_data, noise_map, psf_kernel, mask = load_lens_data(
@@ -108,9 +107,8 @@ prob_model = build_likelihood(
     solver_type="nnls",
 )
 
-likelihood = VectorizedLensLikelihood(prob_model)
-prior, prior_specs = make_prior_transformation(likelihood)
-loglike = make_likelihood(likelihood, vectorized=True)
+prior, prior_specs = make_prior_transformation(prob_model)
+loglike = make_likelihood(prob_model, vectorized=True)
 
 sampler = Sampler(prior, loglike, n_dim=len(prior_specs), n_live=200, vectorized=True, n_batch=200)
 sampler.run(verbose=True, n_eff=800)

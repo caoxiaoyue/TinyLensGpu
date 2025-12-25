@@ -85,7 +85,6 @@ TinyLensGpu/
 │   └── linear_solver.py
 ├── ProbModel/Image/        # 概率模型
 │   ├── image_model.py    # ✅ 现代化实现
-│   └── vectorized_likelihood.py
 └── Inference/              # 推断接口
     ├── base.py
     └── NestedSampler/
@@ -102,7 +101,7 @@ TinyLensGpu/
 from TinyLensGpu.Models import ParamU, SersicEllipse, SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood, ImageProbModel
+from TinyLensGpu.ProbModel.Image import ImageProbModel
 from TinyLensGpu.Simulator.lens_simulator import LensSimulator
 from TinyLensGpu.LinearSolver.linear_solver import LinearSolver
 ```

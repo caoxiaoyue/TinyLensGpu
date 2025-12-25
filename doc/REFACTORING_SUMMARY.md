@@ -396,7 +396,7 @@ def likelihood(self, debug: bool = True):
 - ❌ 删除条件分支 (`if bs > 1`)
 - ✅ 返回类型统一（总是 `float`）
 
-#### 4. **VectorizedLensLikelihood** (`ProbModel/Image/vectorized_likelihood.py`)
+#### 4. **ImageProbModel** (`ProbModel/Image/image_model.py`)
 
 **变更前**:
 ```python
@@ -460,7 +460,7 @@ def run(self, nlive=1000, bs=1, **kwargs):
 def run(self, nlive=1000, vectorized=False, n_batch=None, **kwargs):
     if vectorized:
         # 使用 JAX vmap 创建矢量化似然
-        likelihood_vec = jax.jit(jax.vmap(self.likelihood))
+        likelihood_vec = jax.jit(jax.vmap(self.loglike_jax))
         sampler = Sampler(..., vectorized=True, n_batch=n_batch or nlive, ...)
     else:
         sampler = Sampler(..., vectorized=False, n_batch=None, ...)
@@ -474,21 +474,20 @@ def run(self, nlive=1000, vectorized=False, n_batch=None, **kwargs):
 
 #### 旧方式（显式批处理）
 ```python
-# 需要手动指定批处理大小
-prob_model.likelihood(bs=100)  # 返回 [100] 数组
-
-# 采样器也需要指定
-sampler.run(nlive=200, bs=200)
+# 旧实现通过显式 bs 参数做批处理（现已移除）
+# prob_model.likelihood(bs=100)
+# sampler.run(nlive=200, bs=200)
 ```
 
 #### 新方式（JAX vmap）
 ```python
-# 单样本操作
-prob_model.likelihood()  # 返回 float
+# 单样本由 ImageProbModel.__call__ 处理
+# loglike_fn(theta) -> prob_model(theta)
 
-# 批处理由 vmap 自动完成
-loglike = make_likelihood(likelihood, vectorized=True)
-sampler = Sampler(prior, loglike, n_dim=ndim, 
+# 批处理由 make_likelihood(..., vectorized=True) 内部 vmap 自动完成
+prior, prior_specs = make_prior_transformation(prob_model)
+loglike = make_likelihood(prob_model, vectorized=True)
+sampler = Sampler(prior, loglike, n_dim=len(prior_specs),
                   vectorized=True, n_batch=200)
 ```
 
@@ -538,16 +537,16 @@ sampler = Sampler(prior, loglike, n_dim=ndim,
 ```python
 from TinyLensGpu.Models import ParamU, SersicEllipse
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 
 # 1. 构建模型（单样本操作）
 prob_model = build_likelihood(phys_model, image_data, noise_map, ...)
-likelihood = VectorizedLensLikelihood(prob_model)
 
 # 2. 创建矢量化似然（使用 vmap）
-loglike = make_likelihood(likelihood, vectorized=True)
+prior, prior_specs = make_prior_transformation(prob_model)
+loglike = make_likelihood(prob_model, vectorized=True)
 
 # 3. 运行采样器（自动批处理）
 sampler = Sampler(prior, loglike, n_dim=ndim, 

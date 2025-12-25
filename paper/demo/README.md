@@ -34,7 +34,8 @@ python run_model.py
 ```python
 from TinyLensGpu.Models import ParamU, SersicEllipse
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
 
 # 1. 创建组件
 sersic = SersicEllipse(
@@ -56,10 +57,12 @@ sersic.n_sersic.to_dynamic()
 
 # 4. 构建 likelihood
 prob_model = build_likelihood(phys_model, image_data, ...)
-likelihood = VectorizedLensLikelihood(prob_model)
 
 # 5. 运行采样
 from nautilus import Sampler
+
+prior, prior_specs = make_prior_transformation(prob_model)
+loglike = make_likelihood(prob_model, vectorized=True)
 sampler = Sampler(prior, loglike, vectorized=True)
 sampler.run()
 ```

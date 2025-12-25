@@ -52,7 +52,6 @@ phys_model = build_lens_model(lens_light=gaussians)
 
 # 后续步骤与其他 demo 相同
 prob_model = build_likelihood(phys_model, image_data, ...)
-likelihood = VectorizedLensLikelihood(prob_model)
 ```
 
 ## 注意事项

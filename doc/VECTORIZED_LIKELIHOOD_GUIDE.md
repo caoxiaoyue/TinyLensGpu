@@ -1,10 +1,10 @@
-# VectorizedLensLikelihood 使用指南
+# Vectorized Likelihood 使用指南
 
 ## 概述
 
-`VectorizedLensLikelihood` 是 TinyLensGpu 的核心 likelihood 包装器，使用 JAX vmap 实现真正的批处理加速，可获得 10-100x 的性能提升。
+`ImageProbModel`（即 `build_likelihood(...)` 的返回值）本身就是 TinyLensGpu 的核心 likelihood 对象，使用 JAX vmap 实现真正的批处理加速，可获得 10-100x 的性能提升。
 
-**注意**：`LensLikelihood` 现在是 `VectorizedLensLikelihood` 的别名，所有代码都使用快速的 JAX vmap 实现。
+**注意**：向量化通过 `make_likelihood(prob_model, vectorized=True)` 启用；无需额外的 likelihood wrapper。
 
 ## 关键设计
 
@@ -34,27 +34,20 @@ class LinearRegressionLikelihood(ck.Module):
 2. **使用 `@ck.forward` 装饰器** - 实现无状态的参数传递
 3. **不手动调用 `param.to_static()`** - 让 caskade 自动处理
 
-### VectorizedLensLikelihood 实现
+### ImageProbModel 实现
 
 ```python
-# vectorized_likelihood.py
-class VectorizedLensLikelihood(ck.Module):
-    def __init__(self, prob_model: ImageProbModel):
-        super().__init__("vectorized_lens_likelihood")
-        self.prob_model = prob_model
-        self.phys_model = prob_model.sim_obj.phys_model
-    
+class ImageProbModel(ck.Module):
     @ck.forward
     @partial(jit, static_argnums=0)
     def __call__(self, theta: Optional[jnp.ndarray] = None):
         # caskade 自动处理参数传递，无需手动设置
-        image_model, _ = self.prob_model.forward_model(bs=1)
-        log_like = self.prob_model._likelihood_helper(
+        image_model, _ = self.forward_model()
+        log_like = self._likelihood_helper(
             image_model=image_model,
-            image_data=self.prob_model.image_data,
-            noise_map=self.prob_model.noise_map,
-            unmask=self.prob_model.unmask,
-            bs=1,
+            image_data=self.image_data,
+            noise_map=self.noise_map,
+            unmask=self.unmask,
         )
         return log_like
 ```
@@ -63,19 +56,14 @@ class VectorizedLensLikelihood(ck.Module):
 
 ```python
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from TinyLensGpu.Models.likelihood import make_likelihood
 
 # 1. 构建模型
 phys_model = build_lens_model(lens_light=[sersic])
 prob_model = build_likelihood(phys_model, image_data, noise_map, psf_kernel, ...)
 
-# 2. 创建 VectorizedLensLikelihood
-likelihood = VectorizedLensLikelihood(prob_model)
-# 或使用别名：likelihood = LensLikelihood(prob_model)
-
-# 3. 创建 likelihood 函数（自动使用 JAX vmap）
-loglike = make_likelihood(likelihood, vectorized=True)
+# 2. 创建 likelihood 函数（自动使用 JAX vmap）
+loglike = make_likelihood(prob_model, vectorized=True)
 
 # 4. 使用 Nautilus 采样
 sampler = Sampler(prior, loglike, n_dim=ndim, vectorized=True, n_batch=64)
@@ -108,7 +96,7 @@ sampler.run(verbose=True)
 参考 `paper/demo/lens_only/run_model.py`：
 
 ```python
-"""使用 VectorizedLensLikelihood 的完整示例"""
+"""使用 ImageProbModel(prob_model) 的完整示例"""
 
 from TinyLensGpu.Models import ParamU, SersicEllipse
 from TinyLensGpu.Models.builder import (
@@ -116,7 +104,6 @@ from TinyLensGpu.Models.builder import (
 )
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 
 # 1. 加载数据
@@ -162,14 +149,11 @@ prob_model = build_likelihood(
     solver_type='nnls',
 )
 
-# 6. 创建 VectorizedLensLikelihood
-likelihood = VectorizedLensLikelihood(prob_model)
+# 6. 提取先验
+prior, prior_specs = make_prior_transformation(prob_model)
 
-# 7. 提取先验
-prior, prior_specs = make_prior_transformation(likelihood)
-
-# 8. 创建 likelihood 函数
-loglike = make_likelihood(likelihood, vectorized=True)
+# 7. 创建 likelihood 函数
+loglike = make_likelihood(prob_model, vectorized=True)
 
 # 9. 运行采样
 sampler = Sampler(
@@ -227,19 +211,7 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False):
 
 ## 向后兼容性
 
-`LensLikelihood` 现在是 `VectorizedLensLikelihood` 的别名，所有代码自动使用快速的 JAX vmap 实现：
-
-```python
-# 两种写法等价
-from TinyLensGpu.ProbModel.Image import LensLikelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
-
-# 都使用相同的快速实现
-likelihood = LensLikelihood(prob_model)  # ✅ 快速
-likelihood = VectorizedLensLikelihood(prob_model)  # ✅ 快速
-```
-
-无需修改现有代码！
+`LensLikelihood` 是 `ImageProbModel` 的别名。
 
 ## 限制与注意事项
 
@@ -251,18 +223,18 @@ likelihood = VectorizedLensLikelihood(prob_model)  # ✅ 快速
 
 ### Q: 为什么我的代码报错 "Abstract tracer value encountered"？
 
-A: 这通常意味着你在 JIT 编译的函数中使用了 Python 的 `float()` 或其他具体化操作。确保使用 `VectorizedLensLikelihood` 而不是 `LensLikelihood`。
+A: 这通常意味着你在 JIT 编译的函数中使用了 Python 的 `float()` 或其他具体化操作。对批处理路径请使用 `make_likelihood(prob_model, vectorized=True)`。
 
 ### Q: 批处理加速不明显怎么办？
 
 A: 尝试：
 1. 增加批大小（`n_batch=128` 或更大）
 2. 使用 GPU（如果可用）
-3. 确保使用 `VectorizedLensLikelihood`
+3. 确保使用 `make_likelihood(prob_model, vectorized=True)`
 
-### Q: LensLikelihood 和 VectorizedLensLikelihood 有什么区别？
+### Q: LensLikelihood 和 ImageProbModel 有什么区别？
 
-A: 没有区别！`LensLikelihood` 现在是 `VectorizedLensLikelihood` 的别名，两者完全相同。
+A: 没有区别！`LensLikelihood` 是 `ImageProbModel` 的别名，两者完全相同。
 
 ## 总结
 

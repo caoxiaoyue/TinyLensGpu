@@ -25,7 +25,7 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False) -> Callable:
     ----------
     likelihood_obj : ck.Module
         Likelihood object (must be a caskade Module) with __call__ method
-        that computes log-likelihood. Use VectorizedLensLikelihood.
+        that computes log-likelihood (e.g., an ImageProbModel).
     vectorized : bool, optional
         Whether to support batched evaluation (default: False)
         If True, uses JAX vmap for efficient vectorization.
@@ -41,13 +41,11 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False) -> Callable:
     - 10-100x faster than Python loops
     - Fully JIT compiled
     - GPU accelerated
-    - Requires stateless likelihood computation (use VectorizedLensLikelihood)
+    - Requires stateless likelihood computation (use an object whose __call__ is JIT/vmap-safe)
     
     Examples
     --------
-    >>> from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
-    >>> likelihood = VectorizedLensLikelihood(prob_model)
-    >>> loglike = make_likelihood(likelihood, vectorized=True)
+    >>> loglike = make_likelihood(prob_model, vectorized=True)
     >>> # Use with Nautilus
     >>> sampler = Sampler(prior, loglike, n_dim=ndim, vectorized=True)
     """
