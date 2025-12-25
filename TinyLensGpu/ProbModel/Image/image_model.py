@@ -143,12 +143,9 @@ class ImageProbModel(ck.Module):
         """
         image_model, intensity_list = self.forward_model()
 
-        log_like = self._likelihood_helper(
-            image_model=image_model,
-            image_data=self.image_data,
-            noise_map=self.noise_map,
-            unmask=self.unmask,
-        )
+        chi2_image = (image_model - self.image_data) ** 2 / self.noise_map ** 2
+        chi2_image = chi2_image * self.unmask
+        log_like = -0.5 * jnp.sum(chi2_image)
 
         # If NNLS is configured and returns any negative intensity, treat as invalid
         if self._check_nnls:
@@ -162,37 +159,6 @@ class ImageProbModel(ck.Module):
         # Guard against NaN/Inf
         log_like = jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
         return log_like
-
-    @functools.partial(jit, static_argnums=(0,))
-    def _likelihood_helper(
-        self,
-        image_model: Array,
-        image_data: Array,
-        noise_map: Array,
-        unmask: Array,
-    ) -> float:
-        """
-        Compute chi-square likelihood.
-
-        Parameters
-        ----------
-        image_model : jnp.ndarray
-            Model image, shape (npix, npix)
-        image_data : jnp.ndarray
-            Observed image, shape (npix, npix)
-        noise_map : jnp.ndarray
-            Noise map, shape (npix, npix)
-        unmask : jnp.ndarray
-            Boolean mask, shape (npix, npix)
-
-        Returns
-        -------
-        log_like : float
-            Log-likelihood value
-        """
-        chi2_image = (image_model - image_data) ** 2 / noise_map ** 2
-        chi2_image = chi2_image * unmask
-        return -0.5 * jnp.sum(chi2_image)
 
     def likelihood(self) -> float:
         """

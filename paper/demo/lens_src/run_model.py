@@ -170,7 +170,8 @@ def run_sampling():
     print(f"\nSampling completed in {end_time - start_time:.2f} seconds")
     
     # Get results
-    samples, log_w, log_z = sampler.posterior()
+    samples, log_w, log_l = sampler.posterior()
+    log_z = float(np.asarray(sampler.log_z))
     weights = np.exp(log_w - np.max(log_w))
     weights /= weights.sum()
     
