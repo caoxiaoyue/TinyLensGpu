@@ -46,6 +46,9 @@ class DynestySampler(AbstractInference):
                          Defaults to 'auto'.
             **kwargs: Additional arguments passed to dynesty.NestedSampler
         """
+        # Ensure ndim and prior_transform are initialized from prob_model
+        self._ensure_prior_transform()
+
         sampler = NestedSampler(
             self._wrap_likelihood,
             self._wrap_prior,

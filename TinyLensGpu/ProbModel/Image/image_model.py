@@ -6,6 +6,7 @@ and LensSimulator for computing image likelihoods.
 """
 
 import functools
+import caskade as ck
 import jax.numpy as jnp
 import jax
 from jax import jit, Array
@@ -17,7 +18,7 @@ from TinyLensGpu.Simulator.config import SimulatorConfig
 from TinyLensGpu.Models.composite import PhysicalModel
 
 
-class ImageProbModel:
+class ImageProbModel(ck.Module):
     """
     Probability model for gravitational lensing images.
 
@@ -76,8 +77,13 @@ class ImageProbModel:
         solver_type: str = 'nnls',
         position_likelihood: Optional[Dict] = None,
     ) -> None:
+        super().__init__("image_prob_model")
+
         self.image_data = jnp.array(image_data)
         self.noise_map = jnp.array(noise_map)
+
+        # Keep phys_model in the caskade module tree so @ck.forward can inject theta
+        self.phys_model = phys_model
 
         # Create simulator configuration
         sim_config = SimulatorConfig(
@@ -90,7 +96,7 @@ class ImageProbModel:
 
         # Create simulator
         self.sim_obj = LensSimulator(
-            phys_model=phys_model,
+            phys_model=self.phys_model,
             sim_config=sim_config,
             solver_type=solver_type,
         )
@@ -98,6 +104,13 @@ class ImageProbModel:
         self.use_linear = use_linear
         self.unmask = jnp.array(~sim_config.mask)
         self.position_like_config = position_likelihood
+
+        # Precompute static flags for JIT-friendly branching
+        self._check_nnls = bool(self.use_linear and self.sim_obj.solver_type == "nnls")
+
+    def get_dynamic_params(self):
+        """Get dynamic parameters from the underlying physical model."""
+        return self.phys_model.dynamic_params
 
     def forward_model(self) -> Tuple[Array, Optional[Array]]:
         """
@@ -119,6 +132,36 @@ class ImageProbModel:
             image_map=self.image_data if self.use_linear else None,
             noise_map=self.noise_map if self.use_linear else None,
         )
+
+    @ck.forward
+    @functools.partial(jit, static_argnums=(0,))
+    def __call__(self, theta: Optional[jnp.ndarray] = None):
+        """Vectorization-friendly log-likelihood evaluation.
+
+        This function is designed to be used with `make_likelihood(..., vectorized=True)`
+        where `theta` is vmapped over.
+        """
+        image_model, intensity_list = self.forward_model()
+
+        log_like = self._likelihood_helper(
+            image_model=image_model,
+            image_data=self.image_data,
+            noise_map=self.noise_map,
+            unmask=self.unmask,
+        )
+
+        # If NNLS is configured and returns any negative intensity, treat as invalid
+        if self._check_nnls:
+            ok = jnp.all(intensity_list >= 0.0)
+            log_like = jnp.where(ok, log_like, -jnp.inf)
+
+        # Add position likelihood penalty (JIT/vmap safe)
+        if self.position_like_config is not None:
+            log_like = log_like + self._position_likelihood_penalty_jax()
+
+        # Guard against NaN/Inf
+        log_like = jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
+        return log_like
 
     @functools.partial(jit, static_argnums=(0,))
     def _likelihood_helper(
@@ -151,7 +194,7 @@ class ImageProbModel:
         chi2_image = chi2_image * unmask
         return -0.5 * jnp.sum(chi2_image)
 
-    def likelihood(self, debug: bool = True) -> float:
+    def likelihood(self) -> float:
         """
         Compute log-likelihood of current model parameters.
 
@@ -168,41 +211,7 @@ class ImageProbModel:
         log_like : float
             Log-likelihood value
         """
-        # Run forward model
-        image_model, intensity_list = self.forward_model()
-
-        # Check NNLS success
-        if self.use_linear and self.sim_obj.solver_type == "nnls":
-            intensity_list = np.asarray(intensity_list)
-            nnls_success = np.all(intensity_list >= 0.0)
-            if not nnls_success:
-                raise ValueError("NNLS failed to find a solution")
-
-        # Compute chi-square likelihood
-        like = self._likelihood_helper(
-            image_model,
-            self.image_data,
-            self.noise_map,
-            self.unmask,
-        )
-        like = float(np.asarray(like))
-
-        # Add position likelihood penalty if configured
-        if self.position_like_config is not None:
-            penalty = self._position_likelihood_penalty()
-            like = like + penalty
-
-        # Debug checks
-        if debug:
-            if np.isnan(like):
-                import warnings
-                warnings.warn("NaN detected in likelihood calculation")
-                return -np.inf
-            if np.isinf(like):
-                import warnings
-                warnings.warn("Inf detected in likelihood calculation")
-                return -np.inf
-
+        like = float(np.asarray(self.__call__()))
         return like
 
     def _position_likelihood_penalty(self) -> float:
@@ -228,29 +237,41 @@ class ImageProbModel:
         threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
         min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
 
-        # Convert positions to JAX arrays
-        px = jnp.array([p[0] for p in positions])
-        py = jnp.array([p[1] for p in positions])
+        # NOTE: this method is kept for backward compatibility (non-jitted usage)
+        return float(np.asarray(self._position_likelihood_penalty_jax()))
 
-        # Compute deflection to source plane
-        # With caskade, deflection is computed directly from PhysicalModel
-        beta_x, beta_y = self.sim_obj.phys_model.deflection(px, py)
+    def _position_likelihood_penalty_jax(self) -> Array:
+        """JAX-compatible position likelihood penalty (JIT/vmap safe)."""
+        cfg = self.position_like_config
+        if cfg is None:
+            return jnp.array(0.0, dtype=jnp.float32)
 
-        # Compute pairwise distances in source plane
+        positions = cfg.get('positions', [])
+        if positions is None or len(positions) < 2:
+            return jnp.array(0.0, dtype=jnp.float32)
+
+        threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
+        min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
+
+        px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
+        py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
+
+        beta_x, beta_y = self.phys_model.deflection(px, py)
+
         dx = beta_x[:, None] - beta_x[None, :]
         dy = beta_y[:, None] - beta_y[None, :]
         dist = jnp.sqrt(dx * dx + dy * dy)
         max_sep = jnp.max(dist)
 
-        # Compute penalty
-        exceed = jnp.maximum(0.0, max_sep - threshold)
-        if threshold <= 0.0 or exceed <= 0.0:
-            pen = 0.0
-        else:
-            ratio = exceed / threshold
-            pen_continuous = min_like * (1.0 - float(jnp.exp(-ratio)))
-            pen = float(jnp.clip(pen_continuous, min_like, 0.0))
+        thr = jnp.array(threshold, dtype=jnp.float32)
+        minl = jnp.array(min_like, dtype=jnp.float32)
 
+        exceed = jnp.maximum(0.0, max_sep - thr)
+        ratio = jnp.where(thr > 0.0, exceed / thr, 0.0)
+        pen_continuous = minl * (1.0 - jnp.exp(-ratio))
+
+        pen_clipped = jnp.clip(pen_continuous, a_min=minl, a_max=jnp.array(0.0, dtype=jnp.float32))
+        pen = jnp.where(jnp.logical_or(thr <= 0.0, exceed <= 0.0), 0.0, pen_clipped)
         return pen
 
     def __repr__(self) -> str:

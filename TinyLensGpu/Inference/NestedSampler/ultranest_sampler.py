@@ -6,6 +6,9 @@ class UltraNestSampler(AbstractInference):
         """
         Runs the sampler
         """
+        # Ensure ndim and prior_transform are initialized from prob_model
+        self._ensure_prior_transform()
+
         paramnames = ['param%d' % (i+1) for i in range(self.ndim)]
         sampler = ReactiveNestedSampler(
             paramnames, 

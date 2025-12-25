@@ -15,7 +15,6 @@ from TinyLensGpu.Models import ParamU, SersicEllipse
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 from nautilus import Sampler
 import jax.numpy as jnp
 
@@ -81,10 +80,7 @@ def build_problem():
         solver_type='nnls'
     )
     
-    # Wrap in vectorized likelihood interface
-    likelihood = VectorizedLensLikelihood(prob_model)
-    
-    return likelihood
+    return prob_model
 
 
 def run_sampling():
@@ -112,6 +108,8 @@ def run_sampling():
     
     # Run sampler (following example_v4.py lines 303-304)
     print("\nRunning Nautilus sampler...")
+    import time
+    start_time = time.time()
     sampler = Sampler(
         prior, 
         loglike, 
@@ -121,6 +119,8 @@ def run_sampling():
         n_batch=200
     )
     sampler.run(verbose=True, n_eff=800)
+    end_time = time.time()
+    print(f"\nSampling completed in {end_time - start_time:.2f} seconds")
     
     # Process results
     print("\nProcessing results...")

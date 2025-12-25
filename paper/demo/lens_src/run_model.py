@@ -20,7 +20,7 @@ from TinyLensGpu.Models.mass import SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
+from TinyLensGpu.visualizer import plot_model_results
 
 
 def build_model():
@@ -127,10 +127,7 @@ def build_model():
         solver_type='nnls'
     )
     
-    # Create vectorized likelihood
-    likelihood = VectorizedLensLikelihood(prob_model)
-    
-    return likelihood, phys_model
+    return prob_model, phys_model
 
 
 def run_sampling():
@@ -166,8 +163,11 @@ def run_sampling():
         vectorized=True,
         n_batch=800,
     )
-    
+    import time
+    start_time = time.time()
     sampler.run(verbose=True, n_eff=800)
+    end_time = time.time()
+    print(f"\nSampling completed in {end_time - start_time:.2f} seconds")
     
     # Get results
     samples, log_w, log_z = sampler.posterior()
@@ -267,3 +267,26 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print("Inference Complete!")
     print("="*60)
+    
+    # Plot results
+    print("\nGenerating visualization...")
+    # Get median parameters
+    samples = results['samples']
+    weights = results['weights']
+    param_names = results['param_names']
+    
+    q50 = []
+    for i in range(len(param_names)):
+        sorted_idx = np.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = np.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+        q50.append(np.interp(0.50, cumsum, sorted_samples))
+    
+    plot_model_results(
+        results['likelihood'], 
+        np.array(q50), 
+        save_path='output/model_visualization.png',
+        title="Lens Model Fit Results"
+    )

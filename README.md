@@ -8,16 +8,17 @@ We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Spac
 
 Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using parametric models such as Sérsic, Gaussian, and multi-Gaussian expansion models. In future updates, we plan to incorporate a pixelated source model to enhance its capabilities.
 
-## 🆕 Integration (v2.0)
+## 🆕 Programmatic API (v2.0)
 
-TinyLensGpu now features a ** implementation** that provides:
-- **Modular architecture**: All physical components (SIE, Shear, Sersic, Gaussian) are implemented as `caskade.Module` objects
-- **Automatic parameter management**: Parameters automatically support dynamic (sampling), static (fixed), linear (NNLS), and pointer (linked) modes
-- **Improved batch processing**: Seamless handling of large batch sizes for nested sampling
-- **Backward compatibility**: Existing YAML configurations work without modification
-- **Enhanced maintainability**: Cleaner code structure with `@ck.forward` decorators
+TinyLensGpu now ships with a fully programmatic modeling API (see `paper/demo/*/run_model.py`) that provides:
 
-See [CASKADE_GUIDE.md](CASKADE_GUIDE.md) for detailed usage instructions and migration guide.
+- **ParamU-powered components** – All physical components (SIE, Shear, Sérsic, Gaussian, MGE) expose priors, bounds, and modes (dynamic/static/linear/pointer) through `ParamU`.
+- **Direct Python configs** – Define complete models in Python; no YAML is required for new workflows.
+- **Vectorized likelihoods** – `VectorizedLensLikelihood` + JAX `vmap` deliver 10–100× throughput for batched nested sampling.
+- **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
+- **Type hints & IDE support** – All builders expose precise signatures for faster iteration.
+
+See [CASKADE_GUIDE.md](CASKADE_GUIDE.md) and the demos in `paper/demo` for detailed usage patterns and migration notes.
 
 ## Installation
 
@@ -51,94 +52,82 @@ pytest tests/test_caskade_inference.py    # Test inference system
 pytest tests/test_demo_lens_src.py        # Test full demo workflow
 ```
 
-## Usage
-Use the YAML file to configure the model settings. For example, the following YAML file named `model_config.yaml` fits only the lens light distribution using a Sérsic profile.
+## Usage (Programmatic API)
 
-```yaml
-dataset:
-  data_path: "data/image.fits" #the path to the lensing image
-  noise_path: "data/noise.fits" #the path to the noise image
-  psf_path: "data/psf.fits" #the path to the PSF image
-  pixel_scale: 0.074 #the pixel scale of the image
+Every demo under `paper/demo/*` contains a `run_model.py` that follows the same recipe:
 
-model_components:
-  lens_mass_list: [] #the list of lens mass models
+1. **Load data** – `load_lens_data` wraps FITS image/noise/PSF loading and basic masking.
+2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
+3. **Select dynamic/static parameters** – Call `.to_dynamic()`, `.to_static(value)`, or rely on `.to_linear()` defaults for flux-like parameters.
+4. **Build physics + likelihood** – `build_lens_model` (assemble components) → `build_likelihood` (set pixel scale, `nsub`, solver, optional position likelihood, etc.).
+5. **Vectorize and sample** – Wrap with `VectorizedLensLikelihood`, then create `prior, prior_specs = make_prior_transformation(likelihood)` and `loglike = make_likelihood(...)`. Feed both into Nautilus/Dynesty.
 
-  source_light_list: [] #the list of source light models
+### Minimal example
 
-  lens_light_list: #the list of lens light models
-    - type: "Sersic" #the type of the lens light model
-      params: #the parameters of the lens light model
-        R_sersic: #the effective radius of the lens light model
-          prior_type: "uniform" #the prior type of the parameter
-          prior_settings: [0.001, 2.001] #the prior settings of the parameter, for uniform prior, it is the range of the parameter
-          limits: [0.0, 5.0] #the limits of the parameter
-          fixed: false #whether the parameter is fixed
-        n_sersic: #the Sersic index of the lens light model
-          prior_type: "gaussian" #the prior type of the parameter
-          prior_settings: [4.0, 0.5] #the prior settings of the parameter, for gaussian prior, it is the mean and standard deviation of the parameter
-          limits: [0.3, 6.0] #the limits of the parameter
-          fixed: false #whether the parameter is fixed
-        e1: #the ellipticity of the lens light model
-          prior_type: "gaussian" #the prior type of the parameter
-          prior_settings: [0.0, 0.3] 
-          limits: [-1.0, 1.0] 
-          fixed: false 
-        e2: #the ellipticity of the lens light model
-          prior_type: "gaussian" 
-          prior_settings: [0.0, 0.3]
-          limits: [-1.0, 1.0]
-          fixed: false
-        center_x: #the x-coordinate of the center of the lens light model
-          fixed: true
-          fixed_value: 0.0
-        center_y: #the y-coordinate of the center of the lens light model
-          fixed: true
-          fixed_value: 0.0
-        Ie: #the intensity at the effective radius of the lens light model
-          use_linear: true #whether to use the linear solving method
-
-inference:
-  type: "sampler" #the type of the inference method
-  method: "nautilus" #the method of the inference
-  settings:
-    nlive: 200 #the number of live points
-    batch_size: 200
-
-output:
-  path: "output" #the path to the output directory
-  figures:
-    results: "model_results.png" #the path to the results figure
-    corner: "model_corner.png" #the path to the triangle plot figure
-  tables:
-    samples: "result_samples.csv" #the path to the samples table
-    summary: "result_summary.csv" #the path to the summary table of modeling results
-  datasets:
-    subplot: "dataset_subplot.png" 
-```
-The following script named `run_model.py` can use the above YAML file (`model_config.yaml`) to fit the model.
 ```python
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-# If you want to run on CPU, uncomment the following lines
-# os.environ["NPROC"] = "1" #https://github.com/jax-ml/jax/issues/743
-# os.environ["JAX_PLATFORM_NAME"] = "cpu"
-# os.environ["JAX_PLATFORMS"] = "cpu"
+from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models.mass import SIE, Shear
+from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
+from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from TinyLensGpu.Models.likelihood import make_likelihood
+from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
+from nautilus import Sampler
 
-from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
-config_path = 'model_config.yaml'
+image_data, noise_map, psf_kernel, mask = load_lens_data(
+    image_path="data/image.fits",
+    noise_path="data/noise.fits",
+    psf_path="data/psf.fits",
+)
 
+sie = SIE(theta_E=ParamU("theta_E", 1.5, prior_type="uniform",
+                         prior_settings=[0.001, 3.001], limits=[0.0, 10.0]))
+source = SersicEllipse(
+    R_sersic=ParamU("R_sersic_src", 1.0, prior_type="uniform",
+                    prior_settings=[0.001, 2.001], limits=[0.0, 5.0]),
+    n_sersic=ParamU("n_sersic_src", 1.0, prior_type="uniform",
+                    prior_settings=[0.3, 2.3], limits=[0.3, 6.0]),
+    Ie=ParamU("Ie_src", 1.0),  # solved linearly
+)
 
-lens_model = RunCaskadeLensModel(config_path)
-lens_model.run() 
-``` 
-Finally, run `python run_model.py` in the terminal to do the lens modeling.
+sie.theta_E.to_dynamic()
+source.R_sersic.to_dynamic()
+source.n_sersic.to_dynamic()
 
-For additional examples, refer to the scripts in the `paper/demo` folder.
+phys_model = build_lens_model(lens_mass=[sie], source_light=[source])
+prob_model = build_likelihood(
+    phys_model=phys_model,
+    image_data=image_data,
+    noise_map=noise_map,
+    psf_kernel=psf_kernel,
+    pixel_scale=0.074,
+    nsub=4,
+    use_linear=True,
+    solver_type="nnls",
+)
+
+likelihood = VectorizedLensLikelihood(prob_model)
+prior, prior_specs = make_prior_transformation(likelihood)
+loglike = make_likelihood(likelihood, vectorized=True)
+
+sampler = Sampler(prior, loglike, n_dim=len(prior_specs), n_live=200, vectorized=True, n_batch=200)
+sampler.run(verbose=True, n_eff=800)
+```
+
+### Running the demos
+
+```bash
+cd TinyLensGpu/paper/demo/lens_src
+python run_model.py          # lens + source parametric example
+
+cd ../lens_src_mge
+python run_model.py          # MGE lens + source example
+```
+
+Each demo writes results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Modify the scripts directly to experiment with priors, components, likelihood options, or sampler settings.
+
 
 ## Citation
 If you find this work useful, please cite Cao et al. (2025). The BibTeX entry is provided below for your convenience.

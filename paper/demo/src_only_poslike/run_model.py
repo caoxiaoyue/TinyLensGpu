@@ -22,7 +22,6 @@ from TinyLensGpu.Models.mass import SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
-from TinyLensGpu.ProbModel.Image import VectorizedLensLikelihood
 
 
 def build_model():
@@ -114,10 +113,7 @@ def build_model():
         position_likelihood=position_likelihood
     )
     
-    # Create vectorized likelihood
-    likelihood = VectorizedLensLikelihood(prob_model)
-    
-    return likelihood, phys_model
+    return prob_model, phys_model
 
 
 def run_sampling():

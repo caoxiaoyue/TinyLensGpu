@@ -22,10 +22,12 @@ class NautilusSampler(AbstractInference):
         """
         # Extract run-specific parameters that shouldn't go to Sampler constructor
         verbose = kwargs.pop('verbose', True)  # Default to True for backward compatibility
-        
+
+        # Ensure ndim and prior_transform are initialized from prob_model
+        self._ensure_prior_transform()
         if vectorized:
             # Create vectorized likelihood using JAX vmap
-            likelihood_vec = jax.jit(jax.vmap(self.likelihood))
+            likelihood_vec = jax.jit(jax.vmap(self.loglike_jax))
             sampler = Sampler(self.prior, likelihood_vec, n_dim=self.ndim, n_live=nlive, 
                             n_batch=n_batch or nlive, vectorized=True, **kwargs)
         else:
