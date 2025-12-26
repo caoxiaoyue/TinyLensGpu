@@ -48,7 +48,7 @@ SIE(
 
 ```python
 @ck.forward
-def deriv(self, x, y, theta_E=None, e1=None, e2=None, center_x=None, center_y=None)
+def deriv(self, *, x, y, theta_E=None, e1=None, e2=None, center_x=None, center_y=None)
 ```
 Compute deflection angles at positions (x, y).
 
@@ -80,7 +80,7 @@ sie.center_x.to_static(0.0)
 import jax.numpy as jnp
 x = jnp.linspace(-2, 2, 100)
 y = jnp.linspace(-2, 2, 100)
-alpha_x, alpha_y = sie.deriv(x, y)
+alpha_x, alpha_y = sie.deriv(x=x, y=y)
 ```
 
 ---
@@ -107,7 +107,7 @@ SHEAR(
 
 ```python
 @ck.forward
-def deriv(self, x, y, gamma1=None, gamma2=None)
+def deriv(self, *, x, y, gamma1=None, gamma2=None)
 ```
 Compute deflection angles due to external shear.
 
@@ -129,7 +129,7 @@ shear = SHEAR(
 shear.gamma1.to_static(0.05)
 shear.gamma2.to_static(-0.02)
 
-alpha_x, alpha_y = shear.deriv(x, y)
+alpha_x, alpha_y = shear.deriv(x=x, y=y)
 ```
 
 ---
@@ -168,7 +168,7 @@ SersicEllipse(
 
 ```python
 @ck.forward
-def light(self, x, y, R_sersic=None, n_sersic=None, e1=None, e2=None,
+def light(self, *, x, y, R_sersic=None, n_sersic=None, e1=None, e2=None,
           center_x=None, center_y=None, Ie=None)
 ```
 Compute surface brightness at positions (x, y).
@@ -197,7 +197,7 @@ sersic = SersicEllipse(
 # This is typically done via configuration file
 
 # Compute light distribution
-brightness = sersic.light(x, y)
+brightness = sersic.light(x=x, y=y)
 ```
 
 ---
@@ -232,7 +232,7 @@ GaussianEllipse(
 
 ```python
 @ck.forward
-def light(self, x, y, sigma=None, e1=None, e2=None,
+def light(self, *, x, y, sigma=None, e1=None, e2=None,
           center_x=None, center_y=None, Amp=None)
 ```
 Compute surface brightness at positions (x, y).
@@ -292,7 +292,7 @@ PhysicalModel(
 
 ```python
 @ck.forward
-def deflection(self, x, y)
+def deflection(self, *, x, y)
 ```
 Compute total deflection from all mass components.
 
@@ -301,7 +301,7 @@ Compute total deflection from all mass components.
 
 ```python
 @ck.forward
-def source_surface_brightness(self, x, y)
+def source_surface_brightness(self, *, x, y)
 ```
 Compute source surface brightness at source plane positions (after ray-tracing).
 
@@ -310,7 +310,7 @@ Compute source surface brightness at source plane positions (after ray-tracing).
 
 ```python
 @ck.forward
-def lens_surface_brightness(self, x, y)
+def lens_surface_brightness(self, *, x, y)
 ```
 Compute lens surface brightness at image plane positions.
 
@@ -337,15 +337,15 @@ phys_model = PhysicalModel(
 )
 
 # Compute deflection
-alpha_x, alpha_y = phys_model.deflection(x, y)
+alpha_x, alpha_y = phys_model.deflection(x=x, y=y)
 
 # Compute source plane coordinates
 beta_x = x - alpha_x
 beta_y = y - alpha_y
 
 # Compute brightness
-source_brightness = phys_model.source_surface_brightness(beta_x, beta_y)
-lens_brightness = phys_model.lens_surface_brightness(x, y)
+source_brightness = phys_model.source_surface_brightness(x=beta_x, y=beta_y)
+lens_brightness = phys_model.lens_surface_brightness(x=x, y=y)
 total_brightness = source_brightness + lens_brightness
 ```
 
@@ -376,8 +376,7 @@ LensSimulator(
 **Methods**:
 
 ```python
-@ck.forward
-def simulate(self, bs=1, use_linear=False, return_intensity=False,
+def simulate(self, use_linear=False, return_intensity=False,
              image_map=None, noise_map=None)
 ```
 Simulate lensed image.
@@ -799,22 +798,20 @@ ImageProbModel(
 **Methods**:
 
 ```python
-def forward_model(self, bs=1)
+@ck.forward
+def forward_model(self, **kwargs)
 ```
 Simulate model image.
 
-- **Parameters**: `bs` - Batch size
+- **Parameters**: `**kwargs` - Forward model configuration (use_linear, return_intensity, etc.)
 - **Returns**: `(image_model, intensity_list)`
 
 ```python
-def likelihood(self, bs=1, debug=True)
+def likelihood(self)
 ```
 Compute log-likelihood.
 
-- **Parameters**:
-  - `bs` - Batch size
-  - `debug` - If True, return -inf for invalid models
-- **Returns**: Log-likelihood value (or array if bs > 1)
+- **Returns**: Log-likelihood value
 
 **Example**:
 ```python
@@ -839,7 +836,7 @@ prob_model = ImageProbModel(
 )
 
 # Compute likelihood (parameters already set in phys_model)
-log_like = prob_model.likelihood(bs=1)
+log_like = prob_model.likelihood()
 print(f"Log-likelihood: {log_like}")
 ```
 

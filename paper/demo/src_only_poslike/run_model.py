@@ -8,7 +8,6 @@ import os
 import pickle
 import gzip
 import numpy as np
-from astropy.io import fits
 from nautilus import Sampler
 import time 
 
@@ -22,6 +21,7 @@ from TinyLensGpu.Models.mass import SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
+from TinyLensGpu.visualizer import plot_model_results
 
 
 def build_model():
@@ -251,7 +251,30 @@ if __name__ == "__main__":
     results = run_sampling()
     summarize_results(results)
     save_results(results)
-    
+      
     print("\n" + "="*60)
     print("Inference Complete!")
     print("="*60)
+
+    # Plot results
+    print("\nGenerating visualization...")
+    # Get median parameters
+    samples = results['samples']
+    weights = results['weights']
+    param_names = results['param_names']
+
+    q50 = []
+    for i in range(len(param_names)):
+        sorted_idx = np.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = np.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+        q50.append(np.interp(0.50, cumsum, sorted_samples))
+    
+    plot_model_results(
+        results['likelihood'], 
+        q50, 
+        save_path='output/model_visualization.png',
+        title="Lens Model Fit Results"
+    ) 

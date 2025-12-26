@@ -40,7 +40,7 @@ class LinearRegressionLikelihood(ck.Module):
 class ImageProbModel(ck.Module):
     @ck.forward
     @partial(jit, static_argnums=0)
-    def __call__(self, theta: Optional[jnp.ndarray] = None):
+    def __call__(self):
         # caskade 自动处理参数传递，无需手动设置
         image_model, _ = self.forward_model()
         log_like = self._likelihood_helper(

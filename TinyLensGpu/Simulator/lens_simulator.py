@@ -107,12 +107,17 @@ class LensSimulator:
         self,
         use_linear: bool = False,
         return_intensity: bool = False,
+        ret_each_plane: bool = False,
         image_map: Optional[np.ndarray] = None,
         noise_map: Optional[np.ndarray] = None,
         xgrid_sub: Optional[np.ndarray] = None,
         ygrid_sub: Optional[np.ndarray] = None,
         psf_kernel: Optional[np.ndarray] = None,
-    ) -> Union[Array, Tuple[Array, Array]]:
+    ) -> Union[
+        Array,
+        Tuple[Array, Array],
+        Tuple[Array, Array, Array],
+    ]:
         """
         Simulate gravitational lensing image for a single parameter set.
 
@@ -122,6 +127,8 @@ class LensSimulator:
             Whether to use linear solver for intensity parameters (default: False)
         return_intensity : bool, optional
             Whether to return intensity values (default: False)
+        ret_each_plane : bool, optional
+            If True, return lens/source components separately (default: False)
         image_map : array_like, optional
             Observed image for linear solver
         noise_map : array_like, optional
@@ -136,7 +143,11 @@ class LensSimulator:
         Returns
         -------
         img : array_like
-            Simulated image, shape (npix, npix)
+            Simulated image, shape (npix, npix) if ret_each_plane=False
+        img_arc : array_like
+            Lensed source contribution if ret_each_plane=True
+        img_lens : array_like
+            Lens light contribution if ret_each_plane=True
         intensity_list : array_like, optional
             Intensity values if return_intensity=True, shape (n_components,)
 
@@ -189,17 +200,26 @@ class LensSimulator:
 
         # Apply PSF and solve for intensities
         if not use_linear:
-            img, X_vec = self._simulate_nonlinear(
-                img_lens_sub, img_arc_sub, psf_kernel
+            sim_out = self._simulate_nonlinear(
+                img_lens_sub, img_arc_sub, psf_kernel, ret_each_plane=ret_each_plane
             )
         else:
             if image_map is None or noise_map is None:
                 raise ValueError("image_map and noise_map required for linear simulation")
 
-            img, X_vec = self._simulate_linear(
+            sim_out = self._simulate_linear(
                 img_lens_sub, img_arc_sub, psf_kernel,
-                image_map, noise_map, n_lens_light, n_src
+                image_map, noise_map, n_lens_light, n_src,
+                ret_each_plane=ret_each_plane
             )
+
+        if ret_each_plane:
+            img_arc, img_lens, X_vec = sim_out
+            if return_intensity:
+                return img_arc, img_lens, X_vec
+            return img_arc, img_lens
+
+        img, X_vec = sim_out
 
         if return_intensity:
             return img, X_vec
@@ -267,13 +287,14 @@ class LensSimulator:
 
         return img_lens_sub, img_arc_sub
 
-    @functools.partial(jit, static_argnums=(0,))
+    @functools.partial(jit, static_argnums=(0, 4))
     def _simulate_nonlinear(
         self,
         img_lens_sub: Array,
         img_arc_sub: Array,
         psf_kernel: Array,
-    ) -> Tuple[Array, None]:
+        ret_each_plane: bool = False,
+    ) -> Union[Tuple[Array, None], Tuple[Array, Array, None]]:
         """
         Non-linear simulation (no intensity optimization).
 
@@ -288,25 +309,36 @@ class LensSimulator:
         psf_kernel : array_like
             PSF kernel, shape [ny_psf, nx_psf]
 
+        ret_each_plane : bool, optional
+            If True, return lens/source components separately (default: False)
+
         Returns
         -------
         img : array_like
-            Final image, shape [ny, nx]
+            Final image, shape [ny, nx] (if ret_each_plane=False)
+        img_arc : array_like
+            Lensed source contribution if ret_each_plane=True
+        img_lens : array_like
+            Lens light contribution if ret_each_plane=True
         X_vec : None
             No intensity values for non-linear case
         """
-        # Sum all components
-        img_sub = jnp.sum(img_lens_sub, axis=-1) + jnp.sum(img_arc_sub, axis=-1)
+        if not ret_each_plane:
+            img_sub = jnp.sum(img_lens_sub, axis=-1) + jnp.sum(img_arc_sub, axis=-1)
+            img = bin_image_general(img_sub, self.sim_config.nsub)
+            img = jsp.signal.fftconvolve(img, psf_kernel, mode='same')
+            return img, None
 
-        # Bin to full resolution
-        img = bin_image_general(img_sub, self.sim_config.nsub)
+        # Separate lens/source paths only when requested
+        img_lens = bin_image_general(jnp.sum(img_lens_sub, axis=-1), self.sim_config.nsub)
+        img_arc = bin_image_general(jnp.sum(img_arc_sub, axis=-1), self.sim_config.nsub)
 
-        # Convolve with PSF
-        img = jsp.signal.fftconvolve(img, psf_kernel, mode='same')
+        img_lens = jsp.signal.fftconvolve(img_lens, psf_kernel, mode='same')
+        img_arc = jsp.signal.fftconvolve(img_arc, psf_kernel, mode='same')
 
-        return img, None
+        return img_arc, img_lens, None
 
-    @functools.partial(jit, static_argnums=(0, 6, 7))
+    @functools.partial(jit, static_argnums=(0, 6, 7, 8))
     def _simulate_linear(
         self,
         img_lens_sub: Array,
@@ -316,7 +348,8 @@ class LensSimulator:
         noise_map: Array,
         n_lens_light: int,
         n_src: int,
-    ) -> Tuple[Array, Array]:
+        ret_each_plane: bool = False,
+    ) -> Union[Tuple[Array, Array], Tuple[Array, Array, Array]]:
         """
         Linear simulation with intensity optimization.
 
@@ -339,10 +372,17 @@ class LensSimulator:
         n_src : int
             Number of source components (static)
 
+        ret_each_plane : bool, optional
+            If True, return lens/source components separately (default: False)
+
         Returns
         -------
         img : array_like
-            Final image, shape [ny, nx]
+            Final image, shape [ny, nx] (if ret_each_plane=False)
+        img_arc : array_like
+            Lensed source contribution if ret_each_plane=True
+        img_lens : array_like
+            Lens light contribution if ret_each_plane=True
         X_vec : array_like
             Intensity values, shape [n_lens+n_src]
         """
@@ -379,6 +419,17 @@ class LensSimulator:
         # Concatenate and apply intensities
         img_components = jnp.concatenate([img_arc_convolved, img_lens_convolved], axis=-1)  # [ny, nx, n_total]
         img = jnp.einsum('ijk,k->ij', img_components, X_vec)  # [ny, nx]
+
+        if ret_each_plane:
+            img_arc_sum = (
+                jnp.einsum('ijk,k->ij', img_arc_convolved, X_vec[:n_src])
+                if n_src > 0 else jnp.zeros(img.shape, dtype=img.dtype)
+            )
+            img_lens_sum = (
+                jnp.einsum('ijk,k->ij', img_lens_convolved, X_vec[n_src:])
+                if n_lens_light > 0 else jnp.zeros(img.shape, dtype=img.dtype)
+            )
+            return img_arc_sum, img_lens_sum, X_vec
 
         return img, X_vec
 

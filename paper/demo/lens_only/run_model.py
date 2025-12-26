@@ -17,6 +17,7 @@ from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
+from TinyLensGpu.visualizer import plot_model_results
 
 
 def build_problem():
@@ -140,6 +141,25 @@ def run_sampling():
     print("\n" + "="*60)
     print("Inference Complete!")
     print("="*60)
+
+    # Plot results
+    print("\nGenerating visualization...")
+    # Get median parameters
+    q50 = []
+    for i in range(len(param_names)):
+        sorted_idx = jnp.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = jnp.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+        q50.append(jnp.interp(0.50, cumsum, sorted_samples))
+    
+    plot_model_results(
+        likelihood, 
+        q50, 
+        save_path='output/model_visualization.png',
+        title="Lens Model Fit Results"
+    ) 
     
     return samples, weights, param_names
 

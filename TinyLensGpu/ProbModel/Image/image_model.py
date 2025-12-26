@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax
 from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict, Tuple, Union
+from typing import Optional, Dict, Tuple, Union, Sequence
 
 from TinyLensGpu.Simulator.lens_simulator import LensSimulator
 from TinyLensGpu.Simulator.config import SimulatorConfig
@@ -112,7 +112,24 @@ class ImageProbModel(ck.Module):
         """Get dynamic parameters from the underlying physical model."""
         return self.phys_model.dynamic_params
 
-    def forward_model(self) -> Tuple[Array, Optional[Array]]:
+    @ck.forward
+    def forward_model(
+        self,
+        *,
+        use_linear: Optional[bool] = None,
+        return_intensity: bool = True,
+        ret_each_plane: bool = False,
+        image_map: Optional[np.ndarray] = None,
+        noise_map: Optional[np.ndarray] = None,
+        xgrid_sub: Optional[np.ndarray] = None,
+        ygrid_sub: Optional[np.ndarray] = None,
+        psf_kernel: Optional[np.ndarray] = None,
+    ) -> Union[
+        Array,
+        Tuple[Array, Optional[Array]],
+        Tuple[Array, Array],
+        Tuple[Array, Array, Optional[Array]],
+    ]:
         """
         Run forward model to generate simulated image.
 
@@ -126,16 +143,26 @@ class ImageProbModel(ck.Module):
         intensity_list : jnp.ndarray or None
             Intensity values if linear solver used, else None
         """
-        return self.sim_obj.simulate(
-            use_linear=self.use_linear,
-            return_intensity=True,
-            image_map=self.image_data if self.use_linear else None,
-            noise_map=self.noise_map if self.use_linear else None,
+        linear_flag = self.use_linear if use_linear is None else use_linear
+
+        sim_kwargs = dict(
+            use_linear=linear_flag,
+            return_intensity=return_intensity,
+            ret_each_plane=ret_each_plane,
+            xgrid_sub=xgrid_sub,
+            ygrid_sub=ygrid_sub,
+            psf_kernel=psf_kernel,
         )
+
+        if linear_flag:
+            sim_kwargs["image_map"] = image_map if image_map is not None else self.image_data
+            sim_kwargs["noise_map"] = noise_map if noise_map is not None else self.noise_map
+
+        return self.sim_obj.simulate(**sim_kwargs)  # theta injected by caskade into phys_model
 
     @ck.forward
     @functools.partial(jit, static_argnums=(0,))
-    def __call__(self, theta: Optional[jnp.ndarray] = None):
+    def __call__(self):
         """Vectorization-friendly log-likelihood evaluation.
 
         This function is designed to be used with `make_likelihood(..., vectorized=True)`
@@ -179,6 +206,7 @@ class ImageProbModel(ck.Module):
         """
         like = float(np.asarray(self.__call__()))
         return like
+
 
     def _position_likelihood_penalty(self) -> float:
         """

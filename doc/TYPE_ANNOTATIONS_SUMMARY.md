@@ -95,7 +95,6 @@ def light(self, x: Array, y: Array, R_sersic: Optional[Array] = None,
           n_sersic: Optional[Array] = None, e1: Optional[Array] = None, 
           e2: Optional[Array] = None, center_x: Optional[Array] = None, 
           center_y: Optional[Array] = None, Ie: Optional[Array] = None) -> Array:
-    ...
 ```
 
 #### 1.6 `Models/composite.py`
