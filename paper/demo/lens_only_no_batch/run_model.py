@@ -118,8 +118,7 @@ def run_sampling():
         loglike, 
         n_dim=len(param_names), 
         n_live=200, 
-        vectorized=True, 
-        n_batch=200
+        vectorized=False, 
     )
     sampler.run(verbose=True, n_eff=800)
     end_time = time.time()

@@ -101,8 +101,13 @@ class SersicEllipse(ck.Module):
         x_, y_ = ellipse2circle_transform(x, y, e1, e2, center_x, center_y)
         R = jnp.sqrt(x_**2 + y_**2)
 
-        # Calculate bn coefficient (approximate formula)
-        bn = 1.9992 * n_sersic - 0.3271
+        # Calculate bn coefficient using Ciotti & Bertin (1999) higher-order approximation
+        inv_n = 1.0 / n_sersic
+        bn = (2.0 * n_sersic - 1.0 / 3.0 +
+              4.0 / 405.0 * inv_n +
+              46.0 / 25515.0 * inv_n**2 +
+              131.0 / 1148175.0 * inv_n**3 -
+              2194697.0 / 30690717750.0 * inv_n**4)
 
         # Sersic profile
         return Ie * jnp.exp(-bn * ((R / R_sersic) ** (1 / n_sersic) - 1.0))

@@ -105,8 +105,34 @@ class ImageProbModel(ck.Module):
         self.unmask = jnp.array(~sim_config.mask)
         self.position_like_config = position_likelihood
 
+        # Initialize position likelihood for JIT
+        self._init_position_likelihood(self.position_like_config)
+
         # Precompute static flags for JIT-friendly branching
         self._check_nnls = bool(self.use_linear and self.sim_obj.solver_type == "nnls")
+
+    def _init_position_likelihood(self, config: Optional[Dict]) -> None:
+        """Initialize position likelihood parameters for JIT optimization."""
+        self._pos_px = None
+        self._pos_py = None
+        self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
+        self._pos_minl = jnp.array(0.0, dtype=jnp.float32)
+        self._has_pos_penalty = False
+
+        if config is not None:
+            positions = config.get('positions', [])
+            if positions is not None and len(positions) >= 2:
+                self._pos_px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
+                self._pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
+                self._pos_thr = jnp.array(
+                    float(config.get('threshold_arcsec', config.get('position_threshold', 0.0))),
+                    dtype=jnp.float32
+                )
+                self._pos_minl = jnp.array(
+                    float(config.get('min_log_like', config.get('min_position_likelihood', 0.0))),
+                    dtype=jnp.float32
+                )
+                self._has_pos_penalty = True
 
     def get_dynamic_params(self):
         """Get dynamic parameters from the underlying physical model."""
@@ -180,7 +206,7 @@ class ImageProbModel(ck.Module):
             log_like = jnp.where(ok, log_like, -jnp.inf)
 
         # Add position likelihood penalty (JIT/vmap safe)
-        if self.position_like_config is not None:
+        if self._has_pos_penalty:
             log_like = log_like + self._position_likelihood_penalty_jax()
 
         # Guard against NaN/Inf
@@ -208,64 +234,22 @@ class ImageProbModel(ck.Module):
         return like
 
 
-    def _position_likelihood_penalty(self) -> float:
-        """
-        Compute position likelihood penalty.
-
-        This enforces that multiple lensed images of the same source
-        should map to the same location in the source plane.
-
-        Returns
-        -------
-        penalty : float
-            Penalty value
-        """
-        cfg = self.position_like_config
-        if cfg is None:
-            return 0.0
-
-        positions = cfg.get('positions', [])
-        if positions is None or len(positions) < 2:
-            return 0.0
-
-        threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
-        min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
-
-        # NOTE: this method is kept for backward compatibility (non-jitted usage)
-        return float(np.asarray(self._position_likelihood_penalty_jax()))
-
+    @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         """JAX-compatible position likelihood penalty (JIT/vmap safe)."""
-        cfg = self.position_like_config
-        if cfg is None:
-            return jnp.array(0.0, dtype=jnp.float32)
-
-        positions = cfg.get('positions', [])
-        if positions is None or len(positions) < 2:
-            return jnp.array(0.0, dtype=jnp.float32)
-
-        threshold = float(cfg.get('threshold_arcsec', cfg.get('position_threshold', 0.0)))
-        min_like = float(cfg.get('min_log_like', cfg.get('min_position_likelihood', 0.0)))
-
-        px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
-        py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
-
-        beta_x, beta_y = self.phys_model.deflection(px, py)
+        beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
 
         dx = beta_x[:, None] - beta_x[None, :]
         dy = beta_y[:, None] - beta_y[None, :]
         dist = jnp.sqrt(dx * dx + dy * dy)
         max_sep = jnp.max(dist)
 
-        thr = jnp.array(threshold, dtype=jnp.float32)
-        minl = jnp.array(min_like, dtype=jnp.float32)
+        exceed = jnp.maximum(0.0, max_sep - self._pos_thr)
+        ratio = jnp.where(self._pos_thr > 0.0, exceed / self._pos_thr, 0.0)
+        pen_continuous = self._pos_minl * (1.0 - jnp.exp(-ratio))
 
-        exceed = jnp.maximum(0.0, max_sep - thr)
-        ratio = jnp.where(thr > 0.0, exceed / thr, 0.0)
-        pen_continuous = minl * (1.0 - jnp.exp(-ratio))
-
-        pen_clipped = jnp.clip(pen_continuous, a_min=minl, a_max=jnp.array(0.0, dtype=jnp.float32))
-        pen = jnp.where(jnp.logical_or(thr <= 0.0, exceed <= 0.0), 0.0, pen_clipped)
+        pen_clipped = jnp.clip(pen_continuous, a_min=self._pos_minl, a_max=0.0)
+        pen = jnp.where(jnp.logical_or(self._pos_thr <= 0.0, exceed <= 0.0), 0.0, pen_clipped)
         return pen
 
     def __repr__(self) -> str:

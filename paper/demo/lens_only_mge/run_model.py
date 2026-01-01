@@ -12,13 +12,14 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import numpy as np
-from TinyLensGpu.Models import ParamU
+from TinyLensGpu.Models import ParamU, PhysicalModel
 from TinyLensGpu.Models.light import GaussianEllipse
-from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
+from TinyLensGpu.util import load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
+from TinyLensGpu.ProbModel.Image.image_model import ImageProbModel
 
 
 def build_problem():
@@ -85,18 +86,19 @@ def build_problem():
     print(f"Created {N_gaussians} Gaussian components")
     print(f"Sigma range: {sigma_list[0]:.4f} to {sigma_list[-1]:.4f} arcsec")
     
-    # Build physical model
-    phys_model = build_lens_model(lens_light=gaussians)
+    # Build physical model directly
+    phys_model = PhysicalModel(lens_light=gaussians)
     
     # Build likelihood
-    prob_model = build_likelihood(
-        phys_model=phys_model,
+    prob_model = ImageProbModel(
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
-        pixel_scale=0.074,
+        dpix=0.074,
         nsub=4,
+        phys_model=phys_model,
         use_linear=True,  # Use linear solver for flux parameters
+        mask=mask,
         solver_type='nnls'  # Non-negative least squares (recommended for MGE)
     )
     

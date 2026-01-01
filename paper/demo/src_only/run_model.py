@@ -16,11 +16,12 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from TinyLensGpu.Models import ParamU, SersicEllipse
+from TinyLensGpu.Models import ParamU, SersicEllipse, PhysicalModel
 from TinyLensGpu.Models.mass import SIE, Shear
-from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
+from TinyLensGpu.util import load_lens_data
 from TinyLensGpu.Models.prior_spec import make_prior_transformation
 from TinyLensGpu.Models.likelihood import make_likelihood
+from TinyLensGpu.ProbModel.Image.image_model import ImageProbModel
 
 
 def build_model():
@@ -72,8 +73,8 @@ def build_model():
         Ie=ParamU("Ie", 1.0),  # Linear parameter
     )
     
-    # Build physical model
-    phys_model = build_lens_model(
+    # Build physical model directly
+    phys_model = PhysicalModel(
         lens_mass=[sie, shear],
         source_light=[source],
         lens_light=[]
@@ -93,14 +94,15 @@ def build_model():
     source.center_y.to_dynamic()
     
     # Build likelihood model (no position likelihood)
-    prob_model = build_likelihood(
-        phys_model=phys_model,
+    prob_model = ImageProbModel(
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
-        pixel_scale=0.074,
+        dpix=0.074,
         nsub=4,
+        phys_model=phys_model,
         use_linear=True,
+        mask=mask,
         solver_type='nnls'
     )
     
