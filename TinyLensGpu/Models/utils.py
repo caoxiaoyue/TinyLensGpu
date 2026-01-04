@@ -10,6 +10,22 @@ import jax.numpy as jnp
 from jax import Array
 
 
+def phi_q2_ellipticity(phi: Array, q: Array) -> Tuple[Array, Array]:
+    """
+    Convert phi and q to ellipticity e1, e2.
+    Args:
+        phi: rotation angle, in radians
+        q: axis ratio
+    Returns:
+        e1: ellipticity in x direction
+        e2: ellipticity in y direction
+    """
+    e = (1. - q) / (1. + q)
+    e1 = e * jnp.cos(2 * phi)
+    e2 = e * jnp.sin(2 * phi)
+    return e1, e2
+
+
 def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
     """
     Convert ellipticity to phi and q.
@@ -79,6 +95,7 @@ def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array,
 
 
 __all__ = [
+    'phi_q2_ellipticity',
     'ellipticity2phi_q',
     'xy_transform',
     'relocate_radii',

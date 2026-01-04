@@ -1,23 +1,26 @@
 #%%
-from TinyLensGpu.Simulator.Image import Simulator
-from TinyLensGpu.Profile.Light.Sersic import SersicEllipse
-from TinyLensGpu.Profile.Mass.Sie import SIE
-from TinyLensGpu.Profile.Mass.Shear import Shear
+from TinyLensGpu.Models import PhysicalModel, SersicEllipse, SIE, Shear
+from TinyLensGpu.Models.utils import phi_q2_ellipticity
+import numpy as np
 
-phy_model = Simulator.PhysicalModel(
+# %%
+e1_l, e2_l = phi_q2_ellipticity(90*np.pi/180, 0.9)
+
+phy_model = PhysicalModel(
     lens_mass=[],
     source_light=[],
-    lens_light=[SersicEllipse()],
+    lens_light=[
+        SersicEllipse(R_sersic=1.0, n_sersic=4.0, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0, Ie=1.0)
+    ],
 )
 
 # %%
-from TinyLensGpu.Simulator.Image.Simulator import SimulatorConfig
-from TinyLensGpu.Simulator.Image.Simulator import util as su
-from TinyLensGpu.Profile.Light.Gaussian import Gaussian
-import numpy as np
+from TinyLensGpu.Simulator import SimulatorConfig, LensSimulator
+from TinyLensGpu.Simulator.config import make_grid_2d
+from TinyLensGpu.Models import GaussianEllipse
 
-x_psf, y_psf = su.make_grid_2d(21, 0.074)
-psf_kernel = Gaussian().light(x_psf, y_psf, 1.0, 0.05, 0.0, 0.0)
+x_psf, y_psf = make_grid_2d(21, 0.074)
+psf_kernel = GaussianEllipse(flux=1.0, sigma=0.05, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0).light(x=x_psf, y=y_psf)
 psf_kernel /= psf_kernel.sum()
 psf_kernel = np.asarray(psf_kernel)
 sim_config = SimulatorConfig(
@@ -27,37 +30,13 @@ sim_config = SimulatorConfig(
     nsub=16,
 )
 
-from TinyLensGpu.Simulator.Image import Simulator
-sim_obj = Simulator.LensSimulator(
+sim_obj = LensSimulator(
     phy_model,
     sim_config
 )
 
-
-# %%
-from TinyLensGpu.Profile import util
-e1_l, e2_l = util.phi_q2_ellipticity(90*np.pi/180, 0.9)
-print("ellipticity:", e1_l, e2_l)
-lens_light_par_list = [
-    dict(
-        R_sersic=1.0,
-        n_sersic=4.0,
-        e1=e1_l,
-        e2=e2_l,
-        center_x=0.0,
-        center_y=0.0,
-        Ie=1.0,  
-    )
-]
-
-params = [
-    [],
-    [],
-    lens_light_par_list,
-]
-
 #%%
-img_2d = sim_obj.simulate(params, xgrid_sub=sim_obj.xgrid_sub, ygrid_sub=sim_obj.ygrid_sub, psf_kernel=psf_kernel)
+img_2d = sim_obj.simulate()
 from matplotlib import pyplot as plt
 plt.figure()
 plt.imshow(img_2d, origin='lower')
