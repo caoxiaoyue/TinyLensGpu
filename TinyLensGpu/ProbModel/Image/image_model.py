@@ -105,6 +105,12 @@ class ImageProbModel(ck.Module):
         self.unmask = jnp.array(~sim_config.mask)
         self.position_like_config = position_likelihood
 
+        # Precompute Gaussian log-likelihood constant term: -0.5 * sum(ln(2*pi*sigma^2))
+        # only for unmasked pixels
+        log_sigma_sq = 2 * jnp.log(self.noise_map)
+        log_2pi = jnp.log(2 * jnp.pi)
+        self.log_like_const = -0.5 * jnp.sum((log_sigma_sq + log_2pi) * self.unmask)
+
         # Initialize position likelihood for JIT
         self._init_position_likelihood(self.position_like_config)
 
@@ -198,7 +204,7 @@ class ImageProbModel(ck.Module):
 
         chi2_image = (image_model - self.image_data) ** 2 / self.noise_map ** 2
         chi2_image = chi2_image * self.unmask
-        log_like = -0.5 * jnp.sum(chi2_image)
+        log_like = -0.5 * jnp.sum(chi2_image) + self.log_like_const
 
         # If NNLS is configured and returns any negative intensity, treat as invalid
         if self._check_nnls:

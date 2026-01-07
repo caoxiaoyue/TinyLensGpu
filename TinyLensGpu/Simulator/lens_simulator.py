@@ -267,7 +267,7 @@ class LensSimulator:
 
         # Ray-tracing: compute source plane coordinates
         if n_lens_mass > 0:
-            beta_x, beta_y = self.phys_model.deflection(xgrid_sub, ygrid_sub)
+            beta_x, beta_y = self.phys_model.deflection(x=xgrid_sub, y=ygrid_sub)
         else:
             beta_x, beta_y = xgrid_sub, ygrid_sub
 
@@ -275,14 +275,14 @@ class LensSimulator:
         if n_src > 0:
             for i, light_model in enumerate(self.phys_model.source_light):
                 img_arc_sub = img_arc_sub.at[..., i].set(
-                    light_model.light(beta_x, beta_y)
+                    light_model.light(x=beta_x, y=beta_y)
                 )
 
         # Compute lens light
         if n_lens_light > 0:
             for i, light_model in enumerate(self.phys_model.lens_light):
                 img_lens_sub = img_lens_sub.at[..., i].set(
-                    light_model.light(xgrid_sub, ygrid_sub)
+                    light_model.light(x=xgrid_sub, y=ygrid_sub)
                 )
 
         return img_lens_sub, img_arc_sub
