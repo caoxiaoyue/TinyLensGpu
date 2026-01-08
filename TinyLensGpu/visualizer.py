@@ -22,10 +22,10 @@ def plot_model_results(likelihood_obj, theta, save_path=None, title=None):
     # Ensure theta is a Sequence for caskade (numpy arrays are rejected)
     if isinstance(theta, (np.ndarray, jnp.ndarray)):
         theta = theta.tolist()
+    likelihood_obj.set_values(theta) 
 
     # Extract everything in one go via the @ck.forward mechanism
     lensed_image_model, lens_light_model = likelihood_obj.forward_model(
-        theta,
         use_linear=likelihood_obj.use_linear,
         return_intensity=False,
         ret_each_plane=True,
@@ -62,7 +62,7 @@ def plot_model_results(likelihood_obj, theta, save_path=None, title=None):
     source_plane_image = jnp.zeros_like(sx)
     source_plane_image = jnp.repeat(source_plane_image[..., jnp.newaxis], n_src, axis=-1)
     for i, light_model in enumerate(likelihood_obj_tmp.sim_obj.phys_model.source_light):
-        source_plane_image = source_plane_image.at[..., i].set(light_model.light(theta, x=sx, y=sy))
+        source_plane_image = source_plane_image.at[..., i].set(light_model.light(x=sx, y=sy))
     source_plane_image = np.asarray(source_plane_image)
 
     # Plotting
