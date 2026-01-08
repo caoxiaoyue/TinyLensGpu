@@ -65,4 +65,8 @@ fits.writeto('data/image.fits', np.asarray(noisy_image), overwrite=True)
 fits.writeto('data/noise.fits', np.asarray(noise_map), overwrite=True)
 fits.writeto('data/psf.fits', np.asarray(psf_kernel), overwrite=True)
 
+xgrid, ygrid = make_grid_2d(200, 0.074)
+rgrid = np.sqrt(xgrid**2 + ygrid**2)
+mask = rgrid > 5.0
+fits.writeto('data/mask.fits', np.asarray(mask).astype(np.int32), overwrite=True)
 # %%

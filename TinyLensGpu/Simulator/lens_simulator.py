@@ -99,9 +99,52 @@ class LensSimulator:
         self.linear_solver = LinearSolver(solver_type)
 
         # Pre-convert grids to JAX arrays
-        self.xgrid_sub = jnp.array(self.sim_config.xgrid_sub)
-        self.ygrid_sub = jnp.array(self.sim_config.ygrid_sub)
+        # Always use 1D grids
+        self.xgrid_sub = jnp.array(self.sim_config.xgrid_sub_1d)
+        self.ygrid_sub = jnp.array(self.sim_config.ygrid_sub_1d)
+            
         self.psf_kernel = jnp.array(self.sim_config.psf_kernel)
+
+    def _restore_2d_from_1d(self, img_1d: Array) -> Array:
+        """
+        Restore 2D image from 1D array using pre-computed indices.
+        
+        Parameters
+        ----------
+        img_1d : array_like
+            1D array of unmasked pixels, shape (n_unmasked, ...)
+            
+        Returns
+        -------
+        img_2d : array_like
+            Restored 2D image, shape (ny_sub, nx_sub, ...)
+        """
+        # Get shapes and indices from config
+        shape = self.sim_config.subgrid_shape
+        flat_indices = self.sim_config.flat_indices
+        
+        N, M = shape
+        n_pixels = N * M
+        
+        # Optimization: If no masking (all pixels used), avoid scatter
+        if flat_indices.shape[0] == n_pixels:
+            if img_1d.ndim > 1:
+                n_channels = img_1d.shape[-1]
+                return img_1d.reshape(N, M, n_channels)
+            else:
+                return img_1d.reshape(N, M)
+        
+        # Handle multi-channel (e.g., separate components)
+        if img_1d.ndim > 1:
+            n_channels = img_1d.shape[-1]
+            # Use zeros for masked pixels
+            flat_img = jnp.zeros((n_pixels, n_channels), dtype=img_1d.dtype)
+            flat_img = flat_img.at[flat_indices].set(img_1d)
+            return flat_img.reshape(N, M, n_channels)
+        else:
+            flat_img = jnp.zeros(n_pixels, dtype=img_1d.dtype)
+            flat_img = flat_img.at[flat_indices].set(img_1d)
+            return flat_img.reshape(N, M)
 
     def simulate(
         self,
@@ -243,9 +286,9 @@ class LensSimulator:
         Parameters
         ----------
         xgrid_sub : array_like
-            X-coordinates at subsampled resolution, shape [ny_sub, nx_sub]
+            X-coordinates at subsampled resolution, shape [n_pixels]
         ygrid_sub : array_like
-            Y-coordinates at subsampled resolution, shape [ny_sub, nx_sub]
+            Y-coordinates at subsampled resolution, shape [n_pixels]
         n_src : int
             Number of source light components
         n_lens_light : int
@@ -256,12 +299,12 @@ class LensSimulator:
         Returns
         -------
         img_lens_sub : array_like
-            Lens light images, shape [ny_sub, nx_sub, n_lens_light]
+            Lens light images, shape [n_pixels, n_lens_light]
         img_arc_sub : array_like
-            Source light images, shape [ny_sub, nx_sub, n_src]
+            Source light images, shape [n_pixels, n_src]
         """
         # Initialize output arrays
-        img_sub = jnp.zeros_like(xgrid_sub)  # [ny_sub, nx_sub]
+        img_sub = jnp.zeros_like(xgrid_sub)  # [n_pixels]
         img_arc_sub = jnp.repeat(img_sub[..., jnp.newaxis], n_src, axis=-1)
         img_lens_sub = jnp.repeat(img_sub[..., jnp.newaxis], n_lens_light, axis=-1)
 
@@ -303,9 +346,9 @@ class LensSimulator:
         Parameters
         ----------
         img_lens_sub : array_like
-            Lens light, shape [ny_sub, nx_sub, n_lens]
+            Lens light, shape [n_pixels, n_lens]
         img_arc_sub : array_like
-            Source light, shape [ny_sub, nx_sub, n_src]
+            Source light, shape [n_pixels, n_src]
         psf_kernel : array_like
             PSF kernel, shape [ny_psf, nx_psf]
 
@@ -323,6 +366,11 @@ class LensSimulator:
         X_vec : None
             No intensity values for non-linear case
         """
+        # Restore 2D images from 1D input (unmasked pixels only)
+        # Input shape: (n_unmasked, n_components) -> Output shape: (ny, nx, n_components)
+        img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
+        img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
+
         if not ret_each_plane:
             img_sub = jnp.sum(img_lens_sub, axis=-1) + jnp.sum(img_arc_sub, axis=-1)
             img = bin_image_general(img_sub, self.sim_config.nsub)
@@ -358,9 +406,9 @@ class LensSimulator:
         Parameters
         ----------
         img_lens_sub : array_like
-            Lens light, shape [ny_sub, nx_sub, n_lens]
+            Lens light, shape [n_pixels, n_lens]
         img_arc_sub : array_like
-            Source light, shape [ny_sub, nx_sub, n_src]
+            Source light, shape [n_pixels, n_src]
         psf_kernel : array_like
             PSF kernel, shape [ny_psf, nx_psf]
         image_map : array_like
@@ -386,6 +434,10 @@ class LensSimulator:
         X_vec : array_like
             Intensity values, shape [n_lens+n_src]
         """
+        # Restore 2D images from 1D input (unmasked pixels only)
+        img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
+        img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
+
         # Prepare linear system
         A_mat, D_vec = prepare_linear_system(
             img_lens_sub, img_arc_sub, psf_kernel,

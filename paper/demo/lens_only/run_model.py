@@ -30,6 +30,7 @@ def build_problem():
         image_path='data/image.fits',
         noise_path='data/noise.fits',
         psf_path='data/psf.fits',
+        mask_path='data/mask.fits',
     )
     
     # Create lens light component with ParamU parameters
