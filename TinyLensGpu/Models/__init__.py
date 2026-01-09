@@ -22,6 +22,7 @@ from .composite import PhysicalModel
 from .mass import SIE, Shear
 from .light import SersicEllipse, GaussianEllipse
 from .param_u import ParamU
+from .pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
 from . import prior_spec
 from . import likelihood
 
@@ -32,6 +33,8 @@ __all__ = [
     'SersicEllipse',
     'GaussianEllipse',
     'ParamU',
+    'PixelizedSourceModel',
+    'PixelizedSourceConfig',
     'prior_spec',
     'likelihood',
 ]

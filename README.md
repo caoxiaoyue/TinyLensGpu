@@ -6,7 +6,9 @@ On a consumer-grade RTX 4060 Ti GPU, TinyLensGpu can model a typical 200×200-pi
 
 We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Space Telescope lenses, achieving strong performance in automated lens analysis. The fraction of catastrophic outliers, where automated modeling fails, is approximately 5–10%.
 
-Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using parametric models such as Sérsic, Gaussian, and multi-Gaussian expansion models. In future updates, we plan to incorporate a pixelated source model to enhance its capabilities.
+Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using:
+- **Parametric models**: Sérsic, Gaussian, and multi-Gaussian expansion (MGE) models
+- **Pixelized source models**: Discrete pixel reconstruction with Gaussian Process regularization (NEW in v2.1)
 
 ## 🆕 Programmatic API (v2.0)
 
@@ -122,9 +124,59 @@ python run_model.py          # lens + source parametric example
 
 cd ../lens_src_mge
 python run_model.py          # MGE lens + source example
+
+cd ../src_only_pix_src
+python demo_pix_src.py       # pixelized source reconstruction example
 ```
 
 Each demo writes results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Modify the scripts directly to experiment with priors, components, likelihood options, or sampler settings.
+
+### Pixelized Source Modeling (NEW)
+
+TinyLensGpu now supports pixelized source reconstruction as an alternative to parametric source models:
+
+```python
+from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.Models.mass import SIE
+from TinyLensGpu.ProbModel.Image import PixelizedImageProbModel
+
+# Create mass model
+sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+phys_model = PhysicalModel(lens_mass=[sie])
+
+# Configure pixelized source
+config = PixelizedSourceConfig(
+    reg_scale=0.05,           # Regularization length scale
+    reg_coefficient=1.0,      # Regularization strength
+    n_source_points=1500,     # Number of source pixels
+)
+pix_src = PixelizedSourceModel(config=config)
+
+# Create probability model
+prob_model = PixelizedImageProbModel(
+    image_data=image,
+    noise_map=noise,
+    psf_kernel=psf,
+    dpix=0.05,
+    phys_model=phys_model,
+    pix_src_model=pix_src,
+    mask=mask,
+)
+
+# Compute log evidence (analogous to log likelihood)
+log_ev = prob_model.log_evidence()
+
+# Reconstruct source
+source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
+```
+
+**Key Features**:
+- Bayesian evidence calculation for hyperparameter optimization
+- Multiple regularization kernels (exponential, Gaussian, Matern-3/2, Matern-5/2)
+- Adaptive source mesh generation
+- Compatible with nested sampling for joint mass + hyperparameter inference
+
+See [Pixelized Source Guide](doc/pixelized_source_guide.md) for detailed documentation.
 
 
 ## Citation
