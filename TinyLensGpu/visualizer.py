@@ -5,7 +5,7 @@ Visualization module for lens model fitting results.
 import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
-from TinyLensGpu.Simulator.config import make_grid_2d
+from TinyLensGpu.ForwardModel.LensImage.config import make_grid_2d
 import copy
 
 def plot_model_results(likelihood_obj, theta, save_path=None, title=None):

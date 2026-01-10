@@ -11,9 +11,9 @@ import numpy as np
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.Simulator import LensSimulator, SimulatorConfig
+from TinyLensGpu.ForwardModel import LensSimulator, SimulatorConfig
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
-from TinyLensGpu.LinearSolver import LinearSolver
+from TinyLensGpu.utils import LinearSolver
 
 
 @pytest.mark.integration

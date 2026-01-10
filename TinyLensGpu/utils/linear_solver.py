@@ -188,7 +188,7 @@ def solve_linear(A: Array, b: Array) -> Array:
     ATA = A.T @ A  # shape: [n, n]
 
     # Compute pseudoinverse
-    ATA_inv = jnp.linalg.pinv(ATA, rcond=1e-6)  # shape: [n, n]
+    ATA_inv = jnp.linalg.pinv(ATA, rtol=1e-6)  # shape: [n, n]
 
     # Compute solution: x = (A^T A)^-1 A^T b
     x = ATA_inv @ (A.T @ b)

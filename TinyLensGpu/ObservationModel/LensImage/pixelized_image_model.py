@@ -14,7 +14,7 @@ from jax import jit, Array
 import numpy as np
 from typing import Optional, Dict, Tuple
 
-from TinyLensGpu.Simulator.config import SimulatorConfig
+from TinyLensGpu.ForwardModel.LensImage.config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (

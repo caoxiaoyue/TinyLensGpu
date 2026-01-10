@@ -1,7 +1,8 @@
 """
-Linear solver utilities for gravitational lensing.
+Utility functions for TinyLensGpu.
 
-This module provides linear solver utilities for intensity parameter optimization.
+This module provides general-purpose utility functions and tools
+that are used across different parts of the package.
 
 Main Classes
 ------------
