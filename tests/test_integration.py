@@ -8,9 +8,11 @@ to ensure the system works correctly as a whole.
 import pytest
 import jax.numpy as jnp
 import numpy as np
-from TinyLensGpu.Models import SIE, Shear, SersicEllipse, GaussianEllipse, PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.Simulator import LensSimulator, SimulatorConfig
-from TinyLensGpu.ProbModel.Image import ImageProbModel
+from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 from TinyLensGpu.LinearSolver import LinearSolver
 
 

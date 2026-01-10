@@ -15,9 +15,9 @@ import numpy as np
 from typing import Optional, Dict, Tuple
 
 from TinyLensGpu.Simulator.config import SimulatorConfig
-from TinyLensGpu.Models.composite import PhysicalModel
-from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel
-from TinyLensGpu.PixelizedSource import (
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
     LinearInversion,
     regularization_matrix_gp_from,
     lens_mapping_matrix_from,
@@ -79,9 +79,9 @@ class PixelizedImageProbModel(ck.Module):
     
     Examples
     --------
-    >>> from TinyLensGpu.Models.mass import SIE
-    >>> from TinyLensGpu.Models.composite import PhysicalModel
-    >>> from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
+    >>> from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+    >>> from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+    >>> from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel, PixelizedSourceConfig
     >>> 
     >>> # Create mass model
     >>> sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)

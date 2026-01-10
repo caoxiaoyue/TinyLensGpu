@@ -161,7 +161,7 @@ class PixelizedSourceModel(ck.Module):
     
     Examples
     --------
-    >>> from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
+    >>> from TinyLensGpu.PhysicalModel import PixelizedSourceModel, PixelizedSourceConfig
     >>> 
     >>> # Create configuration
     >>> config = PixelizedSourceConfig(

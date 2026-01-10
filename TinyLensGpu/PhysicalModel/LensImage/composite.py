@@ -34,8 +34,8 @@ class PhysicalModel(ck.Module):
 
     Examples
     --------
-    >>> from TinyLensGpu.Models.mass import SIE, Shear
-    >>> from TinyLensGpu.Models.light import SersicEllipse
+    >>> from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
+    >>> from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
     >>>
     >>> # Create individual components
     >>> sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)

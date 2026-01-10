@@ -12,7 +12,7 @@ from jax import jit, Array
 from typing import Optional, Tuple, Union
 import numpy as np
 
-from ..Models.composite import PhysicalModel
+from ..PhysicalModel.LensImage.composite import PhysicalModel
 from .config import SimulatorConfig
 from ..LinearSolver.linear_solver import LinearSolver, prepare_linear_system
 

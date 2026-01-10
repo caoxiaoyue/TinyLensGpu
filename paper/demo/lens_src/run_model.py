@@ -16,13 +16,14 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.Models import SersicEllipse, PhysicalModel
-from TinyLensGpu.Models.mass import SIE, Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
 from TinyLensGpu.util import load_lens_data
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.visualizer import plot_model_results
-from TinyLensGpu.ProbModel.Image.image_model import ImageProbModel
+from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 
 
 def build_model():

@@ -15,7 +15,7 @@ from typing import Optional, Dict, Tuple, Union, Sequence
 
 from TinyLensGpu.Simulator.lens_simulator import LensSimulator
 from TinyLensGpu.Simulator.config import SimulatorConfig
-from TinyLensGpu.Models.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 
 class ImageProbModel(ck.Module):
@@ -219,7 +219,7 @@ class ImageProbModel(ck.Module):
         log_like = jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
         return log_like
 
-    def likelihood(self) -> float:
+    def likelihood(self, debug: bool = True) -> float:
         """
         Compute log-likelihood of current model parameters.
 
@@ -229,7 +229,8 @@ class ImageProbModel(ck.Module):
         Parameters
         ----------
         debug : bool, optional
-            Whether to check for NaN/Inf values (default: True)
+            Whether to check for NaN/Inf values (default: True).
+            Note: In the current JAX implementation, NaN/Inf checks are always performed.
 
         Returns
         -------

@@ -1,6 +1,6 @@
 #%%
-from TinyLensGpu.Models import PhysicalModel, SersicEllipse, SIE, Shear
-from TinyLensGpu.Models.utils import phi_q2_ellipticity
+from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
 import numpy as np
 
 # %%
@@ -17,7 +17,7 @@ phy_model = PhysicalModel(
 # %%
 from TinyLensGpu.Simulator import SimulatorConfig, LensSimulator
 from TinyLensGpu.Simulator.config import make_grid_2d
-from TinyLensGpu.Models import GaussianEllipse
+from TinyLensGpu.PhysicalModel import GaussianEllipse
 
 x_psf, y_psf = make_grid_2d(21, 0.074)
 psf_kernel = GaussianEllipse(flux=1.0, sigma=0.05, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0).light(x=x_psf, y=y_psf)

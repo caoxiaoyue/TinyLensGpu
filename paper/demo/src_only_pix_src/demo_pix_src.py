@@ -15,13 +15,15 @@ import numpy as np
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
 
-from TinyLensGpu.Models import PhysicalModel, SersicEllipse, SIE, Shear, GaussianEllipse
-from TinyLensGpu.Models.utils import phi_q2_ellipticity
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
 from TinyLensGpu.Simulator import SimulatorConfig, LensSimulator
 from TinyLensGpu.Simulator.config import make_grid_2d
 
-from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
-from TinyLensGpu.ProbModel.Image.pixelized_image_model import PixelizedImageProbModel
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
 
 
 def simulate_lensing_data():

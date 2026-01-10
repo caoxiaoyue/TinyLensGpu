@@ -103,7 +103,7 @@ def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
     
     Examples
     --------
-    >>> from TinyLensGpu.Models import SersicEllipse
+    >>> from TinyLensGpu.PhysicalModel import SersicEllipse
     >>> from TinyLensGpu.Inference import ParamU
     >>> sersic = SersicEllipse(
     ...     R_sersic=ParamU("R_sersic", 1.0, prior_type="uniform", prior_settings=[0.1, 2.0])

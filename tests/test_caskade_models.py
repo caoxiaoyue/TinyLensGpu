@@ -9,11 +9,11 @@ import numpy as np
 import jax.numpy as jnp
 
 # Import model implementations
-from TinyLensGpu.Models.mass import SIE
-from TinyLensGpu.Models.mass import Shear
-from TinyLensGpu.Models.light import SersicEllipse as Sersic
-from TinyLensGpu.Models.light import GaussianEllipse as Gaussian
-from TinyLensGpu.Models.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse as Sersic
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse as Gaussian
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 
 class TestSIE:
