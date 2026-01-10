@@ -11,8 +11,11 @@ prepare_linear_system : Prepare linear system for solving
 """
 
 from .linear_solver import LinearSolver, prepare_linear_system
+from .misc import auto_mkdir_path, load_lens_data
 
 __all__ = [
     'LinearSolver',
     'prepare_linear_system',
+    'auto_mkdir_path',
+    'load_lens_data',
 ]

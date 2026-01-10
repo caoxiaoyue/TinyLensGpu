@@ -15,7 +15,7 @@ def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
     is_diagonal = (noise_cov.ndim == 1)
     
     if is_diagonal:
-        N_diag = jnp.clip(noise_cov, a_min=eps)
+        N_diag = jnp.clip(noise_cov, min=eps)
         N_inv_diag = 1.0 / N_diag
         
         half_log_det_N = 0.5 * jnp.sum(jnp.log(N_diag))

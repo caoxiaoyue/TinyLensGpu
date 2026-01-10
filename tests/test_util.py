@@ -4,7 +4,7 @@ Unit tests for utility functions.
 import pytest
 import numpy as np
 import os
-from TinyLensGpu.util import auto_mkdir_path
+from TinyLensGpu.utils import auto_mkdir_path
 
 
 @pytest.mark.unit
