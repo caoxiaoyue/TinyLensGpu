@@ -14,17 +14,10 @@ prior_spec : Prior specification and transformation
 likelihood : Likelihood interface utilities
 """
 
-import os
-# Force JAX backend for caskade
-os.environ['CASKADE_BACKEND'] = 'jax'
-
 from .composite import PhysicalModel
 from .mass import SIE, Shear
 from .light import SersicEllipse, GaussianEllipse
-from .param_u import ParamU
 from .pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
-from . import prior_spec
-from . import likelihood
 
 __all__ = [
     'PhysicalModel',
@@ -32,9 +25,6 @@ __all__ = [
     'Shear',
     'SersicEllipse',
     'GaussianEllipse',
-    'ParamU',
     'PixelizedSourceModel',
     'PixelizedSourceConfig',
-    'prior_spec',
-    'likelihood',
 ]

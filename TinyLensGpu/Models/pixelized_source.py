@@ -10,7 +10,7 @@ import caskade as ck
 import jax.numpy as jnp
 import numpy as np
 from typing import Optional, Dict, Any
-from .param_u import ParamU
+from TinyLensGpu.Inference.param_u import ParamU
 
 
 class PixelizedSourceConfig(ck.Module):

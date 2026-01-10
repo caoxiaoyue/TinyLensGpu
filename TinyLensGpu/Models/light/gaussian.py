@@ -11,7 +11,7 @@ import caskade as ck
 import jax.numpy as jnp
 from jax import Array
 from ..utils import ellipse2circle_transform
-from ..param_u import ParamU
+from TinyLensGpu.Inference.param_u import ParamU
 
 
 class GaussianEllipse(ck.Module):

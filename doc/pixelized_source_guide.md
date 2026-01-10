@@ -132,19 +132,19 @@ Use nested sampling to optimize regularization hyperparameters:
 
 ```python
 import dynesty
-from TinyLensGpu.Models import prior_spec, likelihood
+from TinyLensGpu.Inference import build_prior, build_likelihood
 
 # Define priors for regularization parameters
 prior_dict = {
-    'pix_src_model.config.reg_scale': prior_spec.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': prior_spec.LogUniform(1e-3, 1e3),
+    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
 # Create prior transformation
-prior = prior_spec.make_prior(prob_model, prior_dict)
+prior = build_prior.make_prior(prob_model, prior_dict)
 
 # Create likelihood function
-loglike = likelihood.make_likelihood(prob_model, vectorized=True)
+loglike = build_likelihood.make_likelihood(prob_model, vectorized=True)
 
 # Run nested sampling
 sampler = dynesty.NestedSampler(
@@ -167,18 +167,18 @@ print(f"Best reg_coefficient: {best_params[1]:.4f}")
 # Define priors for both mass and regularization
 prior_dict = {
     # Mass parameters
-    'phys_model.lens_mass_0.theta_E': prior_spec.Uniform(1.0, 2.0),
-    'phys_model.lens_mass_0.e1': prior_spec.Uniform(-0.3, 0.3),
-    'phys_model.lens_mass_0.e2': prior_spec.Uniform(-0.3, 0.3),
-    'phys_model.lens_mass_0.center_x': prior_spec.Uniform(-0.1, 0.1),
-    'phys_model.lens_mass_0.center_y': prior_spec.Uniform(-0.1, 0.1),
+    'phys_model.lens_mass_0.theta_E': build_prior.Uniform(1.0, 2.0),
+    'phys_model.lens_mass_0.e1': build_prior.Uniform(-0.3, 0.3),
+    'phys_model.lens_mass_0.e2': build_prior.Uniform(-0.3, 0.3),
+    'phys_model.lens_mass_0.center_x': build_prior.Uniform(-0.1, 0.1),
+    'phys_model.lens_mass_0.center_y': build_prior.Uniform(-0.1, 0.1),
     # Regularization hyperparameters
-    'pix_src_model.config.reg_scale': prior_spec.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': prior_spec.LogUniform(1e-3, 1e3),
+    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
-prior = prior_spec.make_prior(prob_model, prior_dict)
-loglike = likelihood.make_likelihood(prob_model, vectorized=True)
+prior = build_prior.make_prior(prob_model, prior_dict)
+loglike = build_likelihood.make_likelihood(prob_model, vectorized=True)
 
 # Run nested sampling
 sampler = dynesty.NestedSampler(

@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 import caskade as ck
 import jax.numpy as jnp
 from jax import Array
-from ..param_u import ParamU
+from TinyLensGpu.Inference.param_u import ParamU
 
 
 class Shear(ck.Module):

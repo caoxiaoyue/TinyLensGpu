@@ -73,8 +73,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 from TinyLensGpu.Models import ParamU, SersicEllipse
 from TinyLensGpu.Models.mass import SIE, Shear
 from TinyLensGpu.Models.builder import build_lens_model, build_likelihood, load_lens_data
-from TinyLensGpu.Models.prior_spec import make_prior_transformation
-from TinyLensGpu.Models.likelihood import make_likelihood
+from TinyLensGpu.Inference.build_prior import make_prior_transformation
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
 
 image_data, noise_map, psf_kernel, mask = load_lens_data(

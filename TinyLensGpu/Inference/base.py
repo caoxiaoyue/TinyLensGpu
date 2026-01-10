@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from TinyLensGpu.Models.prior_spec import make_prior_transformation
+from .build_prior import make_prior_transformation
 
 class AbstractInference(ABC): 
     def __init__(

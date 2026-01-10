@@ -298,17 +298,17 @@ source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_sourc
 ### Hyperparameter Optimization
 
 ```python
-from TinyLensGpu.Models import prior_spec, likelihood
+from TinyLensGpu.Inference import build_prior, build_likelihood
 import dynesty
 
 # Define priors
 prior_dict = {
-    'pix_src_model.config.reg_scale': prior_spec.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': prior_spec.LogUniform(1e-3, 1e3),
+    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
 # Create prior and likelihood
-prior = prior_spec.make_prior(prob_model, prior_dict)
+prior = build_prior.make_prior(prob_model, prior_dict)
 loglike = likelihood.make_likelihood(prob_model, vectorized=True)
 
 # Run nested sampling

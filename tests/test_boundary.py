@@ -9,7 +9,7 @@ import pytest
 import jax.numpy as jnp
 import numpy as np
 from TinyLensGpu.Models import SIE, Shear, SersicEllipse, GaussianEllipse, PhysicalModel
-from TinyLensGpu.Models.param_u import ParamU
+from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Simulator import LensSimulator, SimulatorConfig
 
 
