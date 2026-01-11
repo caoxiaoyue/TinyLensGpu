@@ -1,8 +1,19 @@
+"""
+Linear Inversion Solver for Source Reconstruction
+
+This module provides an optimized linear inversion framework for gravitational 
+lensing source reconstruction. It implements regularized linear inversion with
+Bayesian evidence calculation.
+
+The solver is registered as a JAX PyTree for efficient JIT compilation.
+"""
+
 import jax
 import jax.numpy as jnp
 from jax import jit
 from jax.tree_util import register_pytree_node_class
 from functools import partial
+
 
 @partial(jit, static_argnames=['jitter', 'eps'])
 def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
@@ -195,3 +206,8 @@ class LinearInversion:
         obj.log_evidence_const = log_evidence_const
         
         return obj
+
+
+__all__ = [
+    'LinearInversion'
+]

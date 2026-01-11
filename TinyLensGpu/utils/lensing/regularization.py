@@ -1,6 +1,15 @@
+"""
+Regularization Matrix Construction for Source Reconstruction
+
+This module provides various covariance kernels (exponential, Gaussian, Matérn)
+for constructing regularization matrices used in pixelized source reconstruction.
+The regularization matrix penalizes non-smooth source reconstructions.
+"""
+
 import jax.numpy as jnp
 import jax
 from functools import partial
+
 
 @jax.jit
 def exp_cov_matrix_from(
@@ -247,3 +256,12 @@ def regularization_matrix_gp_from(
         )
     
     return _regularization_matrix_gp_from_jitted(scale, coefficient, points, reg_type)
+
+
+__all__ = [
+    'exp_cov_matrix_from',
+    'gauss_cov_matrix_from',
+    'matern32_cov_matrix_from',
+    'matern52_cov_matrix_from',
+    'regularization_matrix_gp_from'
+]

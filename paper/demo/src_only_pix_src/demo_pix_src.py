@@ -18,11 +18,12 @@ from matplotlib import pyplot as plt
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
+from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.ForwardModel import SimulatorConfig, LensSimulator, make_grid_2d
 
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.visualizer import _plot_irregular_source_voronoi
 
 
 def simulate_lensing_data():
@@ -106,7 +107,7 @@ def setup_pixelized_model(data_dict):
     
     phys_model = PhysicalModel(lens_mass=[sie])
     
-    pix_src_config = PixelizedSourceConfig(
+    pix_src_model = PixelizedSourceModel(
         reg_scale=0.05,
         reg_coefficient=1.0,
         reg_type='exp',
@@ -120,8 +121,6 @@ def setup_pixelized_model(data_dict):
         radius_scale=1.5,
     )
     
-    pix_src_model = PixelizedSourceModel(config=pix_src_config)
-    
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
         noise_map=data_dict['noise_map'],
@@ -134,8 +133,8 @@ def setup_pixelized_model(data_dict):
     
     print(f"  Physical model: {phys_model.get_component_counts()}")
     print(f"  Pixelized source: {pix_src_model}")
-    print(f"  Source mesh points: {pix_src_config.n_source_points}")
-    print(f"  Regularization: scale={pix_src_config.reg_scale}, coeff={pix_src_config.reg_coefficient}")
+    print(f"  Source mesh points: {pix_src_model.n_source_points}")
+    print(f"  Regularization: scale={pix_src_model.reg_scale.value}, coeff={pix_src_model.reg_coefficient.value}")
     
     return prob_model
 
@@ -218,15 +217,15 @@ def visualize_results(data_dict, results):
     plt.ylabel('y [pixels]', fontsize=10)
     
     ax5 = plt.subplot(2, 3, 5)
-    source_x = source_mesh_beta[:, 0]
-    source_y = source_mesh_beta[:, 1]
-    scatter = plt.scatter(source_x, source_y, c=source_intensities, 
-                         s=50, cmap='viridis', edgecolors='none', alpha=0.8)
-    plt.colorbar(scatter, ax=ax5, fraction=0.046, pad=0.04, label='Intensity')
-    plt.title('Source Reconstruction', fontsize=13, fontweight='bold')
-    plt.xlabel('β₁ [arcsec]', fontsize=10)
-    plt.ylabel('β₂ [arcsec]', fontsize=10)
-    plt.axis('equal')
+    _plot_irregular_source_voronoi(
+        ax5,
+        source_mesh_beta,
+        source_intensities,
+        cmap='viridis'
+    )
+    ax5.set_title('Source Reconstruction', fontsize=13, fontweight='bold')
+    ax5.set_xlabel('β₁ [arcsec]', fontsize=10)
+    ax5.set_ylabel('β₂ [arcsec]', fontsize=10)
     plt.grid(True, alpha=0.2)
     
     ax6 = plt.subplot(2, 3, 6)

@@ -7,7 +7,7 @@ This module tests the pixelized source reconstruction pipeline including:
 - Lens mapping matrix construction
 - PSF matrix construction
 - Linear inversion (LinearInversion class)
-- PixelizedSourceConfig and PixelizedSourceModel
+- PixelizedSourceModel
 - PixelizedImageProbModel (end-to-end integration)
 """
 
@@ -16,26 +16,23 @@ import numpy as np
 import jax.numpy as jnp
 from numpy.testing import assert_allclose
 
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.source_mesh import (
+from TinyLensGpu.utils.mesh import (
     sample_points_weighted,
     apply_gaussian_blur,
 )
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.regularization import (
+from TinyLensGpu.utils.lensing import (
     exp_cov_matrix_from,
     gauss_cov_matrix_from,
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
     regularization_matrix_gp_from,
-)
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.lensing import (
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
 )
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.source_inversion import (
+from TinyLensGpu.utils.inversion import (
     LinearInversion,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
-    PixelizedSourceConfig,
     PixelizedSourceModel,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
@@ -586,26 +583,26 @@ class TestLinearInversion:
 
 
 # =============================================================================
-# Test PixelizedSourceConfig and PixelizedSourceModel
+# Test PixelizedSourceModel
 # =============================================================================
 
-class TestPixelizedSourceConfig:
-    """Tests for PixelizedSourceConfig class."""
+class TestPixelizedSourceModel:
+    """Tests for PixelizedSourceModel class."""
     
-    def test_config_default_values(self):
+    def test_model_default_values(self):
         """Test that default configuration values are set correctly."""
-        config = PixelizedSourceConfig()
+        model = PixelizedSourceModel()
         
-        assert config.reg_scale.value == 0.05, "Default reg_scale should be 0.05"
-        assert config.reg_coefficient.value == 1.0, "Default reg_coefficient should be 1.0"
-        assert config.reg_type == 'exp', "Default reg_type should be 'exp'"
-        assert config.n_source_points == 1500, "Default n_source_points should be 1500"
-        assert config.mesh_alpha == 1.5, "Default mesh_alpha should be 1.5"
-        assert config.k_neighbors == 5, "Default k_neighbors should be 5"
+        assert model.reg_scale.value == 0.05, "Default reg_scale should be 0.05"
+        assert model.reg_coefficient.value == 1.0, "Default reg_coefficient should be 1.0"
+        assert model.reg_type == 'exp', "Default reg_type should be 'exp'"
+        assert model.n_source_points == 1500, "Default n_source_points should be 1500"
+        assert model.mesh_alpha == 1.5, "Default mesh_alpha should be 1.5"
+        assert model.k_neighbors == 5, "Default k_neighbors should be 5"
     
-    def test_config_custom_values(self):
+    def test_model_custom_values(self):
         """Test configuration with custom values."""
-        config = PixelizedSourceConfig(
+        model = PixelizedSourceModel(
             reg_scale=0.1,
             reg_coefficient=2.0,
             reg_type='matern32',
@@ -617,20 +614,20 @@ class TestPixelizedSourceConfig:
             radius_scale=2.0
         )
         
-        assert config.reg_scale.value == 0.1
-        assert config.reg_coefficient.value == 2.0
-        assert config.reg_type == 'matern32'
-        assert config.n_source_points == 1000
-        assert config.mesh_alpha == 2.0
-        assert config.mesh_method == 'sobol'
-        assert config.k_neighbors == 7
-        assert config.interp_kernel == 'wendland_c2'
-        assert config.radius_scale == 2.0
+        assert model.reg_scale.value == 0.1
+        assert model.reg_coefficient.value == 2.0
+        assert model.reg_type == 'matern32'
+        assert model.n_source_points == 1000
+        assert model.mesh_alpha == 2.0
+        assert model.mesh_method == 'sobol'
+        assert model.k_neighbors == 7
+        assert model.interp_kernel == 'wendland_c2'
+        assert model.radius_scale == 2.0
     
-    def test_config_get_config_dict(self):
+    def test_model_get_config_dict(self):
         """Test get_config_dict method."""
-        config = PixelizedSourceConfig(reg_scale=0.1, reg_coefficient=2.0)
-        config_dict = config.get_config_dict()
+        model = PixelizedSourceModel(reg_scale=0.1, reg_coefficient=2.0)
+        config_dict = model.get_config_dict()
         
         assert isinstance(config_dict, dict), "Should return a dictionary"
         assert 'reg_scale' in config_dict
@@ -639,36 +636,13 @@ class TestPixelizedSourceConfig:
         assert abs(config_dict['reg_scale'] - 0.1) < 1e-6
         assert abs(config_dict['reg_coefficient'] - 2.0) < 1e-6
 
-
-class TestPixelizedSourceModel:
-    """Tests for PixelizedSourceModel class."""
-    
-    def test_model_default_config(self):
-        """Test model with default configuration."""
-        model = PixelizedSourceModel()
-        
-        assert model.config is not None, "Model should have config"
-        assert model.config.n_source_points == 1500, "Should use default config"
-    
-    def test_model_custom_config(self):
-        """Test model with custom configuration."""
-        config = PixelizedSourceConfig(
-            reg_scale=0.08,
-            n_source_points=500
-        )
-        model = PixelizedSourceModel(config=config)
-        
-        assert model.config.reg_scale.value == 0.08
-        assert model.config.n_source_points == 500
-    
     def test_model_repr(self):
         """Test model string representation."""
-        config = PixelizedSourceConfig(
+        model = PixelizedSourceModel(
             reg_scale=0.05,
             reg_coefficient=1.5,
             n_source_points=1000
         )
-        model = PixelizedSourceModel(config=config)
         
         repr_str = repr(model)
         assert 'PixelizedSourceModel' in repr_str
@@ -699,13 +673,12 @@ class TestPixelizedImageProbModel:
         phys_model = PhysicalModel(lens_mass=[sie])
         
         # Create pixelized source model with fewer points for faster testing
-        config = PixelizedSourceConfig(
+        pix_src_model = PixelizedSourceModel(
             reg_scale=0.05,
             reg_coefficient=1.0,
             n_source_points=200,  # Reduced for test speed
             mesh_seed=42
         )
-        pix_src_model = PixelizedSourceModel(config=config)
         
         # Convert mask format: our fixture has True=valid, model expects True=masked
         mask_out = ~simple_mask
@@ -789,7 +762,7 @@ class TestPixelizedImageProbModel:
         
         source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
         
-        n_source = setup['pix_src_model'].config.n_source_points
+        n_source = setup['pix_src_model'].n_source_points
         npix = setup['image'].shape[0]
         
         assert source_intensities.shape == (n_source,), "Source intensities shape mismatch"
@@ -860,14 +833,13 @@ class TestPixelizedImageProbModel:
         setup = mock_lensing_setup
         
         for reg_type in ['exp', 'gauss', 'matern32', 'matern52']:
-            config = PixelizedSourceConfig(
+            pix_src_model = PixelizedSourceModel(
                 reg_scale=0.05,
                 reg_coefficient=1.0,
                 n_source_points=100,  # Small for speed
                 reg_type=reg_type,
                 mesh_seed=42
             )
-            pix_src_model = PixelizedSourceModel(config=config)
             
             prob_model = PixelizedImageProbModel(
                 image_data=setup['image'],

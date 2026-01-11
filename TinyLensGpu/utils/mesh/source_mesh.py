@@ -1,3 +1,11 @@
+"""
+Source Mesh Sampling Utilities
+
+This module provides utilities for generating source meshes for pixelized source
+reconstruction. It supports weighted sampling based on image brightness with both
+random and quasi-Monte Carlo (Sobol) sampling methods.
+"""
+
 import numpy as np
 from scipy.stats import qmc
 
@@ -129,3 +137,9 @@ def _sample_sobol(probabilities, n_points, W, H, normalize_xy, pixel_jitter, see
 
     pts = np.column_stack([xs, ys])
     return pts, (H, W), Y
+
+
+__all__ = [
+    'apply_gaussian_blur',
+    'sample_points_weighted'
+]

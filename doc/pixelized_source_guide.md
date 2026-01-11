@@ -29,7 +29,6 @@ The pixelized source implementation consists of several modules:
 
 ### 2. Model Classes (`TinyLensGpu/Models/`)
 
-- **`PixelizedSourceConfig`**: Configuration with hyperparameters (regularization, mesh settings)
 - **`PixelizedSourceModel`**: Caskade module for pixelized source
 
 ### 3. Probability Model (`TinyLensGpu/ProbModel/Image/`)
@@ -87,15 +86,15 @@ Regularization matrix: `H = λ K^{-1}`
 import numpy as np
 from TinyLensGpu.Models.mass import SIE
 from TinyLensGpu.Models.composite import PhysicalModel
-from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel
 from TinyLensGpu.ProbModel.Image.pixelized_image_model import PixelizedImageProbModel
 
 # 1. Create mass model
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
 phys_model = PhysicalModel(lens_mass=[sie])
 
-# 2. Configure pixelized source
-config = PixelizedSourceConfig(
+# 2. Create pixelized source model
+pix_src = PixelizedSourceModel(
     reg_scale=0.05,           # Regularization length scale
     reg_coefficient=1.0,      # Regularization strength
     reg_type='exp',           # Kernel type
@@ -104,10 +103,7 @@ config = PixelizedSourceConfig(
     k_neighbors=5,            # Interpolation neighbors
 )
 
-# 3. Create pixelized source model
-pix_src = PixelizedSourceModel(config=config)
-
-# 4. Create probability model
+# 3. Create probability model
 prob_model = PixelizedImageProbModel(
     image_data=image,
     noise_map=noise,
@@ -173,8 +169,8 @@ prior_dict = {
     'phys_model.lens_mass_0.center_x': build_prior.Uniform(-0.1, 0.1),
     'phys_model.lens_mass_0.center_y': build_prior.Uniform(-0.1, 0.1),
     # Regularization hyperparameters
-    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
+    'pix_src_model.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
 prior = build_prior.make_prior(prob_model, prior_dict)
@@ -190,7 +186,7 @@ sampler.run_nested(dlogz=0.01)
 
 ## Configuration Parameters
 
-### PixelizedSourceConfig
+### PixelizedSourceModel Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|

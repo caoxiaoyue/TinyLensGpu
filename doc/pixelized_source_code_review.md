@@ -147,7 +147,6 @@ TinyLensGpu/
 
 **Strengths**:
 - ✅ Clean caskade integration
-- ✅ Comprehensive configuration class
 - ✅ All hyperparameters exposed as caskade parameters
 - ✅ Consistent with TinyLensGpu design patterns
 

@@ -12,7 +12,6 @@ from .LensImage import (
     SersicEllipse,
     GaussianEllipse,
     PixelizedSourceModel,
-    PixelizedSourceConfig
 )
 
 __all__ = [
@@ -22,5 +21,4 @@ __all__ = [
     'SersicEllipse',
     'GaussianEllipse',
     'PixelizedSourceModel',
-    'PixelizedSourceConfig'
 ]

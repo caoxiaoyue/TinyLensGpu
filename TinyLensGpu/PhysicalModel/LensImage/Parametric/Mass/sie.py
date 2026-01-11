@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 import caskade as ck
 import jax.numpy as jnp
 from jax import Array
-from ..utils import ellipticity2phi_q, xy_transform, relocate_radii
+from TinyLensGpu.utils.geometry import ellipticity2phi_q, xy_transform, relocate_radii
 from TinyLensGpu.Inference.param_u import ParamU
 
 

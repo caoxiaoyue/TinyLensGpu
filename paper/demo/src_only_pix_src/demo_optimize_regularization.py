@@ -14,10 +14,10 @@ import dynesty
 from dynesty import plotting as dyplot
 
 from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear, GaussianEllipse
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
+from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.ForwardModel import SimulatorConfig, LensSimulator, make_grid_2d
 
-from TinyLensGpu.PhysicalModel import PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 
 
@@ -83,7 +83,7 @@ def create_prob_model(data_dict, reg_scale, reg_coefficient):
         SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0),
     ])
     
-    pix_src_config = PixelizedSourceConfig(
+    pix_src_model = PixelizedSourceModel(
         reg_scale=reg_scale,
         reg_coefficient=reg_coefficient,
         reg_type='exp',
@@ -91,8 +91,6 @@ def create_prob_model(data_dict, reg_scale, reg_coefficient):
         mesh_alpha=1.5,
         mesh_seed=42,
     )
-    
-    pix_src_model = PixelizedSourceModel(config=pix_src_config)
     
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],

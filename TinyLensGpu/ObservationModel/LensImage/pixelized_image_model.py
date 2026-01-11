@@ -17,13 +17,13 @@ from typing import Optional, Dict, Tuple
 from TinyLensGpu.ForwardModel.LensImage.config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
-    LinearInversion,
+from TinyLensGpu.utils.inversion import LinearInversion
+from TinyLensGpu.utils.lensing import (
     regularization_matrix_gp_from,
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
-    sample_points_weighted,
 )
+from TinyLensGpu.utils.mesh import sample_points_weighted
 
 
 class PixelizedImageProbModel(ck.Module):
@@ -81,15 +81,14 @@ class PixelizedImageProbModel(ck.Module):
     --------
     >>> from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
     >>> from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-    >>> from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel, PixelizedSourceConfig
+    >>> from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
     >>> 
     >>> # Create mass model
     >>> sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
     >>> phys_model = PhysicalModel(lens_mass=[sie])
     >>> 
     >>> # Create pixelized source model
-    >>> config = PixelizedSourceConfig(reg_scale=0.05, reg_coefficient=1.0)
-    >>> pix_src = PixelizedSourceModel(config=config)
+    >>> pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
     >>> 
     >>> # Create probability model
     >>> prob_model = PixelizedImageProbModel(
@@ -173,7 +172,7 @@ class PixelizedImageProbModel(ck.Module):
     
     def _generate_source_mesh(self) -> None:
         """Generate source mesh points in image plane based on observed image."""
-        config = self.pix_src_model.config
+        model = self.pix_src_model
         
         image_np = np.array(self.image_data)
         mask_np = np.array(self.unmask)
@@ -181,14 +180,14 @@ class PixelizedImageProbModel(ck.Module):
         source_mesh, (H, W), _ = sample_points_weighted(
             img=image_np,
             mask=mask_np,
-            n_points=config.n_source_points,
-            alpha=config.mesh_alpha,
-            blur_sigma_px=config.mesh_blur_sigma,
+            n_points=model.n_source_points,
+            alpha=model.mesh_alpha,
+            blur_sigma_px=model.mesh_blur_sigma,
             replace=False,
             normalize_xy=False,
             pixel_jitter=False,
-            method=config.mesh_method,
-            seed=config.mesh_seed,
+            method=model.mesh_method,
+            seed=model.mesh_seed,
         )
         
         source_mesh = source_mesh - np.array([(W-1)/2, (H-1)/2])
@@ -234,11 +233,11 @@ class PixelizedImageProbModel(ck.Module):
         blurred_lens_map_matrix : jnp.ndarray
             Blurred lensing mapping matrix
         """
-        config = self.pix_src_model.config
+        model = self.pix_src_model
         
         # Get current parameter values
-        reg_scale_val = config.reg_scale.value
-        reg_coeff_val = config.reg_coefficient.value
+        reg_scale_val = model.reg_scale.value
+        reg_coeff_val = model.reg_coefficient.value
         
         # Create a simple hash of mass model parameters by extracting all parameter values
         mass_param_values = []
@@ -262,9 +261,9 @@ class PixelizedImageProbModel(ck.Module):
         lens_map_matrix = lens_mapping_matrix_from(
             source_mesh_beta=source_mesh_beta,
             data_mesh_beta=data_mesh_beta,
-            k_neighbors=config.k_neighbors,
-            kernel=config.interp_kernel,
-            radius_scale=config.radius_scale,
+            k_neighbors=model.k_neighbors,
+            kernel=model.interp_kernel,
+            radius_scale=model.radius_scale,
         )
         
         blurred_lens_map_matrix = self.psf_matrix @ lens_map_matrix
@@ -273,7 +272,7 @@ class PixelizedImageProbModel(ck.Module):
             scale=reg_scale_val,
             coefficient=reg_coeff_val,
             points=source_mesh_beta,
-            reg_type=config.reg_type,
+            reg_type=model.reg_type,
         )
         
         data_vector = self.image_data[self.unmask]
@@ -380,4 +379,4 @@ class PixelizedImageProbModel(ck.Module):
     def __repr__(self) -> str:
         return (f"PixelizedImageProbModel("
                 f"npix={self.npix}, "
-                f"n_source_points={self.pix_src_model.config.n_source_points})")
+                f"n_source_points={self.pix_src_model.n_source_points})")

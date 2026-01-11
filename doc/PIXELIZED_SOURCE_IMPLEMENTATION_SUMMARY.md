@@ -35,7 +35,6 @@ January 2026
 - `pixelized_source.py` - Pixelized source model with caskade integration
 
 **Key Components**:
-- `PixelizedSourceConfig`: Configuration class with all hyperparameters
 - `PixelizedSourceModel`: Caskade module for pixelized source
 - Full integration with TinyLensGpu's parameter management system
 - Compatible with prior specification and nested sampling infrastructure
@@ -272,15 +271,14 @@ For typical case (npix=200, n_source=1500):
 ### Basic Reconstruction
 
 ```python
-from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel, PixelizedSourceConfig
+from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel
 from TinyLensGpu.Models.mass import SIE
 from TinyLensGpu.ProbModel.Image import PixelizedImageProbModel
 
 # Setup
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
 phys_model = PhysicalModel(lens_mass=[sie])
-config = PixelizedSourceConfig(reg_scale=0.05, reg_coefficient=1.0)
-pix_src = PixelizedSourceModel(config=config)
+pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
 
 # Create probability model
 prob_model = PixelizedImageProbModel(
@@ -303,8 +301,8 @@ import dynesty
 
 # Define priors
 prior_dict = {
-    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
+    'pix_src_model.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
 # Create prior and likelihood

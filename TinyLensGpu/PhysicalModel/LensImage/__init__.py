@@ -2,7 +2,7 @@
 
 from .Parametric.Mass import SIE, Shear
 from .Parametric.Light import SersicEllipse, GaussianEllipse
-from .Pixelized import PixelizedSourceModel, PixelizedSourceConfig
+from .Pixelized import PixelizedSourceModel
 from .composite import PhysicalModel
 
 __all__ = [
@@ -11,6 +11,5 @@ __all__ = [
     'SersicEllipse',
     'GaussianEllipse',
     'PixelizedSourceModel',
-    'PixelizedSourceConfig',
     'PhysicalModel'
 ]

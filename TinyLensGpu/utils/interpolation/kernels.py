@@ -1,5 +1,6 @@
 """
 Optimized Kernel-Based Interpolation in JAX
+
 Uses Wendland compactly supported kernels with normalized weights (partition of unity).
 More robust and faster than MLS, better accuracy than simple IDW.
 """
@@ -112,3 +113,12 @@ def compute_weights(points, query_points, k_neighbors, radius_scale, kernel_fn):
     weights_normalized = weights / weight_sum
     
     return weights_normalized, top_k_indices, knn_distances
+
+
+__all__ = [
+    'get_interpolation_weights',
+    'wendland_c2',
+    'wendland_c4',
+    'wendland_c6',
+    'compute_weights'
+]

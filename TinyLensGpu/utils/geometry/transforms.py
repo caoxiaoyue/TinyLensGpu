@@ -1,8 +1,8 @@
 """
-Utility functions for caskade models.
+Geometric transformation utilities for lens modeling.
 
-These functions were originally from the Profile.util module but are now
-copied here to make the implementation independent of legacy code.
+These functions were originally from the PhysicalModel.LensImage.Parametric.utils module
+and are now centralized here for reuse across the codebase.
 """
 
 from typing import Tuple
@@ -98,6 +98,8 @@ __all__ = [
     'phi_q2_ellipticity',
     'ellipticity2phi_q',
     'xy_transform',
+    'cart2polar',
+    'polar2cart',
     'relocate_radii',
     'ellipse2circle_transform'
 ]

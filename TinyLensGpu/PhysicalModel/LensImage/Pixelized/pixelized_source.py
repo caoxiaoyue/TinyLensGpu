@@ -13,12 +13,17 @@ from typing import Optional, Dict, Any
 from TinyLensGpu.Inference.param_u import ParamU
 
 
-class PixelizedSourceConfig(ck.Module):
+class PixelizedSourceModel(ck.Module):
     """
-    Configuration for pixelized source reconstruction.
+    Pixelized source model for gravitational lensing.
     
-    This module contains all hyperparameters for pixelized source modeling,
-    including regularization parameters and source mesh configuration.
+    This class represents a source galaxy using a pixelized reconstruction approach,
+    where the source is represented by discrete pixels in the source plane rather than
+    parametric light profiles. The source reconstruction is regularized using Gaussian
+    Process priors.
+    
+    This model is designed to work alongside mass models in a composite physical model,
+    similar to how parametric source light profiles work in TinyLensGpu.
     
     Parameters
     ----------
@@ -47,12 +52,21 @@ class PixelizedSourceConfig(ck.Module):
     
     Examples
     --------
-    >>> config = PixelizedSourceConfig(
+    >>> from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+    >>> 
+    >>> # Create pixelized source model
+    >>> pix_src = PixelizedSourceModel(
     ...     reg_scale=0.05,
     ...     reg_coefficient=1.0,
     ...     reg_type='exp',
     ...     n_source_points=1500
     ... )
+    
+    Notes
+    -----
+    Unlike parametric source models, this model does not have a `light()` method.
+    Instead, it works with the PixelizedImageProbModel which handles the source
+    reconstruction and evidence calculation.
     """
     
     def __init__(
@@ -135,64 +149,9 @@ class PixelizedSourceConfig(ck.Module):
             'interp_kernel': self.interp_kernel,
             'radius_scale': self.radius_scale,
         }
-
-
-class PixelizedSourceModel(ck.Module):
-    """
-    Pixelized source model for gravitational lensing.
-    
-    This class represents a source galaxy using a pixelized reconstruction approach,
-    where the source is represented by discrete pixels in the source plane rather than
-    parametric light profiles. The source reconstruction is regularized using Gaussian
-    Process priors.
-    
-    This model is designed to work alongside mass models in a composite physical model,
-    similar to how parametric source light profiles work in TinyLensGpu.
-    
-    Parameters
-    ----------
-    config : PixelizedSourceConfig
-        Configuration object containing all hyperparameters
-    
-    Attributes
-    ----------
-    config : PixelizedSourceConfig
-        Configuration for pixelized source reconstruction
-    
-    Examples
-    --------
-    >>> from TinyLensGpu.PhysicalModel import PixelizedSourceModel, PixelizedSourceConfig
-    >>> 
-    >>> # Create configuration
-    >>> config = PixelizedSourceConfig(
-    ...     reg_scale=0.05,
-    ...     reg_coefficient=1.0,
-    ...     n_source_points=1500
-    ... )
-    >>> 
-    >>> # Create pixelized source model
-    >>> pix_src = PixelizedSourceModel(config=config)
-    
-    Notes
-    -----
-    Unlike parametric source models, this model does not have a `light()` method.
-    Instead, it works with the PixelizedImageProbModel which handles the source
-    reconstruction and evidence calculation.
-    """
-    
-    def __init__(
-        self,
-        config: Optional[PixelizedSourceConfig] = None,
-    ) -> None:
-        super().__init__()
-        
-        if config is None:
-            config = PixelizedSourceConfig()
-        
-        self.config = config
     
     def __repr__(self) -> str:
-        config_dict = self.config.get_config_dict()
+        config_dict = self.get_config_dict()
         return (f"PixelizedSourceModel("
                 f"reg_scale={config_dict['reg_scale']:.3f}, "
                 f"reg_coefficient={config_dict['reg_coefficient']:.2f}, "
