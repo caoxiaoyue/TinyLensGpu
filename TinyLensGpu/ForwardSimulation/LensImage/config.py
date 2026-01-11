@@ -26,11 +26,9 @@ def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
     npix_sub = npix * nsub
     dpix_sub = dpix / nsub
 
-    # Create 1D coordinate arrays
     x_1d = (jnp.arange(npix_sub) - npix_sub / 2.0 + 0.5) * dpix_sub
     y_1d = (jnp.arange(npix_sub) - npix_sub / 2.0 + 0.5) * dpix_sub
 
-    # Create 2D grids
     xgrid, ygrid = jnp.meshgrid(x_1d, y_1d)
 
     return xgrid, ygrid
@@ -89,7 +87,6 @@ class SimulatorConfig:
         self.dpix = dpix
         self.npix = npix
 
-        # Default PSF: delta function
         if psf_kernel is None:
             psf_kernel = jnp.array([[0.0, 0.0, 0.0],
                                    [0.0, 1.0, 0.0],
@@ -98,65 +95,35 @@ class SimulatorConfig:
 
         self.nsub = nsub
 
-        # Default mask: no masking
         if mask is None:
             mask = jnp.zeros((npix, npix))
         self.mask = jnp.array(mask, dtype=bool)
 
-        # Generate coordinate grids
         self.xgrid, self.ygrid, self.xgrid_sub, self.ygrid_sub = self.get_coords(
             self.npix, self.dpix, self.nsub
         )
 
-        # Prepare 1D subgrid arrays for unmasked pixels
         self._prepare_1d_subgrid()
 
     def _prepare_1d_subgrid(self):
-        """Pre-compute 1D arrays for unmasked pixels in the subgrid."""
-        # 1. Create subgrid mask (upsample image mask)
         if self.nsub > 1:
-            # Repeat mask elements nsub times in both dimensions
             self.mask_sub = jnp.repeat(jnp.repeat(self.mask, self.nsub, axis=0), self.nsub, axis=1)
         else:
             self.mask_sub = self.mask
 
-        # 2. Identify unmasked indices
         self.unmask_sub = ~self.mask_sub
-        
-        # Use JAX arrays for indices
         self.flat_indices = jnp.flatnonzero(self.unmask_sub)
 
-        # 3. Extract 1D coordinates
-        # Flatten the 2D subgrids
         x_flat = self.xgrid_sub.flatten()
         y_flat = self.ygrid_sub.flatten()
-        
-        # Select unmasked pixels
+
         self.xgrid_sub_1d = x_flat[self.flat_indices]
         self.ygrid_sub_1d = y_flat[self.flat_indices]
-        
-        # Store shape for reconstruction
+
         self.subgrid_shape = self.xgrid_sub.shape
 
     @staticmethod
     def get_coords(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array, Array, Array]:
-        """
-        Generate coordinate grids for image simulation.
-
-        Parameters
-        ----------
-        npix : int
-            Number of pixels per side
-        dpix : float
-            Pixel scale
-        nsub : int, optional
-            Subsampling factor (default: 1)
-
-        Returns
-        -------
-        tuple
-            (xgrid, ygrid, xgrid_sub, ygrid_sub) as JAX arrays
-        """
         xgrid, ygrid = make_grid_2d(npix, dpix, 1)
         xgrid_sub, ygrid_sub = make_grid_2d(npix, dpix, nsub)
         return xgrid, ygrid, xgrid_sub, ygrid_sub

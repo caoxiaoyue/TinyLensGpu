@@ -5,7 +5,7 @@ Visualization module for lens model fitting results.
 import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
-from TinyLensGpu.ForwardModel.LensImage.config import make_grid_2d
+from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from scipy.interpolate import griddata
 from scipy.spatial import Voronoi, voronoi_plot_2d
 import matplotlib as mpl

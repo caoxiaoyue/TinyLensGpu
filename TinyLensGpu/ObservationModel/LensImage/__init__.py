@@ -2,7 +2,7 @@
 Image-based probability models for gravitational lensing.
 """
 
-from .image_model import ImageProbModel
+from .parametric_image_model import ImageProbModel
 from .pixelized_image_model import PixelizedImageProbModel
 
 # Alias for backward compatibility

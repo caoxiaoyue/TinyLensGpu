@@ -15,8 +15,8 @@ phy_model = PhysicalModel(
 )
 
 # %%
-from TinyLensGpu.ForwardModel import SimulatorConfig, LensSimulator
-from TinyLensGpu.ForwardModel.LensImage import make_grid_2d
+from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator
+from TinyLensGpu.ForwardSimulation.LensImage import make_grid_2d
 from TinyLensGpu.PhysicalModel import GaussianEllipse
 
 x_psf, y_psf = make_grid_2d(21, 0.074)

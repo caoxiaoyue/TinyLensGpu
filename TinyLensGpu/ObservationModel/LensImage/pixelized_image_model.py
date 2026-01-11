@@ -1,7 +1,7 @@
 """
 Probability model for pixelized source gravitational lensing image fitting.
 
-This module provides the probability model for pixelized source reconstruction,
+This module provides the observation model for pixelized source reconstruction,
 computing the Bayesian evidence (log evidence) which is analogous to the log
 likelihood in parametric source modeling.
 """
@@ -14,16 +14,10 @@ from jax import jit, Array
 import numpy as np
 from typing import Optional, Dict, Tuple
 
-from TinyLensGpu.ForwardModel.LensImage.config import SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.utils.inversion import LinearInversion
-from TinyLensGpu.utils.lensing import (
-    regularization_matrix_gp_from,
-    lens_mapping_matrix_from,
-    build_psf_matrix_dense,
-)
-from TinyLensGpu.utils.mesh import sample_points_weighted
 
 
 class PixelizedImageProbModel(ck.Module):
@@ -66,16 +60,12 @@ class PixelizedImageProbModel(ck.Module):
         Observed image
     noise_map : jnp.ndarray
         Noise map
+    simulator : PixelizedLensSimulator
+        Forward model simulator
     phys_model : PhysicalModel
         Physical model (mass components)
     pix_src_model : PixelizedSourceModel
         Pixelized source model
-    source_mesh : jnp.ndarray
-        Source mesh coordinates in image plane
-    source_mesh_beta : jnp.ndarray
-        Source mesh coordinates in source plane (cached)
-    psf_matrix : jnp.ndarray
-        PSF convolution matrix (cached)
     
     Examples
     --------
@@ -120,8 +110,6 @@ class PixelizedImageProbModel(ck.Module):
         
         self.image_data = jnp.array(image_data)
         self.noise_map = jnp.array(noise_map)
-        self.psf_kernel = jnp.array(psf_kernel)
-        self.dpix = dpix
         
         self.phys_model = phys_model
         self.pix_src_model = pix_src_model
@@ -138,12 +126,15 @@ class PixelizedImageProbModel(ck.Module):
         
         self._init_position_likelihood(self.position_like_config)
         
-        self._generate_source_mesh()
+        self.simulator = PixelizedLensSimulator(
+            image_data=image_data,
+            dpix=dpix,
+            phys_model=self.phys_model,
+            pix_src_model=self.pix_src_model,
+            psf_kernel=psf_kernel,
+            mask=mask,
+        )
         
-        self.psf_matrix = build_psf_matrix_dense(np.array(self.mask), np.array(psf_kernel))
-        
-        self._source_mesh_beta_cache = None
-        self._lens_map_matrix_cache = None
         self._inverter_cache = None
         self._cached_params = None
     
@@ -170,59 +161,16 @@ class PixelizedImageProbModel(ck.Module):
                 )
                 self._has_pos_penalty = True
     
-    def _generate_source_mesh(self) -> None:
-        """Generate source mesh points in image plane based on observed image."""
-        model = self.pix_src_model
-        
-        image_np = np.array(self.image_data)
-        mask_np = np.array(self.unmask)
-        
-        source_mesh, (H, W), _ = sample_points_weighted(
-            img=image_np,
-            mask=mask_np,
-            n_points=model.n_source_points,
-            alpha=model.mesh_alpha,
-            blur_sigma_px=model.mesh_blur_sigma,
-            replace=False,
-            normalize_xy=False,
-            pixel_jitter=False,
-            method=model.mesh_method,
-            seed=model.mesh_seed,
-        )
-        
-        source_mesh = source_mesh - np.array([(W-1)/2, (H-1)/2])
-        source_mesh *= self.dpix
-        
-        self.source_mesh = jnp.array(source_mesh, dtype=jnp.float32)
-    
     @ck.forward
-    def _compute_source_mesh_beta(self) -> jnp.ndarray:
-        """Compute source mesh coordinates in source plane via ray-tracing."""
-        beta_x, beta_y = self.phys_model.deflection(
-            self.source_mesh[:, 0],
-            self.source_mesh[:, 1]
-        )
-        return jnp.stack([beta_x, beta_y], axis=1)
-    
-    @ck.forward
-    def _compute_data_mesh_beta(self) -> jnp.ndarray:
-        """Compute data mesh coordinates in source plane via ray-tracing."""
-        xgrid = jnp.arange(self.npix) - (self.npix - 1) / 2
-        ygrid = jnp.arange(self.npix) - (self.npix - 1) / 2
-        xgrid_2d, ygrid_2d = jnp.meshgrid(xgrid * self.dpix, ygrid * self.dpix)
-        
-        xgrid_1d = xgrid_2d[self.unmask]
-        ygrid_1d = ygrid_2d[self.unmask]
-        
-        beta_x, beta_y = self.phys_model.deflection(xgrid_1d, ygrid_1d)
-        return jnp.stack([beta_x, beta_y], axis=1)
-    
     def _get_or_build_inverter(self):
         """
         Get cached LinearInversion object or build a new one if parameters changed.
         
         This method caches the expensive LinearInversion initialization to avoid
         redundant matrix precomputation when called multiple times with same parameters.
+        
+        Note: This method needs @ck.forward decorator because it calls simulator methods
+        that use self.phys_model.deflection(), which requires caskade parameter injection.
         
         Returns
         -------
@@ -255,24 +203,13 @@ class PixelizedImageProbModel(ck.Module):
             return self._inverter_cache
         
         # Need to rebuild inverter
-        source_mesh_beta = self._compute_source_mesh_beta()
-        data_mesh_beta = self._compute_data_mesh_beta()
+        # These calls use phys_model.deflection() which needs caskade parameter injection
+        source_mesh_beta = self.simulator.source_mesh_beta
+        blurred_lens_map_matrix = self.simulator.build_blurred_lens_mapping_matrix()
         
-        lens_map_matrix = lens_mapping_matrix_from(
-            source_mesh_beta=source_mesh_beta,
-            data_mesh_beta=data_mesh_beta,
-            k_neighbors=model.k_neighbors,
-            kernel=model.interp_kernel,
-            radius_scale=model.radius_scale,
-        )
-        
-        blurred_lens_map_matrix = self.psf_matrix @ lens_map_matrix
-        
-        reg_matrix = regularization_matrix_gp_from(
-            scale=reg_scale_val,
-            coefficient=reg_coeff_val,
-            points=source_mesh_beta,
-            reg_type=model.reg_type,
+        reg_matrix = self.simulator.build_regularization_matrix(
+            reg_scale=reg_scale_val,
+            reg_coefficient=reg_coeff_val,
         )
         
         data_vector = self.image_data[self.unmask]

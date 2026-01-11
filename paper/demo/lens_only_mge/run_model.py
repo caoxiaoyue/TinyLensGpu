@@ -19,7 +19,7 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
-from TinyLensGpu.ObservationModel.LensImage.image_model import ImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 
 
 def build_problem():

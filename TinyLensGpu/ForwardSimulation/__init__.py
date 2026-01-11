@@ -1,4 +1,4 @@
-"""Forward modeling modules for TinyLensGpu."""
+"""Forward simulation modules for TinyLensGpu."""
 
 from .LensImage import SimulatorConfig, LensSimulator, make_grid_2d
 

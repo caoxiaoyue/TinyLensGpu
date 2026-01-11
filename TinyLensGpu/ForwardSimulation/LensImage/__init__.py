@@ -6,6 +6,7 @@ parameter solving and PSF convolution.
 """
 
 from .config import SimulatorConfig, make_grid_2d
-from .lens_forward_model import LensSimulator
+from .parametric import LensSimulator
+from .pixelized import PixelizedLensSimulator
 
-__all__ = ['SimulatorConfig', 'LensSimulator', 'make_grid_2d']
+__all__ = ['SimulatorConfig', 'LensSimulator', 'PixelizedLensSimulator', 'make_grid_2d']

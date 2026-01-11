@@ -13,8 +13,8 @@ from jax import jit, Array
 import numpy as np
 from typing import Optional, Dict, Tuple, Union, Sequence
 
-from TinyLensGpu.ForwardModel.LensImage.lens_forward_model import LensSimulator
-from TinyLensGpu.ForwardModel.LensImage.config import SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.parametric import LensSimulator
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 

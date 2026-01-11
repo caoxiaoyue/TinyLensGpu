@@ -16,7 +16,7 @@ from dynesty import plotting as dyplot
 
 from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear, GaussianEllipse
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
-from TinyLensGpu.ForwardModel import SimulatorConfig, LensSimulator, make_grid_2d
+from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
 
 from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel

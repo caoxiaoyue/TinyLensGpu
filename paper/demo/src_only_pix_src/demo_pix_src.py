@@ -19,7 +19,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
-from TinyLensGpu.ForwardModel import SimulatorConfig, LensSimulator, make_grid_2d
+from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
 
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
