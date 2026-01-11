@@ -16,7 +16,6 @@ from .config import make_grid_2d
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.utils.lensing import (
-    regularization_matrix_gp_from,
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
 )
@@ -32,6 +31,7 @@ class PixelizedLensSimulator:
         pix_src_model: PixelizedSourceModel,
         psf_kernel: np.ndarray,
         mask: Optional[np.ndarray] = None,
+        lensed_source_image: Optional[np.ndarray] = None,
     ) -> None:
         
         self.dpix = dpix
@@ -44,18 +44,22 @@ class PixelizedLensSimulator:
             mask = np.zeros_like(image_data, dtype=bool)
         self.mask = jnp.array(mask)
         
+        if lensed_source_image is None:
+            lensed_source_image = np.copy(image_data)
+        self.lensed_source_image = jnp.array(lensed_source_image)
+        
         xgrid_2d, ygrid_2d = make_grid_2d(self.npix, self.dpix)
         self.xgrid_unmask = jnp.array(xgrid_2d[~mask], dtype=jnp.float32)
         self.ygrid_unmask = jnp.array(ygrid_2d[~mask], dtype=jnp.float32)
         
-        self._generate_source_mesh(image_data, mask)
+        self._generate_source_mesh(self.lensed_source_image, self.mask)
         self.psf_matrix = build_psf_matrix_dense(np.array(self.mask), np.array(self.psf_kernel))
     
-    def _generate_source_mesh(self, image_data: np.ndarray, mask: np.ndarray) -> None:
+    def _generate_source_mesh(self, lensed_source_image: np.ndarray, mask: np.ndarray) -> None:
         model = self.pix_src_model
         
         source_mesh, (H, W), _ = sample_points_weighted(
-            img=np.array(image_data),
+            img=np.array(lensed_source_image),
             mask=~np.array(mask),
             n_points=model.n_source_points,
             alpha=model.mesh_alpha,
@@ -72,7 +76,7 @@ class PixelizedLensSimulator:
     
     @functools.partial(jit, static_argnums=(0,))
     def ray_trace(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-        beta_x, beta_y = self.phys_model.deflection(x, y)
+        beta_x, beta_y = self.phys_model.deflection(x=x, y=y)
         return jnp.stack([beta_x, beta_y], axis=1)
 
     @property
@@ -99,11 +103,10 @@ class PixelizedLensSimulator:
     
     @functools.partial(jit, static_argnums=(0,))
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
-        return regularization_matrix_gp_from(
-            scale=reg_scale,
-            coefficient=reg_coefficient,
+        return self.pix_src_model.regularization_matrix(
             points=self.source_mesh_beta,
-            reg_type=self.pix_src_model.reg_type,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
         )
     
     def __repr__(self) -> str:

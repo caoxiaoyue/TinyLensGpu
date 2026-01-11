@@ -6,11 +6,15 @@ source reconstruction approach, where the source is represented by discrete pixe
 rather than parametric profiles.
 """
 
+import functools
 import caskade as ck
 import jax.numpy as jnp
+from jax import jit
 import numpy as np
 from typing import Optional, Dict, Any
+
 from TinyLensGpu.Inference.param_u import ParamU
+from TinyLensGpu.utils.lensing import regularization_matrix_gp_from
 
 
 class PixelizedSourceModel(ck.Module):
@@ -150,6 +154,29 @@ class PixelizedSourceModel(ck.Module):
             'radius_scale': self.radius_scale,
         }
     
+
+    @ck.forward
+    @functools.partial(jit, static_argnums=(0,))
+    def regularization_matrix(
+        self,
+        points: jnp.ndarray,
+        reg_scale: Optional[float] = None,
+        reg_coefficient: Optional[float] = None,
+        reg_type: Optional[str] = None,
+    ) -> jnp.ndarray:
+        scale = reg_scale if reg_scale is not None else self.reg_scale.value
+        coefficient = (
+            reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
+        )
+        kernel_type = reg_type if reg_type is not None else self.reg_type
+
+        return regularization_matrix_gp_from(
+            scale=scale,
+            coefficient=coefficient,
+            points=points,
+            reg_type=kernel_type,
+        )
+
     def __repr__(self) -> str:
         config_dict = self.get_config_dict()
         return (f"PixelizedSourceModel("
