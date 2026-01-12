@@ -78,11 +78,7 @@ def simulate_lensing_data():
 def create_prob_model(data_dict, reg_scale, reg_coefficient):
     """Create probability model with given regularization parameters."""
     e1_l, e2_l = phi_q2_ellipticity(90*np.pi/180, 0.9)
-    
-    phys_model = PhysicalModel(lens_mass=[
-        SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0),
-    ])
-    
+
     pix_src_model = PixelizedSourceModel(
         reg_scale=reg_scale,
         reg_coefficient=reg_coefficient,
@@ -91,6 +87,14 @@ def create_prob_model(data_dict, reg_scale, reg_coefficient):
         mesh_alpha=1.5,
         mesh_seed=42,
     )
+
+    phys_model = PhysicalModel(
+        lens_mass=[
+            SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0),
+        ],
+        source_light=[pix_src_model],
+        lens_light=[],
+    )
     
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
@@ -98,7 +102,6 @@ def create_prob_model(data_dict, reg_scale, reg_coefficient):
         psf_kernel=data_dict['psf_kernel'],
         dpix=data_dict['dpix'],
         phys_model=phys_model,
-        pix_src_model=pix_src_model,
         mask=data_dict['mask'],
     )
     

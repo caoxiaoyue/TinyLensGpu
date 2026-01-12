@@ -225,12 +225,12 @@ where λ is the regularization coefficient and K is the covariance matrix.
 This module is designed to work seamlessly with TinyLensGpu's higher-level interfaces:
 
 ```python
-from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel
-from TinyLensGpu.ProbModel.Image import PixelizedImageProbModel
+from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel
+from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Create models
-phys_model = PhysicalModel(lens_mass=[...])
 pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
+phys_model = PhysicalModel(lens_mass=[...], source_light=[pix_src])
 
 # Create probability model (uses PixelizedSource utilities internally)
 prob_model = PixelizedImageProbModel(
@@ -239,7 +239,6 @@ prob_model = PixelizedImageProbModel(
     psf_kernel=psf,
     dpix=0.05,
     phys_model=phys_model,
-    pix_src_model=pix_src,
 )
 
 # Compute log evidence

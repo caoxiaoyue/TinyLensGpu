@@ -105,8 +105,6 @@ def setup_pixelized_model(data_dict):
         center_y=0.0,
     )
     
-    phys_model = PhysicalModel(lens_mass=[sie])
-    
     pix_src_model = PixelizedSourceModel(
         reg_scale=0.05,
         reg_coefficient=1.0,
@@ -120,6 +118,8 @@ def setup_pixelized_model(data_dict):
         interp_kernel='wendland_c4',
         radius_scale=1.5,
     )
+
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model], lens_light=[])
     
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
@@ -127,7 +127,6 @@ def setup_pixelized_model(data_dict):
         psf_kernel=data_dict['psf_kernel'],
         dpix=data_dict['dpix'],
         phys_model=phys_model,
-        pix_src_model=pix_src_model,
         mask=data_dict['mask'],
     )
     

@@ -84,14 +84,11 @@ Regularization matrix: `H = λ K^{-1}`
 
 ```python
 import numpy as np
-from TinyLensGpu.Models.mass import SIE
-from TinyLensGpu.Models.composite import PhysicalModel
-from TinyLensGpu.Models.pixelized_source import PixelizedSourceModel
-from TinyLensGpu.ProbModel.Image.pixelized_image_model import PixelizedImageProbModel
+from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel, SIE
+from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # 1. Create mass model
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-phys_model = PhysicalModel(lens_mass=[sie])
 
 # 2. Create pixelized source model
 pix_src = PixelizedSourceModel(
@@ -103,6 +100,9 @@ pix_src = PixelizedSourceModel(
     k_neighbors=5,            # Interpolation neighbors
 )
 
+# 3. Create physical model
+phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
+
 # 3. Create probability model
 prob_model = PixelizedImageProbModel(
     image_data=image,
@@ -110,7 +110,6 @@ prob_model = PixelizedImageProbModel(
     psf_kernel=psf,
     dpix=0.05,
     phys_model=phys_model,
-    pix_src_model=pix_src,
     mask=mask,
 )
 
@@ -132,8 +131,8 @@ from TinyLensGpu.Inference import build_prior, build_likelihood
 
 # Define priors for regularization parameters
 prior_dict = {
-    'pix_src_model.config.reg_scale': build_prior.LogUniform(1e-3, 1e2),
-    'pix_src_model.config.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
+    'pix_src_model.reg_scale': build_prior.LogUniform(1e-3, 1e2),
+    'pix_src_model.reg_coefficient': build_prior.LogUniform(1e-3, 1e3),
 }
 
 # Create prior transformation

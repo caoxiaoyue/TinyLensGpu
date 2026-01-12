@@ -20,6 +20,17 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.utils.inversion import LinearInversion
 
 
+def _extract_pixelized_source_model(
+    phys_model: PhysicalModel,
+) -> PixelizedSourceModel:
+    src_list = getattr(phys_model, "source_light", [])
+    matches = [m for m in src_list if isinstance(m, PixelizedSourceModel)]
+
+    if len(src_list) != 1 or len(matches) != 1:
+        raise ValueError("PixelizedImageProbModel requires PhysicalModel(source_light=[PixelizedSourceModel]).")
+    return matches[0]
+
+
 class PixelizedImageProbModel(ck.Module):
     """
     Probability model for pixelized source gravitational lensing images.
@@ -47,8 +58,6 @@ class PixelizedImageProbModel(ck.Module):
         Pixel scale in arcsec/pixel
     phys_model : PhysicalModel
         Physical model containing mass components (lens_mass)
-    pix_src_model : PixelizedSourceModel
-        Pixelized source model with configuration
     mask : array_like, optional
         Boolean mask array (True = masked out)
     position_likelihood : dict, optional
@@ -86,8 +95,7 @@ class PixelizedImageProbModel(ck.Module):
     ...     noise_map=noise,
     ...     psf_kernel=psf,
     ...     dpix=0.05,
-    ...     phys_model=phys_model,
-    ...     pix_src_model=pix_src,
+    ...     phys_model=PhysicalModel(lens_mass=[sie], source_light=[pix_src]),
     ...     mask=mask
     ... )
     >>> 
@@ -102,7 +110,6 @@ class PixelizedImageProbModel(ck.Module):
         psf_kernel: np.ndarray,
         dpix: float,
         phys_model: PhysicalModel,
-        pix_src_model: PixelizedSourceModel,
         mask: Optional[np.ndarray] = None,
         position_likelihood: Optional[Dict] = None,
     ) -> None:
@@ -112,7 +119,8 @@ class PixelizedImageProbModel(ck.Module):
         self.noise_map = jnp.array(noise_map)
         
         self.phys_model = phys_model
-        self.pix_src_model = pix_src_model
+        extracted_pix_src_model = _extract_pixelized_source_model(phys_model=self.phys_model)
+        object.__setattr__(self, "pix_src_model", extracted_pix_src_model)
         
         if mask is None:
             mask = np.zeros_like(image_data, dtype=bool)
@@ -130,7 +138,6 @@ class PixelizedImageProbModel(ck.Module):
             image_data=image_data,
             dpix=dpix,
             phys_model=self.phys_model,
-            pix_src_model=self.pix_src_model,
             psf_kernel=psf_kernel,
             mask=mask,
         )

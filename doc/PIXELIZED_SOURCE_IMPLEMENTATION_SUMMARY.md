@@ -271,19 +271,18 @@ For typical case (npix=200, n_source=1500):
 ### Basic Reconstruction
 
 ```python
-from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel
-from TinyLensGpu.Models.mass import SIE
-from TinyLensGpu.ProbModel.Image import PixelizedImageProbModel
+from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel, SIE
+from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Setup
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-phys_model = PhysicalModel(lens_mass=[sie])
 pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
+phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
 
 # Create probability model
 prob_model = PixelizedImageProbModel(
     image_data=image, noise_map=noise, psf_kernel=psf, dpix=0.05,
-    phys_model=phys_model, pix_src_model=pix_src, mask=mask
+    phys_model=phys_model, mask=mask
 )
 
 # Compute log evidence

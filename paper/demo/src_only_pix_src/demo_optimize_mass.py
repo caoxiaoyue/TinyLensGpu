@@ -87,11 +87,7 @@ def simulate_lensing_data():
 
 def create_prob_model(data_dict, theta_E, e1, e2):
     """Create probability model with given mass parameters and fixed regularization."""
-    
-    phys_model = PhysicalModel(lens_mass=[
-        SIE(theta_E=theta_E, e1=e1, e2=e2, center_x=0.0, center_y=0.0),
-    ])
-    
+
     # Fixed regularization parameters
     pix_src_model = PixelizedSourceModel(
         reg_scale=0.05,
@@ -101,6 +97,14 @@ def create_prob_model(data_dict, theta_E, e1, e2):
         mesh_alpha=1.5,
         mesh_seed=42,
     )
+
+    phys_model = PhysicalModel(
+        lens_mass=[
+            SIE(theta_E=theta_E, e1=e1, e2=e2, center_x=0.0, center_y=0.0),
+        ],
+        source_light=[pix_src_model],
+        lens_light=[],
+    )
     
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
@@ -108,7 +112,6 @@ def create_prob_model(data_dict, theta_E, e1, e2):
         psf_kernel=data_dict['psf_kernel'],
         dpix=data_dict['dpix'],
         phys_model=phys_model,
-        pix_src_model=pix_src_model,
         mask=data_dict['mask'],
     )
     

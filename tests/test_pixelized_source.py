@@ -669,9 +669,7 @@ class TestPixelizedImageProbModel:
         sie.e2.to_static()
         sie.center_x.to_static()
         sie.center_y.to_static()
-        
-        phys_model = PhysicalModel(lens_mass=[sie])
-        
+
         # Create pixelized source model with fewer points for faster testing
         pix_src_model = PixelizedSourceModel(
             reg_scale=0.05,
@@ -679,6 +677,8 @@ class TestPixelizedImageProbModel:
             n_source_points=200,  # Reduced for test speed
             mesh_seed=42
         )
+
+        phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
         
         # Convert mask format: our fixture has True=valid, model expects True=masked
         mask_out = ~simple_mask
@@ -703,10 +703,8 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
-        
         assert prob_model is not None, "Model should be created"
         assert prob_model.npix == setup['image'].shape[0], "npix should match image size"
     
@@ -720,7 +718,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
         
@@ -738,7 +735,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
         
@@ -756,7 +752,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
         
@@ -782,7 +777,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
         
@@ -804,7 +798,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=setup['mask']
         )
         
@@ -821,7 +814,6 @@ class TestPixelizedImageProbModel:
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
-            pix_src_model=setup['pix_src_model'],
             mask=None  # No mask
         )
         
@@ -840,14 +832,25 @@ class TestPixelizedImageProbModel:
                 reg_type=reg_type,
                 mesh_seed=42
             )
+
+            sie = SIE(
+                theta_E=1.0, e1=0.05, e2=-0.03,
+                center_x=0.0, center_y=0.0
+            )
+            sie.theta_E.to_static()
+            sie.e1.to_static()
+            sie.e2.to_static()
+            sie.center_x.to_static()
+            sie.center_y.to_static()
+
+            phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
             
             prob_model = PixelizedImageProbModel(
                 image_data=setup['image'],
                 noise_map=setup['noise'],
                 psf_kernel=setup['psf'],
                 dpix=setup['dpix'],
-                phys_model=setup['phys_model'],
-                pix_src_model=pix_src_model,
+                phys_model=phys_model,
                 mask=setup['mask']
             )
             

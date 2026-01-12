@@ -22,13 +22,23 @@ from TinyLensGpu.utils.lensing import (
 from TinyLensGpu.utils.mesh import sample_points_weighted
 
 
+def _extract_pixelized_source_model(
+    phys_model: PhysicalModel,
+) -> PixelizedSourceModel:
+    matches = [m for m in getattr(phys_model, "source_light", []) if isinstance(m, PixelizedSourceModel)]
+    if len(getattr(phys_model, "source_light", [])) != 1 or len(matches) != 1:
+        raise ValueError(
+            "PixelizedLensSimulator requires PhysicalModel(source_light=[PixelizedSourceModel])."
+        )
+    return matches[0]
+
+
 class PixelizedLensSimulator:
     def __init__(
         self,
         image_data: np.ndarray,
         dpix: float,
         phys_model: PhysicalModel,
-        pix_src_model: PixelizedSourceModel,
         psf_kernel: np.ndarray,
         mask: Optional[np.ndarray] = None,
         lensed_source_image: Optional[np.ndarray] = None,
@@ -37,7 +47,7 @@ class PixelizedLensSimulator:
         self.dpix = dpix
         self.npix = image_data.shape[0]
         self.phys_model = phys_model
-        self.pix_src_model = pix_src_model
+        self.pix_src_model = _extract_pixelized_source_model(phys_model=self.phys_model)
         self.psf_kernel = jnp.array(psf_kernel)
         
         if mask is None:

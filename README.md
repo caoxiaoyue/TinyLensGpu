@@ -136,21 +136,17 @@ Each demo writes results to `output/` (`result_samples.csv`, `result_summary.csv
 TinyLensGpu now supports pixelized source reconstruction as an alternative to parametric source models:
 
 ```python
-from TinyLensGpu.Models import PhysicalModel, PixelizedSourceModel, PixelizedSourceConfig
-from TinyLensGpu.Models.mass import SIE
-from TinyLensGpu.ProbModel.Image import PixelizedImageProbModel
+from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel, SIE
+from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Create mass model
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-phys_model = PhysicalModel(lens_mass=[sie])
-
-# Configure pixelized source
-config = PixelizedSourceConfig(
+pix_src = PixelizedSourceModel(
     reg_scale=0.05,           # Regularization length scale
     reg_coefficient=1.0,      # Regularization strength
     n_source_points=1500,     # Number of source pixels
 )
-pix_src = PixelizedSourceModel(config=config)
+phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
 
 # Create probability model
 prob_model = PixelizedImageProbModel(
@@ -159,7 +155,6 @@ prob_model = PixelizedImageProbModel(
     psf_kernel=psf,
     dpix=0.05,
     phys_model=phys_model,
-    pix_src_model=pix_src,
     mask=mask,
 )
 
