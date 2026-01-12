@@ -597,7 +597,7 @@ class TestPixelizedSourceModel:
         assert model.reg_coefficient.value == 1.0, "Default reg_coefficient should be 1.0"
         assert model.reg_type == 'exp', "Default reg_type should be 'exp'"
         assert model.n_source_points == 1500, "Default n_source_points should be 1500"
-        assert model.mesh_alpha == 1.5, "Default mesh_alpha should be 1.5"
+        assert model.mesh_alpha == 0.0, "Default mesh_alpha should be 0.0"
         assert model.k_neighbors == 5, "Default k_neighbors should be 5"
     
     def test_model_custom_values(self):

@@ -45,7 +45,7 @@ class PixelizedLensSimulator:
         self.mask = jnp.array(mask)
         
         if lensed_source_image is None:
-            lensed_source_image = np.copy(image_data)
+            lensed_source_image = np.ones_like(image_data)
         self.lensed_source_image = jnp.array(lensed_source_image)
         
         xgrid_2d, ygrid_2d = make_grid_2d(self.npix, self.dpix)

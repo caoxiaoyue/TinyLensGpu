@@ -79,7 +79,7 @@ class PixelizedSourceModel(ck.Module):
         reg_coefficient: float = 1.0,
         reg_type: str = 'exp',
         n_source_points: int = 1500,
-        mesh_alpha: float = 1.5,
+        mesh_alpha: float = 0.0,
         mesh_blur_sigma: float = 0.0,
         mesh_method: str = 'random',
         mesh_seed: int = 42,
