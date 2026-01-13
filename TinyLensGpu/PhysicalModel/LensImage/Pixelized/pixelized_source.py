@@ -6,11 +6,8 @@ source reconstruction approach, where the source is represented by discrete pixe
 rather than parametric profiles.
 """
 
-import functools
 import caskade as ck
 import jax.numpy as jnp
-from jax import jit
-import numpy as np
 from typing import Optional, Dict, Any
 
 from TinyLensGpu.Inference.param_u import ParamU
@@ -156,7 +153,6 @@ class PixelizedSourceModel(ck.Module):
     
 
     @ck.forward
-    @functools.partial(jit, static_argnums=(0,))
     def regularization_matrix(
         self,
         points: jnp.ndarray,

@@ -8,7 +8,7 @@ construction.
 
 import functools
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 import numpy as np
 from typing import Optional
 
@@ -65,7 +65,7 @@ class PixelizedLensSimulator:
         self._generate_source_mesh(self.lensed_source_image, self.mask)
         self.psf_matrix = build_psf_matrix_dense(np.array(self.mask), np.array(self.psf_kernel))
     
-    def _generate_source_mesh(self, lensed_source_image: np.ndarray, mask: np.ndarray) -> None:
+    def _generate_source_mesh(self, lensed_source_image: Array | np.ndarray, mask: Array | np.ndarray) -> None:
         model = self.pix_src_model
         
         source_mesh, (H, W), _ = sample_points_weighted(
@@ -97,7 +97,6 @@ class PixelizedLensSimulator:
     def data_mesh_beta(self) -> jnp.ndarray:
         return self.ray_trace(self.xgrid_unmask, self.ygrid_unmask)
     
-    @functools.partial(jit, static_argnums=(0,))
     def build_lens_mapping_matrix(self) -> jnp.ndarray:
         return lens_mapping_matrix_from(
             source_mesh_beta=self.source_mesh_beta,
@@ -107,11 +106,9 @@ class PixelizedLensSimulator:
             radius_scale=self.pix_src_model.radius_scale,
         )
     
-    @functools.partial(jit, static_argnums=(0,))
     def build_blurred_lens_mapping_matrix(self) -> jnp.ndarray:
         return self.psf_matrix @ self.build_lens_mapping_matrix()
     
-    @functools.partial(jit, static_argnums=(0,))
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
         return self.pix_src_model.regularization_matrix(
             points=self.source_mesh_beta,
