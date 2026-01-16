@@ -233,7 +233,7 @@ def reconstruct_with_optimal_mass(data_dict, opt_results):
         opt_results['optimal_e2']
     )
     
-    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
+    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source(return_2d=True)
     
     print(f"  Reconstructed {len(source_intensities)} source pixels")
     print(f"  Model image shape: {model_image.shape}")

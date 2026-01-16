@@ -12,7 +12,7 @@ import functools
 import jax.numpy as jnp
 from jax import jit, Array
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 from .config import make_grid_2d
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -22,6 +22,7 @@ from TinyLensGpu.utils.lensing import (
     build_psf_matrix_dense,
 )
 from TinyLensGpu.utils.mesh import sample_points_weighted
+from TinyLensGpu.utils.inversion import LinearInversion
 
 
 def _extract_pixelized_source_model(
@@ -117,7 +118,85 @@ class PixelizedLensSimulator:
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
         )
-    
+
+    def reconstruct_source(
+        self,
+        data_vector: Union[jnp.ndarray, np.ndarray],
+        noise_variance: Union[jnp.ndarray, np.ndarray],
+        reg_scale: float,
+        reg_coefficient: float,
+        return_2d: bool = False,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, LinearInversion]:
+        """
+        Reconstruct the source given observed data and noise.
+
+        This method performs the full source reconstruction pipeline:
+        1. Build lensing mapping matrix with PSF convolution
+        2. Build regularization matrix
+        3. Solve the linear inverse problem for source intensities
+        4. Generate model image
+
+        Parameters
+        ----------
+        data_vector : jnp.ndarray or np.ndarray
+            Observed image data vector (unmasked pixels only)
+        noise_variance : jnp.ndarray or np.ndarray
+            Noise variance for each unmasked pixel
+        reg_scale : float
+            Regularization scale parameter
+        reg_coefficient : float
+            Regularization coefficient (lambda)
+        return_2d : bool, optional
+            If True, returns the model image as a 2D array.
+            If False (default), returns the model image as a 1D vector (unmasked pixels only).
+
+        Returns
+        -------
+        source_intensities : jnp.ndarray
+            Reconstructed source intensities at source mesh points
+        source_mesh_beta : jnp.ndarray
+            Source mesh coordinates in source plane (shape: n_source x 2)
+        model_image : jnp.ndarray
+            Model image. Shape is (npix, npix) if return_2d=True, 
+            else (n_unmasked_pixels,) if return_2d=False.
+        inverter : LinearInversion
+            Linear inversion solver object (cached for reuse)
+        """
+        # Convert inputs to JAX arrays
+        d = jnp.array(data_vector)
+        noise_var = jnp.array(noise_variance)
+
+        # Build matrices
+        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
+        reg_matrix = self.pix_src_model.regularization_matrix(
+            points=self.source_mesh_beta,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+        )
+
+        # Create linear inversion solver
+        inverter = LinearInversion(
+            d=d,
+            F=blurred_lens_map_matrix,
+            noise_cov=noise_var,
+            H=reg_matrix,
+        )
+
+        # Solve for source intensities
+        source_intensities = inverter.solve()
+
+        # Generate model data
+        model_data = blurred_lens_map_matrix @ source_intensities
+
+        if return_2d:
+            # Place model data into full image
+            model_image = jnp.zeros((self.npix, self.npix))
+            model_image = model_image.at[~self.mask].set(model_data)
+        else:
+            model_image = model_data
+
+        return source_intensities, self.source_mesh_beta, model_image, inverter
+
     def __repr__(self) -> str:
         return (f"PixelizedLensSimulator("
                 f"npix={self.npix}, "

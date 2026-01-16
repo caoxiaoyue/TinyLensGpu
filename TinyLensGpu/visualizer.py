@@ -147,7 +147,7 @@ def plot_model_results(
         else:
             source_plane_image = np.asarray(jnp.zeros_like(sx))
     elif is_pixelized:
-        source_intensities, source_mesh_beta, model_image = likelihood_obj.reconstruct_source()
+        source_intensities, source_mesh_beta, model_image = likelihood_obj.reconstruct_source(return_2d=True)
         lensed_image_model = np.asarray(model_image)
         lens_light_model = np.zeros_like(lensed_image_model)
         total_model = lensed_image_model

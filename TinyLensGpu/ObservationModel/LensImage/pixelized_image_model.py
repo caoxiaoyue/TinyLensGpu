@@ -168,32 +168,47 @@ class PixelizedImageProbModel(ck.Module):
                 )
                 self._has_pos_penalty = True
     
+    def _prepare_data_for_inversion(self) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """
+        Prepare data and noise vectors for source reconstruction.
+
+        Returns
+        -------
+        data_vector : jnp.ndarray
+            Observed image data vector (unmasked pixels only)
+        noise_variance : jnp.ndarray
+            Noise variance for each unmasked pixel
+        """
+        data_vector = self.image_data[self.unmask]
+        noise_variance = self.noise_map[self.unmask] ** 2
+        return data_vector, noise_variance
+
     @ck.forward
     def _get_or_build_inverter(self):
         """
         Get cached LinearInversion object or build a new one if parameters changed.
-        
-        This method caches the expensive LinearInversion initialization to avoid
-        redundant matrix precomputation when called multiple times with same parameters.
-        
+
+        This method caches the expensive source reconstruction to avoid
+        redundant computation when called multiple times with same parameters.
+
         Note: This method needs @ck.forward decorator because it calls simulator methods
         that use self.phys_model.deflection(), which requires caskade parameter injection.
-        
+
         Returns
         -------
         inverter : LinearInversion
             Cached or newly created LinearInversion object
         source_mesh_beta : jnp.ndarray
             Source mesh coordinates in source plane
-        blurred_lens_map_matrix : jnp.ndarray
-            Blurred lensing mapping matrix
+        model_image : jnp.ndarray
+            Full 2D model image
         """
         model = self.pix_src_model
-        
+
         # Get current parameter values
         reg_scale_val = model.reg_scale.value
         reg_coeff_val = model.reg_coefficient.value
-        
+
         # Create a simple hash of mass model parameters by extracting all parameter values
         mass_param_values = []
         for mass_comp in self.phys_model.lens_mass:
@@ -201,41 +216,34 @@ class PixelizedImageProbModel(ck.Module):
             for attr_name, attr_val in vars(mass_comp).items():
                 if hasattr(attr_val, 'value'):
                     mass_param_values.append(float(attr_val.value))
-        
+
         current_params = (reg_scale_val, reg_coeff_val, tuple(mass_param_values))
-        
-        # Check if we can use cached inverter
+
+        # Check if we can use cached result
         if self._inverter_cache is not None and self._cached_params == current_params:
             return self._inverter_cache
-        
-        # Need to rebuild inverter
-        # These calls use phys_model.deflection() which needs caskade parameter injection
-        source_mesh_beta = self.simulator.source_mesh_beta
-        blurred_lens_map_matrix = self.simulator.build_blurred_lens_mapping_matrix()
-        
-        reg_matrix = self.simulator.build_regularization_matrix(
-            reg_scale=reg_scale_val,
-            reg_coefficient=reg_coeff_val,
+
+        # Need to rebuild - prepare data and call simulator
+        data_vector, noise_variance = self._prepare_data_for_inversion()
+
+        # Call simulator to reconstruct source (this uses phys_model.deflection)
+        source_intensities, source_mesh_beta, model_image, inverter = (
+            self.simulator.reconstruct_source(
+                data_vector=data_vector,
+                noise_variance=noise_variance,
+                reg_scale=reg_scale_val,
+                reg_coefficient=reg_coeff_val,
+            )
         )
-        
-        data_vector = self.image_data[self.unmask]
-        noise_variance = self.noise_map[self.unmask] ** 2
-        
-        inverter = LinearInversion(
-            d=data_vector,
-            F=blurred_lens_map_matrix,
-            noise_cov=noise_variance,
-            H=reg_matrix,
-        )
-        
+
         # Cache the inverter and related data
         self._inverter_cache = (
             inverter,
             source_mesh_beta,
-            blurred_lens_map_matrix,
+            model_image,
         )
         self._cached_params = current_params
-        
+
         return self._inverter_cache
     
     @ck.forward
@@ -277,10 +285,19 @@ class PixelizedImageProbModel(ck.Module):
         return log_ev
     
     @ck.forward
-    def reconstruct_source(self) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def reconstruct_source(self, return_2d: bool = False) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """
         Reconstruct the source given current parameters.
-        
+
+        This method prepares the data and delegates the actual reconstruction
+        to the simulator.
+
+        Parameters
+        ----------
+        return_2d : bool, optional
+            If True, returns the model image as a 2D array.
+            If False (default), returns the model image as a 1D vector (unmasked pixels only).
+
         Returns
         -------
         source_intensities : jnp.ndarray
@@ -288,17 +305,27 @@ class PixelizedImageProbModel(ck.Module):
         source_mesh_beta : jnp.ndarray
             Source mesh coordinates in source plane
         model_image : jnp.ndarray
-            Model image (full 2D array)
+            Model image. Shape is (npix, npix) if return_2d=True, 
+            else (n_unmasked_pixels,) if return_2d=False.
         """
-        inverter, source_mesh_beta, blurred_lens_map_matrix = self._get_or_build_inverter()
-        
-        source_intensities = inverter.solve()
-        
-        model_data = blurred_lens_map_matrix @ source_intensities
-        
-        model_image = jnp.zeros_like(self.image_data)
-        model_image = model_image.at[self.unmask].set(model_data)
-        
+        # Prepare data vectors
+        data_vector, noise_variance = self._prepare_data_for_inversion()
+
+        # Get regularization parameters
+        reg_scale_val = self.pix_src_model.reg_scale.value
+        reg_coeff_val = self.pix_src_model.reg_coefficient.value
+
+        # Call simulator to reconstruct source
+        source_intensities, source_mesh_beta, model_image, _ = (
+            self.simulator.reconstruct_source(
+                data_vector=data_vector,
+                noise_variance=noise_variance,
+                reg_scale=reg_scale_val,
+                reg_coefficient=reg_coeff_val,
+                return_2d=return_2d,
+            )
+        )
+
         return source_intensities, source_mesh_beta, model_image
     
     @functools.partial(jit, static_argnums=(0,))

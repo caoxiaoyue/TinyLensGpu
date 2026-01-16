@@ -147,7 +147,7 @@ def reconstruct_source(prob_model):
     log_ev = prob_model.log_evidence()
     print(f"  Log evidence: {log_ev:.2f}")
     
-    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
+    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source(return_2d=True)
     
     print(f"  Source intensities shape: {source_intensities.shape}")
     print(f"  Source mesh beta shape: {source_mesh_beta.shape}")

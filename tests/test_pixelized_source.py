@@ -809,7 +809,7 @@ class TestPixelizedImageProbModel:
     def test_prob_model_reconstruct_source(self, mock_lensing_setup):
         """Test source reconstruction."""
         setup = mock_lensing_setup
-        
+
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
@@ -818,18 +818,28 @@ class TestPixelizedImageProbModel:
             phys_model=setup['phys_model'],
             mask=setup['mask']
         )
-        
-        source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
-        
+
         n_source = setup['pix_src_model'].n_source_points
         npix = setup['image'].shape[0]
-        
+        n_unmasked = jnp.sum(~setup['mask'])
+
+        # Test default behavior (return_2d=False) - returns 1D vector
+        source_intensities, source_mesh_beta, model_image_1d = prob_model.reconstruct_source()
+
         assert source_intensities.shape == (n_source,), "Source intensities shape mismatch"
         assert source_mesh_beta.shape == (n_source, 2), "Source mesh beta shape mismatch"
-        assert model_image.shape == (npix, npix), "Model image shape mismatch"
-        
+        assert model_image_1d.shape == (n_unmasked,), "Model image 1D shape mismatch"
         assert not jnp.any(jnp.isnan(source_intensities)), "Source has NaN"
-        assert not jnp.any(jnp.isnan(model_image)), "Model image has NaN"
+        assert not jnp.any(jnp.isnan(model_image_1d)), "Model image 1D has NaN"
+
+        # Test return_2d=True - returns 2D array
+        source_intensities, source_mesh_beta, model_image_2d = prob_model.reconstruct_source(return_2d=True)
+
+        assert model_image_2d.shape == (npix, npix), "Model image 2D shape mismatch"
+        assert not jnp.any(jnp.isnan(model_image_2d)), "Model image 2D has NaN"
+
+        # Verify that the unmasked pixels match
+        assert jnp.allclose(model_image_1d, model_image_2d[~setup['mask']]), "1D and 2D results should match at unmasked pixels"
     
     def test_prob_model_caching(self, mock_lensing_setup):
         """Test that repeated calls use caching correctly."""
