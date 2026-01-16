@@ -50,6 +50,8 @@ def build_psf_matrix_dense(
     
     h_indices_np, w_indices_np = np.where(inv_mask_np)
     n_data_pixels = len(h_indices_np)
+    idx_map_np = np.full(inv_mask_np.shape, -1, dtype=np.int32)
+    idx_map_np[h_indices_np, w_indices_np] = np.arange(n_data_pixels, dtype=np.int32)
     
     psf_h, psf_w = psf_kernel_np.shape
     psf_center_h = psf_h // 2
@@ -59,6 +61,7 @@ def build_psf_matrix_dense(
     def _build_matrix_numba(
         h_indices: np.ndarray,
         w_indices: np.ndarray,
+        idx_map: np.ndarray,
         psf_data: np.ndarray,
         psf_h: int,
         psf_w: int,
@@ -66,25 +69,29 @@ def build_psf_matrix_dense(
         psf_center_w: int,
         n_pixels: int
     ) -> np.ndarray:
-        """Build PSF matrix with Numba acceleration."""
         psf_matrix = np.zeros((n_pixels, n_pixels), dtype=np.float32)
         
         for i in range(n_pixels):
             hi, wi = h_indices[i], w_indices[i]
             
-            for j in range(n_pixels):
-                hj, wj = h_indices[j], w_indices[j]
-                
-                dh = hi - hj + psf_center_h
-                dw = wi - wj + psf_center_w
-                
-                if 0 <= dh < psf_h and 0 <= dw < psf_w:
-                    psf_matrix[i, j] = psf_data[dh, dw]
+            for kh in range(psf_h):
+                for kw in range(psf_w):
+                    val = psf_data[kh, kw]
+                    if abs(val) <= 1e-10:
+                        continue
+
+                    hj = hi - (kh - psf_center_h)
+                    wj = wi - (kw - psf_center_w)
+
+                    if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
+                        j = idx_map[hj, wj]
+                        if j >= 0:
+                            psf_matrix[i, j] = val
         
         return psf_matrix
     
     psf_matrix_np = _build_matrix_numba(
-        h_indices_np, w_indices_np, 
+        h_indices_np, w_indices_np, idx_map_np,
         psf_kernel_np, psf_h, psf_w, 
         psf_center_h, psf_center_w, 
         n_data_pixels
@@ -135,6 +142,8 @@ def build_psf_matrix_sparse(
     
     h_indices_np, w_indices_np = np.where(inv_mask_np)
     n_data_pixels = len(h_indices_np)
+    idx_map_np = np.full(inv_mask_np.shape, -1, dtype=np.int32)
+    idx_map_np[h_indices_np, w_indices_np] = np.arange(n_data_pixels, dtype=np.int32)
     
     psf_h, psf_w = psf_kernel_np.shape
     psf_center_h = psf_h // 2
@@ -146,6 +155,7 @@ def build_psf_matrix_sparse(
     def _build_sparse_numba(
         h_indices: np.ndarray,
         w_indices: np.ndarray,
+        idx_map: np.ndarray,
         psf_data: np.ndarray,
         psf_h: int,
         psf_w: int,
@@ -154,7 +164,6 @@ def build_psf_matrix_sparse(
         n_pixels: int,
         max_nnz: int
     ):
-        """Build sparse PSF matrix with Numba acceleration."""
         rows = np.zeros(max_nnz, dtype=np.int32)
         cols = np.zeros(max_nnz, dtype=np.int32)
         values = np.zeros(max_nnz, dtype=np.float32)
@@ -163,24 +172,27 @@ def build_psf_matrix_sparse(
         for i in range(n_pixels):
             hi, wi = h_indices[i], w_indices[i]
             
-            for j in range(n_pixels):
-                hj, wj = h_indices[j], w_indices[j]
-                
-                dh = hi - hj + psf_center_h
-                dw = wi - wj + psf_center_w
-                
-                if 0 <= dh < psf_h and 0 <= dw < psf_w:
-                    val = psf_data[dh, dw]
-                    if abs(val) > 1e-10:
-                        rows[count] = i
-                        cols[count] = j
-                        values[count] = val
-                        count += 1
+            for kh in range(psf_h):
+                for kw in range(psf_w):
+                    val = psf_data[kh, kw]
+                    if abs(val) <= 1e-10:
+                        continue
+
+                    hj = hi - (kh - psf_center_h)
+                    wj = wi - (kw - psf_center_w)
+
+                    if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
+                        j = idx_map[hj, wj]
+                        if j >= 0:
+                            rows[count] = i
+                            cols[count] = j
+                            values[count] = val
+                            count += 1
         
         return rows[:count], cols[:count], values[:count]
     
     rows_np, cols_np, values_np = _build_sparse_numba(
-        h_indices_np, w_indices_np,
+        h_indices_np, w_indices_np, idx_map_np,
         psf_kernel_np, psf_h, psf_w,
         psf_center_h, psf_center_w,
         n_data_pixels, max_nnz

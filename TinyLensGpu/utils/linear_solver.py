@@ -253,19 +253,19 @@ def prepare_linear_system(
     img_lens = bin_func(img_lens_sub, nsub)  # [ny, nx, n_lens]
     img_arc = bin_func(img_arc_sub, nsub)    # [ny, nx, n_src]
 
-    # Convolve each component with PSF
-    img_lens_convolved = jnp.zeros_like(img_lens)
-    img_arc_convolved = jnp.zeros_like(img_arc)
+    # Vectorized convolution using vmap
+    def convolve_func(x):
+        return fftconvolve_func(x, psf_kernel, mode='same')
 
-    for i in range(n_lens_light):
-        img_lens_convolved = img_lens_convolved.at[..., i].set(
-            fftconvolve_func(img_lens[..., i], psf_kernel, mode='same')
-        )
+    if n_lens_light > 0:
+        img_lens_convolved = jax.vmap(convolve_func, in_axes=-1, out_axes=-1)(img_lens)
+    else:
+        img_lens_convolved = jnp.zeros((img_lens.shape[0], img_lens.shape[1], 0))
 
-    for i in range(n_src):
-        img_arc_convolved = img_arc_convolved.at[..., i].set(
-            fftconvolve_func(img_arc[..., i], psf_kernel, mode='same')
-        )
+    if n_src > 0:
+        img_arc_convolved = jax.vmap(convolve_func, in_axes=-1, out_axes=-1)(img_arc)
+    else:
+        img_arc_convolved = jnp.zeros((img_arc.shape[0], img_arc.shape[1], 0))
 
     # Concatenate and reshape
     img = jnp.concatenate([img_arc_convolved, img_lens_convolved], axis=-1)  # [ny, nx, n_total]

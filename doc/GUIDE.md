@@ -13,11 +13,11 @@ TinyLensGpu is a JAX-powered, GPU-accelerated framework for galaxy–galaxy stro
 | Layer | Purpose | Key Objects |
 | --- | --- | --- |
 | Models | Mass & light components implemented as `caskade.Module`s | `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`, `PhysicalModel` |
-| ProbModel | Image likelihood & forward modeling | `ImageProbModel` |
-| LinearSolver | YAML parser + runner for config-driven workflows | `CaskadeConfigParser`, `RunCaskadeLensModel` |
-| Inference | Samplers and optimizers | Nautilus, Dynesty, SciPy optimizers |
+| ObservationModel | Likelihood / evidence evaluation | `ImageProbModel`, `PixelizedImageProbModel` |
+| ForwardSimulation | Ray-tracing + PSF convolution + (optional) linear intensity solving | `LensSimulator`, `PixelizedLensSimulator` |
+| Inference | Prior/likelihood wrappers + samplers/optimizers | `make_prior_transformation`, `make_likelihood`, Nautilus/Dynesty/SciPy optimizers |
 
-All legacy ModelParser/Profile code has been removed; YAML configs remain backward compatible.
+This repository snapshot focuses on the programmatic (pure-Python) workflow used in `paper/demo/**`.
 
 ---
 
@@ -59,41 +59,18 @@ Set `XLA_PYTHON_CLIENT_PREALLOCATE=false` in your shell when working on memory-c
 
 ### 3.1 Configuration-driven workflow (YAML + runner)
 
-```python
-import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-from TinyLensGpu.LinearSolver.runner import RunCaskadeLensModel
-
-runner = RunCaskadeLensModel("model_config.yaml")
-runner.load_data()
-runner.setup_model()
-runner.setup_inference()     # Uses the YAML `inference` block
-runner.init_jit_likelihood() # Optional but keeps compile time out of sampling
-runner.run_inference()
-
-print(runner.results.keys())
-```
-
-**Key YAML fields**
-- `dataset`: FITS paths, pixel scale, masks
-- `model_components`: lists of mass/source/lens light modules
-- `inference`: sampler/optimizer type and settings
-- `solver_type`: `nnls` (default, non-negative) or `normal`
-- `output`: folder and artifact names
-
-Use the demo configs in `paper/demo/**/model_config*.yaml` as templates.
+The YAML runner workflow is not included in the current codebase layout. Use the programmatic API and the runnable scripts under `paper/demo/**` as the source of truth.
 
 ### 3.2 Programmatic workflow (direct module construction)
 
 ```python
 import os
 import jax.numpy as jnp
-from TinyLensGpu.Models import ParamU
-from TinyLensGpu.Models.mass import SIE, Shear
-from TinyLensGpu.Models.light import SersicEllipse
-from TinyLensGpu.Models.composite import PhysicalModel
-from TinyLensGpu.ProbModel.Image.image_model import ImageProbModel
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
@@ -153,7 +130,7 @@ This path keeps everything in Python and avoids helper wrappers, matching the li
 - **Batching**
   - Samplers (e.g., Nautilus) support `batch_size` up to 800 for high throughput
   - Optimizers typically run with batch size 1
-  - `prob_model.likelihood(bs=<n>)` controls batch size manually during custom runs
+  - Use `make_likelihood(..., vectorized=True)` for batched likelihood evaluation
 
 - **Common tuning knobs**
   - `nsub`: 1 (fast) → 3+ (high accuracy)
@@ -206,7 +183,6 @@ Continuous Integration example (GitHub Actions):
 | JAX sees CPU only | CUDA runtime mismatch | Install matching `jax[cudaXX]`, verify `nvidia-smi` |
 | First likelihood call takes 10–15s | JIT compilation | Expected; keep batch size modest while debugging |
 | `ResourceExhaustedError` | GPU memory | Set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, reduce `batch_size` |
-| `ValueError: bounds must be provided` when using Differential Evolution | Missing bounds | Retrieve from `parser.prior_transform.get_param_bounds()` |
 | NaNs in likelihood | Parameters out of bounds or bad data | Check prior ranges, ensure FITS inputs have no NaN/Inf, enable masks |
 
 ---

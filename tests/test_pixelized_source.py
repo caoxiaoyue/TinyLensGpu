@@ -347,10 +347,13 @@ class TestRegularizationMatrices:
         """Test that covariance matrix diagonal is approximately 1 (plus jitter)."""
         cov = exp_cov_matrix_from(scale_coefficient=0.1, pixel_points=source_points)
         diagonal = jnp.diag(cov)
-        
-        # Diagonal should be 1 + jitter (1e-6)
-        expected = 1.0 + 1e-6
-        assert_allclose(diagonal, expected * jnp.ones_like(diagonal), rtol=1e-4,
+
+        # Diagonal should be 1 + relative jitter
+        # With new jitter calculation: jitter = 1e-6 * trace(C) / n
+        # For exponential kernel, trace(C) ≈ n (since diagonal ≈ 1)
+        # So jitter ≈ 1e-6
+        expected = 1.0  # Base value
+        assert_allclose(diagonal - 1e-6, expected * jnp.ones_like(diagonal), atol=1e-4,
                        err_msg="Diagonal should be ~1 (self-covariance)")
 
 
@@ -466,14 +469,55 @@ class TestPSFMatrix:
         # Delta PSF (single pixel)
         delta_psf = np.zeros((11, 11))
         delta_psf[5, 5] = 1.0
-        
+
         psf_mat = build_psf_matrix_dense(mask_out, delta_psf)
-        
+
         # Should be approximately identity
         n = psf_mat.shape[0]
         identity = jnp.eye(n)
         assert_allclose(psf_mat, identity, rtol=1e-5,
                        err_msg="Delta PSF should give identity matrix")
+
+    def test_psf_matrix_matches_reference_small(self):
+        """Test that PSF matrix matches reference implementation for small case."""
+        from TinyLensGpu.utils.lensing.psf import build_psf_matrix_dense
+
+        mask = np.zeros((6, 6), dtype=bool)
+        mask[0, 0] = True
+        mask[5, 5] = True
+
+        psf = np.array(
+            [
+                [0.0, 0.1, 0.0],
+                [0.1, 0.6, 0.1],
+                [0.0, 0.1, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        # Reference implementation
+        inv_mask = np.array(~mask)
+        psf_kernel = np.array(psf, dtype=np.float32)
+        h_indices, w_indices = np.where(inv_mask)
+        n_pixels = len(h_indices)
+        psf_h, psf_w = psf_kernel.shape
+        ch, cw = psf_h // 2, psf_w // 2
+
+        ref = np.zeros((n_pixels, n_pixels), dtype=np.float32)
+        for i in range(n_pixels):
+            hi, wi = h_indices[i], w_indices[i]
+            for j in range(n_pixels):
+                hj, wj = h_indices[j], w_indices[j]
+                dh = hi - hj + ch
+                dw = wi - wj + cw
+                if 0 <= dh < psf_h and 0 <= dw < psf_w:
+                    ref[i, j] = psf_kernel[dh, dw]
+
+        # Test implementation
+        out = np.asarray(build_psf_matrix_dense(mask, psf))
+
+        assert_allclose(out, ref, rtol=0.0, atol=0.0,
+                       err_msg="PSF matrix should match reference implementation")
 
 
 # =============================================================================
@@ -541,6 +585,16 @@ class TestLinearInversion:
         log_ev = inverter.log_evidence()
         
         assert jnp.isfinite(log_ev), "Log evidence should be finite"
+
+    def test_linear_inversion_log_evidence_nonpositive_determinant_returns_ninf(self, simple_inversion_setup):
+        d, F, noise_cov, H, _ = simple_inversion_setup
+
+        H_bad = np.array(H)
+        H_bad[0, 0] = -abs(H_bad[0, 0])
+
+        inverter = LinearInversion(d=d, F=F, noise_cov=noise_cov, H=H_bad)
+        log_ev = inverter.log_evidence()
+        assert bool(jnp.isneginf(log_ev))
     
     def test_linear_inversion_full_noise_cov(self, simple_inversion_setup):
         """Test inversion with full noise covariance matrix."""
@@ -553,6 +607,16 @@ class TestLinearInversion:
         s_recon = inverter.solve()
         
         assert not jnp.any(jnp.isnan(s_recon)), "Full noise cov inversion has NaN values"
+
+    def test_linear_inversion_log_evidence_bad_full_noise_cov_returns_ninf(self, simple_inversion_setup):
+        d, F, noise_cov, H, _ = simple_inversion_setup
+
+        noise_cov_full = np.diag(noise_cov)
+        noise_cov_full[0, 0] = -abs(noise_cov_full[0, 0])
+
+        inverter = LinearInversion(d=d, F=F, noise_cov=noise_cov_full, H=H)
+        log_ev = inverter.log_evidence()
+        assert bool(jnp.isneginf(log_ev))
     
     def test_linear_inversion_reconstruction_quality(self, simple_inversion_setup):
         """Test that reconstruction is reasonably close to true source."""
@@ -864,29 +928,99 @@ class TestPixelizedImageProbModel:
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
-    
+
     def test_single_source_point(self):
         """Test with single source point."""
         points = jnp.array([[0.0, 0.0]], dtype=jnp.float32)
         cov = exp_cov_matrix_from(scale_coefficient=0.1, pixel_points=points)
-        
+
         assert cov.shape == (1, 1), "Should handle single point"
         assert cov[0, 0] > 0, "Diagonal should be positive"
-    
+
     def test_very_small_scale(self):
         """Test regularization with very small scale."""
         np.random.seed(42)
         points = jnp.array(np.random.randn(10, 2).astype(np.float32) * 0.1)
-        
+
+    def test_inverter_cache_hits_and_invalidates(self):
+        """Test that inverter cache hits correctly and invalidates on parameter change."""
+        npix = 10
+        np.random.seed(42)
+        image = np.ones((npix, npix), dtype=np.float32)
+        noise = np.ones((npix, npix), dtype=np.float32) * 0.1
+        psf = np.zeros((3, 3), dtype=np.float32)
+        psf[1, 1] = 1.0
+
+        sie = SIE(theta_E=1.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+        for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            p.to_static()
+
+        pix_src = PixelizedSourceModel(n_source_points=30, mesh_seed=0)
+        pix_src.reg_scale.to_static()
+        pix_src.reg_coefficient.to_static()
+
+        phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
+        prob = PixelizedImageProbModel(
+            image_data=image,
+            noise_map=noise,
+            psf_kernel=psf,
+            dpix=0.05,
+            phys_model=phys,
+        )
+
+        # First call should build cache
+        cache1 = prob._get_or_build_inverter()
+        # Second call should hit cache
+        cache2 = prob._get_or_build_inverter()
+        assert cache1 is cache2, "Cache should hit on identical parameters"
+
+        # Change parameter should invalidate cache
+        pix_src.reg_scale.value = float(pix_src.reg_scale.value) * 1.1
+        cache3 = prob._get_or_build_inverter()
+        assert cache3 is not cache1, "Cache should invalidate when parameters change"
+
+    def test_make_likelihood_rejects_vectorized_for_pixelized(self):
+        """Test that make_likelihood rejects vectorized=True for pixelized models."""
+        from TinyLensGpu.Inference.build_likelihood import make_likelihood
+
+        npix = 6
+        np.random.seed(42)
+        image = np.ones((npix, npix), dtype=np.float32)
+        noise = np.ones((npix, npix), dtype=np.float32) * 0.1
+        psf = np.zeros((3, 3), dtype=np.float32)
+        psf[1, 1] = 1.0
+
+        sie = SIE(theta_E=1.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+        for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            p.to_static()
+
+        pix_src = PixelizedSourceModel(n_source_points=20, mesh_seed=0)
+        phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
+        prob = PixelizedImageProbModel(
+            image_data=image,
+            noise_map=noise,
+            psf_kernel=psf,
+            dpix=0.05,
+            phys_model=phys,
+        )
+
+        # Should raise ValueError for vectorized pixelized model
+        with pytest.raises(ValueError, match="does not support vectorized"):
+            make_likelihood(prob, vectorized=True)
+
+    def test_very_small_scale(self):
+        """Test regularization with very small scale."""
+        np.random.seed(42)
+        points = jnp.array(np.random.randn(10, 2).astype(np.float32) * 0.1)
         reg_matrix = regularization_matrix_gp_from(
             scale=1e-4,  # Very small
             coefficient=1.0,
             points=points,
             reg_type='exp'
         )
-        
+
         assert not jnp.any(jnp.isnan(reg_matrix)), "Should handle small scale"
-    
+
     def test_very_large_coefficient(self):
         """Test regularization with very large coefficient."""
         np.random.seed(42)

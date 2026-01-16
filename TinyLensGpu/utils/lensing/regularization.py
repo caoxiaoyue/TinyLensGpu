@@ -20,7 +20,7 @@ def exp_cov_matrix_from(
     Construct the source brightness covariance matrix using exponential kernel.
     This matrix determines the regularization pattern (i.e., how different source pixels are smoothed).
 
-    The covariance matrix includes one non-linear parameter, the scale coefficient, 
+    The covariance matrix includes one non-linear parameter, the scale coefficient,
     which determines the typical scale of the regularization pattern.
 
     Parameters
@@ -28,7 +28,7 @@ def exp_cov_matrix_from(
     scale_coefficient : float
         The typical scale of the regularization pattern.
     pixel_points : jnp.ndarray
-        A 2D array with shape [N_source_pixels, 2], containing source pixelization 
+        A 2D array with shape [N_source_pixels, 2], containing source pixelization
         coordinates on the source plane: [[x1,y1], [x2,y2], ...]
 
     Returns
@@ -37,12 +37,15 @@ def exp_cov_matrix_from(
         The source covariance matrix (2D array), shape [N_source_pixels, N_source_pixels].
     """
     diff = pixel_points[:, None, :] - pixel_points[None, :, :]
-    
+
     distances = jnp.sqrt(jnp.sum(diff**2, axis=-1))
-    
+
     covariance_matrix = jnp.exp(-distances / scale_coefficient)
-    
-    covariance_matrix = covariance_matrix + jnp.eye(len(pixel_points)) * 1e-6
+
+    # Use relative jitter for better numerical stability
+    n_points = len(pixel_points)
+    jitter = 1e-6 * jnp.trace(covariance_matrix) / n_points
+    covariance_matrix = covariance_matrix + jnp.eye(n_points) * jitter
 
     return covariance_matrix
 
@@ -56,7 +59,7 @@ def gauss_cov_matrix_from(
     Construct the source brightness covariance matrix using Gaussian (RBF) kernel.
     This matrix determines the regularization pattern (i.e., how different source pixels are smoothed).
 
-    The covariance matrix includes one non-linear parameter, the scale coefficient, 
+    The covariance matrix includes one non-linear parameter, the scale coefficient,
     which determines the typical scale of the regularization pattern.
 
     Parameters
@@ -64,7 +67,7 @@ def gauss_cov_matrix_from(
     scale_coefficient : float
         The typical scale of the regularization pattern.
     pixel_points : jnp.ndarray
-        A 2D array with shape [N_source_pixels, 2], containing source pixelization 
+        A 2D array with shape [N_source_pixels, 2], containing source pixelization
         coordinates on the source plane: [[x1,y1], [x2,y2], ...]
 
     Returns
@@ -73,12 +76,15 @@ def gauss_cov_matrix_from(
         The source covariance matrix (2D array), shape [N_source_pixels, N_source_pixels].
     """
     diff = pixel_points[:, None, :] - pixel_points[None, :, :]
-    
+
     distances_sq = jnp.sum(diff**2, axis=-1)
-    
+
     covariance_matrix = jnp.exp(-distances_sq / (2 * scale_coefficient**2))
-    
-    covariance_matrix = covariance_matrix + jnp.eye(len(pixel_points)) * 1e-6
+
+    # Use relative jitter for better numerical stability
+    n_points = len(pixel_points)
+    jitter = 1e-6 * jnp.trace(covariance_matrix) / n_points
+    covariance_matrix = covariance_matrix + jnp.eye(n_points) * jitter
 
     return covariance_matrix
 
@@ -100,14 +106,14 @@ def matern32_cov_matrix_from(
     scale_coefficient : float
         The typical scale (length scale) of the regularization pattern.
     pixel_points : jnp.ndarray
-        A 2D array with shape [N_source_pixels, 2], containing source pixelization 
+        A 2D array with shape [N_source_pixels, 2], containing source pixelization
         coordinates on the source plane: [[x1,y1], [x2,y2], ...]
 
     Returns
     -------
     jnp.ndarray
         The source covariance matrix (2D array), shape [N_source_pixels, N_source_pixels].
-    
+
     Notes
     -----
     The Matern-3/2 kernel is defined as:
@@ -115,15 +121,18 @@ def matern32_cov_matrix_from(
     where r is the Euclidean distance and ℓ is the scale coefficient.
     """
     diff = pixel_points[:, None, :] - pixel_points[None, :, :]
-    
+
     distances = jnp.sqrt(jnp.sum(diff**2, axis=-1))
-    
+
     sqrt3 = jnp.sqrt(3.0)
     scaled_dist = sqrt3 * distances / scale_coefficient
-    
+
     covariance_matrix = (1.0 + scaled_dist) * jnp.exp(-scaled_dist)
-    
-    covariance_matrix = covariance_matrix + jnp.eye(len(pixel_points)) * 1e-6
+
+    # Use relative jitter for better numerical stability
+    n_points = len(pixel_points)
+    jitter = 1e-6 * jnp.trace(covariance_matrix) / n_points
+    covariance_matrix = covariance_matrix + jnp.eye(n_points) * jitter
 
     return covariance_matrix
 
@@ -145,14 +154,14 @@ def matern52_cov_matrix_from(
     scale_coefficient : float
         The typical scale (length scale) of the regularization pattern.
     pixel_points : jnp.ndarray
-        A 2D array with shape [N_source_pixels, 2], containing source pixelization 
+        A 2D array with shape [N_source_pixels, 2], containing source pixelization
         coordinates on the source plane: [[x1,y1], [x2,y2], ...]
 
     Returns
     -------
     jnp.ndarray
         The source covariance matrix (2D array), shape [N_source_pixels, N_source_pixels].
-    
+
     Notes
     -----
     The Matern-5/2 kernel is defined as:
@@ -160,16 +169,19 @@ def matern52_cov_matrix_from(
     where r is the Euclidean distance and ℓ is the scale coefficient.
     """
     diff = pixel_points[:, None, :] - pixel_points[None, :, :]
-    
+
     distances = jnp.sqrt(jnp.sum(diff**2, axis=-1))
-    
+
     sqrt5 = jnp.sqrt(5.0)
     scaled_dist = sqrt5 * distances / scale_coefficient
     scaled_dist_sq = 5.0 * distances**2 / (3.0 * scale_coefficient**2)
-    
+
     covariance_matrix = (1.0 + scaled_dist + scaled_dist_sq) * jnp.exp(-scaled_dist)
-    
-    covariance_matrix = covariance_matrix + jnp.eye(len(pixel_points)) * 1e-6
+
+    # Use relative jitter for better numerical stability
+    n_points = len(pixel_points)
+    jitter = 1e-6 * jnp.trace(covariance_matrix) / n_points
+    covariance_matrix = covariance_matrix + jnp.eye(n_points) * jitter
 
     return covariance_matrix
 

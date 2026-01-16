@@ -6,6 +6,7 @@ handling ray-tracing, PSF convolution, and linear parameter solving.
 """
 
 import functools
+import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jax import jit, Array
@@ -95,11 +96,11 @@ class LensSimulator:
         use_linear: bool = False,
         return_intensity: bool = False,
         ret_each_plane: bool = False,
-        image_map: Optional[np.ndarray] = None,
-        noise_map: Optional[np.ndarray] = None,
-        xgrid_sub: Optional[np.ndarray] = None,
-        ygrid_sub: Optional[np.ndarray] = None,
-        psf_kernel: Optional[np.ndarray] = None,
+        image_map: Optional[Array] = None,
+        noise_map: Optional[Array] = None,
+        xgrid_sub: Optional[Array] = None,
+        ygrid_sub: Optional[Array] = None,
+        psf_kernel: Optional[Array] = None,
     ) -> Union[
         Array,
         Tuple[Array, Array],
@@ -238,18 +239,19 @@ class LensSimulator:
         img_lens = bin_image_general(img_lens_sub, self.sim_config.nsub)
         img_arc = bin_image_general(img_arc_sub, self.sim_config.nsub)
 
-        img_lens_convolved = jnp.zeros((img_lens.shape[0], img_lens.shape[1], n_lens_light))
-        img_arc_convolved = jnp.zeros((img_arc.shape[0], img_arc.shape[1], n_src))
+        # Vectorized convolution using vmap
+        def convolve_func(x):
+            return jsp.signal.fftconvolve(x, psf_kernel, mode='same')
 
-        for i in range(n_lens_light):
-            img_lens_convolved = img_lens_convolved.at[..., i].set(
-                jsp.signal.fftconvolve(img_lens[..., i], psf_kernel, mode='same')
-            )
+        if n_lens_light > 0:
+            img_lens_convolved = jax.vmap(convolve_func, in_axes=-1, out_axes=-1)(img_lens)
+        else:
+            img_lens_convolved = jnp.zeros((img_lens.shape[0], img_lens.shape[1], 0))
 
-        for i in range(n_src):
-            img_arc_convolved = img_arc_convolved.at[..., i].set(
-                jsp.signal.fftconvolve(img_arc[..., i], psf_kernel, mode='same')
-            )
+        if n_src > 0:
+            img_arc_convolved = jax.vmap(convolve_func, in_axes=-1, out_axes=-1)(img_arc)
+        else:
+            img_arc_convolved = jnp.zeros((img_arc.shape[0], img_arc.shape[1], 0))
 
         img_components = jnp.concatenate([img_arc_convolved, img_lens_convolved], axis=-1)
         img = jnp.einsum('ijk,k->ij', img_components, X_vec)

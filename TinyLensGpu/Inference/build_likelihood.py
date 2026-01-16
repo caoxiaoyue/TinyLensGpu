@@ -5,13 +5,13 @@ This module provides a simplified likelihood interface using JAX vmap
 for efficient batch processing.
 """
 
-from typing import Callable
+from typing import Callable, Optional
 import jax
 import jax.numpy as jnp
 from jax import jit
 
 
-def make_likelihood(likelihood_obj, *, vectorized: bool = False) -> Callable:
+def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional[jnp.dtype] = None) -> Callable:
     """
     Create Nautilus-compatible log-likelihood function with JAX vmap.
     
@@ -49,19 +49,21 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False) -> Callable:
     >>> # Use with Nautilus
     >>> sampler = Sampler(prior, loglike, n_dim=ndim, vectorized=True)
     """
+
+    if vectorized and likelihood_obj.__class__.__name__ == "PixelizedImageProbModel":
+        raise ValueError("PixelizedImageProbModel does not support vectorized=True. Use vectorized=False.")
     
     @jit
     def loglike_fn(theta):
         """JIT-compiled single sample evaluation."""
-        res = likelihood_obj(theta)
-        return res.astype(jnp.float32) if hasattr(res, "astype") else res
+        return likelihood_obj(theta)
     
     if vectorized:
         # Vectorize using JAX vmap for efficient batch processing
         batch_loglike = jit(jax.vmap(loglike_fn))
         
         def loglike(params):
-            theta = jnp.asarray(params, dtype=jnp.float32)
+            theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             if theta.ndim > 1:
                 # Batch evaluation using vmap
                 return batch_loglike(theta)
@@ -74,7 +76,7 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False) -> Callable:
     else:
         # Non-vectorized version
         def loglike(params):
-            theta = jnp.asarray(params, dtype=jnp.float32)
+            theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             res = loglike_fn(theta)
             return float(res)
         

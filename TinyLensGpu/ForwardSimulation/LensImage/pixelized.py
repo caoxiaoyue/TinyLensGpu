@@ -6,6 +6,8 @@ reconstruction, including ray-tracing, mesh generation, and mapping matrix
 construction.
 """
 
+from __future__ import annotations
+
 import functools
 import jax.numpy as jnp
 from jax import jit, Array

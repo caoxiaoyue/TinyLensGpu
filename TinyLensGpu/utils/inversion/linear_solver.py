@@ -24,6 +24,7 @@ def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
     n_source = H.shape[0]
     
     is_diagonal = (noise_cov.ndim == 1)
+    is_valid = jnp.array(True)
     
     if is_diagonal:
         N_diag = jnp.clip(noise_cov, min=eps)
@@ -43,6 +44,7 @@ def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
         
         sign, logdet = jnp.linalg.slogdet(N)
         half_log_det_N = 0.5 * logdet
+        is_valid = is_valid & (sign > 0) & jnp.isfinite(logdet)
         
         N_inv_F = jnp.linalg.solve(N, F)
         N_inv_d = jnp.linalg.solve(N, d)
@@ -52,19 +54,22 @@ def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
         d_Ninv_d = d.T @ N_inv_d
 
     log_evidence_const = -0.5 * n_data * jnp.log(2.0 * jnp.pi) - half_log_det_N
+    is_valid = is_valid & jnp.isfinite(log_evidence_const)
 
     H_stab = H + jitter * jnp.eye(n_source)
     sign_H, logdet_H = jnp.linalg.slogdet(H_stab)
     half_log_det_H = 0.5 * logdet_H
+    is_valid = is_valid & (sign_H > 0) & jnp.isfinite(logdet_H)
 
     M = FT_Ninv_F + H
     
     M_stab = M + jitter * jnp.eye(n_source)
     sign_M, logdet_M = jnp.linalg.slogdet(M_stab)
     half_log_det_M = 0.5 * logdet_M
+    is_valid = is_valid & (sign_M > 0) & jnp.isfinite(logdet_M)
     
     return (FT_Ninv_F, FT_Ninv_d, d_Ninv_d, M_stab, 
-            half_log_det_H, half_log_det_M, log_evidence_const)
+            half_log_det_H, half_log_det_M, log_evidence_const, is_valid)
 
 
 @register_pytree_node_class
@@ -111,11 +116,11 @@ class LinearInversion:
 
         if _precomputed is None:
             (self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab, 
-             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const) = \
+             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = \
                 _precompute_terms(self.d, self.F, self.noise_cov, self.H, self.jitter, self.eps)
         else:
             (self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab, 
-             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const) = _precomputed
+             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = _precomputed
 
     @jit
     def solve(self):
@@ -130,7 +135,6 @@ class LinearInversion:
         s = jnp.linalg.solve(self.M_stab, self.FT_Ninv_d)
         return s
 
-    @jit
     def invert(self):
         """
         Solve the regularized linear inversion and compute covariance.
@@ -143,9 +147,7 @@ class LinearInversion:
             Solution covariance matrix, shape [n_source, n_source]
         """
         s = self.solve()
-
         Sigma = jnp.linalg.inv(self.M_stab)
-
         return s, Sigma
 
     @jit
@@ -158,22 +160,22 @@ class LinearInversion:
         log_evidence : float
             Log of the Bayesian evidence
         """
-        s = self.solve()
+        def _valid(_):
+            s = self.solve()
+            combined_chi2_reg = self.d_Ninv_d - jnp.dot(s, self.FT_Ninv_d)
+            log_ev = self.log_evidence_const
+            log_ev += self.half_log_det_H
+            log_ev -= 0.5 * combined_chi2_reg
+            log_ev -= self.half_log_det_M
+            return log_ev
 
-        combined_chi2_reg = self.d_Ninv_d - jnp.dot(s, self.FT_Ninv_d)
-        
-        log_ev = self.log_evidence_const
-        log_ev += self.half_log_det_H
-        log_ev -= 0.5 * combined_chi2_reg
-        log_ev -= self.half_log_det_M
-        
-        return log_ev
+        return jax.lax.cond(self.is_valid, _valid, lambda _: -jnp.inf, operand=None)
 
     def tree_flatten(self):
         """Flatten the object for JAX PyTree registration."""
         children = (self.d, self.F, self.noise_cov, self.H,
                     self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab,
-                    self.half_log_det_H, self.half_log_det_M, self.log_evidence_const)
+                    self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid)
         aux_data = (self.jitter, self.eps)
         return children, aux_data
 
@@ -184,7 +186,7 @@ class LinearInversion:
         
         (d, F, noise_cov, H,
          FT_Ninv_F, FT_Ninv_d, d_Ninv_d, M_stab,
-         half_log_det_H, half_log_det_M, log_evidence_const) = children
+         half_log_det_H, half_log_det_M, log_evidence_const, is_valid) = children
         
         jitter, eps = aux_data
         
@@ -204,6 +206,7 @@ class LinearInversion:
         obj.half_log_det_H = half_log_det_H
         obj.half_log_det_M = half_log_det_M
         obj.log_evidence_const = log_evidence_const
+        obj.is_valid = is_valid
         
         return obj
 

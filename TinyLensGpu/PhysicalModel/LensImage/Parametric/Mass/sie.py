@@ -74,7 +74,7 @@ class SIE(ck.Module):
         alpha_y : array_like
             Deflection angle in y-direction
         """
-        # Ensure parameters are JAX arrays (convert from torch if needed)
+        # Ensure parameters are JAX arrays
         e1 = jnp.asarray(e1)
         e2 = jnp.asarray(e2)
         theta_E = jnp.asarray(theta_E)

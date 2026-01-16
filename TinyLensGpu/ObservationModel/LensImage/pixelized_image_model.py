@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import jax
 from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Union
 
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -105,12 +105,12 @@ class PixelizedImageProbModel(ck.Module):
     
     def __init__(
         self,
-        image_data: np.ndarray,
-        noise_map: np.ndarray,
-        psf_kernel: np.ndarray,
+        image_data: Union[np.ndarray, Array],
+        noise_map: Union[np.ndarray, Array],
+        psf_kernel: Union[np.ndarray, Array],
         dpix: float,
         phys_model: PhysicalModel,
-        mask: Optional[np.ndarray] = None,
+        mask: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
@@ -197,11 +197,10 @@ class PixelizedImageProbModel(ck.Module):
         # Create a simple hash of mass model parameters by extracting all parameter values
         mass_param_values = []
         for mass_comp in self.phys_model.lens_mass:
-            # Get all parameter values from the mass component
-            for param_name in dir(mass_comp):
-                param = getattr(mass_comp, param_name)
-                if hasattr(param, 'value'):
-                    mass_param_values.append(float(param.value))
+            # Get all parameter values (both dynamic and static)
+            for attr_name, attr_val in vars(mass_comp).items():
+                if hasattr(attr_val, 'value'):
+                    mass_param_values.append(float(attr_val.value))
         
         current_params = (reg_scale_val, reg_coeff_val, tuple(mass_param_values))
         
@@ -293,7 +292,7 @@ class PixelizedImageProbModel(ck.Module):
         """
         inverter, source_mesh_beta, blurred_lens_map_matrix = self._get_or_build_inverter()
         
-        source_intensities, _ = inverter.invert()
+        source_intensities = inverter.solve()
         
         model_data = blurred_lens_map_matrix @ source_intensities
         
