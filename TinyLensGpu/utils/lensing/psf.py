@@ -211,5 +211,66 @@ def build_psf_matrix_sparse(
 
 __all__ = [
     'build_psf_matrix_dense',
-    'build_psf_matrix_sparse'
+    'build_psf_matrix_sparse',
+    'apply_psf_to_mapping_matrix'
 ]
+
+
+from typing import Tuple
+import functools
+import jax
+from jax import jit
+import jax.numpy as jnp
+from jax.scipy.signal import convolve2d
+import numpy as np
+
+
+@functools.partial(jax.jit, static_argnames=('image_shape',))
+def apply_psf_to_mapping_matrix(
+    mapping_matrix: jnp.ndarray,
+    psf_kernel: jnp.ndarray,
+    image_shape: Tuple[int, int],
+    unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray]
+) -> jnp.ndarray:
+    """
+    Apply PSF convolution to the lens mapping matrix using dense 2D convolution.
+    
+    This function avoids constructing the large dense/sparse PSF matrix by
+    treating the mapping matrix as a batch of source images and convolving
+    them efficiently.
+    
+    Args:
+        mapping_matrix: Mapping matrix of shape (n_unmasked, n_source)
+        psf_kernel: 2D PSF kernel
+        image_shape: Tuple (height, width) of the original image
+        unmasked_indices: Tuple of (y_indices, x_indices) arrays indicating 
+                         unmasked pixel positions.
+        
+    Returns:
+        Blurred mapping matrix of shape (n_unmasked, n_source)
+    """
+    n_unmasked, n_source = mapping_matrix.shape
+    h, w = image_shape
+    y_indices, x_indices = unmasked_indices
+    
+    # 1. Scatter mapping matrix rows to full 2D grid
+    # Initialize full grid (n_source, h, w)
+    full_grid = jnp.zeros((n_source, h, w), dtype=mapping_matrix.dtype)
+    
+    # Scatter the mapping matrix values into the grid
+    full_grid = full_grid.at[:, y_indices, x_indices].set(mapping_matrix.T)
+    
+    # 2. Convolve with PSF
+    # We vmap over the source dimension (axis 0)
+    convolve_fn = jax.vmap(
+        lambda img: convolve2d(img, psf_kernel, mode='same'),
+        in_axes=0, out_axes=0
+    )
+    
+    blurred_grid = convolve_fn(full_grid)
+    
+    # 3. Gather back unmasked pixels
+    blurred_unmasked = blurred_grid[:, y_indices, x_indices]
+    
+    # Transpose back to (n_unmasked, n_source)
+    return blurred_unmasked.T

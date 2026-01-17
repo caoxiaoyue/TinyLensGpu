@@ -19,7 +19,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.utils.lensing import (
     lens_mapping_matrix_from,
-    build_psf_matrix_dense,
+    apply_psf_to_mapping_matrix,
 )
 from TinyLensGpu.utils.mesh import sample_points_weighted
 from TinyLensGpu.utils.inversion import LinearInversion
@@ -65,8 +65,13 @@ class PixelizedLensSimulator:
         self.xgrid_unmask = jnp.array(xgrid_2d[~mask], dtype=jnp.float32)
         self.ygrid_unmask = jnp.array(ygrid_2d[~mask], dtype=jnp.float32)
         
+        # Precompute unmasked indices for PSF application
+        # mask is boolean, True where masked. We want indices of False (unmasked).
+        y_indices, x_indices = np.where(~mask)
+        self.unmasked_indices = (jnp.array(y_indices), jnp.array(x_indices))
+        self.image_shape = (self.npix, self.npix)
+        
         self._generate_source_mesh(self.lensed_source_image, self.mask)
-        self.psf_matrix = build_psf_matrix_dense(np.array(self.mask), np.array(self.psf_kernel))
     
     def _generate_source_mesh(self, lensed_source_image: Array | np.ndarray, mask: Array | np.ndarray) -> None:
         model = self.pix_src_model
@@ -110,7 +115,12 @@ class PixelizedLensSimulator:
         )
     
     def build_blurred_lens_mapping_matrix(self) -> jnp.ndarray:
-        return self.psf_matrix @ self.build_lens_mapping_matrix()
+        return apply_psf_to_mapping_matrix(
+            mapping_matrix=self.build_lens_mapping_matrix(),
+            psf_kernel=self.psf_kernel,
+            image_shape=self.image_shape,
+            unmasked_indices=self.unmasked_indices
+        )
     
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
         return self.pix_src_model.regularization_matrix(

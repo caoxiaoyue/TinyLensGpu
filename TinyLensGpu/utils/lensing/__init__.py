@@ -1,7 +1,7 @@
 """Lensing operation utilities."""
 
 from .mapping import lens_mapping_matrix_from
-from .psf import build_psf_matrix_dense, build_psf_matrix_sparse
+from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .regularization import (
     exp_cov_matrix_from,
     gauss_cov_matrix_from,
@@ -14,6 +14,7 @@ __all__ = [
     'lens_mapping_matrix_from',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',
+    'apply_psf_to_mapping_matrix',
     'exp_cov_matrix_from',
     'gauss_cov_matrix_from',
     'matern32_cov_matrix_from',
