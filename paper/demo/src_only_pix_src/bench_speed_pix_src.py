@@ -40,8 +40,18 @@ def main(n_runs: int = 10, seed: int = 0) -> dict:
     data_dict = simulate_lensing_data()
     prob_model = setup_pixelized_model(data_dict)
 
-    inverter, source_mesh_beta, blurred_lens_map_matrix = prob_model._get_or_build_inverter()
+    # Use _build_inverter instead of _get_or_build_inverter
+    # _build_inverter returns (inverter, source_mesh_beta, model_image)
+    inverter, source_mesh_beta, _ = prob_model._build_inverter()
+    blurred_lens_map_matrix = inverter.F
 
+    simulator = prob_model.simulator
+    reg_scale = prob_model.pix_src_model.reg_scale.value
+    reg_coeff = prob_model.pix_src_model.reg_coefficient.value
+
+    # Warm up
+    _ = simulator.build_blurred_lens_mapping_matrix().block_until_ready()
+    _ = simulator.build_regularization_matrix(reg_scale, reg_coeff).block_until_ready()
     _ = inverter.solve().block_until_ready()
     _ = inverter.log_evidence().block_until_ready()
 
@@ -55,6 +65,8 @@ def main(n_runs: int = 10, seed: int = 0) -> dict:
         "n_source": int(source_mesh_beta.shape[0]),
         "F_shape": [int(x) for x in blurred_lens_map_matrix.shape],
         "timing": {
+            "build_blurred_lens_mapping_matrix": _time_call(lambda: simulator.build_blurred_lens_mapping_matrix(), n_runs=n_runs),
+            "build_regularization_matrix": _time_call(lambda: simulator.build_regularization_matrix(reg_scale, reg_coeff), n_runs=n_runs),
             "solve": _time_call(lambda: inverter.solve(), n_runs=n_runs),
             "log_evidence": _time_call(lambda: inverter.log_evidence(), n_runs=n_runs),
         },
