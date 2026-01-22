@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import jax
 from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict, Tuple, Union
+from typing import Optional, Dict, Union
 
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -126,6 +126,8 @@ class PixelizedImageProbModel(ck.Module):
             mask = np.zeros_like(image_data, dtype=bool)
         self.mask = jnp.array(mask)
         self.unmask = ~self.mask
+        self._data_vector = self.image_data[self.unmask]
+        self._noise_variance = self.noise_map[self.unmask] ** 2
         
         self.position_like_config = position_likelihood
         
@@ -168,21 +170,6 @@ class PixelizedImageProbModel(ck.Module):
                 )
                 self._has_pos_penalty = True
     
-    def _prepare_data_for_inversion(self) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        """
-        Prepare data and noise vectors for source reconstruction.
-
-        Returns
-        -------
-        data_vector : jnp.ndarray
-            Observed image data vector (unmasked pixels only)
-        noise_variance : jnp.ndarray
-            Noise variance for each unmasked pixel
-        """
-        data_vector = self.image_data[self.unmask]
-        noise_variance = self.noise_map[self.unmask] ** 2
-        return data_vector, noise_variance
-
     @ck.forward
     def _get_or_build_inverter(self):
         """
@@ -224,7 +211,8 @@ class PixelizedImageProbModel(ck.Module):
             return self._inverter_cache
 
         # Need to rebuild - prepare data and call simulator
-        data_vector, noise_variance = self._prepare_data_for_inversion()
+        data_vector = self._data_vector
+        noise_variance = self._noise_variance
 
         # Call simulator to reconstruct source (this uses phys_model.deflection)
         source_intensities, source_mesh_beta, model_image, inverter = (
@@ -284,49 +272,6 @@ class PixelizedImageProbModel(ck.Module):
         log_ev = float(np.asarray(self.__call__()))
         return log_ev
     
-    @ck.forward
-    def reconstruct_source(self, return_2d: bool = False) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """
-        Reconstruct the source given current parameters.
-
-        This method prepares the data and delegates the actual reconstruction
-        to the simulator.
-
-        Parameters
-        ----------
-        return_2d : bool, optional
-            If True, returns the model image as a 2D array.
-            If False (default), returns the model image as a 1D vector (unmasked pixels only).
-
-        Returns
-        -------
-        source_intensities : jnp.ndarray
-            Reconstructed source intensities at source mesh points
-        source_mesh_beta : jnp.ndarray
-            Source mesh coordinates in source plane
-        model_image : jnp.ndarray
-            Model image. Shape is (npix, npix) if return_2d=True, 
-            else (n_unmasked_pixels,) if return_2d=False.
-        """
-        # Prepare data vectors
-        data_vector, noise_variance = self._prepare_data_for_inversion()
-
-        # Get regularization parameters
-        reg_scale_val = self.pix_src_model.reg_scale.value
-        reg_coeff_val = self.pix_src_model.reg_coefficient.value
-
-        # Call simulator to reconstruct source
-        source_intensities, source_mesh_beta, model_image, _ = (
-            self.simulator.reconstruct_source(
-                data_vector=data_vector,
-                noise_variance=noise_variance,
-                reg_scale=reg_scale_val,
-                reg_coefficient=reg_coeff_val,
-                return_2d=return_2d,
-            )
-        )
-
-        return source_intensities, source_mesh_beta, model_image
     
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:

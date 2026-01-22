@@ -807,7 +807,7 @@ class TestPixelizedImageProbModel:
         assert jnp.isfinite(log_ev), "Call should return finite log evidence"
     
     def test_prob_model_reconstruct_source(self, mock_lensing_setup):
-        """Test source reconstruction."""
+        """Test source reconstruction via simulator."""
         setup = mock_lensing_setup
 
         prob_model = PixelizedImageProbModel(
@@ -823,8 +823,20 @@ class TestPixelizedImageProbModel:
         npix = setup['image'].shape[0]
         n_unmasked = jnp.sum(~setup['mask'])
 
+        # Prepare arguments for simulator
+        data_vector = prob_model.image_data[~prob_model.mask]
+        noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+        reg_scale = prob_model.pix_src_model.reg_scale.value
+        reg_coefficient = prob_model.pix_src_model.reg_coefficient.value
+
         # Test default behavior (return_2d=False) - returns 1D vector
-        source_intensities, source_mesh_beta, model_image_1d = prob_model.reconstruct_source()
+        source_intensities, source_mesh_beta, model_image_1d, _ = prob_model.simulator.reconstruct_source(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+            return_2d=False
+        )
 
         assert source_intensities.shape == (n_source,), "Source intensities shape mismatch"
         assert source_mesh_beta.shape == (n_source, 2), "Source mesh beta shape mismatch"
@@ -833,7 +845,13 @@ class TestPixelizedImageProbModel:
         assert not jnp.any(jnp.isnan(model_image_1d)), "Model image 1D has NaN"
 
         # Test return_2d=True - returns 2D array
-        source_intensities, source_mesh_beta, model_image_2d = prob_model.reconstruct_source(return_2d=True)
+        source_intensities, source_mesh_beta, model_image_2d, _ = prob_model.simulator.reconstruct_source(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+            return_2d=True
+        )
 
         assert model_image_2d.shape == (npix, npix), "Model image 2D shape mismatch"
         assert not jnp.any(jnp.isnan(model_image_2d)), "Model image 2D has NaN"
