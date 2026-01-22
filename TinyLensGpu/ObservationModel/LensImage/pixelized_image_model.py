@@ -171,12 +171,12 @@ class PixelizedImageProbModel(ck.Module):
                 self._has_pos_penalty = True
     
     @ck.forward
-    def _get_or_build_inverter(self):
+    def _build_inverter(self):
         """
-        Get cached LinearInversion object or build a new one if parameters changed.
+        Build a new LinearInversion object.
 
-        This method caches the expensive source reconstruction to avoid
-        redundant computation when called multiple times with same parameters.
+        This method prepares the data and delegates the actual reconstruction
+        to the simulator.
 
         Note: This method needs @ck.forward decorator because it calls simulator methods
         that use self.phys_model.deflection(), which requires caskade parameter injection.
@@ -184,7 +184,7 @@ class PixelizedImageProbModel(ck.Module):
         Returns
         -------
         inverter : LinearInversion
-            Cached or newly created LinearInversion object
+            Newly created LinearInversion object
         source_mesh_beta : jnp.ndarray
             Source mesh coordinates in source plane
         model_image : jnp.ndarray
@@ -196,21 +196,7 @@ class PixelizedImageProbModel(ck.Module):
         reg_scale_val = model.reg_scale.value
         reg_coeff_val = model.reg_coefficient.value
 
-        # Create a simple hash of mass model parameters by extracting all parameter values
-        mass_param_values = []
-        for mass_comp in self.phys_model.lens_mass:
-            # Get all parameter values (both dynamic and static)
-            for attr_name, attr_val in vars(mass_comp).items():
-                if hasattr(attr_val, 'value'):
-                    mass_param_values.append(float(attr_val.value))
-
-        current_params = (reg_scale_val, reg_coeff_val, tuple(mass_param_values))
-
-        # Check if we can use cached result
-        if self._inverter_cache is not None and self._cached_params == current_params:
-            return self._inverter_cache
-
-        # Need to rebuild - prepare data and call simulator
+        # Prepare data vectors
         data_vector = self._data_vector
         noise_variance = self._noise_variance
 
@@ -224,15 +210,7 @@ class PixelizedImageProbModel(ck.Module):
             )
         )
 
-        # Cache the inverter and related data
-        self._inverter_cache = (
-            inverter,
-            source_mesh_beta,
-            model_image,
-        )
-        self._cached_params = current_params
-
-        return self._inverter_cache
+        return inverter, source_mesh_beta, model_image
     
     @ck.forward
     def __call__(self):
@@ -250,7 +228,7 @@ class PixelizedImageProbModel(ck.Module):
         log_evidence : float
             Log of the Bayesian evidence
         """
-        inverter, _, _ = self._get_or_build_inverter()
+        inverter, _, _ = self._build_inverter()
         
         log_ev = inverter.log_evidence()
         

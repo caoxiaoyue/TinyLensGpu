@@ -859,27 +859,6 @@ class TestPixelizedImageProbModel:
         # Verify that the unmasked pixels match
         assert jnp.allclose(model_image_1d, model_image_2d[~setup['mask']]), "1D and 2D results should match at unmasked pixels"
     
-    def test_prob_model_caching(self, mock_lensing_setup):
-        """Test that repeated calls use caching correctly."""
-        setup = mock_lensing_setup
-        
-        prob_model = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
-            mask=setup['mask']
-        )
-        
-        # First call
-        log_ev1 = prob_model.log_evidence()
-        
-        # Second call (should use cache)
-        log_ev2 = prob_model.log_evidence()
-        
-        assert log_ev1 == log_ev2, "Cached result should be identical"
-    
     def test_prob_model_repr(self, mock_lensing_setup):
         """Test model string representation."""
         setup = mock_lensing_setup
@@ -969,43 +948,6 @@ class TestEdgeCases:
         """Test regularization with very small scale."""
         np.random.seed(42)
         points = jnp.array(np.random.randn(10, 2).astype(np.float32) * 0.1)
-
-    def test_inverter_cache_hits_and_invalidates(self):
-        """Test that inverter cache hits correctly and invalidates on parameter change."""
-        npix = 10
-        np.random.seed(42)
-        image = np.ones((npix, npix), dtype=np.float32)
-        noise = np.ones((npix, npix), dtype=np.float32) * 0.1
-        psf = np.zeros((3, 3), dtype=np.float32)
-        psf[1, 1] = 1.0
-
-        sie = SIE(theta_E=1.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-        for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
-            p.to_static()
-
-        pix_src = PixelizedSourceModel(n_source_points=30, mesh_seed=0)
-        pix_src.reg_scale.to_static()
-        pix_src.reg_coefficient.to_static()
-
-        phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
-        prob = PixelizedImageProbModel(
-            image_data=image,
-            noise_map=noise,
-            psf_kernel=psf,
-            dpix=0.05,
-            phys_model=phys,
-        )
-
-        # First call should build cache
-        cache1 = prob._get_or_build_inverter()
-        # Second call should hit cache
-        cache2 = prob._get_or_build_inverter()
-        assert cache1 is cache2, "Cache should hit on identical parameters"
-
-        # Change parameter should invalidate cache
-        pix_src.reg_scale.value = float(pix_src.reg_scale.value) * 1.1
-        cache3 = prob._get_or_build_inverter()
-        assert cache3 is not cache1, "Cache should invalidate when parameters change"
 
     def test_make_likelihood_rejects_vectorized_for_pixelized(self):
         """Test that make_likelihood rejects vectorized=True for pixelized models."""
