@@ -1,16 +1,109 @@
 """
 PSF Convolution Operations
 
-This module provides optimized implementations for PSF (Point Spread Function) 
-convolution operations using matrix representations. Supports both dense and 
-sparse matrix formats.
-
-All functions are optimized with Numba JIT compilation for construction and
-JAX for matrix operations.
+This module provides optimized implementations for PSF (Point Spread Function)
+convolution operations using matrix representations and FFT.
 """
 
+import functools
+from typing import Tuple, Literal
+
+import jax
+import jax.experimental.sparse as jsparse
 import jax.numpy as jnp
 import numpy as np
+from numba import jit
+
+__all__ = [
+    'build_psf_matrix_dense',
+    'build_psf_matrix_sparse',
+    'apply_psf_to_mapping_matrix'
+]
+
+@jit(nopython=True)
+def _build_matrix_numba(
+    h_indices: np.ndarray,
+    w_indices: np.ndarray,
+    idx_map: np.ndarray,
+    psf_data: np.ndarray,
+) -> np.ndarray:
+    """Numba-accelerated dense matrix construction."""
+    n_pixels = len(h_indices)
+    psf_h, psf_w = psf_data.shape
+    psf_cy, psf_cx = psf_h // 2, psf_w // 2
+    
+    psf_matrix = np.zeros((n_pixels, n_pixels), dtype=np.float32)
+    
+    for i in range(n_pixels):
+        hi, wi = h_indices[i], w_indices[i]
+        
+        for kh in range(psf_h):
+            for kw in range(psf_w):
+                val = psf_data[kh, kw]
+                if abs(val) <= 1e-10:
+                    continue
+
+                hj = hi - (kh - psf_cy)
+                wj = wi - (kw - psf_cx)
+
+                if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
+                    j = idx_map[hj, wj]
+                    if j >= 0:
+                        psf_matrix[i, j] = val
+    
+    return psf_matrix
+
+
+@jit(nopython=True)
+def _build_sparse_numba(
+    h_indices: np.ndarray,
+    w_indices: np.ndarray,
+    idx_map: np.ndarray,
+    psf_data: np.ndarray,
+    max_nnz: int
+):
+    """Numba-accelerated sparse matrix construction (COO format)."""
+    n_pixels = len(h_indices)
+    psf_h, psf_w = psf_data.shape
+    psf_cy, psf_cx = psf_h // 2, psf_w // 2
+
+    rows = np.zeros(max_nnz, dtype=np.int32)
+    cols = np.zeros(max_nnz, dtype=np.int32)
+    values = np.zeros(max_nnz, dtype=np.float32)
+    
+    count = 0
+    for i in range(n_pixels):
+        hi, wi = h_indices[i], w_indices[i]
+        
+        for kh in range(psf_h):
+            for kw in range(psf_w):
+                val = psf_data[kh, kw]
+                if abs(val) <= 1e-10:
+                    continue
+
+                hj = hi - (kh - psf_cy)
+                wj = wi - (kw - psf_cx)
+
+                if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
+                    j = idx_map[hj, wj]
+                    if j >= 0:
+                        rows[count] = i
+                        cols[count] = j
+                        values[count] = val
+                        count += 1
+    
+    return rows[:count], cols[:count], values[:count]
+
+
+def _get_indices_and_map(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Get pixel indices and index map from mask."""
+    inv_mask = ~mask
+    h_indices, w_indices = np.where(inv_mask)
+    
+    idx_map = np.full(mask.shape, -1, dtype=np.int32)
+    idx_map[h_indices, w_indices] = np.arange(len(h_indices), dtype=np.int32)
+    
+    return h_indices, w_indices, idx_map
 
 
 def build_psf_matrix_dense(
@@ -20,81 +113,18 @@ def build_psf_matrix_dense(
     """
     Build dense PSF convolution matrix using Numba-accelerated construction.
     
-    This matrix P represents PSF convolution as a linear operation:
-        blurred_image = P @ unblurred_image
-    
     Args:
-        mask: 2D boolean array where True indicates masked (invalid) pixels
-        psf_kernel: 2D PSF kernel for convolution, assumed centered
+        mask: 2D boolean array where True indicates masked (invalid) pixels.
+        psf_kernel: 2D PSF kernel for convolution.
         
     Returns:
-        Dense matrix P of shape (n_valid_pixels, n_valid_pixels) as JAX array
-        
-    Memory:
-        Dense storage: O(n_valid_pixels^2)
-        For 1000 valid pixels: ~4 MB (float32)
-        For 10000 valid pixels: ~400 MB (float32)
-        
-    Performance:
-        Construction is accelerated with Numba JIT compilation.
-        Once built, matrix-vector multiplication is highly optimized via BLAS.
-        
-    Note:
-        Consider using build_psf_matrix_sparse() for large images to reduce
-        memory usage and improve performance.
+        Dense matrix P of shape (n_valid, n_valid) as JAX array.
     """
-    from numba import jit as numba_jit
-    
-    inv_mask_np = np.array(~mask)
-    psf_kernel_np = np.array(psf_kernel, dtype=np.float32)
-    
-    h_indices_np, w_indices_np = np.where(inv_mask_np)
-    n_data_pixels = len(h_indices_np)
-    idx_map_np = np.full(inv_mask_np.shape, -1, dtype=np.int32)
-    idx_map_np[h_indices_np, w_indices_np] = np.arange(n_data_pixels, dtype=np.int32)
-    
-    psf_h, psf_w = psf_kernel_np.shape
-    psf_center_h = psf_h // 2
-    psf_center_w = psf_w // 2
-    
-    @numba_jit(nopython=True)
-    def _build_matrix_numba(
-        h_indices: np.ndarray,
-        w_indices: np.ndarray,
-        idx_map: np.ndarray,
-        psf_data: np.ndarray,
-        psf_h: int,
-        psf_w: int,
-        psf_center_h: int,
-        psf_center_w: int,
-        n_pixels: int
-    ) -> np.ndarray:
-        psf_matrix = np.zeros((n_pixels, n_pixels), dtype=np.float32)
-        
-        for i in range(n_pixels):
-            hi, wi = h_indices[i], w_indices[i]
-            
-            for kh in range(psf_h):
-                for kw in range(psf_w):
-                    val = psf_data[kh, kw]
-                    if abs(val) <= 1e-10:
-                        continue
-
-                    hj = hi - (kh - psf_center_h)
-                    wj = wi - (kw - psf_center_w)
-
-                    if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
-                        j = idx_map[hj, wj]
-                        if j >= 0:
-                            psf_matrix[i, j] = val
-        
-        return psf_matrix
+    h_indices, w_indices, idx_map = _get_indices_and_map(mask)
+    psf_kernel = psf_kernel.astype(np.float32)
     
     psf_matrix_np = _build_matrix_numba(
-        h_indices_np, w_indices_np, idx_map_np,
-        psf_kernel_np, psf_h, psf_w, 
-        psf_center_h, psf_center_w, 
-        n_data_pixels
+        h_indices, w_indices, idx_map, psf_kernel
     )
     
     return jnp.array(psf_matrix_np)
@@ -107,170 +137,101 @@ def build_psf_matrix_sparse(
     """
     Build sparse PSF convolution matrix in JAX BCOO format.
     
-    Like build_psf_matrix_dense() but uses sparse storage for efficiency.
-    
     Args:
-        mask: 2D boolean array where True indicates masked (invalid) pixels
-        psf_kernel: 2D PSF kernel for convolution, assumed centered
+        mask: 2D boolean array where True indicates masked (invalid) pixels.
+        psf_kernel: 2D PSF kernel for convolution.
         
     Returns:
-        Sparse BCOO matrix of shape (n_valid_pixels, n_valid_pixels)
-        
-    Memory:
-        Sparse storage: O(nnz) where nnz ≈ n_valid_pixels * psf_kernel_size
-        Typically 100-1000x less memory than dense version for small PSF kernels.
-        
-    Performance:
-        - Construction: Numba-accelerated, similar to dense version
-        - Matrix-vector multiplication: Often faster than dense for sparse PSF
-        - Scales better with PSF kernel size
-        
-    Advantages over dense:
-        - Much lower memory usage
-        - Faster sparse @ dense matrix multiplication
-        - Better for large images or large PSF kernels
-        
-    Example:
-        >>> psf_mat = build_psf_matrix_sparse(mask, psf_kernel)
-        >>> blurred = psf_mat @ unblurred  # Sparse matrix multiplication
+        Sparse BCOO matrix of shape (n_valid, n_valid).
     """
-    import jax.experimental.sparse as jsparse
-    from numba import jit as numba_jit
+    h_indices, w_indices, idx_map = _get_indices_and_map(mask)
+    psf_kernel = psf_kernel.astype(np.float32)
+    n_pixels = len(h_indices)
     
-    inv_mask_np = np.array(~mask)
-    psf_kernel_np = np.array(psf_kernel, dtype=np.float32)
+    # Estimate max non-zero elements
+    max_nnz = psf_kernel.size * n_pixels
     
-    h_indices_np, w_indices_np = np.where(inv_mask_np)
-    n_data_pixels = len(h_indices_np)
-    idx_map_np = np.full(inv_mask_np.shape, -1, dtype=np.int32)
-    idx_map_np[h_indices_np, w_indices_np] = np.arange(n_data_pixels, dtype=np.int32)
-    
-    psf_h, psf_w = psf_kernel_np.shape
-    psf_center_h = psf_h // 2
-    psf_center_w = psf_w // 2
-    
-    max_nnz = psf_h * psf_w * n_data_pixels
-    
-    @numba_jit(nopython=True)
-    def _build_sparse_numba(
-        h_indices: np.ndarray,
-        w_indices: np.ndarray,
-        idx_map: np.ndarray,
-        psf_data: np.ndarray,
-        psf_h: int,
-        psf_w: int,
-        psf_center_h: int,
-        psf_center_w: int,
-        n_pixels: int,
-        max_nnz: int
-    ):
-        rows = np.zeros(max_nnz, dtype=np.int32)
-        cols = np.zeros(max_nnz, dtype=np.int32)
-        values = np.zeros(max_nnz, dtype=np.float32)
-        
-        count = 0
-        for i in range(n_pixels):
-            hi, wi = h_indices[i], w_indices[i]
-            
-            for kh in range(psf_h):
-                for kw in range(psf_w):
-                    val = psf_data[kh, kw]
-                    if abs(val) <= 1e-10:
-                        continue
-
-                    hj = hi - (kh - psf_center_h)
-                    wj = wi - (kw - psf_center_w)
-
-                    if 0 <= hj < idx_map.shape[0] and 0 <= wj < idx_map.shape[1]:
-                        j = idx_map[hj, wj]
-                        if j >= 0:
-                            rows[count] = i
-                            cols[count] = j
-                            values[count] = val
-                            count += 1
-        
-        return rows[:count], cols[:count], values[:count]
-    
-    rows_np, cols_np, values_np = _build_sparse_numba(
-        h_indices_np, w_indices_np, idx_map_np,
-        psf_kernel_np, psf_h, psf_w,
-        psf_center_h, psf_center_w,
-        n_data_pixels, max_nnz
+    rows, cols, values = _build_sparse_numba(
+        h_indices, w_indices, idx_map, psf_kernel, max_nnz
     )
     
-    indices = jnp.array(np.stack([rows_np, cols_np], axis=1), dtype=jnp.int32)
-    data = jnp.array(values_np, dtype=jnp.float32)
+    indices = jnp.array(np.stack([rows, cols], axis=1), dtype=jnp.int32)
+    data = jnp.array(values, dtype=jnp.float32)
     
-    psf_matrix_sparse = jsparse.BCOO(
-        (data, indices),
-        shape=(n_data_pixels, n_data_pixels)
-    )
-    
-    return psf_matrix_sparse
-
-
-__all__ = [
-    'build_psf_matrix_dense',
-    'build_psf_matrix_sparse',
-    'apply_psf_to_mapping_matrix'
-]
-
-
-from typing import Tuple
-import functools
-import jax
-from jax import jit
-import jax.numpy as jnp
-from jax.scipy.signal import convolve2d
-import numpy as np
+    return jsparse.BCOO((data, indices), shape=(n_pixels, n_pixels))
 
 
 @functools.partial(jax.jit, static_argnames=('image_shape',))
-def apply_psf_to_mapping_matrix(
+def _apply_psf_fft(
     mapping_matrix: jnp.ndarray,
     psf_kernel: jnp.ndarray,
     image_shape: Tuple[int, int],
     unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray]
 ) -> jnp.ndarray:
-    """
-    Apply PSF convolution to the lens mapping matrix using dense 2D convolution.
-    
-    This function avoids constructing the large dense/sparse PSF matrix by
-    treating the mapping matrix as a batch of source images and convolving
-    them efficiently.
-    
-    Args:
-        mapping_matrix: Mapping matrix of shape (n_unmasked, n_source)
-        psf_kernel: 2D PSF kernel
-        image_shape: Tuple (height, width) of the original image
-        unmasked_indices: Tuple of (y_indices, x_indices) arrays indicating 
-                         unmasked pixel positions.
-        
-    Returns:
-        Blurred mapping matrix of shape (n_unmasked, n_source)
-    """
+    """JIT-compiled FFT implementation."""
     n_unmasked, n_source = mapping_matrix.shape
     h, w = image_shape
     y_indices, x_indices = unmasked_indices
+    psf_h, psf_w = psf_kernel.shape
     
     # 1. Scatter mapping matrix rows to full 2D grid
-    # Initialize full grid (n_source, h, w)
     full_grid = jnp.zeros((n_source, h, w), dtype=mapping_matrix.dtype)
-    
-    # Scatter the mapping matrix values into the grid
     full_grid = full_grid.at[:, y_indices, x_indices].set(mapping_matrix.T)
     
-    # 2. Convolve with PSF
-    # We vmap over the source dimension (axis 0)
-    convolve_fn = jax.vmap(
-        lambda img: convolve2d(img, psf_kernel, mode='same'),
-        in_axes=0, out_axes=0
-    )
+    # 2. Convolve with PSF via FFT
+    # Pad to avoid circular convolution artifacts and handle boundary conditions
+    fft_shape = (h + psf_h - 1, w + psf_w - 1)
+    psf_fft = jnp.fft.rfft2(psf_kernel, s=fft_shape)
     
-    blurred_grid = convolve_fn(full_grid)
+    def _fft_convolve(img):
+        img_fft = jnp.fft.rfft2(img, s=fft_shape)
+        out = jnp.fft.irfft2(img_fft * psf_fft, s=fft_shape)
+        
+        # Crop to center (same mode)
+        start_h = (psf_h - 1) // 2
+        start_w = (psf_w - 1) // 2
+        return out[start_h : start_h + h, start_w : start_w + w]
+
+    blurred_grid = jax.vmap(_fft_convolve)(full_grid)
     
-    # 3. Gather back unmasked pixels
-    blurred_unmasked = blurred_grid[:, y_indices, x_indices]
+    # 3. Gather back unmasked pixels and transpose
+    return blurred_grid[:, y_indices, x_indices].T
+
+
+def apply_psf_to_mapping_matrix(
+    mapping_matrix: jnp.ndarray,
+    psf_kernel: jnp.ndarray,
+    image_shape: Tuple[int, int],
+    unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray],
+    method: Literal['fft', 'matrix'] = 'fft'
+) -> jnp.ndarray:
+    """
+    Apply PSF convolution to the lens mapping matrix.
     
-    # Transpose back to (n_unmasked, n_source)
-    return blurred_unmasked.T
+    Args:
+        mapping_matrix: Mapping matrix of shape (n_unmasked, n_source).
+        psf_kernel: 2D PSF kernel.
+        image_shape: Tuple (height, width) of the original image.
+        unmasked_indices: Tuple of (y_indices, x_indices) unmasked pixel positions.
+        method: 'fft' (faster) or 'matrix' (legacy/verification).
+        
+    Returns:
+        Blurred mapping matrix of shape (n_unmasked, n_source).
+    """
+    if method == 'fft':
+        return _apply_psf_fft(
+            mapping_matrix, psf_kernel, image_shape, unmasked_indices
+        )
+    elif method == 'matrix':
+        # Reconstruct mask on CPU for Numba
+        y_idx, x_idx = unmasked_indices
+        y_idx_np = np.array(y_idx)
+        x_idx_np = np.array(x_idx)
+        
+        mask = np.ones(image_shape, dtype=bool)
+        mask[y_idx_np, x_idx_np] = False
+        
+        psf_matrix = build_psf_matrix_dense(mask, np.array(psf_kernel))
+        return psf_matrix @ mapping_matrix
+    else:
+        raise ValueError(f"Unknown method: {method}. Use 'fft' or 'matrix'.")

@@ -114,12 +114,13 @@ class PixelizedLensSimulator:
             radius_scale=self.pix_src_model.radius_scale,
         )
     
-    def build_blurred_lens_mapping_matrix(self) -> jnp.ndarray:
+    def build_blurred_lens_mapping_matrix(self, method: str = 'fft') -> jnp.ndarray:
         return apply_psf_to_mapping_matrix(
             mapping_matrix=self.build_lens_mapping_matrix(),
             psf_kernel=self.psf_kernel,
             image_shape=self.image_shape,
-            unmasked_indices=self.unmasked_indices
+            unmasked_indices=self.unmasked_indices,
+            method=method,
         )
     
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:

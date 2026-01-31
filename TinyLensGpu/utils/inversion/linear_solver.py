@@ -148,6 +148,7 @@ class LinearInversion:
         """
         s = self.solve()
         Sigma = jnp.linalg.inv(self.M_stab)
+        Sigma = 0.5 * (Sigma + Sigma.T)
         return s, Sigma
 
     @jit

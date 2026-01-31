@@ -28,6 +28,7 @@ from TinyLensGpu.utils.lensing import (
     regularization_matrix_gp_from,
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
+    apply_psf_to_mapping_matrix,
 )
 from TinyLensGpu.utils.inversion import (
     LinearInversion,
@@ -518,6 +519,31 @@ class TestPSFMatrix:
 
         assert_allclose(out, ref, rtol=0.0, atol=0.0,
                        err_msg="PSF matrix should match reference implementation")
+
+    def test_apply_psf_consistency_fft_matrix(self, simple_mask, simple_psf):
+        """Test that FFT and Matrix methods for applying PSF produce consistent results."""
+        # Setup data
+        n_unmasked = np.sum(~simple_mask)
+        n_source = 10
+        mapping_matrix = jnp.ones((n_unmasked, n_source), dtype=jnp.float32)
+        
+        # Prepare indices
+        y_indices, x_indices = np.where(~simple_mask)
+        unmasked_indices = (jnp.array(y_indices), jnp.array(x_indices))
+        image_shape = simple_mask.shape
+        
+        # Apply PSF using both methods
+        res_fft = apply_psf_to_mapping_matrix(
+            mapping_matrix, jnp.array(simple_psf), image_shape, unmasked_indices, method='fft'
+        )
+        
+        res_matrix = apply_psf_to_mapping_matrix(
+            mapping_matrix, jnp.array(simple_psf), image_shape, unmasked_indices, method='matrix'
+        )
+        
+        # Check consistency
+        assert_allclose(res_fft, res_matrix, rtol=1e-3, atol=1e-3,
+                       err_msg="FFT and Matrix methods should produce consistent results")
 
 
 # =============================================================================
