@@ -36,8 +36,8 @@ def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
         phi: rotation angle, in radians
         q: axis ratio
     """
-    e1 = jnp.where(e1 == 0., 1e-4, e1)
-    e2 = jnp.where(e2 == 0., 1e-4, e2)
+    e1 = jnp.where(e1 == 0., 1e-12, e1)
+    e2 = jnp.where(e2 == 0., 1e-12, e2)
     phi = jnp.arctan2(e2, e1) / 2.
     c = jnp.sqrt(e1**2 + e2**2)
     c = jnp.minimum(c, 0.9999)
@@ -94,6 +94,31 @@ def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array,
     return xt1 * jnp.sqrt(q), xt2 / jnp.sqrt(q)
 
 
+def q2e(q: Array) -> Array:
+    """
+    Computes e = (1 - q^2) / (1 + q^2).
+    """
+    e = jnp.abs(1 - q**2) / (1 + q**2)
+    return e
+
+
+def transform_e1e2_square_average(x: Array, y: Array, e1: Array, e2: Array, 
+                                 center_x: Array, center_y: Array) -> Tuple[Array, Array]:
+    """
+    Maps the coordinates x, y with eccentricities e1 e2 into a new elliptical
+    coordinate system such that R = sqrt(R_major**2 + R_minor**2)
+    """
+    phi_g, q = ellipticity2phi_q(e1, e2)
+    x_shift = x - center_x
+    y_shift = y - center_y
+    cos_phi = jnp.cos(phi_g)
+    sin_phi = jnp.sin(phi_g)
+    e = q2e(q)
+    x_ = (cos_phi * x_shift + sin_phi * y_shift) * jnp.sqrt(1 - e)
+    y_ = (-sin_phi * x_shift + cos_phi * y_shift) * jnp.sqrt(1 + e)
+    return x_, y_
+
+
 __all__ = [
     'phi_q2_ellipticity',
     'ellipticity2phi_q',
@@ -101,5 +126,7 @@ __all__ = [
     'cart2polar',
     'polar2cart',
     'relocate_radii',
-    'ellipse2circle_transform'
+    'ellipse2circle_transform',
+    'q2e',
+    'transform_e1e2_square_average'
 ]

@@ -7,7 +7,9 @@ from .transforms import (
     cart2polar,
     polar2cart,
     relocate_radii,
-    ellipse2circle_transform
+    ellipse2circle_transform,
+    q2e,
+    transform_e1e2_square_average
 )
 
 __all__ = [
@@ -17,5 +19,7 @@ __all__ = [
     'cart2polar',
     'polar2cart',
     'relocate_radii',
-    'ellipse2circle_transform'
+    'ellipse2circle_transform',
+    'q2e',
+    'transform_e1e2_square_average'
 ]

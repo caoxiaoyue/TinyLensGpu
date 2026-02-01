@@ -6,32 +6,8 @@ import caskade as ck
 import jax.numpy as jnp
 from jax import Array
 from TinyLensGpu.Inference.param_u import ParamU
-from TinyLensGpu.utils.geometry import ellipticity2phi_q
+from TinyLensGpu.utils.geometry import ellipticity2phi_q, q2e, transform_e1e2_square_average
 from .pseudo_jaffe import PseudoJaffe
-
-
-def q2e(q):
-    """
-    Computes e = (1 - q^2) / (1 + q^2).
-    """
-    e = jnp.abs(1 - q**2) / (1 + q**2)
-    return e
-
-
-def transform_e1e2_square_average(x, y, e1, e2, center_x, center_y):
-    """
-    Maps the coordinates x, y with eccentricities e1 e2 into a new elliptical
-    coordinate system such that R = sqrt(R_major**2 + R_minor**2)
-    """
-    phi_g, q = ellipticity2phi_q(e1, e2)
-    x_shift = x - center_x
-    y_shift = y - center_y
-    cos_phi = jnp.cos(phi_g)
-    sin_phi = jnp.sin(phi_g)
-    e = q2e(q)
-    x_ = (cos_phi * x_shift + sin_phi * y_shift) * jnp.sqrt(1 - e)
-    y_ = (-sin_phi * x_shift + cos_phi * y_shift) * jnp.sqrt(1 + e)
-    return x_, y_
 
 
 class PseudoJaffeEllipsePotential(ck.Module):
