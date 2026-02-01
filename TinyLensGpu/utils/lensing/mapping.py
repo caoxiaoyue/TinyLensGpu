@@ -74,7 +74,7 @@ def lens_mapping_matrix_from(
     col_indices = indices.flatten()
     weights_flat = weights.flatten()
     
-    map_mat = jnp.zeros((N_data, N_source), dtype=jnp.float32)
+    map_mat = jnp.zeros((N_data, N_source), dtype=weights_flat.dtype)
     map_mat = map_mat.at[row_indices, col_indices].set(weights_flat)
 
     return map_mat
