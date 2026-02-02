@@ -147,7 +147,19 @@ def reconstruct_source(prob_model):
     log_ev = prob_model.log_evidence()
     print(f"  Log evidence: {log_ev:.2f}")
     
-    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source(return_2d=True)
+    # Updated API usage: Call simulator directly for reconstruction
+    data_vector = prob_model.image_data[~prob_model.mask]
+    noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+    reg_scale = prob_model.pix_src_model.reg_scale.value
+    reg_coefficient = prob_model.pix_src_model.reg_coefficient.value
+    
+    source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(
+        data_vector=data_vector,
+        noise_variance=noise_variance,
+        reg_scale=reg_scale,
+        reg_coefficient=reg_coefficient,
+        return_2d=True
+    )
     
     print(f"  Source intensities shape: {source_intensities.shape}")
     print(f"  Source mesh beta shape: {source_mesh_beta.shape}")

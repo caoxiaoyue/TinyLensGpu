@@ -4,31 +4,39 @@ Pixelized Source Mass Model Optimization Demo
 This demo shows how to optimize the mass model parameters (e.g., Einstein radius, ellipticity)
 for pixelized source reconstruction with FIXED regularization hyperparameters.
 
-The optimization uses dynesty nested sampling with Bayesian evidence (log evidence) 
-from pixelized source inversion for mass model inference.
+The optimization uses Nautilus nested sampling with Bayesian evidence (log evidence).
 """
 
+import os
+import pickle
+import gzip
 import numpy as np
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
-import dynesty
-from dynesty import plotting as dyplot
+from nautilus import Sampler
+from TinyLensGpu.visualizer import _plot_irregular_source_voronoi
 
-from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear, GaussianEllipse
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, GaussianEllipse
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
-
 from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
+from TinyLensGpu.Inference.build_prior import make_prior_transformation
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
 
 
 def simulate_lensing_data():
-    """Simulate a gravitational lensing observation with known mass parameters."""
+    """Simulate a gravitational lensing observation."""
     print("=" * 60)
     print("Step 1: Simulating Lensing Data")
     print("=" * 60)
     
-    # True mass model parameters
     true_theta_E = 1.5
     true_e1, true_e2 = phi_q2_ellipticity(90*np.pi/180, 0.9)
     
@@ -85,9 +93,27 @@ def simulate_lensing_data():
     }
 
 
-def create_prob_model(data_dict, theta_E, e1, e2):
-    """Create probability model with given mass parameters and fixed regularization."""
-
+def build_model(data_dict):
+    """Build lens model with pixelized source and ParamU mass parameters."""
+    
+    print("\nBuilding model components...")
+    
+    # Define mass parameters with ParamU
+    theta_E = ParamU(
+        "theta_E", 1.5, prior_type="uniform", 
+        prior_settings=[0.8, 2.5], limits=[0.0, 5.0]
+    )
+    e1 = ParamU(
+        "e1", 0.0, prior_type="gaussian", 
+        prior_settings=[0.0, 0.3], limits=[-1.0, 1.0]
+    )
+    e2 = ParamU(
+        "e2", 0.0, prior_type="gaussian", 
+        prior_settings=[0.0, 0.3], limits=[-1.0, 1.0]
+    )
+    
+    sie = SIE(theta_E=theta_E, e1=e1, e2=e2, center_x=0.0, center_y=0.0)
+    
     # Fixed regularization parameters
     pix_src_model = PixelizedSourceModel(
         reg_scale=0.05,
@@ -99,12 +125,15 @@ def create_prob_model(data_dict, theta_E, e1, e2):
     )
 
     phys_model = PhysicalModel(
-        lens_mass=[
-            SIE(theta_E=theta_E, e1=e1, e2=e2, center_x=0.0, center_y=0.0),
-        ],
+        lens_mass=[sie],
         source_light=[pix_src_model],
         lens_light=[],
     )
+    
+    # Set dynamic parameters for sampling
+    sie.theta_E.to_dynamic()
+    sie.e1.to_dynamic()
+    sie.e2.to_dynamic()
     
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
@@ -115,292 +144,276 @@ def create_prob_model(data_dict, theta_E, e1, e2):
         mask=data_dict['mask'],
     )
     
-    return prob_model
+    return prob_model, phys_model
 
 
-def optimize_mass_model(data_dict):
-    """Optimize mass model parameters using dynesty nested sampling."""
-    print("\n" + "=" * 60)
-    print("Step 2: Optimizing Mass Model Parameters")
-    print("=" * 60)
+def run_sampling():
+    """Run Nautilus sampling for mass model optimization."""
     
-    # Define prior transform (uniform priors)
-    def prior_transform(u):
-        """Transform unit cube to parameter space."""
-        # u[0]: theta_E in range [0.8, 2.5]
-        # u[1]: e1 in range [-0.4, 0.4]
-        # u[2]: e2 in range [-0.4, 0.4]
-        theta_E = u[0] * (2.5 - 0.8) + 0.8
-        e1 = u[1] * (0.4 - (-0.4)) + (-0.4)
-        e2 = u[2] * (0.4 - (-0.4)) + (-0.4)
-        return np.array([theta_E, e1, e2])
+    print("="*60)
+    print("Mass Model Optimization (Nautilus)")
+    print("="*60)
     
-    # Define log likelihood (which is the log evidence from pixelized source)
-    def log_likelihood(params):
-        """Log likelihood function for dynesty."""
-        theta_E, e1, e2 = params
-        
-        try:
-            prob_model = create_prob_model(data_dict, theta_E, e1, e2)
-            log_ev = prob_model.log_evidence()
-            
-            if not np.isfinite(log_ev):
-                return -1e10
-            
-            return log_ev
-        except Exception as e:
-            print(f"    Error with theta_E={theta_E:.3f}, e1={e1:.3f}, e2={e2:.3f}: {e}")
-            return -1e10
+    # Step 1: Simulate data
+    data_dict = simulate_lensing_data()
     
-    print(f"  True values: theta_E={data_dict['true_params']['theta_E']:.3f}, "
-          f"e1={data_dict['true_params']['e1']:.3f}, e2={data_dict['true_params']['e2']:.3f}")
-    print("  Starting dynesty nested sampling...")
-    print("  Prior ranges:")
-    print("    theta_E: [0.8, 2.5]")
-    print("    e1: [-0.4, 0.4]")
-    print("    e2: [-0.4, 0.4]")
+    # Step 2: Build model
+    prob_model, phys_model = build_model(data_dict)
     
-    # Run dynesty sampler
-    sampler = dynesty.NestedSampler(
-        log_likelihood,
-        prior_transform,
-        ndim=3,
-        nlive=100,
-        bound='multi',
-        sample='rwalk',
+    # Extract prior transformation and likelihood
+    print("\nExtracting prior specifications...")
+    prior, prior_specs = make_prior_transformation(prob_model)
+    param_names = [spec.name for spec in prior_specs]
+    
+    print(f"\nModel has {len(param_names)} dynamic parameters:")
+    for spec in prior_specs:
+        print(f"  {spec.name}: {spec.describe()}")
+    
+    print("\nCreating likelihood function (log evidence)...")
+    loglike = make_likelihood(prob_model, vectorized=False)
+    
+    # Run sampler
+    print("\nRunning Nautilus sampler...")
+    sampler = Sampler(
+        prior,
+        loglike,
+        n_dim=len(param_names),
+        n_live=100,
+        vectorized=False,
     )
     
-    sampler.run_nested(dlogz=0.5, print_progress=True)
-    results = sampler.results
+    sampler.run(verbose=True, n_eff=400)
     
-    # Extract results
-    samples = results.samples
-    weights = np.exp(results.logwt - results.logz[-1])
-    
-    # Get maximum likelihood parameters
-    max_idx = np.argmax(results.logl)
-    optimal_params = samples[max_idx]
-    optimal_theta_E, optimal_e1, optimal_e2 = optimal_params
-    optimal_log_ev = results.logl[max_idx]
-    
-    # Get weighted mean parameters
-    mean_params = np.average(samples, weights=weights, axis=0)
-    mean_theta_E, mean_e1, mean_e2 = mean_params
-    
-    # Get parameter uncertainties (standard deviation)
-    std_params = np.sqrt(np.average((samples - mean_params)**2, weights=weights, axis=0))
-    std_theta_E, std_e1, std_e2 = std_params
-    
-    print(f"\n  Sampling complete!")
-    print(f"  Log evidence (from nested sampling): {results.logz[-1]:.2f} ± {results.logzerr[-1]:.2f}")
-    print(f"\n  Maximum likelihood parameters:")
-    print(f"    theta_E: {optimal_theta_E:.4f} (true: {data_dict['true_params']['theta_E']:.4f})")
-    print(f"    e1: {optimal_e1:.4f} (true: {data_dict['true_params']['e1']:.4f})")
-    print(f"    e2: {optimal_e2:.4f} (true: {data_dict['true_params']['e2']:.4f})")
-    print(f"    log evidence: {optimal_log_ev:.2f}")
-    print(f"\n  Weighted mean parameters:")
-    print(f"    theta_E: {mean_theta_E:.4f} ± {std_theta_E:.4f}")
-    print(f"    e1: {mean_e1:.4f} ± {std_e1:.4f}")
-    print(f"    e2: {mean_e2:.4f} ± {std_e2:.4f}")
+    # Get results
+    samples, log_w, log_l = sampler.posterior()
+    log_z = float(np.asarray(sampler.log_z))
+    weights = np.exp(log_w - np.max(log_w))
+    weights /= weights.sum()
     
     return {
-        'optimal_theta_E': optimal_theta_E,
-        'optimal_e1': optimal_e1,
-        'optimal_e2': optimal_e2,
-        'optimal_log_ev': optimal_log_ev,
-        'mean_theta_E': mean_theta_E,
-        'mean_e1': mean_e1,
-        'mean_e2': mean_e2,
-        'std_theta_E': std_theta_E,
-        'std_e1': std_e1,
-        'std_e2': std_e2,
         'samples': samples,
         'weights': weights,
-        'results': results,
+        'log_z': log_z,
+        'param_names': param_names,
+        'sampler': sampler,
+        'prob_model': prob_model,
+        'phys_model': phys_model,
+        'true_params': data_dict['true_params'],
+        'data_dict': data_dict
     }
 
 
-def reconstruct_with_optimal_mass(data_dict, opt_results):
-    """Reconstruct source with optimal mass model."""
+def summarize_results(results):
+    """Print posterior summary."""
+    samples = results['samples']
+    weights = results['weights']
+    param_names = results['param_names']
+    true_params = results['true_params']
+    
+    print("\n" + "="*60)
+    print("Posterior Summary")
+    print("="*60)
+    
+    for i, name in enumerate(param_names):
+        sorted_idx = np.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = np.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+        
+        q16 = np.interp(0.16, cumsum, sorted_samples)
+        q50 = np.interp(0.50, cumsum, sorted_samples)
+        q84 = np.interp(0.84, cumsum, sorted_samples)
+        
+        true_val = true_params.get(name, None)
+        true_str = f" (true: {true_val:.4f})" if true_val is not None else ""
+        print(f"  {name:15s} = {q50:.4f} ({q16-q50:+.4f}, {q84-q50:+.4f}){true_str}")
+    
+    print(f"\nlog(Z) = {results['log_z']:.2f}")
+
+
+def save_results(results):
+    """Save results to output directory."""
+    os.makedirs('output', exist_ok=True)
+    
+    print("\nSaving results...")
+    
+    # Save samples
+    np.savetxt('output/result_samples.csv', 
+               results['samples'], 
+               delimiter=',',
+               header=','.join(results['param_names']))
+    
+    # Save summary
+    samples = results['samples']
+    weights = results['weights']
+    param_names = results['param_names']
+    
+    with open('output/result_summary.csv', 'w') as f:
+        f.write('parameter,median,lower,upper\n')
+        for i, name in enumerate(param_names):
+            sorted_idx = np.argsort(samples[:, i])
+            sorted_samples = samples[sorted_idx, i]
+            sorted_weights = weights[sorted_idx]
+            cumsum = np.cumsum(sorted_weights)
+            cumsum /= cumsum[-1]
+            
+            q16 = np.interp(0.16, cumsum, sorted_samples)
+            q50 = np.interp(0.50, cumsum, sorted_samples)
+            q84 = np.interp(0.84, cumsum, sorted_samples)
+            
+            f.write(f'{name},{q50:.6f},{q16:.6f},{q84:.6f}\n')
+    
+    # Save full results as pickle
+    save_dict = {
+        'samples': results['samples'],
+        'weights': results['weights'],
+        'log_z': results['log_z'],
+        'param_names': results['param_names']
+    }
+    with gzip.open('output/results.pkl.gz', 'wb') as f:
+        pickle.dump(save_dict, f)
+    
+    print("Results saved to output/")
+
+
+def visualize_results(data_dict, results):
+    """Visualize reconstruction results with best-fit parameters."""
     print("\n" + "=" * 60)
-    print("Step 3: Source Reconstruction with Optimal Mass Model")
+    print("Step 4: Visualizing Best-Fit Results")
     print("=" * 60)
     
-    prob_model = create_prob_model(
-        data_dict,
-        opt_results['optimal_theta_E'],
-        opt_results['optimal_e1'],
-        opt_results['optimal_e2']
+    # 1. Get best-fit parameters (median)
+    samples = results['samples']
+    weights = results['weights']
+    prob_model = results['prob_model']
+    
+    # Re-get dynamic parameters
+    if hasattr(prob_model, 'get_dynamic_params'):
+        dynamic_params = prob_model.get_dynamic_params()
+    else:
+        dynamic_params = prob_model.dynamic_params
+    
+    print("Setting model to best-fit parameters:")
+    for i, param in enumerate(dynamic_params):
+        sorted_idx = np.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = np.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+        median_val = np.interp(0.50, cumsum, sorted_samples)
+        
+        # Update model parameter
+        param.value = median_val
+        print(f"  {param.name}: {median_val:.4f}")
+        
+    # 2. Reconstruct source with best parameters
+    # Updated API usage: Call simulator directly for reconstruction
+    data_vector = prob_model.image_data[~prob_model.mask]
+    noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+    reg_scale = prob_model.pix_src_model.reg_scale.value
+    reg_coefficient = prob_model.pix_src_model.reg_coefficient.value
+    
+    source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(
+        data_vector=data_vector,
+        noise_variance=noise_variance,
+        reg_scale=reg_scale,
+        reg_coefficient=reg_coefficient,
+        return_2d=True
     )
     
-    source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source(return_2d=True)
+    log_evidence = prob_model.log_evidence()
+    print(f"  Log evidence (best fit): {log_evidence:.2f}")
     
-    print(f"  Reconstructed {len(source_intensities)} source pixels")
-    print(f"  Model image shape: {model_image.shape}")
+    # 3. Plot
+    noisy_image = data_dict['noisy_image']
+    noise_map = data_dict['noise_map']
+    mask = data_dict['mask']
     
-    return {
-        'source_intensities': np.array(source_intensities),
-        'source_mesh_beta': np.array(source_mesh_beta),
-        'model_image': np.array(model_image),
-    }
-
-
-def visualize_results(data_dict, opt_results, recon_results):
-    """Visualize optimization results."""
-    print("\n" + "=" * 60)
-    print("Step 4: Visualizing Results")
-    print("=" * 60)
+    fig = plt.figure(figsize=(18, 10))
     
-    fig = plt.figure(figsize=(20, 12))
-    
-    # Plot 1: Observed image
-    ax1 = plt.subplot(3, 4, 1)
-    img_obs = data_dict['noisy_image'] * (~data_dict['mask']).astype(float)
+    ax1 = plt.subplot(2, 3, 1)
+    img_obs = noisy_image * (~mask).astype(float)
     im1 = plt.imshow(img_obs, origin='lower', cmap='viridis')
-    plt.title('Observed Image', fontsize=11, fontweight='bold')
+    plt.title('Observed Noisy Image', fontsize=13, fontweight='bold')
     plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+    plt.xlabel('x [pixels]', fontsize=10)
+    plt.ylabel('y [pixels]', fontsize=10)
     
-    # Plot 2: Model image
-    ax2 = plt.subplot(3, 4, 2)
-    im2 = plt.imshow(recon_results['model_image'], origin='lower', cmap='viridis')
-    plt.title(f'Model Image\nLog Ev = {opt_results["optimal_log_ev"]:.2f}', fontsize=11, fontweight='bold')
+    ax2 = plt.subplot(2, 3, 2)
+    im2 = plt.imshow(model_image, origin='lower', cmap='viridis')
+    plt.title(f'Model Image\nLog Evidence = {log_evidence:.2f}', fontsize=13, fontweight='bold')
     plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+    plt.xlabel('x [pixels]', fontsize=10)
+    plt.ylabel('y [pixels]', fontsize=10)
     
-    # Plot 3: Residuals
-    ax3 = plt.subplot(3, 4, 3)
-    residuals = (data_dict['noisy_image'] - recon_results['model_image']) * (~data_dict['mask']).astype(float)
-    im3 = plt.imshow(residuals, origin='lower', cmap='RdBu_r', vmin=-0.5, vmax=0.5)
-    plt.title('Residuals', fontsize=11, fontweight='bold')
+    ax3 = plt.subplot(2, 3, 3)
+    residual_image = np.zeros_like(noisy_image)
+    residual_image[~mask] = noisy_image[~mask] - model_image[~mask]
+    vmax_res = np.max(np.abs(residual_image))
+    im3 = plt.imshow(residual_image, origin='lower', cmap='RdBu_r', 
+                     vmin=-vmax_res, vmax=vmax_res)
+    plt.title('Residual (Data - Model)', fontsize=13, fontweight='bold')
     plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+    plt.xlabel('x [pixels]', fontsize=10)
+    plt.ylabel('y [pixels]', fontsize=10)
     
-    # Plot 4: Reconstructed source
-    ax4 = plt.subplot(3, 4, 4)
-    plt.scatter(recon_results['source_mesh_beta'][:, 0], 
-                recon_results['source_mesh_beta'][:, 1],
-                c=recon_results['source_intensities'], 
-                s=20, cmap='hot', marker='o')
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.title('Reconstructed Source', fontsize=11, fontweight='bold')
-    plt.xlabel('β_x [arcsec]')
-    plt.ylabel('β_y [arcsec]')
-    plt.axis('equal')
+    ax4 = plt.subplot(2, 3, 4)
+    normalized_residual = np.zeros_like(noisy_image)
+    normalized_residual[~mask] = (noisy_image[~mask] - model_image[~mask]) / noise_map[~mask]
+    vmax_norm = 3.0
+    im4 = plt.imshow(normalized_residual, origin='lower', cmap='RdBu_r',
+                     vmin=-vmax_norm, vmax=vmax_norm)
+    plt.title('Normalized Residual (σ units)', fontsize=13, fontweight='bold')
+    plt.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04, label='σ')
+    plt.xlabel('x [pixels]', fontsize=10)
+    plt.ylabel('y [pixels]', fontsize=10)
     
-    # Plot 5-7: Corner plot for posterior samples
-    samples = opt_results['samples']
-    weights = opt_results['weights']
+    ax5 = plt.subplot(2, 3, 5)
+    _plot_irregular_source_voronoi(
+        ax5,
+        source_mesh_beta,
+        source_intensities,
+        cmap='viridis'
+    )
+    ax5.set_title('Source Reconstruction', fontsize=13, fontweight='bold')
+    ax5.set_xlabel('β₁ [arcsec]', fontsize=10)
+    ax5.set_ylabel('β₂ [arcsec]', fontsize=10)
+    plt.grid(True, alpha=0.2)
     
-    # theta_E vs e1
-    ax5 = plt.subplot(3, 4, 5)
-    plt.scatter(samples[:, 0], samples[:, 1], c=weights, s=5, alpha=0.5, cmap='viridis')
-    plt.axvline(data_dict['true_params']['theta_E'], color='r', linestyle='--', label='True')
-    plt.axhline(data_dict['true_params']['e1'], color='r', linestyle='--')
-    plt.xlabel('theta_E', fontsize=10)
-    plt.ylabel('e1', fontsize=10)
-    plt.title('theta_E vs e1', fontsize=11, fontweight='bold')
-    plt.legend()
+    ax6 = plt.subplot(2, 3, 6)
+    ax6.axis('off')
+    stats_text = f"""
+    Reconstruction Statistics:
     
-    # theta_E vs e2
-    ax6 = plt.subplot(3, 4, 6)
-    plt.scatter(samples[:, 0], samples[:, 2], c=weights, s=5, alpha=0.5, cmap='viridis')
-    plt.axvline(data_dict['true_params']['theta_E'], color='r', linestyle='--', label='True')
-    plt.axhline(data_dict['true_params']['e2'], color='r', linestyle='--')
-    plt.xlabel('theta_E', fontsize=10)
-    plt.ylabel('e2', fontsize=10)
-    plt.title('theta_E vs e2', fontsize=11, fontweight='bold')
-    plt.legend()
+    Log Evidence: {{log_evidence:.2f}}
     
-    # e1 vs e2
-    ax7 = plt.subplot(3, 4, 7)
-    plt.scatter(samples[:, 1], samples[:, 2], c=weights, s=5, alpha=0.5, cmap='viridis')
-    plt.axvline(data_dict['true_params']['e1'], color='r', linestyle='--', label='True')
-    plt.axhline(data_dict['true_params']['e2'], color='r', linestyle='--')
-    plt.xlabel('e1', fontsize=10)
-    plt.ylabel('e2', fontsize=10)
-    plt.title('e1 vs e2', fontsize=11, fontweight='bold')
-    plt.legend()
+    Source Points: {{len(source_intensities)}}
+    Valid Pixels: {{np.sum(~mask)}}
     
-    # Plot 8: Parameter comparison
-    ax8 = plt.subplot(3, 4, 8)
-    ax8.axis('off')
+    Chi-squared: {{np.sum(((noisy_image[~mask] - model_image[~mask]) / noise_map[~mask])**2):.2f}}
+    DOF: {{np.sum(~mask) - len(source_intensities)}}
     
-    true_params = data_dict['true_params']
-    stats_text = f"""Parameter Comparison:
-
-theta_E:
-  True:  {true_params['theta_E']:.4f}
-  Mean:  {opt_results['mean_theta_E']:.4f}±{opt_results['std_theta_E']:.4f}
-  ML:    {opt_results['optimal_theta_E']:.4f}
-
-e1:
-  True:  {true_params['e1']:.4f}
-  Mean:  {opt_results['mean_e1']:.4f}±{opt_results['std_e1']:.4f}
-  ML:    {opt_results['optimal_e1']:.4f}
-
-e2:
-  True:  {true_params['e2']:.4f}
-  Mean:  {opt_results['mean_e2']:.4f}±{opt_results['std_e2']:.4f}
-  ML:    {opt_results['optimal_e2']:.4f}
-"""
-    
-    ax8.text(0.1, 0.5, stats_text, fontsize=9, verticalalignment='center', family='monospace')
-    
-    # Plot 9-11: 1D posterior histograms
-    ax9 = plt.subplot(3, 4, 9)
-    plt.hist(samples[:, 0], bins=30, weights=weights, alpha=0.7, color='blue', density=True)
-    plt.axvline(data_dict['true_params']['theta_E'], color='r', linestyle='--', linewidth=2, label='True')
-    plt.axvline(opt_results['mean_theta_E'], color='g', linestyle='-', linewidth=2, label='Mean')
-    plt.xlabel('theta_E', fontsize=10)
-    plt.ylabel('Density', fontsize=10)
-    plt.title('theta_E Posterior', fontsize=11, fontweight='bold')
-    plt.legend(fontsize=8)
-    
-    ax10 = plt.subplot(3, 4, 10)
-    plt.hist(samples[:, 1], bins=30, weights=weights, alpha=0.7, color='blue', density=True)
-    plt.axvline(data_dict['true_params']['e1'], color='r', linestyle='--', linewidth=2, label='True')
-    plt.axvline(opt_results['mean_e1'], color='g', linestyle='-', linewidth=2, label='Mean')
-    plt.xlabel('e1', fontsize=10)
-    plt.ylabel('Density', fontsize=10)
-    plt.title('e1 Posterior', fontsize=11, fontweight='bold')
-    plt.legend(fontsize=8)
-    
-    ax11 = plt.subplot(3, 4, 11)
-    plt.hist(samples[:, 2], bins=30, weights=weights, alpha=0.7, color='blue', density=True)
-    plt.axvline(data_dict['true_params']['e2'], color='r', linestyle='--', linewidth=2, label='True')
-    plt.axvline(opt_results['mean_e2'], color='g', linestyle='-', linewidth=2, label='Mean')
-    plt.xlabel('e2', fontsize=10)
-    plt.ylabel('Density', fontsize=10)
-    plt.title('e2 Posterior', fontsize=11, fontweight='bold')
-    plt.legend(fontsize=8)
-    
-    # Plot 12: Nested sampling run
-    ax12 = plt.subplot(3, 4, 12)
-    plt.plot(opt_results['results'].logl, 'b-', alpha=0.5, linewidth=1)
-    plt.xlabel('Sample', fontsize=10)
-    plt.ylabel('Log Likelihood', fontsize=10)
-    plt.title('Nested Sampling Progress', fontsize=11, fontweight='bold')
-    plt.grid(True, alpha=0.3)
+    Residual RMS: {{np.std(residual_image[~mask]):.4f}}
+    Normalized RMS: {{np.std(normalized_residual[~mask]):.4f}}
+    """
+    ax6.text(0.1, 0.5, stats_text, fontsize=11, verticalalignment='center',
+             family='monospace')
     
     plt.tight_layout()
-    plt.savefig('mass_optimization_results.png', dpi=300, bbox_inches='tight')
-    print("  Saved figure: mass_optimization_results.png")
+    plt.savefig('optimization_mass_results.png', dpi=300, bbox_inches='tight')
+    print("  Saved figure: optimization_results.png")
     plt.show()
 
 
-def main():
-    """Main demo function."""
-    print("\n" + "=" * 60)
-    print("Mass Model Optimization Demo")
-    print("=" * 60)
+if __name__ == "__main__":
+    results = run_sampling()
+    summarize_results(results)
+    save_results(results)
     
-    data_dict = simulate_lensing_data()
-    opt_results = optimize_mass_model(data_dict)
-    recon_results = reconstruct_with_optimal_mass(data_dict, opt_results)
-    visualize_results(data_dict, opt_results, recon_results)
+    # Visualize results
+    visualize_results(results['data_dict'], results)
     
-    print("\n" + "=" * 60)
-    print("Demo Complete!")
-    print("=" * 60)
-
-
-if __name__ == '__main__':
-    main()
+    print("\n" + "="*60)
+    print("Inference Complete!")
+    print("="*60)

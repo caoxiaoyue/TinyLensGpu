@@ -76,6 +76,7 @@ def main(n_runs: int = 10, seed: int = 0) -> dict:
     matmul_jit = jax.jit(lambda a, b: a @ b)
 
     # Warm up
+    _ = setup_pixelized_model(data_dict)().block_until_ready()
     _ = simulator.build_lens_mapping_matrix().block_until_ready()
     _ = apply_psf_to_mapping_matrix(
         lens_mapping_matrix, psf_kernel, image_shape, unmasked_indices, method='fft'
@@ -105,6 +106,7 @@ def main(n_runs: int = 10, seed: int = 0) -> dict:
             "build_regularization_matrix": _time_call(lambda: simulator.build_regularization_matrix(reg_scale, reg_coeff), n_runs=n_runs),
             "solve": _time_call(lambda: inverter.solve(), n_runs=n_runs),
             "log_evidence": _time_call(lambda: inverter.log_evidence(), n_runs=n_runs),
+            "total_creation_and_log_evidence": _time_call(lambda: setup_pixelized_model(data_dict)(), n_runs=n_runs),
         },
     }
 
