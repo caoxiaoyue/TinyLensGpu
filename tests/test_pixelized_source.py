@@ -975,35 +975,6 @@ class TestEdgeCases:
         np.random.seed(42)
         points = jnp.array(np.random.randn(10, 2).astype(np.float32) * 0.1)
 
-    def test_make_likelihood_rejects_vectorized_for_pixelized(self):
-        """Test that make_likelihood rejects vectorized=True for pixelized models."""
-        from TinyLensGpu.Inference.build_likelihood import make_likelihood
-
-        npix = 6
-        np.random.seed(42)
-        image = np.ones((npix, npix), dtype=np.float32)
-        noise = np.ones((npix, npix), dtype=np.float32) * 0.1
-        psf = np.zeros((3, 3), dtype=np.float32)
-        psf[1, 1] = 1.0
-
-        sie = SIE(theta_E=1.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-        for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
-            p.to_static()
-
-        pix_src = PixelizedSourceModel(n_source_points=20, mesh_seed=0)
-        phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
-        prob = PixelizedImageProbModel(
-            image_data=image,
-            noise_map=noise,
-            psf_kernel=psf,
-            dpix=0.05,
-            phys_model=phys,
-        )
-
-        # Should raise ValueError for vectorized pixelized model
-        with pytest.raises(ValueError, match="does not support vectorized"):
-            make_likelihood(prob, vectorized=True)
-
     def test_very_small_scale(self):
         """Test regularization with very small scale."""
         np.random.seed(42)

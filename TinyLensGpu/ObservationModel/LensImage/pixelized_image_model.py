@@ -20,17 +20,6 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.utils.inversion import LinearInversion
 
 
-def _extract_pixelized_source_model(
-    phys_model: PhysicalModel,
-) -> PixelizedSourceModel:
-    src_list = getattr(phys_model, "source_light", [])
-    matches = [m for m in src_list if isinstance(m, PixelizedSourceModel)]
-
-    if len(src_list) != 1 or len(matches) != 1:
-        raise ValueError("PixelizedImageProbModel requires PhysicalModel(source_light=[PixelizedSourceModel]).")
-    return matches[0]
-
-
 class PixelizedImageProbModel(ck.Module):
     """
     Probability model for pixelized source gravitational lensing images.
@@ -119,7 +108,8 @@ class PixelizedImageProbModel(ck.Module):
         self.noise_map = jnp.array(noise_map)
         
         self.phys_model = phys_model
-        extracted_pix_src_model = _extract_pixelized_source_model(phys_model=self.phys_model)
+        # Use the centralized extraction method
+        extracted_pix_src_model = self.phys_model.get_pixelized_source_model()
         object.__setattr__(self, "pix_src_model", extracted_pix_src_model)
         
         if mask is None:
@@ -149,26 +139,36 @@ class PixelizedImageProbModel(ck.Module):
     
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         """Initialize position likelihood parameters for JIT optimization."""
+        # Default values
         self._pos_px = None
         self._pos_py = None
         self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
         self._pos_minl = jnp.array(0.0, dtype=jnp.float32)
         self._has_pos_penalty = False
         
-        if config is not None:
-            positions = config.get('positions', [])
-            if positions is not None and len(positions) >= 2:
-                self._pos_px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
-                self._pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
-                self._pos_thr = jnp.array(
-                    float(config.get('threshold_arcsec', config.get('position_threshold', 0.0))),
-                    dtype=jnp.float32
-                )
-                self._pos_minl = jnp.array(
-                    float(config.get('min_log_like', config.get('min_position_likelihood', 0.0))),
-                    dtype=jnp.float32
-                )
-                self._has_pos_penalty = True
+        if not config:
+            return
+            
+        positions = config.get('positions', [])
+        if positions is None or len(positions) < 2:
+            return
+            
+        self._pos_px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
+        self._pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
+        
+        # Helper to get value with fallback keys
+        def get_val(keys, default):
+            for k in keys:
+                if k in config:
+                    return config[k]
+            return default
+            
+        threshold = get_val(['threshold_arcsec', 'position_threshold'], 0.0)
+        min_log_like = get_val(['min_log_like', 'min_position_likelihood'], 0.0)
+        
+        self._pos_thr = jnp.array(float(threshold), dtype=jnp.float32)
+        self._pos_minl = jnp.array(float(min_log_like), dtype=jnp.float32)
+        self._has_pos_penalty = True
     
     @ck.forward
     def _build_inverter(self):
@@ -181,14 +181,6 @@ class PixelizedImageProbModel(ck.Module):
         Note: This method needs @ck.forward decorator because it calls simulator methods
         that use self.phys_model.deflection(), which requires caskade parameter injection.
 
-        Returns
-        -------
-        inverter : LinearInversion
-            Newly created LinearInversion object
-        source_mesh_beta : jnp.ndarray
-            Source mesh coordinates in source plane
-        model_image : jnp.ndarray
-            Full 2D model image
         """
         model = self.pix_src_model
 
@@ -200,17 +192,14 @@ class PixelizedImageProbModel(ck.Module):
         data_vector = self._data_vector
         noise_variance = self._noise_variance
 
-        # Call simulator to reconstruct source (this uses phys_model.deflection)
-        source_intensities, source_mesh_beta, model_image, inverter = (
-            self.simulator.reconstruct_source(
-                data_vector=data_vector,
-                noise_variance=noise_variance,
-                reg_scale=reg_scale_val,
-                reg_coefficient=reg_coeff_val,
-            )
+        inverter = self.simulator.build_inverter(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=reg_scale_val,
+            reg_coefficient=reg_coeff_val,
         )
 
-        return inverter, source_mesh_beta, model_image
+        return inverter
     
     @ck.forward
     def __call__(self):
@@ -228,7 +217,7 @@ class PixelizedImageProbModel(ck.Module):
         log_evidence : float
             Log of the Bayesian evidence
         """
-        inverter, _, _ = self._build_inverter()
+        inverter = self._build_inverter()
         
         log_ev = inverter.log_evidence()
         

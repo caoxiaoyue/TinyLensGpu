@@ -25,17 +25,6 @@ from TinyLensGpu.utils.mesh import sample_points_weighted
 from TinyLensGpu.utils.inversion import LinearInversion
 
 
-def _extract_pixelized_source_model(
-    phys_model: PhysicalModel,
-) -> PixelizedSourceModel:
-    matches = [m for m in getattr(phys_model, "source_light", []) if isinstance(m, PixelizedSourceModel)]
-    if len(getattr(phys_model, "source_light", [])) != 1 or len(matches) != 1:
-        raise ValueError(
-            "PixelizedLensSimulator requires PhysicalModel(source_light=[PixelizedSourceModel])."
-        )
-    return matches[0]
-
-
 class PixelizedLensSimulator:
     def __init__(
         self,
@@ -50,7 +39,8 @@ class PixelizedLensSimulator:
         self.dpix = dpix
         self.npix = image_data.shape[0]
         self.phys_model = phys_model
-        self.pix_src_model = _extract_pixelized_source_model(phys_model=self.phys_model)
+        # Use the centralized extraction method
+        self.pix_src_model = self.phys_model.get_pixelized_source_model()
         self.psf_kernel = jnp.array(psf_kernel)
         
         if mask is None:
@@ -70,6 +60,11 @@ class PixelizedLensSimulator:
         y_indices, x_indices = np.where(~mask)
         self.unmasked_indices = (jnp.array(y_indices), jnp.array(x_indices))
         self.image_shape = (self.npix, self.npix)
+
+        psf_h, psf_w = self.psf_kernel.shape
+        self.psf_shape = (int(psf_h), int(psf_w))
+        self.fft_shape = (self.npix + int(psf_h) - 1, self.npix + int(psf_w) - 1)
+        self.psf_fft = jnp.fft.rfft2(self.psf_kernel, s=self.fft_shape)
         
         self._generate_source_mesh(self.lensed_source_image, self.mask)
     
@@ -121,6 +116,8 @@ class PixelizedLensSimulator:
             image_shape=self.image_shape,
             unmasked_indices=self.unmasked_indices,
             method=method,
+            psf_fft=self.psf_fft if method == 'fft' else None,
+            psf_shape=self.psf_shape if method == 'fft' else None,
         )
     
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
@@ -129,6 +126,31 @@ class PixelizedLensSimulator:
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
         )
+
+    def build_inverter(
+        self,
+        data_vector: Union[jnp.ndarray, np.ndarray],
+        noise_variance: Union[jnp.ndarray, np.ndarray],
+        reg_scale: float,
+        reg_coefficient: float,
+    ) -> LinearInversion:
+        d = jnp.array(data_vector)
+        noise_var = jnp.array(noise_variance)
+
+        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
+        reg_matrix = self.pix_src_model.regularization_matrix(
+            points=self.source_mesh_beta,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+        )
+
+        inverter = LinearInversion(
+            d=d,
+            F=blurred_lens_map_matrix,
+            noise_cov=noise_var,
+            H=reg_matrix,
+        )
+        return inverter
 
     def reconstruct_source(
         self,
@@ -173,31 +195,18 @@ class PixelizedLensSimulator:
         inverter : LinearInversion
             Linear inversion solver object (cached for reuse)
         """
-        # Convert inputs to JAX arrays
-        d = jnp.array(data_vector)
-        noise_var = jnp.array(noise_variance)
-
-        # Build matrices
-        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
-        reg_matrix = self.pix_src_model.regularization_matrix(
-            points=self.source_mesh_beta,
+        inverter = self.build_inverter(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
-        )
-
-        # Create linear inversion solver
-        inverter = LinearInversion(
-            d=d,
-            F=blurred_lens_map_matrix,
-            noise_cov=noise_var,
-            H=reg_matrix,
         )
 
         # Solve for source intensities
         source_intensities = inverter.solve()
 
         # Generate model data
-        model_data = blurred_lens_map_matrix @ source_intensities
+        model_data = inverter.F @ source_intensities
 
         if return_2d:
             # Place model data into full image

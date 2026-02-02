@@ -7,3 +7,4 @@ workspace/
 paper/mock_csst/dataset/
 /.*/
 CLAUDE.md
+tmp/

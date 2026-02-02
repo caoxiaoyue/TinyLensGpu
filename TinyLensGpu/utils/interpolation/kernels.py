@@ -100,10 +100,9 @@ def compute_weights(points, query_points, k_neighbors, radius_scale, kernel_fn):
     """
     diff = query_points[:, None, :] - points[None, :, :]
     dist_sq = jnp.sum(diff * diff, axis=-1)
-    dist = jnp.sqrt(dist_sq)
-    
-    top_k_vals, top_k_indices = jax.lax.top_k(-dist, k_neighbors)
-    knn_distances = -top_k_vals
+
+    top_k_vals, top_k_indices = jax.lax.top_k(-dist_sq, k_neighbors)
+    knn_distances = jnp.sqrt(-top_k_vals)
     
     h = jnp.max(knn_distances, axis=1, keepdims=True) * radius_scale
     

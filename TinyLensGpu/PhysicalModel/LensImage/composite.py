@@ -9,6 +9,8 @@ import caskade as ck
 from jax import Array
 from typing import List, Optional, Tuple, Dict
 
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import PixelizedSourceModel
+
 
 class PhysicalModel(ck.Module):
     """
@@ -184,3 +186,25 @@ class PhysicalModel(ck.Module):
             'n_source_light': len(self.source_light),
             'n_lens_light': len(self.lens_light)
         }
+
+    def get_pixelized_source_model(self) -> PixelizedSourceModel:
+        """
+        Extract the PixelizedSourceModel from the source light components.
+
+        Returns
+        -------
+        PixelizedSourceModel
+            The pixelized source model instance.
+
+        Raises
+        ------
+        ValueError
+            If there is not exactly one PixelizedSourceModel in source_light.
+        """
+        matches = [m for m in self.source_light if isinstance(m, PixelizedSourceModel)]
+        if len(self.source_light) != 1 or len(matches) != 1:
+            raise ValueError(
+                "PhysicalModel must contain exactly one PixelizedSourceModel in source_light "
+                "to be used with pixelized source reconstruction."
+            )
+        return matches[0]

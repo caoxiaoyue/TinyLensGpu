@@ -50,8 +50,6 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     >>> sampler = Sampler(prior, loglike, n_dim=ndim, vectorized=True)
     """
 
-    if vectorized and likelihood_obj.__class__.__name__ == "PixelizedImageProbModel":
-        raise ValueError("PixelizedImageProbModel does not support vectorized=True. Use vectorized=False.")
     
     @jit
     def loglike_fn(theta):

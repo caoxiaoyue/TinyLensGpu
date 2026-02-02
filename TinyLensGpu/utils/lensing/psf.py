@@ -6,7 +6,7 @@ convolution operations using matrix representations and FFT.
 """
 
 import functools
-from typing import Tuple, Literal
+from typing import Tuple, Literal, Optional
 
 import jax
 import jax.experimental.sparse as jsparse
@@ -183,18 +183,40 @@ def _apply_psf_fft(
     fft_shape = (h + psf_h - 1, w + psf_w - 1)
     psf_fft = jnp.fft.rfft2(psf_kernel, s=fft_shape)
     
-    def _fft_convolve(img):
-        img_fft = jnp.fft.rfft2(img, s=fft_shape)
-        out = jnp.fft.irfft2(img_fft * psf_fft, s=fft_shape)
-        
-        # Crop to center (same mode)
-        start_h = (psf_h - 1) // 2
-        start_w = (psf_w - 1) // 2
-        return out[start_h : start_h + h, start_w : start_w + w]
-
-    blurred_grid = jax.vmap(_fft_convolve)(full_grid)
+    full_fft = jnp.fft.rfft2(full_grid, s=fft_shape)
+    blurred_full = jnp.fft.irfft2(full_fft * psf_fft, s=fft_shape)
+    start_h = (psf_h - 1) // 2
+    start_w = (psf_w - 1) // 2
+    blurred_grid = blurred_full[:, start_h : start_h + h, start_w : start_w + w]
     
     # 3. Gather back unmasked pixels and transpose
+    return blurred_grid[:, y_indices, x_indices].T
+
+
+@functools.partial(jax.jit, static_argnames=('image_shape', 'psf_shape'))
+def _apply_psf_fft_precomputed(
+    mapping_matrix: jnp.ndarray,
+    psf_fft: jnp.ndarray,
+    image_shape: Tuple[int, int],
+    unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray],
+    psf_shape: Tuple[int, int],
+) -> jnp.ndarray:
+    n_unmasked, n_source = mapping_matrix.shape
+    h, w = image_shape
+    psf_h, psf_w = psf_shape
+    y_indices, x_indices = unmasked_indices
+
+    full_grid = jnp.zeros((n_source, h, w), dtype=mapping_matrix.dtype)
+    full_grid = full_grid.at[:, y_indices, x_indices].set(mapping_matrix.T)
+
+    fft_shape = (h + psf_h - 1, w + psf_w - 1)
+    full_fft = jnp.fft.rfft2(full_grid, s=fft_shape)
+    blurred_full = jnp.fft.irfft2(full_fft * psf_fft, s=fft_shape)
+
+    start_h = (psf_h - 1) // 2
+    start_w = (psf_w - 1) // 2
+    blurred_grid = blurred_full[:, start_h : start_h + h, start_w : start_w + w]
+
     return blurred_grid[:, y_indices, x_indices].T
 
 
@@ -203,7 +225,10 @@ def apply_psf_to_mapping_matrix(
     psf_kernel: jnp.ndarray,
     image_shape: Tuple[int, int],
     unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray],
-    method: Literal['fft', 'matrix'] = 'fft'
+    method: Literal['fft', 'matrix'] = 'fft',
+    *,
+    psf_fft: Optional[jnp.ndarray] = None,
+    psf_shape: Optional[Tuple[int, int]] = None,
 ) -> jnp.ndarray:
     """
     Apply PSF convolution to the lens mapping matrix.
@@ -219,9 +244,13 @@ def apply_psf_to_mapping_matrix(
         Blurred mapping matrix of shape (n_unmasked, n_source).
     """
     if method == 'fft':
-        return _apply_psf_fft(
-            mapping_matrix, psf_kernel, image_shape, unmasked_indices
-        )
+        if psf_fft is not None:
+            if psf_shape is None:
+                psf_shape = tuple(map(int, psf_kernel.shape))
+            return _apply_psf_fft_precomputed(
+                mapping_matrix, psf_fft, image_shape, unmasked_indices, psf_shape
+            )
+        return _apply_psf_fft(mapping_matrix, psf_kernel, image_shape, unmasked_indices)
     elif method == 'matrix':
         # Reconstruct mask on CPU for Numba
         y_idx, x_idx = unmasked_indices

@@ -89,51 +89,16 @@ class PixelizedSourceModel(ck.Module):
         self.reg_scale = reg_scale if isinstance(reg_scale, ParamU) else ParamU("reg_scale", reg_scale)
         self.reg_coefficient = reg_coefficient if isinstance(reg_coefficient, ParamU) else ParamU("reg_coefficient", reg_coefficient)
         
-        object.__setattr__(self, '_reg_type', reg_type)
-        object.__setattr__(self, '_n_source_points', n_source_points)
-        object.__setattr__(self, '_mesh_alpha', mesh_alpha)
-        object.__setattr__(self, '_mesh_blur_sigma', mesh_blur_sigma)
-        object.__setattr__(self, '_mesh_method', mesh_method)
-        object.__setattr__(self, '_mesh_seed', mesh_seed)
-        object.__setattr__(self, '_k_neighbors', k_neighbors)
-        object.__setattr__(self, '_interp_kernel', interp_kernel)
-        object.__setattr__(self, '_radius_scale', radius_scale)
-    
-    @property
-    def reg_type(self) -> str:
-        return self._reg_type
-    
-    @property
-    def n_source_points(self) -> int:
-        return self._n_source_points
-    
-    @property
-    def mesh_alpha(self) -> float:
-        return self._mesh_alpha
-    
-    @property
-    def mesh_blur_sigma(self) -> float:
-        return self._mesh_blur_sigma
-    
-    @property
-    def mesh_method(self) -> str:
-        return self._mesh_method
-    
-    @property
-    def mesh_seed(self) -> int:
-        return self._mesh_seed
-    
-    @property
-    def k_neighbors(self) -> int:
-        return self._k_neighbors
-    
-    @property
-    def interp_kernel(self) -> str:
-        return self._interp_kernel
-    
-    @property
-    def radius_scale(self) -> float:
-        return self._radius_scale
+        # Configuration attributes
+        object.__setattr__(self, 'reg_type', reg_type)
+        object.__setattr__(self, 'n_source_points', n_source_points)
+        object.__setattr__(self, 'mesh_alpha', mesh_alpha)
+        object.__setattr__(self, 'mesh_blur_sigma', mesh_blur_sigma)
+        object.__setattr__(self, 'mesh_method', mesh_method)
+        object.__setattr__(self, 'mesh_seed', mesh_seed)
+        object.__setattr__(self, 'k_neighbors', k_neighbors)
+        object.__setattr__(self, 'interp_kernel', interp_kernel)
+        object.__setattr__(self, 'radius_scale', radius_scale)
     
     def get_config_dict(self) -> Dict[str, Any]:
         """Get configuration as a dictionary."""
