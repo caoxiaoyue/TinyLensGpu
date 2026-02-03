@@ -135,6 +135,23 @@ class LinearInversion:
         s = jnp.linalg.solve(self.M_stab, self.FT_Ninv_d)
         return s
 
+    @jit
+    def model_predict(self, s: jnp.ndarray) -> jnp.ndarray:
+        """
+        Compute the model data (unmasked pixels) given the source.
+        
+        Parameters
+        ----------
+        s : jnp.ndarray
+            Source intensities, shape [n_source]
+            
+        Returns
+        -------
+        model_data : jnp.ndarray
+            Model data vector, shape [n_data]
+        """
+        return self.F @ s
+
     def invert(self):
         """
         Solve the regularized linear inversion and compute covariance.

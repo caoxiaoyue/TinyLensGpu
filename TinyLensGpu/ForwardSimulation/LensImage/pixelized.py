@@ -21,8 +21,9 @@ from TinyLensGpu.utils.lensing import (
     lens_mapping_matrix_from,
     apply_psf_to_mapping_matrix,
 )
+from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.utils.mesh import sample_points_weighted
-from TinyLensGpu.utils.inversion import LinearInversion
+from TinyLensGpu.utils.inversion import LinearInversion, OperatorInversion
 
 
 class PixelizedLensSimulator:
@@ -108,6 +109,16 @@ class PixelizedLensSimulator:
             kernel=self.pix_src_model.interp_kernel,
             radius_scale=self.pix_src_model.radius_scale,
         )
+
+    def build_lens_mapping_operator(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        weights, indices, _ = get_interpolation_weights(
+            points=self.source_mesh_beta,
+            query_points=self.data_mesh_beta,
+            k_neighbors=self.pix_src_model.k_neighbors,
+            kernel=self.pix_src_model.interp_kernel,
+            radius_scale=self.pix_src_model.radius_scale,
+        )
+        return weights, indices
     
     def build_blurred_lens_mapping_matrix(self, method: str = 'fft') -> jnp.ndarray:
         return apply_psf_to_mapping_matrix(
@@ -133,24 +144,44 @@ class PixelizedLensSimulator:
         noise_variance: Union[jnp.ndarray, np.ndarray],
         reg_scale: float,
         reg_coefficient: float,
-    ) -> LinearInversion:
+        *,
+        inversion_backend: str = "exact",
+        cg_tol: float = 1e-4,
+        cg_maxiter: int = 40,
+        slq_seed: int = 0,
+        slq_probes: int = 2,
+        slq_steps: int = 10,
+    ) -> Union[LinearInversion, OperatorInversion]:
         d = jnp.array(data_vector)
         noise_var = jnp.array(noise_variance)
 
-        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
         reg_matrix = self.pix_src_model.regularization_matrix(
             points=self.source_mesh_beta,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
         )
 
-        inverter = LinearInversion(
-            d=d,
-            F=blurred_lens_map_matrix,
-            noise_cov=noise_var,
-            H=reg_matrix,
-        )
-        return inverter
+        if inversion_backend == "fast":
+            weights, indices = self.build_lens_mapping_operator()
+            return OperatorInversion(
+                d=d,
+                noise_var=noise_var,
+                H=reg_matrix,
+                weights=weights,
+                indices=indices,
+                psf_fft=self.psf_fft,
+                image_shape=self.image_shape,
+                psf_shape=self.psf_shape,
+                unmasked_indices=self.unmasked_indices,
+                cg_tol=cg_tol,
+                cg_maxiter=cg_maxiter,
+                slq_seed=slq_seed,
+                slq_probes=slq_probes,
+                slq_steps=slq_steps,
+            )
+
+        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
+        return LinearInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix)
 
     def reconstruct_source(
         self,
@@ -159,7 +190,8 @@ class PixelizedLensSimulator:
         reg_scale: float,
         reg_coefficient: float,
         return_2d: bool = False,
-    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, LinearInversion]:
+        **kwargs,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, Union[LinearInversion, OperatorInversion]]:
         """
         Reconstruct the source given observed data and noise.
 
@@ -182,6 +214,8 @@ class PixelizedLensSimulator:
         return_2d : bool, optional
             If True, returns the model image as a 2D array.
             If False (default), returns the model image as a 1D vector (unmasked pixels only).
+        **kwargs : dict
+            Additional arguments passed to build_inverter (e.g. inversion_backend, cg_tol, etc.)
 
         Returns
         -------
@@ -192,7 +226,7 @@ class PixelizedLensSimulator:
         model_image : jnp.ndarray
             Model image. Shape is (npix, npix) if return_2d=True, 
             else (n_unmasked_pixels,) if return_2d=False.
-        inverter : LinearInversion
+        inverter : Union[LinearInversion, OperatorInversion]
             Linear inversion solver object (cached for reuse)
         """
         inverter = self.build_inverter(
@@ -200,13 +234,14 @@ class PixelizedLensSimulator:
             noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
+            **kwargs,
         )
 
         # Solve for source intensities
         source_intensities = inverter.solve()
 
         # Generate model data
-        model_data = inverter.F @ source_intensities
+        model_data = inverter.model_predict(source_intensities)
 
         if return_2d:
             # Place model data into full image

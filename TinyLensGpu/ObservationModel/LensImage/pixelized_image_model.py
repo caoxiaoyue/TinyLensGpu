@@ -51,6 +51,18 @@ class PixelizedImageProbModel(ck.Module):
         Boolean mask array (True = masked out)
     position_likelihood : dict, optional
         Position likelihood constraint configuration
+    inversion_backend : str, optional
+        Inversion backend, "exact" or "implicit". Default is "exact".
+    cg_tol : float, optional
+        Conjugate gradient tolerance for implicit inversion. Default is 1e-4.
+    cg_maxiter : int, optional
+        Maximum number of conjugate gradient iterations. Default is 40.
+    slq_seed : int, optional
+        Random seed for SLQ. Default is 0.
+    slq_probes : int, optional
+        Number of probe vectors for SLQ. Default is 2.
+    slq_steps : int, optional
+        Number of Lanczos steps for SLQ. Default is 10.
     
     Attributes
     ----------
@@ -101,6 +113,12 @@ class PixelizedImageProbModel(ck.Module):
         phys_model: PhysicalModel,
         mask: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
+        inversion_backend: str = "exact",
+        cg_tol: float = 1e-4,
+        cg_maxiter: int = 80,
+        slq_seed: int = 0,
+        slq_probes: int = 20,
+        slq_steps: int = 30,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         
@@ -133,6 +151,13 @@ class PixelizedImageProbModel(ck.Module):
             psf_kernel=psf_kernel,
             mask=mask,
         )
+
+        object.__setattr__(self, "inversion_backend", str(inversion_backend))
+        object.__setattr__(self, "cg_tol", float(cg_tol))
+        object.__setattr__(self, "cg_maxiter", int(cg_maxiter))
+        object.__setattr__(self, "slq_seed", int(slq_seed))
+        object.__setattr__(self, "slq_probes", int(slq_probes))
+        object.__setattr__(self, "slq_steps", int(slq_steps))
         
         self._inverter_cache = None
         self._cached_params = None
@@ -197,6 +222,12 @@ class PixelizedImageProbModel(ck.Module):
             noise_variance=noise_variance,
             reg_scale=reg_scale_val,
             reg_coefficient=reg_coeff_val,
+            inversion_backend=self.inversion_backend,
+            cg_tol=self.cg_tol,
+            cg_maxiter=self.cg_maxiter,
+            slq_seed=self.slq_seed,
+            slq_probes=self.slq_probes,
+            slq_steps=self.slq_steps,
         )
 
         return inverter
