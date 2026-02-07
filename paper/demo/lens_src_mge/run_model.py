@@ -22,22 +22,24 @@ from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
+from TinyLensGpu.visualizer import plot_model_results
 
 
-def build_problem():
-    """Build the MGE lens + source model problem programmatically."""
-    
-    # Load data
-    print("Loading data...")
+if __name__ == "__main__":
+    print("="*60)
+    print("MGE Lens Light + Source Light Model Inference")
+    print("="*60)
+
+    # 1. Load data
+    print("\n[Stage 1] Loading data...")
     image_data, noise_map, psf_kernel, mask = load_lens_data(
         image_path='data/image.fits',
         noise_path='data/noise.fits',
         psf_path='data/psf.fits',
     )
     
-    print("Building model components...")
-    
-    # ========== Mass Components ==========
+    # 2. Build model components
+    print("\n[Stage 2] Building model components...")
     
     # SIE mass profile
     sie = SIE(
@@ -66,9 +68,7 @@ def build_problem():
     shear.gamma1.to_dynamic()
     shear.gamma2.to_dynamic()
     
-    # ========== Source Light (MGE) ==========
-    
-    # MGE configuration for source: 10 Gaussian components
+    # Build MGE source light model
     print("Building MGE source light model...")
     N_gaussians_src = 10
     sigma_list_src = 10**(np.linspace(-2.0, np.log10(1.0), N_gaussians_src))
@@ -118,16 +118,13 @@ def build_problem():
     e2_src.to_dynamic()
     
     print(f"Created {N_gaussians_src} Gaussian components for source light")
-    print(f"Source sigma range: {sigma_list_src[0]:.4f} to {sigma_list_src[-1]:.4f} arcsec")
     
-    # ========== Lens Light (MGE) ==========
-    
-    # MGE configuration for lens: 10 Gaussian components
+    # Build MGE lens light model
     print("Building MGE lens light model...")
     N_gaussians_lens = 10
     sigma_list_lens = 10**(np.linspace(-2.0, np.log10(3.0), N_gaussians_lens))
     
-    # Create shared geometric parameters for MGE (only for the first Gaussian)
+    # Create shared geometric parameters for MGE
     center_x_lens = ParamU("center_x_lens", 0.0,
                            prior_type="gaussian",
                            prior_settings=[0.0, 0.1],
@@ -172,10 +169,8 @@ def build_problem():
     e2_lens.to_dynamic()
     
     print(f"Created {N_gaussians_lens} Gaussian components for lens light")
-    print(f"Lens sigma range: {sigma_list_lens[0]:.4f} to {sigma_list_lens[-1]:.4f} arcsec")
     
-    # ========== Build Physical Model ==========
-    
+    # Build Physical Model
     phys_model = PhysicalModel(
         lens_mass=[sie, shear],
         source_light=source_gaussians,
@@ -183,7 +178,7 @@ def build_problem():
     )
     
     # Build likelihood
-    prob_model = ImageProbModel(
+    likelihood = ImageProbModel(
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
@@ -192,24 +187,11 @@ def build_problem():
         phys_model=phys_model,
         use_linear=True,  # Use linear solver for flux parameters
         mask=mask,
-        solver_type='nnls'  # Non-negative least squares (recommended for MGE)
+        solver_type='nnls'  # Non-negative least squares
     )
-    
-    return prob_model
 
-
-def run_sampling():
-    """Run sampling for MGE lens + source model."""
-    
-    print("="*60)
-    print("MGE Lens Light + Source Light Model Inference")
-    print("="*60)
-    
-    # Build problem
-    likelihood = build_problem()
-    
-    # Extract prior transformation
-    print("\nExtracting prior specifications...")
+    # 3. Extract prior and setup likelihood
+    print("\n[Stage 3] Extracting prior specifications...")
     prior, prior_specs = make_prior_transformation(likelihood)
     param_names = [spec.name for spec in prior_specs]
     
@@ -217,12 +199,11 @@ def run_sampling():
     for spec in prior_specs:
         print(f"  {spec.name}: {spec.describe()}")
     
-    # Create likelihood function
     print("\nCreating likelihood function...")
     loglike = make_likelihood(likelihood, vectorized=True)
-    
-    # Run sampler
-    print("\nRunning Nautilus sampler...")
+
+    # 4. Run sampling
+    print("\n[Stage 4] Running Nautilus sampler...")
     sampler = Sampler(
         prior, 
         loglike, 
@@ -232,28 +213,57 @@ def run_sampling():
         n_batch=200
     )
     sampler.run(verbose=True, n_eff=800)
-    
-    # Process results
-    print("\nProcessing results...")
+
+    # 5. Process results and summary
+    print("\n[Stage 5] Processing results...")
     samples, log_w, _ = sampler.posterior()
     samples = jnp.asarray(samples, dtype=jnp.float32)
     weights = jnp.exp(log_w)
     weights /= weights.sum()
     
-    # Print summary
     print("\n" + "="*60)
     print("Posterior Summary")
     print("="*60)
+    
+    q16_list, q50_list, q84_list = [], [], []
     for i, name in enumerate(param_names):
         q16, q50, q84 = jnp.percentile(samples[:, i], jnp.array([16, 50, 84]))
-        print(f"  {name:15s} = {q50:.3f} (-{q50-q16:.3f}, +{q84-q50:.3f})")
+        q16_list.append(float(q16))
+        q50_list.append(float(q50))
+        q84_list.append(float(q84))
+        print(f"  {name:15s} = {q50:.4f} ({q16-q50:+.4f}, {q84-q50:+.4f})")
     
+    # 6. Save results
+    print("\n[Stage 6] Saving results...")
+    if not os.path.exists('output'):
+        os.makedirs('output')
+        
+    np.savetxt('output/result_samples.csv', 
+               samples, 
+               delimiter=',',
+               header=','.join(param_names))
+    
+    with open('output/result_summary.csv', 'w') as f:
+        f.write('parameter,median,lower,upper\n')
+        for i, name in enumerate(param_names):
+            f.write(f'{name},{q50_list[i]:.6f},{q16_list[i]:.6f},{q84_list[i]:.6f}\n')
+    
+    print("Results saved to output/")
+    
+    # 7. Visualization
+    print("\n[Stage 7] Generating visualization...")
+    plot_model_results(
+        likelihood, 
+        jnp.array(q50_list), 
+        save_path='output/model_visualization.png',
+        title="Lens Model Fit Results"
+    ) 
+
+    # 8. Model median (including linear parameters)
+    model_median = likelihood.get_linear_solved_params(q50_list)
+    print("\nPosterior median with linear-solved light amplitude:")
+    print(model_median)
+
     print("\n" + "="*60)
     print("Inference Complete!")
     print("="*60)
-    
-    return samples, weights, param_names
-
-
-if __name__ == "__main__":
-    samples, weights, param_names = run_sampling()

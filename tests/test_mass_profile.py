@@ -10,7 +10,8 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import (
     EPL_MULTIPOLE_M1M3M4, EPL_MULTIPOLE_M1M3M4_ELL,
     EPL_BOXYDISKY, EPL_BOXYDISKY_ELL,
     Dipole, Flexion, Flexionfg,
-    PseudoJaffe, PseudoJaffeEllipsePotential
+    PseudoJaffe, PseudoJaffeEllipsePotential,
+    EPL, SIE, TNFWEllipsePotential, TNFWSpherical
 )
 
 try:
@@ -28,6 +29,9 @@ try:
     from lenstronomy.LensModel.Profiles.flexionfg import Flexionfg as L_Flexionfg
     from lenstronomy.LensModel.Profiles.pseudo_jaffe import PseudoJaffe as L_PseudoJaffe
     from lenstronomy.LensModel.Profiles.pseudo_jaffe_ellipse_potential import PseudoJaffeEllipsePotential as L_PseudoJaffeEllipsePotential
+    from lenstronomy.LensModel.Profiles.epl import EPL as L_EPL
+    from lenstronomy.LensModel.Profiles.tnfw import TNFW as L_TNFWSpherical
+    from lenstronomy.LensModel.Profiles.tnfw_ellipse_potential import TNFWELLIPSEPotential as L_TNFWEllipsePotential
     HAS_LENSTRONOMY = True
 except ImportError:
     HAS_LENSTRONOMY = False
@@ -64,6 +68,92 @@ class TestLenstronomyMigration:
         model = Multipole(**kwargs)
         f_x, f_y = model.deriv(self.x, self.y)
         
+        l_fx, l_fy = l_model.derivatives(self.x_np, self.y_np, **kwargs)
+        
+        self.assert_close(f_x, l_fx)
+        self.assert_close(f_y, l_fy)
+
+    def test_epl(self):
+        kwargs = {
+            'theta_E': 1.5, 'gamma': 2.0, 'e1': 0.1, 'e2': -0.05,
+            'center_x': 0.2, 'center_y': -0.1
+        }
+        
+        # TinyLensGpu
+        model = EPL(**kwargs)
+        f_x, f_y = model.deriv(self.x, self.y)
+        
+        # Lenstronomy
+        l_model = L_EPL()
+        l_fx, l_fy = l_model.derivatives(self.x_np, self.y_np, **kwargs)
+        
+        self.assert_close(f_x, l_fx)
+        self.assert_close(f_y, l_fy)
+
+        # Non-isothermal
+        kwargs['gamma'] = 2.2
+        model = EPL(**kwargs)
+        f_x, f_y = model.deriv(self.x, self.y)
+        l_fx, l_fy = l_model.derivatives(self.x_np, self.y_np, **kwargs)
+        self.assert_close(f_x, l_fx)
+        self.assert_close(f_y, l_fy)
+
+    def test_epl_consistency_with_sie(self):
+        kwargs = {
+            'theta_E': 1.5, 'e1': 0.1, 'e2': -0.05,
+            'center_x': 0.2, 'center_y': -0.1
+        }
+        
+        epl_model = EPL(gamma=2.0, **kwargs)
+        sie_model = SIE(**kwargs)
+        
+        f_x_epl, f_y_epl = epl_model.deriv(self.x, self.y)
+        f_x_sie, f_y_sie = sie_model.deriv(self.x, self.y)
+        
+        self.assert_close(f_x_epl, f_x_sie)
+        self.assert_close(f_y_epl, f_y_sie)
+
+    def test_tnfw_spherical(self):
+        kwargs = {
+            'Rs': 1.5, 'alpha_Rs': 2.0, 'r_trunc': 5.0,
+            'center_x': 0.2, 'center_y': -0.1
+        }
+        
+        # TinyLensGpu
+        model = TNFWSpherical(**kwargs)
+        model.Rs.to_static()
+        model.alpha_Rs.to_static()
+        model.r_trunc.to_static()
+        model.center_x.to_static()
+        model.center_y.to_static()
+        f_x, f_y = model.deriv(self.x, self.y)
+        
+        # Lenstronomy
+        l_model = L_TNFWSpherical()
+        l_fx, l_fy = l_model.derivatives(self.x_np, self.y_np, **kwargs)
+        
+        self.assert_close(f_x, l_fx)
+        self.assert_close(f_y, l_fy)
+
+    def test_tnfw_ellipse_potential(self):
+        kwargs = {
+            'Rs': 1.5, 'alpha_Rs': 2.0, 'r_trunc': 5.0,
+            'e1': 0.1, 'e2': -0.05, 'center_x': 0.2, 'center_y': -0.1
+        }
+        
+        # TinyLensGpu
+        model = TNFWEllipsePotential(**kwargs)
+        model.Rs.to_static()
+        model.alpha_Rs.to_static()
+        model.r_trunc.to_static()
+        model.e1.to_static()
+        model.e2.to_static()
+        model.center_x.to_static()
+        model.center_y.to_static()
+        f_x, f_y = model.deriv(self.x, self.y)
+        
+        # Lenstronomy
+        l_model = L_TNFWEllipsePotential()
         l_fx, l_fy = l_model.derivatives(self.x_np, self.y_np, **kwargs)
         
         self.assert_close(f_x, l_fx)

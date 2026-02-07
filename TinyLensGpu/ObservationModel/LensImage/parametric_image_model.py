@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax
 from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict, Tuple, Union, Sequence
+from typing import Optional, Dict, Tuple, Union, Sequence, Any
 
 from TinyLensGpu.ForwardSimulation.LensImage.parametric import LensSimulator
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
@@ -258,6 +258,63 @@ class ImageProbModel(ck.Module):
         pen_clipped = jnp.clip(pen_continuous, min=self._pos_minl, max=0.0)
         pen = jnp.where(jnp.logical_or(self._pos_thr <= 0.0, exceed <= 0.0), 0.0, pen_clipped)
         return pen
+
+    def get_linear_solved_params(self, nonlinear_params: Union[Sequence, Dict]) -> Dict[str, Any]:
+        """
+        Update model with non-linear parameters and return dictionary including linear-solved parameters.
+
+        Parameters
+        ----------
+        nonlinear_params : array_like or dict
+            Non-linear parameters to set in the model.
+
+        Returns
+        -------
+        params_dict : dict
+            Dictionary containing both non-linear and linear-solved parameters.
+        """
+        # Set non-linear parameters
+        self.set_values(nonlinear_params)
+
+        # Run forward model to get linear intensities
+        # forward_model returns (image, intensity_list) when return_intensity=True
+        # Note: if ret_each_plane is True, it returns more values. 
+        # But default is False.
+        _, intensity_list = self.forward_model(use_linear=True, return_intensity=True)
+
+        # Get all dynamic parameters as a dictionary
+        # This converts JAX arrays to numpy/scalars if needed by get_values implementation
+        # But usually it returns what's stored.
+        params = self.get_values("dict")
+
+        # Convert JAX arrays in params to numpy for easier handling
+        params = {k: np.array(v) for k, v in params.items()}
+
+        # Map solved intensities to their corresponding parameters
+        # intensity_list is a JAX array
+        intensity_list = np.array(intensity_list)
+
+        n_src = len(self.phys_model.source_light)
+        n_lens = len(self.phys_model.lens_light)
+
+        def update_intensity_param(module, value):
+            # Try common intensity parameter names
+            for name in ['Ie', 'amp', 'intensity', 'I0', 'flux']:
+                if hasattr(module, name):
+                    param = getattr(module, name)
+                    # Use the parameter name as key
+                    params[param.name] = value
+                    return
+
+        # Update source light intensities
+        for i in range(n_src):
+            update_intensity_param(self.phys_model.source_light[i], intensity_list[i])
+
+        # Update lens light intensities
+        for i in range(n_lens):
+            update_intensity_param(self.phys_model.lens_light[i], intensity_list[n_src + i])
+
+        return params
 
     def __repr__(self) -> str:
         return (f"ImageProbModel("

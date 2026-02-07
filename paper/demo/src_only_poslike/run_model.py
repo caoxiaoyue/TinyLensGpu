@@ -8,6 +8,7 @@ import os
 import pickle
 import gzip
 import numpy as np
+import jax.numpy as jnp
 from nautilus import Sampler
 import time 
 
@@ -27,17 +28,21 @@ from TinyLensGpu.visualizer import plot_model_results
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 
 
-def build_model():
-    """Build lens model with source light and position likelihood."""
-    
-    print("Loading data...")
+if __name__ == "__main__":
+    print("="*60)
+    print("Source-Only Model with Position Likelihood")
+    print("="*60)
+
+    # 1. Load data
+    print("\n[Stage 1] Loading data...")
     image_data, noise_map, psf_kernel, mask = load_lens_data(
         image_path="data/image.fits",
         noise_path="data/noise.fits",
         psf_path="data/psf.fits",
     )
     
-    print("Building model components...")
+    # 2. Build model components
+    print("\n[Stage 2] Building model components...")
     
     # SIE mass profile
     sie = SIE(
@@ -104,7 +109,7 @@ def build_model():
     }
     
     # Build likelihood model
-    prob_model = ImageProbModel(
+    likelihood = ImageProbModel(
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
@@ -116,22 +121,9 @@ def build_model():
         solver_type='nnls',
         position_likelihood=position_likelihood
     )
-    
-    return prob_model, phys_model
 
-
-def run_sampling():
-    """Run Nautilus sampling."""
-    
-    print("="*60)
-    print("Source-Only Model with Position Likelihood")
-    print("="*60)
-    
-    # Build model
-    likelihood, phys_model = build_model()
-    
-    # Extract prior transformation
-    print("\nExtracting prior specifications...")
+    # 3. Extract prior and setup likelihood
+    print("\n[Stage 3] Extracting prior specifications...")
     prior, prior_specs = make_prior_transformation(likelihood)
     param_names = [spec.name for spec in prior_specs]
     
@@ -139,12 +131,11 @@ def run_sampling():
     for spec in prior_specs:
         print(f"  {spec.name}: {spec.describe()}")
     
-    # Create likelihood function
     print("\nCreating likelihood function...")
     loglike = make_likelihood(likelihood, vectorized=True)
-    
-    # Run sampler
-    print("\nRunning Nautilus sampler...")
+
+    # 4. Run sampling
+    print("\n[Stage 4] Running Nautilus sampler...")
     sampler = Sampler(
         prior,
         loglike,
@@ -157,36 +148,19 @@ def run_sampling():
     start_time = time.time()
     sampler.run(verbose=True, n_eff=800)
     end_time = time.time()
-    
     print(f"\nSampling completed in {(end_time - start_time):.2f} seconds")
-    
-    # Get results
-    samples, log_w, log_l = sampler.posterior()
-    log_z = float(np.asarray(sampler.log_z))
+
+    # 5. Process results and summary
+    print("\n[Stage 5] Processing results...")
+    samples, log_w, _ = sampler.posterior()
     weights = np.exp(log_w - np.max(log_w))
     weights /= weights.sum()
-    
-    return {
-        'samples': samples,
-        'weights': weights,
-        'log_z': log_z,
-        'param_names': param_names,
-        'sampler': sampler,
-        'likelihood': likelihood,
-        'phys_model': phys_model
-    }
-
-
-def summarize_results(results):
-    """Print posterior summary."""
-    samples = results['samples']
-    weights = results['weights']
-    param_names = results['param_names']
     
     print("\n" + "="*60)
     print("Posterior Summary")
     print("="*60)
     
+    q16_list, q50_list, q84_list = [], [], []
     for i, name in enumerate(param_names):
         sorted_idx = np.argsort(samples[:, i])
         sorted_samples = samples[sorted_idx, i]
@@ -198,87 +172,54 @@ def summarize_results(results):
         q50 = np.interp(0.50, cumsum, sorted_samples)
         q84 = np.interp(0.84, cumsum, sorted_samples)
         
+        q16_list.append(q16)
+        q50_list.append(q50)
+        q84_list.append(q84)
+        
         print(f"  {name:15s} = {q50:.4f} ({q16-q50:+.4f}, {q84-q50:+.4f})")
     
-    log_z = results['log_z']
-    if isinstance(log_z, (list, tuple, np.ndarray)):
-        log_z = log_z[0] if len(log_z) > 0 else 0.0
+    log_z = float(np.asarray(sampler.log_z))
     print(f"\nlog(Z) = {log_z:.2f}")
 
-
-def save_results(results):
-    """Save results to output directory."""
+    # 6. Save results
+    print("\n[Stage 6] Saving results...")
     os.makedirs('output', exist_ok=True)
     
-    print("\nSaving results...")
-    
-    # Save samples
     np.savetxt('output/result_samples.csv', 
-               results['samples'], 
+               samples, 
                delimiter=',',
-               header=','.join(results['param_names']))
-    
-    # Save summary
-    samples = results['samples']
-    weights = results['weights']
-    param_names = results['param_names']
+               header=','.join(param_names))
     
     with open('output/result_summary.csv', 'w') as f:
         f.write('parameter,median,lower,upper\n')
         for i, name in enumerate(param_names):
-            sorted_idx = np.argsort(samples[:, i])
-            sorted_samples = samples[sorted_idx, i]
-            sorted_weights = weights[sorted_idx]
-            cumsum = np.cumsum(sorted_weights)
-            cumsum /= cumsum[-1]
-            
-            q16 = np.interp(0.16, cumsum, sorted_samples)
-            q50 = np.interp(0.50, cumsum, sorted_samples)
-            q84 = np.interp(0.84, cumsum, sorted_samples)
-            
-            f.write(f'{name},{q50:.6f},{q16:.6f},{q84:.6f}\n')
+            f.write(f'{name},{q50_list[i]:.6f},{q16_list[i]:.6f},{q84_list[i]:.6f}\n')
     
-    # Save full results as pickle (exclude non-serializable objects)
     save_dict = {
-        'samples': results['samples'],
-        'weights': results['weights'],
-        'log_z': results['log_z'],
-        'param_names': results['param_names']
+        'samples': samples,
+        'weights': weights,
+        'log_z': log_z,
+        'param_names': param_names
     }
     with gzip.open('output/results.pkl.gz', 'wb') as f:
         pickle.dump(save_dict, f)
     
     print("Results saved to output/")
-
-
-if __name__ == "__main__":
-    results = run_sampling()
-    summarize_results(results)
-    save_results(results)
-      
-    print("\n" + "="*60)
-    print("Inference Complete!")
-    print("="*60)
-
-    # Plot results
-    print("\nGenerating visualization...")
-    # Get median parameters
-    samples = results['samples']
-    weights = results['weights']
-    param_names = results['param_names']
-
-    q50 = []
-    for i in range(len(param_names)):
-        sorted_idx = np.argsort(samples[:, i])
-        sorted_samples = samples[sorted_idx, i]
-        sorted_weights = weights[sorted_idx]
-        cumsum = np.cumsum(sorted_weights)
-        cumsum /= cumsum[-1]
-        q50.append(np.interp(0.50, cumsum, sorted_samples))
     
+    # 7. Visualization
+    print("\n[Stage 7] Generating visualization...")
     plot_model_results(
-        results['likelihood'], 
-        q50, 
+        likelihood, 
+        jnp.array(q50_list), 
         save_path='output/model_visualization.png',
         title="Lens Model Fit Results"
     ) 
+
+    # 8. Model median (including linear parameters)
+    model_median = likelihood.get_linear_solved_params(q50_list)
+    print("\nPosterior median with linear-solved light amplitude:")
+    print(model_median)
+
+    print("\n" + "="*60)
+    print("Inference Complete!")
+    print("="*60)
