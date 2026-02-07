@@ -10,21 +10,23 @@ The solver is registered as a JAX PyTree for efficient JIT compilation.
 
 import jax
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 from jax.tree_util import register_pytree_node_class
 from functools import partial
 
+from TinyLensGpu.utils.linear_solver import fnnls_jax
+
 
 @partial(jit, static_argnames=['jitter', 'eps'])
-def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
-    """
-    JIT-compiled helper to precompute all linear algebra terms.
-    """
+def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, jitter: float, eps: float):
     n_data = d.shape[0]
     n_source = H.shape[0]
     
     is_diagonal = (noise_cov.ndim == 1)
     is_valid = jnp.array(True)
+
+    N_diag = jnp.ones((n_data,), dtype=d.dtype)
+    N_inv_diag = jnp.ones((n_data,), dtype=d.dtype)
     
     if is_diagonal:
         N_diag = jnp.clip(noise_cov, min=eps)
@@ -68,8 +70,29 @@ def _precompute_terms(d, F, noise_cov, H, jitter=1e-6, eps=1e-12):
     half_log_det_M = 0.5 * logdet_M
     is_valid = is_valid & (sign_M > 0) & jnp.isfinite(logdet_M)
     
-    return (FT_Ninv_F, FT_Ninv_d, d_Ninv_d, M_stab, 
-            half_log_det_H, half_log_det_M, log_evidence_const, is_valid)
+    return (
+        N_diag,
+        N_inv_diag,
+        FT_Ninv_F,
+        FT_Ninv_d,
+        d_Ninv_d,
+        M_stab,
+        half_log_det_H,
+        half_log_det_M,
+        log_evidence_const,
+        is_valid,
+    )
+
+
+@partial(jit, static_argnames=['jitter'])
+def _precision_sqrt_factor_from(H: Array, *, jitter: float) -> Array:
+    n = H.shape[0]
+    H_stab = H + jitter * jnp.eye(n, dtype=H.dtype)
+    H_stab = 0.5 * (H_stab + H_stab.T)
+    eigvals, eigvecs = jnp.linalg.eigh(H_stab)
+    eigvals = jnp.clip(eigvals, min=jitter)
+    sqrt_eigvals = jnp.sqrt(eigvals)
+    return sqrt_eigvals[:, None] * eigvecs.T
 
 
 @register_pytree_node_class
@@ -115,11 +138,13 @@ class LinearInversion:
         self.n_source = self.H.shape[0]
 
         if _precomputed is None:
-            (self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab, 
+            (_N_diag, _N_inv_diag,
+             self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab,
              self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = \
-                _precompute_terms(self.d, self.F, self.noise_cov, self.H, self.jitter, self.eps)
+                _precompute_terms_common(self.d, self.F, self.noise_cov, self.H, jitter=self.jitter, eps=self.eps)
         else:
-            (self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab, 
+            (_N_diag, _N_inv_diag,
+             self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab,
              self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = _precomputed
 
     @jit
@@ -229,6 +254,128 @@ class LinearInversion:
         return obj
 
 
+@register_pytree_node_class
+class NNLSInversion:
+    def __init__(self, d, F, noise_cov, H, _precomputed=None):
+        self.d = jnp.asarray(d, dtype=jnp.float32)
+        self.F = jnp.asarray(F, dtype=jnp.float32)
+        self.H = jnp.asarray(H, dtype=jnp.float32)
+        self.noise_cov = jnp.asarray(noise_cov, dtype=jnp.float32)
+
+        self.jitter = 1e-6
+        self.eps = 1e-12
+        self.n_data = self.d.shape[0]
+        self.n_source = self.H.shape[0]
+
+        if self.noise_cov.ndim != 1:
+            raise ValueError("NNLSInversion currently supports diagonal noise covariance only.")
+
+        if _precomputed is None:
+            (self.N_diag, self.N_inv_diag,
+             _FT_Ninv_F, _FT_Ninv_d, _d_Ninv_d, _M_stab,
+             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = \
+                _precompute_terms_common(self.d, self.F, self.noise_cov, self.H, jitter=self.jitter, eps=self.eps)
+        else:
+            (self.N_diag, self.N_inv_diag,
+             _FT_Ninv_F, _FT_Ninv_d, _d_Ninv_d, _M_stab,
+             self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid) = _precomputed
+
+        self.sqrt_w = 1.0 / jnp.sqrt(self.N_diag)
+        self.B = _precision_sqrt_factor_from(self.H, jitter=self.jitter)
+
+    @jit
+    def solve(self) -> Array:
+        Z = self.F * self.sqrt_w[:, None]
+        y = self.d * self.sqrt_w
+        Z_aug = jnp.concatenate([Z, self.B], axis=0)
+        y_aug = jnp.concatenate([y, jnp.zeros(self.n_source, dtype=y.dtype)], axis=0)
+        x, _ = fnnls_jax(Z_aug, y_aug)
+        return x
+
+    @jit
+    def model_predict(self, x: Array) -> Array:
+        return self.F @ x
+
+    @jit
+    def objective_value(self, x: Array) -> Array:
+        model = self.model_predict(x)
+        resid = self.d - model
+        chi2 = jnp.sum((resid * resid) * self.N_inv_diag)
+        reg = jnp.dot(x, self.H @ x) + self.jitter * jnp.dot(x, x)
+        return chi2 + reg
+
+    @jit
+    def log_evidence(self) -> Array:
+        def _valid(_):
+            x = self.solve()
+            obj = self.objective_value(x)
+            log_ev = self.log_evidence_const
+            log_ev += self.half_log_det_H
+            log_ev -= 0.5 * obj
+            log_ev -= self.half_log_det_M
+            return log_ev
+
+        return jax.lax.cond(self.is_valid, _valid, lambda _: -jnp.inf, operand=None)
+
+    def tree_flatten(self):
+        children = (
+            self.d,
+            self.F,
+            self.noise_cov,
+            self.H,
+            self.N_diag,
+            self.N_inv_diag,
+            self.sqrt_w,
+            self.B,
+            self.half_log_det_H,
+            self.half_log_det_M,
+            self.log_evidence_const,
+            self.is_valid,
+        )
+        aux_data = (self.jitter, self.eps)
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        obj = cls.__new__(cls)
+
+        (
+            d,
+            F,
+            noise_cov,
+            H,
+            N_diag,
+            N_inv_diag,
+            sqrt_w,
+            B,
+            half_log_det_H,
+            half_log_det_M,
+            log_evidence_const,
+            is_valid,
+        ) = children
+
+        jitter, eps = aux_data
+
+        obj.d = d
+        obj.F = F
+        obj.noise_cov = noise_cov
+        obj.H = H
+        obj.N_diag = N_diag
+        obj.N_inv_diag = N_inv_diag
+        obj.sqrt_w = sqrt_w
+        obj.B = B
+        obj.half_log_det_H = half_log_det_H
+        obj.half_log_det_M = half_log_det_M
+        obj.log_evidence_const = log_evidence_const
+        obj.is_valid = is_valid
+        obj.jitter = jitter
+        obj.eps = eps
+        obj.n_data = d.shape[0]
+        obj.n_source = H.shape[0]
+        return obj
+
+
 __all__ = [
-    'LinearInversion'
+    'LinearInversion',
+    'NNLSInversion',
 ]

@@ -23,7 +23,7 @@ from TinyLensGpu.utils.lensing import (
 )
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.utils.mesh import sample_points_weighted
-from TinyLensGpu.utils.inversion import LinearInversion, OperatorInversion
+from TinyLensGpu.utils.inversion import LinearInversion, OperatorInversion, NNLSInversion
 
 
 class PixelizedLensSimulator:
@@ -130,6 +130,26 @@ class PixelizedLensSimulator:
             psf_fft=self.psf_fft if method == 'fft' else None,
             psf_shape=self.psf_shape if method == 'fft' else None,
         )
+
+    def build_lens_light_basis_matrix(self, method: str = 'fft') -> jnp.ndarray:
+        n_lens_light = len(self.phys_model.lens_light)
+        if n_lens_light == 0:
+            return jnp.zeros((self.xgrid_unmask.shape[0], 0), dtype=jnp.float32)
+
+        basis = []
+        for light_model in self.phys_model.lens_light:
+            basis.append(light_model.light(x=self.xgrid_unmask, y=self.ygrid_unmask))
+        basis_unblurred = jnp.stack(basis, axis=1).astype(jnp.float32)
+
+        return apply_psf_to_mapping_matrix(
+            mapping_matrix=basis_unblurred,
+            psf_kernel=self.psf_kernel,
+            image_shape=self.image_shape,
+            unmasked_indices=self.unmasked_indices,
+            method=method,
+            psf_fft=self.psf_fft if method == 'fft' else None,
+            psf_shape=self.psf_shape if method == 'fft' else None,
+        )
     
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
         return self.pix_src_model.regularization_matrix(
@@ -145,6 +165,9 @@ class PixelizedLensSimulator:
         reg_scale: float,
         reg_coefficient: float,
         *,
+        include_lens_light: bool = False,
+        lens_light_ridge: float = 1e-8,
+        nonnegative: bool = False,
         inversion_backend: str = "exact",
         cg_tol: float = 1e-4,
         cg_maxiter: int = 40,
@@ -155,18 +178,20 @@ class PixelizedLensSimulator:
         d = jnp.array(data_vector)
         noise_var = jnp.array(noise_variance)
 
-        reg_matrix = self.pix_src_model.regularization_matrix(
+        reg_matrix_src = self.pix_src_model.regularization_matrix(
             points=self.source_mesh_beta,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
         )
 
         if inversion_backend == "fast":
+            if include_lens_light or nonnegative:
+                raise ValueError("include_lens_light/nonnegative currently require inversion_backend='exact'.")
             weights, indices = self.build_lens_mapping_operator()
             return OperatorInversion(
                 d=d,
                 noise_var=noise_var,
-                H=reg_matrix,
+                H=reg_matrix_src,
                 weights=weights,
                 indices=indices,
                 psf_fft=self.psf_fft,
@@ -181,7 +206,64 @@ class PixelizedLensSimulator:
             )
 
         blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
-        return LinearInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix)
+        if not include_lens_light:
+            if nonnegative:
+                return NNLSInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix_src)
+            return LinearInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix_src)
+
+        lens_basis_matrix = self.build_lens_light_basis_matrix()
+        F_total = jnp.concatenate([blurred_lens_map_matrix, lens_basis_matrix], axis=1)
+
+        n_src = int(reg_matrix_src.shape[0])
+        n_lens = int(lens_basis_matrix.shape[1])
+        ridge = jnp.array(max(float(lens_light_ridge), 0.0), dtype=jnp.float32)
+        H_lens = ridge * jnp.eye(n_lens, dtype=jnp.float32)
+        H_total = jnp.block(
+            [
+                [reg_matrix_src, jnp.zeros((n_src, n_lens), dtype=jnp.float32)],
+                [jnp.zeros((n_lens, n_src), dtype=jnp.float32), H_lens],
+            ]
+        )
+
+        if nonnegative:
+            return NNLSInversion(d=d, F=F_total, noise_cov=noise_var, H=H_total)
+        return LinearInversion(d=d, F=F_total, noise_cov=noise_var, H=H_total)
+
+    def reconstruct_source_and_lens_light(
+        self,
+        data_vector: Union[jnp.ndarray, np.ndarray],
+        noise_variance: Union[jnp.ndarray, np.ndarray],
+        reg_scale: float,
+        reg_coefficient: float,
+        lens_light_ridge: float = 1e-8,
+        nonnegative: bool = True,
+        return_2d: bool = False,
+    ):
+        inverter = self.build_inverter(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+            include_lens_light=True,
+            lens_light_ridge=lens_light_ridge,
+            nonnegative=nonnegative,
+            inversion_backend="exact",
+        )
+
+        x_total = inverter.solve()
+        n_src = int(self.source_mesh_beta.shape[0])
+        source_intensities = x_total[:n_src]
+        lens_light_intensities = x_total[n_src:]
+
+        model_data = inverter.model_predict(x_total)
+
+        if return_2d:
+            model_image = jnp.zeros((self.npix, self.npix))
+            model_image = model_image.at[~self.mask].set(model_data)
+        else:
+            model_image = model_data
+
+        return source_intensities, lens_light_intensities, self.source_mesh_beta, model_image, inverter
 
     def reconstruct_source(
         self,

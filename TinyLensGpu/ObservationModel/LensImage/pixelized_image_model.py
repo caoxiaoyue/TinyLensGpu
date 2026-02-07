@@ -113,6 +113,9 @@ class PixelizedImageProbModel(ck.Module):
         phys_model: PhysicalModel,
         mask: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
+        include_lens_light: bool = False,
+        nonnegative: bool = False,
+        lens_light_ridge: float = 1e-8,
         inversion_backend: str = "exact",
         cg_tol: float = 1e-4,
         cg_maxiter: int = 80,
@@ -151,6 +154,10 @@ class PixelizedImageProbModel(ck.Module):
             psf_kernel=psf_kernel,
             mask=mask,
         )
+
+        object.__setattr__(self, "include_lens_light", bool(include_lens_light))
+        object.__setattr__(self, "nonnegative", bool(nonnegative))
+        object.__setattr__(self, "lens_light_ridge", float(lens_light_ridge))
 
         object.__setattr__(self, "inversion_backend", str(inversion_backend))
         object.__setattr__(self, "cg_tol", float(cg_tol))
@@ -222,6 +229,9 @@ class PixelizedImageProbModel(ck.Module):
             noise_variance=noise_variance,
             reg_scale=reg_scale_val,
             reg_coefficient=reg_coeff_val,
+            include_lens_light=self.include_lens_light,
+            lens_light_ridge=self.lens_light_ridge,
+            nonnegative=self.nonnegative,
             inversion_backend=self.inversion_backend,
             cg_tol=self.cg_tol,
             cg_maxiter=self.cg_maxiter,
