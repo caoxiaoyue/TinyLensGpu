@@ -11,6 +11,145 @@ import jax
 from functools import partial
 
 
+def _kernel_weight_jax(distance: jnp.ndarray, scale: float, reg_type: str) -> jnp.ndarray:
+    scale = jnp.maximum(scale, 1e-6)
+    
+    if reg_type == 'exp':
+        return jnp.exp(-distance / scale)
+    elif reg_type == 'gauss':
+        return jnp.exp(-(distance ** 2) / (2.0 * scale * scale))
+    elif reg_type == 'matern32':
+        sqrt3 = jnp.sqrt(3.0)
+        z = sqrt3 * distance / scale
+        return (1.0 + z) * jnp.exp(-z)
+    elif reg_type == 'matern52':
+        sqrt5 = jnp.sqrt(5.0)
+        z = sqrt5 * distance / scale
+        return (1.0 + z + (z * z) / 3.0) * jnp.exp(-z)
+    else:
+        # Should be unreachable if validated
+        return jnp.exp(-distance / scale)
+
+
+@partial(jax.jit, static_argnames=['reg_type', 'k_neighbors'])
+def regularization_sparse_knn_from(
+    scale: float,
+    coefficient: float,
+    points: jnp.ndarray,
+    reg_type: str = 'exp',
+    k_neighbors: int = 16,
+):
+    """Build sparse KNN-graph Laplacian regularization in COO edge-list form.
+    
+    This implementation uses JAX operations (brute-force distance + top_k) 
+    to preserve differentiability w.r.t. points.
+
+    Returns
+    -------
+    rows, cols, values, n_source
+        COO entries for symmetric sparse regularization matrix H.
+    """
+    valid_types = {'exp', 'gauss', 'matern32', 'matern52'}
+    if reg_type not in valid_types:
+        raise ValueError(f"Unknown reg_type: '{reg_type}'. Must be one of {valid_types}.")
+
+    n_source = points.shape[0]
+    
+    # Handle trivial cases
+    if n_source == 0:
+        return (
+            jnp.zeros((0,), dtype=jnp.int32),
+            jnp.zeros((0,), dtype=jnp.int32),
+            jnp.zeros((0,), dtype=jnp.float32),
+            0,
+        )
+
+    if n_source == 1:
+        diag = jnp.array([max(float(coefficient), 1e-6)], dtype=jnp.float32)
+        return (
+            jnp.array([0], dtype=jnp.int32),
+            jnp.array([0], dtype=jnp.int32),
+            diag,
+            1,
+        )
+
+    # 1. Compute pairwise distances (N, N)
+    # Note: For very large N (>10k), this might be memory intensive on GPU.
+    diff = points[:, None, :] - points[None, :, :]
+    dist_sq = jnp.sum(diff**2, axis=-1)
+    # Add epsilon to avoid sqrt(0) gradient NaN at i=j
+    dist = jnp.sqrt(dist_sq + 1e-12)
+    
+    # 2. Find k-nearest neighbors
+    # We want smallest distances. top_k finds largest values, so we negate.
+    # IMPORTANT: explicitly mask self-distance to avoid self-neighbor selection
+    # under distance ties (e.g. duplicated points).
+    k = max(1, min(int(k_neighbors), int(n_source) - 1))
+
+    neg_dist = -dist
+    diag_idx = jnp.arange(n_source)
+    neg_dist = neg_dist.at[diag_idx, diag_idx].set(-jnp.inf)
+    top_vals, top_idx = jax.lax.top_k(neg_dist, k)
+
+    neighbors_dist = -top_vals  # (N, k)
+    neighbors_idx = top_idx     # (N, k)
+    
+    # 3. Compute weights
+    weights = _kernel_weight_jax(neighbors_dist, scale, reg_type)
+    weights = weights * coefficient
+    
+    # 4. Construct COO list (Directed Edges)
+    # i -> neighbors[i]
+    row_indices = jnp.repeat(jnp.arange(n_source), k)
+    col_indices = neighbors_idx.flatten()
+    edge_weights = weights.flatten()
+    
+    # 5. Symmetrization & Laplacian Construction
+    # We sum the directed edges: W_sym = W_dir + W_dir.T
+    # This means we include both (i, j) and (j, i) in the COO list.
+    # Off-diagonal entries in Laplacian are -w.
+    all_rows_off = jnp.concatenate([row_indices, col_indices])
+    all_cols_off = jnp.concatenate([col_indices, row_indices])
+    all_vals_off = jnp.concatenate([-edge_weights, -edge_weights])
+    
+    # Diagonal entries: D_ii = sum_{j!=i} |H_{ij}| + ridge
+    # Since H_{ij} (off-diag) are negative, we sum their negations (which are positive weights).
+    diag_sum = jax.ops.segment_sum(
+        -all_vals_off,
+        all_rows_off,
+        num_segments=n_source
+    )
+    
+    ridge = jnp.maximum(1e-8, 1e-6 * jnp.maximum(1.0, coefficient))
+    diag_vals = diag_sum + ridge
+    
+    # Add diagonal elements to COO lists
+    diag_rows = jnp.arange(n_source)
+    diag_cols = jnp.arange(n_source)
+    
+    final_rows = jnp.concatenate([all_rows_off, diag_rows])
+    final_cols = jnp.concatenate([all_cols_off, diag_cols])
+    final_vals = jnp.concatenate([all_vals_off, diag_vals])
+    
+    return (
+        final_rows.astype(jnp.int32),
+        final_cols.astype(jnp.int32),
+        final_vals.astype(jnp.float32),
+        n_source,
+    )
+
+
+def sparse_regularization_dense_from(
+    rows: jnp.ndarray,
+    cols: jnp.ndarray,
+    values: jnp.ndarray,
+    n_source: int,
+) -> jnp.ndarray:
+    """Convert sparse COO edge-list regularization to dense matrix."""
+    dense = jnp.zeros((int(n_source), int(n_source)), dtype=jnp.asarray(values).dtype)
+    return dense.at[(rows, cols)].add(values)
+
+
 @jax.jit
 def exp_cov_matrix_from(
     scale_coefficient: float,
@@ -275,5 +414,7 @@ __all__ = [
     'gauss_cov_matrix_from',
     'matern32_cov_matrix_from',
     'matern52_cov_matrix_from',
-    'regularization_matrix_gp_from'
+    'regularization_matrix_gp_from',
+    'regularization_sparse_knn_from',
+    'sparse_regularization_dense_from',
 ]

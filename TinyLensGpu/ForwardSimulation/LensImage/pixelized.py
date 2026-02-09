@@ -23,7 +23,24 @@ from TinyLensGpu.utils.lensing import (
 )
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.utils.mesh import sample_points_weighted
-from TinyLensGpu.utils.inversion import LinearInversion, OperatorInversion, NNLSInversion
+from TinyLensGpu.utils.inversion import (
+    LinearInversion,
+    OperatorInversion,
+    OperatorNNLSInversion,
+    NNLSInversion,
+)
+
+
+def _normalize_inversion_backend(name: str) -> str:
+    backend = str(name).strip().lower()
+    if backend in {"exact", "matrix"}:
+        return "matrix"
+    if backend in {"fast", "operator"}:
+        return "operator"
+    raise ValueError(
+        f"Unknown inversion_backend='{name}'. Expected one of: "
+        "'matrix', 'operator' (legacy aliases: 'exact', 'fast')."
+    )
 
 
 class PixelizedLensSimulator:
@@ -66,6 +83,10 @@ class PixelizedLensSimulator:
         self.psf_shape = (int(psf_h), int(psf_w))
         self.fft_shape = (self.npix + int(psf_h) - 1, self.npix + int(psf_w) - 1)
         self.psf_fft = jnp.fft.rfft2(self.psf_kernel, s=self.fft_shape)
+
+        self._cached_operator_weights = None
+        self._cached_operator_indices = None
+        self._cached_operator_signature = None
         
         self._generate_source_mesh(self.lensed_source_image, self.mask)
     
@@ -110,10 +131,79 @@ class PixelizedLensSimulator:
             radius_scale=self.pix_src_model.radius_scale,
         )
 
-    def build_lens_mapping_operator(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _operator_signature_from(self, source_mesh_beta: jnp.ndarray, data_mesh_beta: jnp.ndarray) -> Tuple:
+        source_np = np.asarray(source_mesh_beta, dtype=np.float32)
+        data_np = np.asarray(data_mesh_beta, dtype=np.float32)
+        return (
+            tuple(source_np.shape),
+            tuple(data_np.shape),
+            float(source_np.sum()),
+            float((source_np * source_np).sum()),
+            float(data_np.sum()),
+            float((data_np * data_np).sum()),
+            int(self.pix_src_model.k_neighbors),
+            str(self.pix_src_model.interp_kernel),
+            float(self.pix_src_model.radius_scale),
+        )
+
+    def clear_operator_cache(self) -> None:
+        self._cached_operator_weights = None
+        self._cached_operator_indices = None
+        self._cached_operator_signature = None
+
+    def build_lens_mapping_operator(
+        self,
+        *,
+        use_cache: bool = True,
+        cache_policy: str = "safe",
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        policy = str(cache_policy).strip().lower()
+
+        if use_cache and policy == "unsafe_static":
+            if self._cached_operator_weights is not None and self._cached_operator_indices is not None:
+                return self._cached_operator_weights, self._cached_operator_indices
+
+            source_mesh_beta = self.source_mesh_beta
+            data_mesh_beta = self.data_mesh_beta
+            weights, indices, _ = get_interpolation_weights(
+                points=source_mesh_beta,
+                query_points=data_mesh_beta,
+                k_neighbors=self.pix_src_model.k_neighbors,
+                kernel=self.pix_src_model.interp_kernel,
+                radius_scale=self.pix_src_model.radius_scale,
+            )
+            self._cached_operator_weights = weights
+            self._cached_operator_indices = indices
+            self._cached_operator_signature = "unsafe_static"
+            return weights, indices
+
+        source_mesh_beta = self.source_mesh_beta
+        data_mesh_beta = self.data_mesh_beta
+
+        if use_cache and policy == "safe":
+            signature = self._operator_signature_from(source_mesh_beta, data_mesh_beta)
+            if (
+                self._cached_operator_weights is not None
+                and self._cached_operator_indices is not None
+                and self._cached_operator_signature == signature
+            ):
+                return self._cached_operator_weights, self._cached_operator_indices
+
+            weights, indices, _ = get_interpolation_weights(
+                points=source_mesh_beta,
+                query_points=data_mesh_beta,
+                k_neighbors=self.pix_src_model.k_neighbors,
+                kernel=self.pix_src_model.interp_kernel,
+                radius_scale=self.pix_src_model.radius_scale,
+            )
+            self._cached_operator_weights = weights
+            self._cached_operator_indices = indices
+            self._cached_operator_signature = signature
+            return weights, indices
+
         weights, indices, _ = get_interpolation_weights(
-            points=self.source_mesh_beta,
-            query_points=self.data_mesh_beta,
+            points=source_mesh_beta,
+            query_points=data_mesh_beta,
             k_neighbors=self.pix_src_model.k_neighbors,
             kernel=self.pix_src_model.interp_kernel,
             radius_scale=self.pix_src_model.radius_scale,
@@ -168,26 +258,79 @@ class PixelizedLensSimulator:
         include_lens_light: bool = False,
         lens_light_ridge: float = 1e-8,
         nonnegative: bool = False,
-        inversion_backend: str = "exact",
+        inversion_backend: str = "matrix",
         cg_tol: float = 1e-4,
-        cg_maxiter: int = 40,
+        cg_maxiter: int = 120,
         slq_seed: int = 0,
-        slq_probes: int = 2,
-        slq_steps: int = 10,
-    ) -> Union[LinearInversion, OperatorInversion]:
+        slq_probes: int = 32,
+        slq_steps: int = 60,
+        evidence_mode: str = "accurate",
+        operator_cache_policy: str = "safe",
+        nnls_maxiter: int = 600,
+        nnls_tol: float = 1e-6,
+        nnls_lipschitz_iters: int = 12,
+    ) -> Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]:
         d = jnp.array(data_vector)
         noise_var = jnp.array(noise_variance)
+        backend = _normalize_inversion_backend(inversion_backend)
 
-        reg_matrix_src = self.pix_src_model.regularization_matrix(
-            points=self.source_mesh_beta,
-            reg_scale=reg_scale,
-            reg_coefficient=reg_coefficient,
-        )
+        reg_operator_mode = str(getattr(self.pix_src_model, "reg_operator_mode", "dense_gp")).strip().lower()
+        sparse_reg_enabled = reg_operator_mode == "sparse_knn"
+        sparse_rows = sparse_cols = sparse_values = None
+        sparse_n_source = None
 
-        if inversion_backend == "fast":
-            if include_lens_light or nonnegative:
-                raise ValueError("include_lens_light/nonnegative currently require inversion_backend='exact'.")
-            weights, indices = self.build_lens_mapping_operator()
+        if sparse_reg_enabled:
+            from TinyLensGpu.utils.lensing import regularization_sparse_knn_from
+
+            sparse_rows, sparse_cols, sparse_values, sparse_n_source = regularization_sparse_knn_from(
+                scale=float(reg_scale),
+                coefficient=float(reg_coefficient),
+                points=self.source_mesh_beta,
+                reg_type=self.pix_src_model.reg_type,
+                k_neighbors=int(getattr(self.pix_src_model, "reg_sparse_k_neighbors", 16)),
+            )
+
+        if backend == "operator":
+            if sparse_reg_enabled:
+                # Sparse operator mode does not require storing dense H.
+                reg_matrix_src = jnp.zeros((int(self.source_mesh_beta.shape[0]),), dtype=jnp.float32)
+            else:
+                reg_matrix_src = self.pix_src_model.regularization_matrix(
+                    points=self.source_mesh_beta,
+                    reg_scale=reg_scale,
+                    reg_coefficient=reg_coefficient,
+                )
+            if include_lens_light:
+                raise ValueError("include_lens_light currently requires inversion_backend='matrix'.")
+            weights, indices = self.build_lens_mapping_operator(
+                use_cache=True,
+                cache_policy=operator_cache_policy,
+            )
+            if nonnegative:
+                return OperatorNNLSInversion(
+                    d=d,
+                    noise_var=noise_var,
+                    H=reg_matrix_src,
+                    weights=weights,
+                    indices=indices,
+                    psf_fft=self.psf_fft,
+                    image_shape=self.image_shape,
+                    psf_shape=self.psf_shape,
+                    unmasked_indices=self.unmasked_indices,
+                    maxiter=nnls_maxiter,
+                    tol=nnls_tol,
+                    lipschitz_iters=nnls_lipschitz_iters,
+                    fista_seed=slq_seed,
+                    evidence_mode=evidence_mode,
+                    slq_seed=slq_seed,
+                    slq_probes=slq_probes,
+                    slq_steps=slq_steps,
+                    reg_operator_mode=reg_operator_mode,
+                    H_sparse_rows=sparse_rows,
+                    H_sparse_cols=sparse_cols,
+                    H_sparse_values=sparse_values,
+                    H_sparse_n_source=sparse_n_source,
+                )
             return OperatorInversion(
                 d=d,
                 noise_var=noise_var,
@@ -203,6 +346,19 @@ class PixelizedLensSimulator:
                 slq_seed=slq_seed,
                 slq_probes=slq_probes,
                 slq_steps=slq_steps,
+                evidence_mode=evidence_mode,
+                reg_operator_mode=reg_operator_mode,
+                H_sparse_rows=sparse_rows,
+                H_sparse_cols=sparse_cols,
+                H_sparse_values=sparse_values,
+                H_sparse_n_source=sparse_n_source,
+            )
+
+        if backend == "matrix":
+            reg_matrix_src = self.pix_src_model.regularization_matrix(
+                points=self.source_mesh_beta,
+                reg_scale=reg_scale,
+                reg_coefficient=reg_coefficient,
             )
 
         blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
@@ -247,7 +403,7 @@ class PixelizedLensSimulator:
             include_lens_light=True,
             lens_light_ridge=lens_light_ridge,
             nonnegative=nonnegative,
-            inversion_backend="exact",
+            inversion_backend="matrix",
         )
 
         x_total = inverter.solve()
@@ -273,7 +429,12 @@ class PixelizedLensSimulator:
         reg_coefficient: float,
         return_2d: bool = False,
         **kwargs,
-    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, Union[LinearInversion, OperatorInversion]]:
+    ) -> Tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion],
+    ]:
         """
         Reconstruct the source given observed data and noise.
 
@@ -308,7 +469,7 @@ class PixelizedLensSimulator:
         model_image : jnp.ndarray
             Model image. Shape is (npix, npix) if return_2d=True, 
             else (n_unmasked_pixels,) if return_2d=False.
-        inverter : Union[LinearInversion, OperatorInversion]
+        inverter : Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]
             Linear inversion solver object (cached for reuse)
         """
         inverter = self.build_inverter(

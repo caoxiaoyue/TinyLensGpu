@@ -52,9 +52,10 @@ class PixelizedImageProbModel(ck.Module):
     position_likelihood : dict, optional
         Position likelihood constraint configuration
     inversion_backend : str, optional
-        Inversion backend, "exact" or "implicit". Default is "exact".
+        Inversion backend, "matrix" or "operator".
+        Legacy aliases: "exact" -> "matrix", "fast" -> "operator".
     cg_tol : float, optional
-        Conjugate gradient tolerance for implicit inversion. Default is 1e-4.
+        Conjugate gradient tolerance for operator inversion.
     cg_maxiter : int, optional
         Maximum number of conjugate gradient iterations. Default is 40.
     slq_seed : int, optional
@@ -63,6 +64,10 @@ class PixelizedImageProbModel(ck.Module):
         Number of probe vectors for SLQ. Default is 2.
     slq_steps : int, optional
         Number of Lanczos steps for SLQ. Default is 10.
+    evidence_mode : str, optional
+        Operator evidence mode: "accurate" (default) or "fast".
+    operator_cache_policy : str, optional
+        Operator mapping cache policy: "safe" (default), "unsafe_static", or "off".
     
     Attributes
     ----------
@@ -116,12 +121,17 @@ class PixelizedImageProbModel(ck.Module):
         include_lens_light: bool = False,
         nonnegative: bool = False,
         lens_light_ridge: float = 1e-8,
-        inversion_backend: str = "exact",
+        inversion_backend: str = "matrix",
         cg_tol: float = 1e-4,
-        cg_maxiter: int = 80,
+        cg_maxiter: int = 120,
         slq_seed: int = 0,
-        slq_probes: int = 20,
-        slq_steps: int = 30,
+        slq_probes: int = 32,
+        slq_steps: int = 60,
+        evidence_mode: str = "accurate",
+        operator_cache_policy: str = "safe",
+        nnls_maxiter: int = 600,
+        nnls_tol: float = 1e-6,
+        nnls_lipschitz_iters: int = 12,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         
@@ -159,12 +169,22 @@ class PixelizedImageProbModel(ck.Module):
         object.__setattr__(self, "nonnegative", bool(nonnegative))
         object.__setattr__(self, "lens_light_ridge", float(lens_light_ridge))
 
-        object.__setattr__(self, "inversion_backend", str(inversion_backend))
+        backend = str(inversion_backend).strip().lower()
+        if backend == "exact":
+            backend = "matrix"
+        elif backend == "fast":
+            backend = "operator"
+        object.__setattr__(self, "inversion_backend", backend)
         object.__setattr__(self, "cg_tol", float(cg_tol))
         object.__setattr__(self, "cg_maxiter", int(cg_maxiter))
         object.__setattr__(self, "slq_seed", int(slq_seed))
         object.__setattr__(self, "slq_probes", int(slq_probes))
         object.__setattr__(self, "slq_steps", int(slq_steps))
+        object.__setattr__(self, "evidence_mode", str(evidence_mode))
+        object.__setattr__(self, "operator_cache_policy", str(operator_cache_policy))
+        object.__setattr__(self, "nnls_maxiter", int(nnls_maxiter))
+        object.__setattr__(self, "nnls_tol", float(nnls_tol))
+        object.__setattr__(self, "nnls_lipschitz_iters", int(nnls_lipschitz_iters))
         
         self._inverter_cache = None
         self._cached_params = None
@@ -238,6 +258,11 @@ class PixelizedImageProbModel(ck.Module):
             slq_seed=self.slq_seed,
             slq_probes=self.slq_probes,
             slq_steps=self.slq_steps,
+            evidence_mode=self.evidence_mode,
+            operator_cache_policy=self.operator_cache_policy,
+            nnls_maxiter=self.nnls_maxiter,
+            nnls_tol=self.nnls_tol,
+            nnls_lipschitz_iters=self.nnls_lipschitz_iters,
         )
 
         return inverter

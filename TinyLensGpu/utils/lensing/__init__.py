@@ -7,7 +7,9 @@ from .regularization import (
     gauss_cov_matrix_from,
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
-    regularization_matrix_gp_from
+    regularization_matrix_gp_from,
+    regularization_sparse_knn_from,
+    sparse_regularization_dense_from,
 )
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     'gauss_cov_matrix_from',
     'matern32_cov_matrix_from',
     'matern52_cov_matrix_from',
-    'regularization_matrix_gp_from'
+    'regularization_matrix_gp_from',
+    'regularization_sparse_knn_from',
+    'sparse_regularization_dense_from',
 ]

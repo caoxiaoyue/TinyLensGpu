@@ -13,6 +13,7 @@ This module tests the pixelized source reconstruction pipeline including:
 
 import pytest
 import numpy as np
+import jax
 import jax.numpy as jnp
 from numpy.testing import assert_allclose
 
@@ -26,6 +27,8 @@ from TinyLensGpu.utils.lensing import (
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
     regularization_matrix_gp_from,
+    regularization_sparse_knn_from,
+    sparse_regularization_dense_from,
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
     apply_psf_to_mapping_matrix,
@@ -356,6 +359,56 @@ class TestRegularizationMatrices:
         expected = 1.0  # Base value
         assert_allclose(diagonal - 1e-6, expected * jnp.ones_like(diagonal), atol=1e-4,
                        err_msg="Diagonal should be ~1 (self-covariance)")
+
+
+    def test_sparse_knn_no_self_neighbor_offdiag_under_duplicates(self):
+        """Sparse KNN regularization should not include self-edges in off-diagonal terms."""
+        points = np.array([
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+        ], dtype=np.float32)
+        rows, cols, values, n_source = regularization_sparse_knn_from(
+            scale=0.1,
+            coefficient=1.0,
+            points=jnp.array(points),
+            reg_type='exp',
+            k_neighbors=2,
+        )
+
+        rows = np.asarray(rows)
+        cols = np.asarray(cols)
+        n_diag = int(n_source)
+
+        diag_mask = rows == cols
+        # Exactly n_source diagonal terms should come from the explicit diagonal block.
+        # Any additional diagonal entry would indicate a leaked self-neighbor edge.
+        assert int(diag_mask.sum()) == n_diag
+
+        dense = sparse_regularization_dense_from(rows, cols, values, n_source)
+        dense_np = np.asarray(dense)
+        assert_allclose(dense_np, dense_np.T, rtol=1e-6, atol=1e-6)
+
+    def test_sparse_knn_is_differentiable_wrt_points(self, source_points):
+        """Sparse KNN regularization path should support autodiff through points."""
+
+        def loss_fn(points):
+            rows, cols, values, n_source = regularization_sparse_knn_from(
+                scale=0.1,
+                coefficient=1.2,
+                points=points,
+                reg_type='exp',
+                k_neighbors=8,
+            )
+            dense = sparse_regularization_dense_from(rows, cols, values, n_source)
+            return jnp.sum(dense * dense)
+
+        grad = jax.grad(loss_fn)(source_points)
+        assert grad.shape == source_points.shape
+        assert jnp.all(jnp.isfinite(grad))
 
 
 # =============================================================================

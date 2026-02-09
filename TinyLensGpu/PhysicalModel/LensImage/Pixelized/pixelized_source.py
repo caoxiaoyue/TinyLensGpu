@@ -11,7 +11,11 @@ import jax.numpy as jnp
 from typing import Optional, Dict, Any
 
 from TinyLensGpu.Inference.param_u import ParamU
-from TinyLensGpu.utils.lensing import regularization_matrix_gp_from
+from TinyLensGpu.utils.lensing import (
+    regularization_matrix_gp_from,
+    regularization_sparse_knn_from,
+    sparse_regularization_dense_from,
+)
 
 
 class PixelizedSourceModel(ck.Module):
@@ -83,6 +87,8 @@ class PixelizedSourceModel(ck.Module):
         k_neighbors: int = 5,
         interp_kernel: str = 'wendland_c4',
         radius_scale: float = 1.5,
+        reg_operator_mode: str = 'dense_gp',
+        reg_sparse_k_neighbors: int = 16,
     ) -> None:
         super().__init__()
         
@@ -99,6 +105,14 @@ class PixelizedSourceModel(ck.Module):
         object.__setattr__(self, 'k_neighbors', k_neighbors)
         object.__setattr__(self, 'interp_kernel', interp_kernel)
         object.__setattr__(self, 'radius_scale', radius_scale)
+
+        mode = str(reg_operator_mode).strip().lower()
+        if mode not in {'dense_gp', 'sparse_knn'}:
+            raise ValueError(
+                f"Unknown reg_operator_mode: '{reg_operator_mode}'. Must be one of {'dense_gp', 'sparse_knn'}."
+            )
+        object.__setattr__(self, 'reg_operator_mode', mode)
+        object.__setattr__(self, 'reg_sparse_k_neighbors', max(1, int(reg_sparse_k_neighbors)))
     
     def get_config_dict(self) -> Dict[str, Any]:
         """Get configuration as a dictionary."""
@@ -114,6 +128,8 @@ class PixelizedSourceModel(ck.Module):
             'k_neighbors': self.k_neighbors,
             'interp_kernel': self.interp_kernel,
             'radius_scale': self.radius_scale,
+            'reg_operator_mode': self.reg_operator_mode,
+            'reg_sparse_k_neighbors': self.reg_sparse_k_neighbors,
         }
     
 
@@ -124,12 +140,35 @@ class PixelizedSourceModel(ck.Module):
         reg_scale: Optional[float] = None,
         reg_coefficient: Optional[float] = None,
         reg_type: Optional[str] = None,
+        reg_operator_mode: Optional[str] = None,
+        reg_sparse_k_neighbors: Optional[int] = None,
     ) -> jnp.ndarray:
         scale = reg_scale if reg_scale is not None else self.reg_scale.value
         coefficient = (
             reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
         )
         kernel_type = reg_type if reg_type is not None else self.reg_type
+        operator_mode = reg_operator_mode if reg_operator_mode is not None else self.reg_operator_mode
+        sparse_k = (
+            int(reg_sparse_k_neighbors)
+            if reg_sparse_k_neighbors is not None
+            else int(self.reg_sparse_k_neighbors)
+        )
+
+        if operator_mode == 'sparse_knn':
+            rows, cols, values, n_source = regularization_sparse_knn_from(
+                scale=scale,
+                coefficient=coefficient,
+                points=points,
+                reg_type=kernel_type,
+                k_neighbors=sparse_k,
+            )
+            return sparse_regularization_dense_from(rows, cols, values, n_source)
+        if operator_mode != 'dense_gp':
+            raise ValueError(
+                f"Unknown reg_operator_mode: '{operator_mode}'. "
+                "Must be one of {'dense_gp', 'sparse_knn'}."
+            )
 
         return regularization_matrix_gp_from(
             scale=scale,

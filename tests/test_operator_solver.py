@@ -7,7 +7,12 @@ import numpy as np
 import jax.numpy as jnp
 from numpy.testing import assert_allclose
 
-from TinyLensGpu.utils.inversion import LinearInversion, OperatorInversion
+from TinyLensGpu.utils.inversion import (
+    LinearInversion,
+    NNLSInversion,
+    OperatorInversion,
+    OperatorNNLSInversion,
+)
 from TinyLensGpu.utils.inversion.operator_solver import (
     _apply_psf_unmasked_to_unmasked,
     _apply_mapping,
@@ -200,10 +205,10 @@ class TestSolverComparison:
         }
 
     def test_solve_comparison(self, prob_model_setup):
-        """Compare reconstructed source between Exact and Fast backends."""
+        """Compare reconstructed source between matrix and operator backends."""
         setup = prob_model_setup
         
-        # 1. Exact Inversion
+        # 1. Matrix inversion
         model_exact = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
@@ -211,7 +216,7 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='exact'
+            inversion_backend='matrix'
         )
         
         # Access simulator directly to get inverter
@@ -222,29 +227,28 @@ class TestSolverComparison:
             data_vector, noise_variance, 
             model_exact.pix_src_model.reg_scale.value,
             model_exact.pix_src_model.reg_coefficient.value,
-            inversion_backend='exact'
+            inversion_backend='matrix'
         )
         s_exact = inverter_exact.solve()
         
-        # 2. Fast Operator Inversion
+        # 2. Operator inversion
         inverter_fast = model_exact.simulator.build_inverter(
             data_vector, noise_variance,
             model_exact.pix_src_model.reg_scale.value,
             model_exact.pix_src_model.reg_coefficient.value,
-            inversion_backend='fast',
+            inversion_backend='operator',
             cg_tol=1e-8, # High precision for comparison
-            cg_maxiter=200
+            cg_maxiter=400
         )
         s_fast = inverter_fast.solve()
         
         # Compare
         # Note: CG might not converge exactly to direct solve result, but should be close
-        # Relaxed tolerance for CG approximation
-        assert_allclose(s_fast, s_exact, rtol=0.02, atol=1e-3,
+        assert_allclose(s_fast, s_exact, rtol=1.5e-2, atol=1e-3,
                        err_msg="Operator solver result should match LinearInversion")
 
     def test_log_evidence_comparison(self, prob_model_setup):
-        """Compare log evidence between Exact and Fast backends."""
+        """Compare log evidence between matrix and operator backends."""
         setup = prob_model_setup
         
         # 1. Exact
@@ -255,7 +259,7 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='exact'
+            inversion_backend='matrix'
         )
         log_ev_exact = model_exact.log_evidence()
         
@@ -267,10 +271,11 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='fast',
+            inversion_backend='operator',
             cg_tol=1e-6,
-            slq_probes=10, # More probes for better estimation
-            slq_steps=30
+            cg_maxiter=300,
+            slq_probes=32,
+            slq_steps=60,
         )
         log_ev_fast = model_fast.log_evidence()
         
@@ -279,13 +284,11 @@ class TestSolverComparison:
         # But for small problems, they should be relatively close
         print(f"Log Evidence: Exact={log_ev_exact}, Fast={log_ev_fast}")
         
-        # Allow some deviation due to stochastic nature of SLQ
-        # We just want to ensure it's not completely off (e.g. sign error or order of magnitude)
         diff = abs(log_ev_exact - log_ev_fast)
-        assert diff < 20.0 or diff / abs(log_ev_exact) < 0.05, \
+        assert diff < 0.25 or diff / abs(log_ev_exact) < 2e-3, \
             f"Log evidence mismatch too large: Exact={log_ev_exact}, Fast={log_ev_fast}"
 
-    def test_reconstruct_source_works_with_fast_backend(self, prob_model_setup):
+    def test_reconstruct_source_works_with_operator_backend(self, prob_model_setup):
         """
         Check if reconstruct_source works with fast backend.
         """
@@ -297,7 +300,7 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='fast'
+            inversion_backend='operator'
         )
         
         # This calls reconstruct_source internally via prob_model (if we had a method)
@@ -310,9 +313,202 @@ class TestSolverComparison:
             data_vector, noise_variance,
             model.pix_src_model.reg_scale.value,
             model.pix_src_model.reg_coefficient.value,
-            inversion_backend='fast'
+            inversion_backend='operator'
         )
         
         assert isinstance(inverter, OperatorInversion)
         assert not jnp.any(jnp.isnan(source_intensities))
         assert not jnp.any(jnp.isnan(model_image))
+
+    def test_backend_legacy_aliases(self, prob_model_setup):
+        """Legacy exact/fast aliases should remain functional."""
+        setup = prob_model_setup
+        model_exact = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='exact',
+        )
+        assert model_exact.inversion_backend == 'matrix'
+
+        model_fast = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='fast',
+        )
+        assert model_fast.inversion_backend == 'operator'
+
+    def test_operator_nonnegative_matches_matrix_nnls(self, prob_model_setup):
+        """Operator NNLS (FISTA) should match matrix NNLS backend."""
+        setup = prob_model_setup
+
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='matrix',
+            nonnegative=True,
+        )
+
+        data_vector = model.image_data[~model.mask]
+        noise_variance = model.noise_map[~model.mask] ** 2
+        reg_scale = model.pix_src_model.reg_scale.value
+        reg_coeff = model.pix_src_model.reg_coefficient.value
+
+        inv_matrix = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            inversion_backend='matrix',
+            nonnegative=True,
+        )
+        inv_operator = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            inversion_backend='operator',
+            nonnegative=True,
+            nnls_maxiter=900,
+            nnls_tol=1e-7,
+        )
+
+        assert isinstance(inv_matrix, NNLSInversion)
+        assert isinstance(inv_operator, OperatorNNLSInversion)
+
+        x_matrix = inv_matrix.solve()
+        x_operator = inv_operator.solve()
+
+        assert jnp.all(x_operator >= -1e-7)
+        # Different NNLS solvers can reach slightly different active-set solutions
+        # with near-identical objective values. We keep a loose coefficient check
+        # and strict objective/model checks below.
+        assert_allclose(x_operator, x_matrix, rtol=0.10, atol=5e-2)
+
+        model_matrix = inv_matrix.model_predict(x_matrix)
+        model_operator = inv_operator.model_predict(x_operator)
+        assert_allclose(model_operator, model_matrix, rtol=0.02, atol=2e-3)
+
+        obj_matrix = float(np.asarray(inv_matrix.objective_value(x_matrix)))
+        obj_operator = float(np.asarray(inv_operator.objective_value(x_operator)))
+        assert abs(obj_operator - obj_matrix) <= max(0.5, 0.01 * abs(obj_matrix))
+
+    def test_operator_nonnegative_log_evidence_finite(self, prob_model_setup):
+        """Nonnegative operator backend returns a finite approximate evidence."""
+        setup = prob_model_setup
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='operator',
+            nonnegative=True,
+        )
+        log_ev = model.log_evidence()
+        assert np.isfinite(log_ev)
+
+    def test_sparse_knn_operator_matches_matrix_solution(self, prob_model_setup):
+        """Sparse regularization mode should agree between matrix and operator solves."""
+        setup = prob_model_setup
+        pix_src = setup['phys_model'].get_pixelized_source_model()
+        object.__setattr__(pix_src, 'reg_operator_mode', 'sparse_knn')
+        object.__setattr__(pix_src, 'reg_sparse_k_neighbors', 16)
+
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='matrix',
+        )
+
+        data_vector = model.image_data[~model.mask]
+        noise_variance = model.noise_map[~model.mask] ** 2
+        reg_scale = model.pix_src_model.reg_scale.value
+        reg_coeff = model.pix_src_model.reg_coefficient.value
+
+        inv_matrix = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            inversion_backend='matrix',
+        )
+        inv_operator = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            inversion_backend='operator',
+            cg_tol=1e-7,
+            cg_maxiter=500,
+            evidence_mode='accurate',
+            slq_probes=32,
+            slq_steps=60,
+        )
+
+        assert isinstance(inv_operator, OperatorInversion)
+        assert inv_operator.reg_operator_mode == 'sparse_knn'
+        assert inv_operator.H_sparse_values.shape[0] > 0
+        assert inv_operator.H.ndim == 1
+
+        s_matrix = inv_matrix.solve()
+        s_operator = inv_operator.solve()
+
+        assert_allclose(s_operator, s_matrix, rtol=1e-2, atol=1e-3)
+
+        m_matrix = inv_matrix.model_predict(s_matrix)
+        m_operator = inv_operator.model_predict(s_operator)
+        assert_allclose(m_operator, m_matrix, rtol=2e-3, atol=2e-4)
+
+    def test_sparse_knn_operator_log_evidence_close_to_matrix(self, prob_model_setup):
+        """Sparse regularization mode keeps evidence close across backends."""
+        setup = prob_model_setup
+        pix_src = setup['phys_model'].get_pixelized_source_model()
+        object.__setattr__(pix_src, 'reg_operator_mode', 'sparse_knn')
+        object.__setattr__(pix_src, 'reg_sparse_k_neighbors', 16)
+
+        model_matrix = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='matrix',
+        )
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=setup['phys_model'],
+            mask=setup['mask'],
+            inversion_backend='operator',
+            evidence_mode='accurate',
+            cg_tol=1e-7,
+            cg_maxiter=500,
+            slq_probes=32,
+            slq_steps=60,
+        )
+
+        log_ev_matrix = model_matrix.log_evidence()
+        log_ev_operator = model_operator.log_evidence()
+
+        diff = abs(log_ev_matrix - log_ev_operator)
+        assert diff < 0.8 or diff / max(abs(log_ev_matrix), 1.0) < 1e-3
