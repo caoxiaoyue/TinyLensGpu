@@ -82,17 +82,44 @@ def regularization_sparse_knn_from(
     
     # 2. Find k-nearest neighbors
     # We want smallest distances. top_k finds largest values, so we negate.
-    # IMPORTANT: explicitly mask self-distance to avoid self-neighbor selection
-    # under distance ties (e.g. duplicated points).
+    # We retrieve k+1 neighbors to ensure we can filter out the self-loop (distance 0).
     k = max(1, min(int(k_neighbors), int(n_source) - 1))
+    search_k = k + 1
 
     neg_dist = -dist
-    diag_idx = jnp.arange(n_source)
-    neg_dist = neg_dist.at[diag_idx, diag_idx].set(-jnp.inf)
-    top_vals, top_idx = jax.lax.top_k(neg_dist, k)
+    top_vals, top_idx = jax.lax.top_k(neg_dist, search_k)
 
-    neighbors_dist = -top_vals  # (N, k)
-    neighbors_idx = top_idx     # (N, k)
+    # 3. Filter out self-loops
+    # We look for the index of the point itself (row index) in the top-k results.
+    # If found, we remove it. If not found (e.g. all neighbors are duplicates),
+    # we remove the last neighbor to keep exactly k neighbors.
+    row_indices = jnp.arange(n_source)
+    is_self = top_idx == row_indices[:, None]
+    
+    # Check if self is found in each row
+    has_self = jnp.any(is_self, axis=1)
+    
+    # Find position of self. argmax returns first True. If all False, returns 0.
+    self_pos = jnp.argmax(is_self, axis=1)
+    
+    # Determine which index to drop
+    # If self is present, drop self_pos.
+    # If self is NOT present, drop the last element (index k).
+    drop_idx = jnp.where(has_self, self_pos, k)
+    drop_idx = drop_idx[:, None]  # (N, 1)
+
+    # Construct indices to gather k columns
+    col_idx = jnp.arange(k)
+    col_idx = jnp.tile(col_idx, (n_source, 1))
+    
+    # Shift indices to skip the dropped element
+    gather_cols = col_idx + (col_idx >= drop_idx).astype(jnp.int32)
+    
+    # Gather values and indices
+    neighbors_idx = jnp.take_along_axis(top_idx, gather_cols, axis=1)
+    neighbors_vals = jnp.take_along_axis(top_vals, gather_cols, axis=1)
+    
+    neighbors_dist = -neighbors_vals  # (N, k)
     
     # 3. Compute weights
     weights = _kernel_weight_jax(neighbors_dist, scale, reg_type)

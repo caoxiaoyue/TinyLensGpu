@@ -11,6 +11,16 @@ from .regularization import (
     regularization_sparse_knn_from,
     sparse_regularization_dense_from,
 )
+from .point_source_solver import (
+    solve_lens_equation_optimization_core,
+    solve_lens_equation_mesh_refine_core,
+    solve_lens_equation_optimization,
+    solve_lens_equation_mesh_refine,
+    post_process_images,
+    select_unique_images_fixed,
+    build_permutation_indices,
+    min_assignment_chi2,
+)
 
 __all__ = [
     'lens_mapping_matrix_from',
@@ -24,4 +34,12 @@ __all__ = [
     'regularization_matrix_gp_from',
     'regularization_sparse_knn_from',
     'sparse_regularization_dense_from',
+    'solve_lens_equation_optimization_core',
+    'solve_lens_equation_mesh_refine_core',
+    'solve_lens_equation_optimization',
+    'solve_lens_equation_mesh_refine',
+    'post_process_images',
+    'select_unique_images_fixed',
+    'build_permutation_indices',
+    'min_assignment_chi2',
 ]
