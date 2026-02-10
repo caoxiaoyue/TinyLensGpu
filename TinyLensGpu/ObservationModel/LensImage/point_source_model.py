@@ -20,6 +20,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.lensing.point_source_solver import (
     build_permutation_indices,
     min_assignment_chi2,
+    min_assignment_chi2_hungarian,
     select_unique_images_fixed,
     solve_lens_equation_mesh_refine,
     solve_lens_equation_mesh_refine_core,
@@ -101,8 +102,20 @@ class PointSourceProbModel(ck.Module):
         object.__setattr__(self, "_cfg_depth", int(cfg.get("depth", 10)))
         object.__setattr__(self, "_cfg_search_factor", float(cfg.get("search_factor", 2.0)))
 
-        perms = build_permutation_indices(self.n_observed)
-        object.__setattr__(self, "_perm_indices", perms)
+        # Use Hungarian algorithm if N > 4 to avoid combinatorial explosion
+        # Otherwise use permutation indices for GPU efficiency
+        self._use_hungarian = self.n_observed > 4
+        
+        if self._use_hungarian:
+            object.__setattr__(self, "_perm_indices", None)
+        else:
+            perms = build_permutation_indices(self.n_observed)
+            object.__setattr__(self, "_perm_indices", perms)
+
+        # Precompute log-normalization constant for Gaussian likelihood: sum(log(2 * pi * sigma^2))
+        # This corresponds to the constant term in the 2D Gaussian log-likelihood for N points.
+        log_norm = jnp.sum(jnp.log(2.0 * jnp.pi * jnp.square(sigma)))
+        object.__setattr__(self, "_log_norm", log_norm)
 
     @staticmethod
     def _build_source_param(name: str, value: Optional[Union[ParamU, float]]) -> ParamU:
@@ -213,19 +226,25 @@ class PointSourceProbModel(ck.Module):
         enough_mask = jnp.all(selected_mask)
         valid = jnp.logical_and(finite_ok, jnp.logical_and(enough_images, enough_mask))
 
-        chi2 = min_assignment_chi2(
-            observed_positions=self.observed_positions,
-            predicted_positions=selected,
-            sigma_pos=self.position_sigma,
-            permutation_indices=self._perm_indices,
-        )
-        log_like = -0.5 * chi2
+        if self._use_hungarian:
+            chi2 = min_assignment_chi2_hungarian(
+                observed_positions=self.observed_positions,
+                predicted_positions=selected,
+                sigma_pos=self.position_sigma,
+            )
+        else:
+            chi2 = min_assignment_chi2(
+                observed_positions=self.observed_positions,
+                predicted_positions=selected,
+                sigma_pos=self.position_sigma,
+                permutation_indices=self._perm_indices,
+            )
+        log_like = -0.5 * chi2 - self._log_norm
 
         return jnp.where(valid, log_like, self.min_log_like)
 
-    def likelihood(self, debug: bool = True) -> float:
+    def likelihood(self) -> float:
         """Return scalar log-likelihood value."""
-        del debug
         return float(np.asarray(self.__call__()))
 
     def __repr__(self) -> str:

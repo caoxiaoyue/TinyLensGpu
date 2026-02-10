@@ -15,6 +15,7 @@ from typing import Callable, Tuple
 
 import jax
 import numpy as np
+import scipy.optimize
 from jax import jacfwd, lax, vmap
 import jax.numpy as jnp
 
@@ -276,7 +277,39 @@ def select_unique_images_fixed(
     tolerance: float,
     cluster_tol: float,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Select up to n_select unique valid images with fixed output shape."""
+    """
+    Select a fixed number of unique valid images from candidates.
+
+    This function filters candidate image positions by checking:
+    1. Numerical validity: The distance (residual) must be within `tolerance`.
+    2. Uniqueness: The image must not be within `cluster_tol` of already selected images.
+    
+    It uses a fixed output shape and JAX control flow (`lax.scan`, `lax.cond`) to ensure
+    the function is JIT-compilable and efficient on GPUs, avoiding dynamic array shapes.
+
+    Parameters
+    ----------
+    images : jnp.ndarray
+        Candidate image positions, shape (N, 2).
+    dists : jnp.ndarray
+        Ray-traced source-plane position residuals for each image candidate, shape (N,).
+    n_select : int
+        The exact number of images to return. This is a static argument for JIT.
+    tolerance : float
+        Maximum allowed residual for a candidate to be considered a valid root.
+    cluster_tol : float
+        Minimum separation between unique images to avoid duplicates.
+
+    Returns
+    -------
+    selected_images : jnp.ndarray
+        Array of selected image positions, shape (n_select, 2).
+    selected_mask : jnp.ndarray
+        Boolean mask indicating valid entries in selected_images, shape (n_select,).
+    count : jnp.ndarray
+        Scalar integer indicating the total number of valid images found.
+    """
+    # Sort by residual distance to prioritize better solutions
     sort_idx = jnp.argsort(dists)
     sorted_images = images[sort_idx]
     sorted_dists = dists[sort_idx]
@@ -291,13 +324,16 @@ def select_unique_images_fixed(
         curr_img = sorted_images[idx]
         curr_dist = sorted_dists[idx]
 
+        # Check for duplicates against all previously selected images
         sep = jnp.linalg.norm(selected - curr_img, axis=-1)
         duplicated = jnp.any(jnp.logical_and(selected_mask, sep < cluster_tol))
 
+        # Filtering conditions
         valid_dist = curr_dist < tolerance
         has_slot = count < n_select
         can_add = jnp.logical_and(jnp.logical_and(valid_dist, ~duplicated), has_slot)
 
+        # Update state using JAX conditional updates to keep shapes static
         selected = lax.cond(
             can_add,
             lambda arr: arr.at[count].set(curr_img),
@@ -314,6 +350,7 @@ def select_unique_images_fixed(
 
         return (selected, selected_mask, count), None
 
+    # Scan through all sorted candidates
     final_state, _ = lax.scan(
         body_fn,
         (init_images, init_mask, init_count),
@@ -323,12 +360,45 @@ def select_unique_images_fixed(
 
 
 def build_permutation_indices(n_points: int) -> jnp.ndarray:
-    """Build all permutation indices for assignment-invariant matching."""
+    """
+    Build all possible permutation indices for a given number of points.
+
+    This utility is used for assignment-invariant likelihood calculations, where
+    the order of observed vs. predicted images is unknown. By precomputing all
+    N! permutations, we can efficiently find the minimum chi-square across all
+    possible one-to-one assignments on the GPU.
+
+    Parameters
+    ----------
+    n_points : int
+        The number of points (images) to permute.
+
+    Returns
+    -------
+    permutation_indices : jnp.ndarray
+        A 2D array of shape (N!, N) containing all permutation index sequences.
+
+    Examples
+    --------
+    >>> build_permutation_indices(3)
+    Array([[0, 1, 2],
+           [0, 2, 1],
+           [1, 0, 2],
+           [1, 2, 0],
+           [2, 0, 1],
+           [2, 1, 0]], dtype=int32)
+
+    Notes
+    -----
+    The number of permutations grows factorially (N!). To avoid memory issues
+    and combinatorial explosion, this is restricted to N <= 8. For larger N,
+    the Hungarian algorithm (`min_assignment_chi2_hungarian`) should be used.
+    """
     n_points = int(n_points)
     if n_points < 1:
         raise ValueError("n_points must be >= 1")
     if n_points > 8:
-        raise ValueError("n_points > 8 is not supported due combinatorial explosion")
+        raise ValueError("n_points > 8 is not supported due combinatorial explosion (N! growth)")
 
     perm = np.array(list(itertools.permutations(range(n_points))), dtype=np.int32)
     return jnp.asarray(perm)
@@ -341,16 +411,130 @@ def min_assignment_chi2(
     sigma_pos: jnp.ndarray,
     permutation_indices: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Compute minimum chi-square under all one-to-one assignments."""
+    """
+    Compute the minimum chi-square by testing all possible image assignments.
+
+    In strong lensing, the solver might return images in a different order than 
+    the observations. This function solves the "assignment problem" by brute-force
+    evaluating the chi-square for every possible permutation of the predicted 
+    images and returning the minimum.
+
+    This approach is highly efficient on GPUs for a small number of images (N <= 4)
+    because it uses vectorized matrix operations instead of iterative algorithms.
+
+    Parameters
+    ----------
+    observed_positions : jnp.ndarray
+        The observed image positions, shape (N, 2).
+    predicted_positions : jnp.ndarray
+        The predicted image positions from the lens model, shape (N, 2).
+    sigma_pos : jnp.ndarray
+        The 1D array of positional uncertainties for each observed image, shape (N,).
+    permutation_indices : jnp.ndarray
+        Precomputed permutation indices of shape (N!, N), usually from 
+        `build_permutation_indices`.
+
+    Returns
+    -------
+    min_chi2 : jnp.ndarray
+        The minimum chi-square value across all possible assignments.
+    """
+    # Small epsilon to avoid division by zero
     sigma2 = jnp.square(sigma_pos) + 1.0e-12
 
+    # Compute the cost matrix: C_ij = (obs_i - pred_j)^2 / sigma_i^2
+    # residual shape: (N_obs, N_pred, 2)
     residual = observed_positions[:, None, :] - predicted_positions[None, :, :]
+    # sqdist shape: (N_obs, N_pred)
     sqdist = jnp.sum(jnp.square(residual), axis=-1)
+    # cost shape: (N_obs, N_pred)
     cost = sqdist / sigma2[:, None]
 
+    # Use the precomputed permutations to sum up costs for every assignment.
+    # We use JAX advanced indexing and broadcasting to compute all permutations at once.
+    # obs_idx: [1, N] array containing [[0, 1, ..., N-1]]
     obs_idx = jnp.arange(observed_positions.shape[0])[None, :]
+    
+    # cost[obs_idx, permutation_indices] uses advanced indexing:
+    # - obs_idx has shape (1, N) and provides the observed indices [0..N-1].
+    # - permutation_indices has shape (N!, N); each row is one assignment of predicted indices.
+    # Broadcasting produces an array of shape (N!, N) where:
+    #   selected[i, j] = cost[j, permutation_indices[i, j]]
+    # i.e. row i lists the per-image costs for the i-th one-to-one assignment.
+    #
+    # Example with N=3 (3 observed, 3 predicted images):
+    #   obs_idx = [[0, 1, 2]]  # shape (1, 3)
+    #   permutation_indices = [[0, 1, 2],  # shape (6, 3), all 3! = 6 permutations
+    #                         [0, 2, 1],
+    #                         [1, 0, 2],
+    #                         [1, 2, 0],
+    #                         [2, 0, 1],
+    #                         [2, 1, 0]]
+    #   cost = [[0.1, 0.5, 0.9],  # shape (3, 3): cost[i,j] = cost matching observed i with predicted j
+    #           [0.2, 0.6, 1.0],
+    #           [0.3, 0.7, 1.1]]
+    #   cost[obs_idx, permutation_indices] = [[0.1, 0.6, 1.1],  # shape (6, 3): each row is one assignment's costs
+    #                                         [0.1, 1.0, 0.7],
+    #                                         [0.5, 0.2, 1.1],
+    #                                         [0.5, 1.0, 0.3],
+    #                                         [0.9, 0.2, 0.7],
+    #                                         [0.9, 0.6, 0.3]]
+    #   perm_cost = [1.8, 1.8, 1.8, 1.8, 1.8, 1.8]  # shape (6,): sum each row to get total cost per assignment
+    
+    # Sum along axis 1 to get total chi-square for each of the N! permutations.
+    # perm_cost shape: (N_permutations,)
     perm_cost = jnp.sum(cost[obs_idx, permutation_indices], axis=1)
+    
+    # Return the global minimum cost (best assignment)
     return jnp.min(perm_cost)
+
+
+def _hungarian_assignment_callback(cost_matrix):
+    """Callback function for scipy's linear_sum_assignment."""
+    row_ind, col_ind = scipy.optimize.linear_sum_assignment(cost_matrix)
+    # Sort by row_ind to ensure we get the permutation for rows 0, 1, 2...
+    sort_idx = np.argsort(row_ind)
+    return col_ind[sort_idx].astype(np.int32)
+
+
+@jax.jit
+def min_assignment_chi2_hungarian(
+    observed_positions: jnp.ndarray,
+    predicted_positions: jnp.ndarray,
+    sigma_pos: jnp.ndarray,
+) -> jnp.ndarray:
+    """
+    Compute minimum chi-square using the Hungarian algorithm.
+    
+    This is O(N^3) instead of O(N!) and supports arbitrary N.
+    """
+    sigma2 = jnp.square(sigma_pos) + 1.0e-12
+
+    # Cost matrix C_ij = chi2 contribution of assigning obs i to pred j
+    residual = observed_positions[:, None, :] - predicted_positions[None, :, :]
+    sqdist = jnp.sum(jnp.square(residual), axis=-1)
+    cost_matrix = sqdist / sigma2[:, None]
+
+    n_obs = observed_positions.shape[0]
+    
+    # Use pure_callback to call scipy's Hungarian algorithm
+    # We need the optimal permutation indices to sum the costs
+    # Use stop_gradient on cost_matrix to prevent JAX from trying to differentiate through pure_callback
+    col_ind = jax.pure_callback(
+        _hungarian_assignment_callback,
+        jnp.zeros(n_obs, dtype=jnp.int32),  # return shape info
+        lax.stop_gradient(cost_matrix),
+    )
+    
+    # Stop gradient on indices because the assignment is discrete
+    col_ind = lax.stop_gradient(col_ind)
+    
+    # Gather the costs using the optimal assignment
+    # total_cost = sum(cost_matrix[i, col_ind[i]])
+    row_ind = jnp.arange(n_obs)
+    min_chi2 = jnp.sum(cost_matrix[row_ind, col_ind])
+    
+    return min_chi2
 
 
 __all__ = [
@@ -362,5 +546,5 @@ __all__ = [
     'select_unique_images_fixed',
     'build_permutation_indices',
     'min_assignment_chi2',
+    'min_assignment_chi2_hungarian',
 ]
-
