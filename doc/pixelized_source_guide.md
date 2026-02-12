@@ -78,6 +78,31 @@ Gaussian Process regularization with covariance kernels:
 
 Regularization matrix: `H = λ K^{-1}`
 
+### Rectangular bilinear source-grid mode
+
+`PixelizedSourceModel` also supports `source_grid_type='rectangular_bilinear'`.
+
+In this mode:
+
+- Source pixels are laid out on a rectangular source-plane grid.
+- Bounds are auto-estimated from traced unmasked image pixels and expanded by `source_grid_margin_frac`.
+- Mapping uses bilinear interpolation (4 neighbors per data sample).
+- Regularization uses sparse operator schemes: `rect_reg_type` in `{zero, gradient, curvature}`.
+- Semi-linear inversion supports both `inversion_backend='operator'` and `inversion_backend='matrix'`.
+
+Backend guidance for rectangular mode:
+
+- `operator`: matrix-free mapping, lower memory footprint for larger grids.
+- `matrix`: dense mapping/regularization, convenient for direct linear algebra workflows.
+- `operator`: matrix-free source mapping and sparse regularization, and now also supports joint source+lens-light solves.
+
+Important parameters for this mode:
+
+- `source_grid_nx`, `source_grid_ny`
+- `source_grid_margin_frac`
+- `source_grid_bounds` (optional explicit `(x_min, x_max, y_min, y_max)`)
+- `rect_reg_type`
+
 ## Usage Guide
 
 ### Basic Example

@@ -28,6 +28,7 @@ from TinyLensGpu.utils.lensing import (
     matern52_cov_matrix_from,
     regularization_matrix_gp_from,
     regularization_sparse_knn_from,
+    regularization_sparse_rectangular_from,
     sparse_regularization_dense_from,
     lens_mapping_matrix_from,
     build_psf_matrix_dense,
@@ -410,6 +411,30 @@ class TestRegularizationMatrices:
         assert grad.shape == source_points.shape
         assert jnp.all(jnp.isfinite(grad))
 
+    @pytest.mark.parametrize('scheme', ['zero', 'gradient', 'curvature'])
+    def test_rectangular_sparse_regularization_symmetric(self, scheme):
+        rows, cols, values, n_source = regularization_sparse_rectangular_from(
+            coefficient=1.2,
+            nx=12,
+            ny=9,
+            reg_scheme=scheme,
+        )
+        dense = sparse_regularization_dense_from(rows, cols, values, n_source)
+
+        assert dense.shape == (108, 108)
+        assert not jnp.any(jnp.isnan(dense))
+        assert_allclose(dense, dense.T, rtol=1e-5, atol=1e-5)
+        assert jnp.all(jnp.diag(dense) > 0.0)
+
+    def test_rectangular_sparse_regularization_invalid_scheme(self):
+        with pytest.raises(ValueError, match="Unknown reg_scheme"):
+            regularization_sparse_rectangular_from(
+                coefficient=1.0,
+                nx=8,
+                ny=8,
+                reg_scheme='invalid',
+            )
+
 
 # =============================================================================
 # Test Lens Mapping Matrix
@@ -742,6 +767,8 @@ class TestPixelizedSourceModel:
         assert model.n_source_points == 1500, "Default n_source_points should be 1500"
         assert model.mesh_alpha == 0.0, "Default mesh_alpha should be 0.0"
         assert model.k_neighbors == 5, "Default k_neighbors should be 5"
+        assert model.source_grid_type == 'irregular'
+        assert model.rect_reg_type == 'gradient'
     
     def test_model_custom_values(self):
         """Test configuration with custom values."""
@@ -754,7 +781,12 @@ class TestPixelizedSourceModel:
             mesh_method='sobol',
             k_neighbors=7,
             interp_kernel='wendland_c2',
-            radius_scale=2.0
+            radius_scale=2.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=40,
+            source_grid_ny=28,
+            source_grid_margin_frac=0.2,
+            rect_reg_type='curvature',
         )
         
         assert model.reg_scale.value == 0.1
@@ -766,6 +798,38 @@ class TestPixelizedSourceModel:
         assert model.k_neighbors == 7
         assert model.interp_kernel == 'wendland_c2'
         assert model.radius_scale == 2.0
+        assert model.source_grid_type == 'rectangular_bilinear'
+        assert model.source_grid_nx == 40
+        assert model.source_grid_ny == 28
+        assert model.source_grid_margin_frac == 0.2
+        assert model.rect_reg_type == 'curvature'
+
+    def test_model_invalid_rectangular_config(self):
+        with pytest.raises(ValueError, match="Unknown source_grid_type"):
+            PixelizedSourceModel(source_grid_type='unknown_mode')
+
+        with pytest.raises(ValueError, match="Unknown rect_reg_type"):
+            PixelizedSourceModel(rect_reg_type='unknown_scheme')
+
+    def test_model_rectangular_sparse_regularization_builder(self):
+        model = PixelizedSourceModel(
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=10,
+            source_grid_ny=7,
+            rect_reg_type='gradient',
+            reg_coefficient=2.0,
+        )
+        rows, cols, values, n_source = model.regularization_sparse_rectangular(nx=10, ny=7)
+        assert n_source == 70
+        dense = sparse_regularization_dense_from(rows, cols, values, n_source)
+        assert dense.shape == (70, 70)
+        assert jnp.all(jnp.diag(dense) > 0.0)
+
+    def test_model_rectangular_disables_dense_regularization_matrix(self):
+        model = PixelizedSourceModel(source_grid_type='rectangular_bilinear')
+        points = jnp.zeros((5, 2), dtype=jnp.float32)
+        with pytest.raises(ValueError, match="not available for source_grid_type='rectangular_bilinear'"):
+            _ = model.regularization_matrix(points=points)
     
     def test_model_get_config_dict(self):
         """Test get_config_dict method."""
@@ -1006,6 +1070,120 @@ class TestPixelizedImageProbModel:
             
             log_ev = prob_model.log_evidence()
             assert np.isfinite(log_ev), f"Log evidence should be finite for {reg_type}"
+
+    def test_prob_model_rectangular_source_grid_operator_backend(self, mock_lensing_setup):
+        setup = mock_lensing_setup
+
+        sie = SIE(
+            theta_E=1.0, e1=0.05, e2=-0.03,
+            center_x=0.0, center_y=0.0
+        )
+        sie.theta_E.to_static()
+        sie.e1.to_static()
+        sie.e2.to_static()
+        sie.center_x.to_static()
+        sie.center_y.to_static()
+
+        pix_src_model = PixelizedSourceModel(
+            reg_scale=0.05,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=24,
+            source_grid_ny=24,
+            source_grid_margin_frac=0.15,
+            rect_reg_type='gradient',
+        )
+        phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
+
+        prob_model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='operator',
+            cg_tol=1e-5,
+            cg_maxiter=200,
+            slq_probes=8,
+            slq_steps=20,
+            evidence_mode='fast',
+        )
+
+        log_ev = prob_model.log_evidence()
+        assert np.isfinite(log_ev)
+
+        data_vector = prob_model.image_data[~prob_model.mask]
+        noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+        s, beta, model_image, inv = prob_model.simulator.reconstruct_source(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=prob_model.pix_src_model.reg_scale.value,
+            reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
+            return_2d=True,
+            inversion_backend='operator',
+            cg_tol=1e-5,
+            cg_maxiter=200,
+            slq_probes=8,
+            slq_steps=20,
+            evidence_mode='fast',
+        )
+
+        assert s.shape[0] == 24 * 24
+        assert beta.shape[0] == 24 * 24
+        assert model_image.shape == setup['image'].shape
+        assert not jnp.any(jnp.isnan(model_image))
+        assert getattr(inv, 'reg_operator_mode', None) == 'sparse_rectangular'
+
+    def test_prob_model_rectangular_matrix_backend(self, mock_lensing_setup):
+        """Rectangular source-grid supports matrix backend solve and evidence."""
+        setup = mock_lensing_setup
+
+        sie = SIE(theta_E=1.0, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+        sie.theta_E.to_static()
+        sie.e1.to_static()
+        sie.e2.to_static()
+        sie.center_x.to_static()
+        sie.center_y.to_static()
+
+        pix_src_model = PixelizedSourceModel(
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=16,
+            source_grid_ny=16,
+            rect_reg_type='zero',
+        )
+        phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
+
+        prob_model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='matrix',
+        )
+
+        log_ev = prob_model.log_evidence()
+        assert np.isfinite(log_ev)
+
+        data_vector = prob_model.image_data[~prob_model.mask]
+        noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+        s, beta, model_image, inv = prob_model.simulator.reconstruct_source(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=prob_model.pix_src_model.reg_scale.value,
+            reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
+            return_2d=True,
+            inversion_backend='matrix',
+        )
+
+        assert s.shape[0] == 16 * 16
+        assert beta.shape[0] == 16 * 16
+        assert model_image.shape == setup['image'].shape
+        assert not jnp.any(jnp.isnan(model_image))
+        assert isinstance(inv, LinearInversion)
+        assert inv.H.shape == (16 * 16, 16 * 16)
 
 
 # =============================================================================

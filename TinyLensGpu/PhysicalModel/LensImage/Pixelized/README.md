@@ -11,7 +11,34 @@ The `PixelizedSource` module provides core utilities for pixelized source recons
 - **Lens Mapping**: Kernel-based interpolation with Wendland kernels
 - **PSF Convolution**: Both dense and sparse matrix implementations
 - **Adaptive Meshing**: Brightness-weighted source mesh generation
+- **Rectangular Bilinear Grid**: Optional rectangular source-plane grid with bilinear interpolation
+- **Sparse Regularization Schemes**: Zero / gradient / curvature operators for rectangular grid mode
 - **JAX-Optimized**: Fully JIT-compiled for GPU acceleration
+
+## Rectangular bilinear source-grid mode
+
+`PixelizedSourceModel` now supports `source_grid_type='rectangular_bilinear'`.
+
+When rectangular mode is enabled:
+
+- The source grid is a regular rectangle on the source plane.
+- Grid bounds are auto-inferred from traced unmasked image pixels and expanded by `source_grid_margin_frac`.
+- Mapping from source grid to image-plane samples uses bilinear interpolation.
+- Regularization uses sparse operators with `rect_reg_type` in `{zero, gradient, curvature}`.
+- Semi-linear inversion supports both `inversion_backend='operator'` and `inversion_backend='matrix'`.
+
+Backend guidance:
+
+- `operator`: matrix-free pathway that is typically more memory efficient on large source grids.
+- `matrix`: dense pathway useful for direct matrix diagnostics and deterministic linear algebra workflows.
+- `operator`: also supports joint source+lens-light inference via matrix-free source terms plus lens-light basis blocks.
+
+Main parameters:
+
+- `source_grid_nx`, `source_grid_ny`: rectangular grid resolution.
+- `source_grid_margin_frac`: fractional margin for auto source-plane bounds.
+- `source_grid_bounds`: optional explicit `(x_min, x_max, y_min, y_max)` bounds.
+- `rect_reg_type`: sparse regularization scheme (`zero`, `gradient`, `curvature`).
 
 ## Modules
 

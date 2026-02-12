@@ -8,12 +8,13 @@ rather than parametric profiles.
 
 import caskade as ck
 import jax.numpy as jnp
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 from TinyLensGpu.Inference.param_u import ParamU
 from TinyLensGpu.utils.lensing import (
     regularization_matrix_gp_from,
     regularization_sparse_knn_from,
+    regularization_sparse_rectangular_from,
     sparse_regularization_dense_from,
 )
 
@@ -29,6 +30,15 @@ class PixelizedSourceModel(ck.Module):
     
     This model is designed to work alongside mass models in a composite physical model,
     similar to how parametric source light profiles work in TinyLensGpu.
+
+    The model supports two source-grid layouts:
+
+    - ``source_grid_type='irregular'``: adaptive source mesh points with GP-based
+      dense regularization.
+    - ``source_grid_type='rectangular_bilinear'``: regular source-plane grid with
+      bilinear lens mapping and sparse stencil regularization (zero/gradient/
+      curvature). Sparse rectangular regularization can be consumed directly by
+      operator backends or densified downstream by matrix backends.
     
     Parameters
     ----------
@@ -89,6 +99,12 @@ class PixelizedSourceModel(ck.Module):
         radius_scale: float = 1.5,
         reg_operator_mode: str = 'dense_gp',
         reg_sparse_k_neighbors: int = 16,
+        source_grid_type: str = 'irregular',
+        source_grid_nx: int = 64,
+        source_grid_ny: int = 64,
+        source_grid_margin_frac: float = 0.10,
+        source_grid_bounds: Optional[Tuple[float, float, float, float]] = None,
+        rect_reg_type: str = 'gradient',
     ) -> None:
         super().__init__()
         
@@ -105,6 +121,33 @@ class PixelizedSourceModel(ck.Module):
         object.__setattr__(self, 'k_neighbors', k_neighbors)
         object.__setattr__(self, 'interp_kernel', interp_kernel)
         object.__setattr__(self, 'radius_scale', radius_scale)
+
+        grid_type = str(source_grid_type).strip().lower()
+        if grid_type not in {'irregular', 'rectangular_bilinear'}:
+            raise ValueError(
+                f"Unknown source_grid_type: '{source_grid_type}'. Must be one of {'irregular', 'rectangular_bilinear'}."
+            )
+        object.__setattr__(self, 'source_grid_type', grid_type)
+        object.__setattr__(self, 'source_grid_nx', max(1, int(source_grid_nx)))
+        object.__setattr__(self, 'source_grid_ny', max(1, int(source_grid_ny)))
+        object.__setattr__(self, 'source_grid_margin_frac', float(source_grid_margin_frac))
+
+        if source_grid_bounds is None:
+            bounds_value = None
+        else:
+            if len(source_grid_bounds) != 4:
+                raise ValueError(
+                    "source_grid_bounds must be a 4-tuple: (x_min, x_max, y_min, y_max)."
+                )
+            bounds_value = tuple(float(v) for v in source_grid_bounds)
+        object.__setattr__(self, 'source_grid_bounds', bounds_value)
+
+        rect_reg = str(rect_reg_type).strip().lower()
+        if rect_reg not in {'zero', 'gradient', 'curvature'}:
+            raise ValueError(
+                f"Unknown rect_reg_type: '{rect_reg_type}'. Must be one of {'zero', 'gradient', 'curvature'}."
+            )
+        object.__setattr__(self, 'rect_reg_type', rect_reg)
 
         mode = str(reg_operator_mode).strip().lower()
         if mode not in {'dense_gp', 'sparse_knn'}:
@@ -130,7 +173,56 @@ class PixelizedSourceModel(ck.Module):
             'radius_scale': self.radius_scale,
             'reg_operator_mode': self.reg_operator_mode,
             'reg_sparse_k_neighbors': self.reg_sparse_k_neighbors,
+            'source_grid_type': self.source_grid_type,
+            'source_grid_nx': self.source_grid_nx,
+            'source_grid_ny': self.source_grid_ny,
+            'source_grid_margin_frac': self.source_grid_margin_frac,
+            'source_grid_bounds': self.source_grid_bounds,
+            'rect_reg_type': self.rect_reg_type,
         }
+
+    @property
+    def is_rectangular_grid(self) -> bool:
+        """Return ``True`` when the model uses rectangular bilinear source-grid mode."""
+        return self.source_grid_type == 'rectangular_bilinear'
+
+    def regularization_sparse_rectangular(
+        self,
+        nx: int,
+        ny: int,
+        reg_coefficient: Optional[float] = None,
+        rect_reg_type: Optional[str] = None,
+    ):
+        """Build sparse rectangular-grid regularization in COO form.
+
+        Parameters
+        ----------
+        nx, ny : int
+            Source-plane rectangular grid dimensions.
+        reg_coefficient : float, optional
+            Regularization coefficient override. If omitted, the model's
+            ``reg_coefficient`` parameter value is used.
+        rect_reg_type : str, optional
+            Rectangular regularization scheme override in
+            ``{'zero', 'gradient', 'curvature'}``. If omitted, the model's
+            configured ``rect_reg_type`` is used.
+
+        Returns
+        -------
+        tuple
+            ``(rows, cols, values, n_source)`` COO entries for the sparse
+            regularization operator.
+        """
+        coefficient = (
+            reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
+        )
+        scheme = rect_reg_type if rect_reg_type is not None else self.rect_reg_type
+        return regularization_sparse_rectangular_from(
+            coefficient=coefficient,
+            nx=int(nx),
+            ny=int(ny),
+            reg_scheme=scheme,
+        )
     
 
     @ck.forward
@@ -143,6 +235,26 @@ class PixelizedSourceModel(ck.Module):
         reg_operator_mode: Optional[str] = None,
         reg_sparse_k_neighbors: Optional[int] = None,
     ) -> jnp.ndarray:
+        """Construct a dense source regularization matrix for irregular grids.
+
+        This API is intentionally scoped to irregular source meshes where
+        regularization depends on arbitrary source-point coordinates. For
+        rectangular grids, sparse stencil regularization is the canonical
+        representation and should be obtained via
+        :meth:`regularization_sparse_rectangular`.
+
+        Notes
+        -----
+        Matrix backend support for rectangular grids is implemented in the
+        simulator inversion layer by densifying sparse rectangular COO operators.
+        """
+        if self.is_rectangular_grid:
+            raise ValueError(
+                "regularization_matrix() is not available for source_grid_type='rectangular_bilinear'. "
+                "Use regularization_sparse_rectangular(); rectangular matrix-mode densification "
+                "is handled internally by PixelizedLensSimulator.build_inverter()."
+            )
+
         scale = reg_scale if reg_scale is not None else self.reg_scale.value
         coefficient = (
             reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
@@ -182,4 +294,5 @@ class PixelizedSourceModel(ck.Module):
         return (f"PixelizedSourceModel("
                 f"reg_scale={config_dict['reg_scale']:.3f}, "
                 f"reg_coefficient={config_dict['reg_coefficient']:.2f}, "
-                f"n_source_points={config_dict['n_source_points']})")
+                f"n_source_points={config_dict['n_source_points']}, "
+                f"source_grid_type='{config_dict['source_grid_type']}')")

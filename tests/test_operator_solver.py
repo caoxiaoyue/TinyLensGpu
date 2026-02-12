@@ -22,6 +22,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
     PixelizedSourceModel,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
@@ -512,3 +513,381 @@ class TestSolverComparison:
 
         diff = abs(log_ev_matrix - log_ev_operator)
         assert diff < 0.8 or diff / max(abs(log_ev_matrix), 1.0) < 1e-3
+
+    def test_rectangular_bilinear_operator_mode(self, prob_model_setup):
+        """Rectangular bilinear source-grid runs in sparse operator mode."""
+        setup = prob_model_setup
+
+        pix_src = PixelizedSourceModel(
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=20,
+            source_grid_ny=18,
+            rect_reg_type='curvature',
+        )
+        phys_model = PhysicalModel(lens_mass=setup['phys_model'].lens_mass, source_light=[pix_src])
+
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-5,
+            cg_maxiter=200,
+            slq_probes=8,
+            slq_steps=20,
+        )
+
+        data_vector = model_operator.image_data[~model_operator.mask]
+        noise_variance = model_operator.noise_map[~model_operator.mask] ** 2
+
+        inv_operator = model_operator.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            model_operator.pix_src_model.reg_scale.value,
+            model_operator.pix_src_model.reg_coefficient.value,
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-5,
+            cg_maxiter=200,
+            slq_probes=8,
+            slq_steps=20,
+        )
+
+        assert isinstance(inv_operator, OperatorInversion)
+        assert inv_operator.reg_operator_mode == 'sparse_rectangular'
+        assert inv_operator.H_sparse_values.shape[0] > 0
+
+        s_operator = inv_operator.solve()
+        assert s_operator.shape[0] == 20 * 18
+        assert not jnp.any(jnp.isnan(s_operator))
+
+    def test_rectangular_bilinear_matrix_backend(self, prob_model_setup):
+        """Rectangular bilinear source-grid also supports the matrix backend."""
+        setup = prob_model_setup
+
+        pix_src = PixelizedSourceModel(
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=10,
+            source_grid_ny=10,
+            rect_reg_type='gradient',
+        )
+        phys_model = PhysicalModel(lens_mass=setup['phys_model'].lens_mass, source_light=[pix_src])
+
+        model_matrix = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='matrix',
+        )
+
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-5,
+            cg_maxiter=240,
+            slq_probes=8,
+            slq_steps=20,
+        )
+
+        data_vector = model_matrix.image_data[~model_matrix.mask]
+        noise_variance = model_matrix.noise_map[~model_matrix.mask] ** 2
+
+        inv_matrix = model_matrix.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            model_matrix.pix_src_model.reg_scale.value,
+            model_matrix.pix_src_model.reg_coefficient.value,
+            inversion_backend='matrix',
+        )
+
+        inv_operator = model_operator.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            model_operator.pix_src_model.reg_scale.value,
+            model_operator.pix_src_model.reg_coefficient.value,
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-5,
+            cg_maxiter=240,
+            slq_probes=8,
+            slq_steps=20,
+        )
+
+        s_matrix = inv_matrix.solve()
+        s_operator = inv_operator.solve()
+
+        assert isinstance(inv_matrix, LinearInversion)
+        assert inv_matrix.H.shape == (10 * 10, 10 * 10)
+        assert not jnp.any(jnp.isnan(s_matrix))
+        assert_allclose(s_operator, s_matrix, rtol=6e-2, atol=4e-3)
+
+        m_matrix = inv_matrix.model_predict(s_matrix)
+        m_operator = inv_operator.model_predict(s_operator)
+        assert_allclose(m_operator, m_matrix, rtol=2e-2, atol=2e-3)
+
+    def test_rectangular_bilinear_matrix_backend_with_lens_light(self, prob_model_setup):
+        """Rectangular matrix backend supports joint source+lens-light inversion."""
+        setup = prob_model_setup
+
+        pix_src = PixelizedSourceModel(
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=12,
+            source_grid_ny=9,
+            rect_reg_type='gradient',
+        )
+        lens_light = SersicEllipse(
+            R_sersic=0.8,
+            n_sersic=2.0,
+            e1=0.02,
+            e2=-0.01,
+            center_x=0.03,
+            center_y=-0.02,
+            Ie=0.5,
+        )
+        lens_light.R_sersic.to_static()
+        lens_light.n_sersic.to_static()
+        lens_light.e1.to_static()
+        lens_light.e2.to_static()
+        lens_light.center_x.to_static()
+        lens_light.center_y.to_static()
+        lens_light.Ie.to_static()
+
+        phys_model = PhysicalModel(
+            lens_mass=setup['phys_model'].lens_mass,
+            source_light=[pix_src],
+            lens_light=[lens_light],
+        )
+
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='matrix',
+            include_lens_light=True,
+            nonnegative=False,
+            lens_light_ridge=1e-6,
+        )
+
+        data_vector = model.image_data[~model.mask]
+        noise_variance = model.noise_map[~model.mask] ** 2
+        source_i, lens_i, beta, model_image, inverter = model.simulator.reconstruct_source_and_lens_light(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=model.pix_src_model.reg_scale.value,
+            reg_coefficient=model.pix_src_model.reg_coefficient.value,
+            lens_light_ridge=model.lens_light_ridge,
+            nonnegative=model.nonnegative,
+            return_2d=True,
+        )
+
+        assert isinstance(inverter, LinearInversion)
+        assert source_i.shape[0] == 12 * 9
+        assert lens_i.shape[0] == 1
+        assert beta.shape[0] == 12 * 9
+        assert model_image.shape == setup['image'].shape
+        assert np.isfinite(float(np.asarray(inverter.log_evidence())))
+        assert not jnp.any(jnp.isnan(source_i))
+        assert not jnp.any(jnp.isnan(lens_i))
+        assert not jnp.any(jnp.isnan(model_image))
+
+    def test_rectangular_bilinear_operator_backend_with_lens_light(self, prob_model_setup):
+        """Rectangular operator backend supports joint source+lens-light inversion."""
+        setup = prob_model_setup
+
+        pix_src = PixelizedSourceModel(
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=12,
+            source_grid_ny=9,
+            rect_reg_type='gradient',
+        )
+        lens_light = SersicEllipse(
+            R_sersic=0.8,
+            n_sersic=2.0,
+            e1=0.02,
+            e2=-0.01,
+            center_x=0.03,
+            center_y=-0.02,
+            Ie=0.5,
+        )
+        lens_light.R_sersic.to_static()
+        lens_light.n_sersic.to_static()
+        lens_light.e1.to_static()
+        lens_light.e2.to_static()
+        lens_light.center_x.to_static()
+        lens_light.center_y.to_static()
+        lens_light.Ie.to_static()
+
+        phys_model = PhysicalModel(
+            lens_mass=setup['phys_model'].lens_mass,
+            source_light=[pix_src],
+            lens_light=[lens_light],
+        )
+
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='operator',
+            include_lens_light=True,
+            nonnegative=False,
+            lens_light_ridge=1e-6,
+            evidence_mode='fast',
+            cg_tol=1e-6,
+            cg_maxiter=300,
+            slq_probes=8,
+            slq_steps=20,
+        )
+
+        data_vector = model.image_data[~model.mask]
+        noise_variance = model.noise_map[~model.mask] ** 2
+        source_i, lens_i, beta, model_image, inverter = model.simulator.reconstruct_source_and_lens_light(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=model.pix_src_model.reg_scale.value,
+            reg_coefficient=model.pix_src_model.reg_coefficient.value,
+            lens_light_ridge=model.lens_light_ridge,
+            nonnegative=model.nonnegative,
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-6,
+            cg_maxiter=300,
+            slq_probes=8,
+            slq_steps=20,
+            return_2d=True,
+        )
+
+        assert isinstance(inverter, OperatorInversion)
+        assert source_i.shape[0] == 12 * 9
+        assert lens_i.shape[0] == 1
+        assert beta.shape[0] == 12 * 9
+        assert model_image.shape == setup['image'].shape
+        assert np.isfinite(float(np.asarray(inverter.log_evidence())))
+        assert not jnp.any(jnp.isnan(source_i))
+        assert not jnp.any(jnp.isnan(lens_i))
+        assert not jnp.any(jnp.isnan(model_image))
+
+    def test_rectangular_joint_operator_matches_matrix(self, prob_model_setup):
+        """Joint source+lens-light operator solution should match matrix backend."""
+        setup = prob_model_setup
+
+        pix_src = PixelizedSourceModel(
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+            source_grid_type='rectangular_bilinear',
+            source_grid_nx=10,
+            source_grid_ny=8,
+            rect_reg_type='gradient',
+        )
+        lens_light = SersicEllipse(
+            R_sersic=0.8,
+            n_sersic=2.0,
+            e1=0.02,
+            e2=-0.01,
+            center_x=0.03,
+            center_y=-0.02,
+            Ie=0.5,
+        )
+        lens_light.R_sersic.to_static()
+        lens_light.n_sersic.to_static()
+        lens_light.e1.to_static()
+        lens_light.e2.to_static()
+        lens_light.center_x.to_static()
+        lens_light.center_y.to_static()
+        lens_light.Ie.to_static()
+
+        phys_model = PhysicalModel(
+            lens_mass=setup['phys_model'].lens_mass,
+            source_light=[pix_src],
+            lens_light=[lens_light],
+        )
+
+        model = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=phys_model,
+            mask=setup['mask'],
+            inversion_backend='matrix',
+            include_lens_light=True,
+            nonnegative=False,
+            lens_light_ridge=1e-6,
+        )
+
+        data_vector = model.image_data[~model.mask]
+        noise_variance = model.noise_map[~model.mask] ** 2
+        reg_scale = model.pix_src_model.reg_scale.value
+        reg_coeff = model.pix_src_model.reg_coefficient.value
+
+        inv_matrix = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            include_lens_light=True,
+            lens_light_ridge=model.lens_light_ridge,
+            nonnegative=False,
+            inversion_backend='matrix',
+        )
+        inv_operator = model.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+            include_lens_light=True,
+            lens_light_ridge=model.lens_light_ridge,
+            nonnegative=False,
+            inversion_backend='operator',
+            evidence_mode='accurate',
+            cg_tol=1e-7,
+            cg_maxiter=500,
+            slq_probes=32,
+            slq_steps=60,
+        )
+
+        x_matrix = inv_matrix.solve()
+        x_operator = inv_operator.solve()
+
+        n_src = 10 * 8
+        assert isinstance(inv_matrix, LinearInversion)
+        assert isinstance(inv_operator, OperatorInversion)
+        assert x_matrix.shape[0] == n_src + 1
+        assert x_operator.shape[0] == n_src + 1
+
+        assert_allclose(x_operator, x_matrix, rtol=7e-2, atol=5e-3)
+
+        m_matrix = inv_matrix.model_predict(x_matrix)
+        m_operator = inv_operator.model_predict(x_operator)
+        assert_allclose(m_operator, m_matrix, rtol=2e-2, atol=2e-3)
+
+        log_ev_matrix = float(np.asarray(inv_matrix.log_evidence()))
+        log_ev_operator = float(np.asarray(inv_operator.log_evidence()))
+        diff = abs(log_ev_matrix - log_ev_operator)
+        assert diff < 2.0 or diff / max(abs(log_ev_matrix), 1.0) < 6e-3

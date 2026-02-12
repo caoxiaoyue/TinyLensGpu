@@ -229,6 +229,8 @@ class _OperatorSolverBase:
         psf_shape: Tuple[int, int],
         unmasked_indices: Tuple[Array, Array],
         *,
+        lens_basis: Array | None,
+        lens_light_ridge: float,
         jitter: float,
         slq_seed: int,
         slq_probes: int,
@@ -252,6 +254,17 @@ class _OperatorSolverBase:
             jnp.asarray(unmasked_indices[1], dtype=jnp.int32),
         )
 
+        if lens_basis is None:
+            self.lens_basis = jnp.zeros((self.d.shape[0], 0), dtype=jnp.float32)
+        else:
+            self.lens_basis = jnp.asarray(lens_basis, dtype=jnp.float32)
+        if self.lens_basis.ndim != 2:
+            raise ValueError("lens_basis must be a 2D matrix with shape (n_data, n_lens).")
+        if self.lens_basis.shape[0] != self.d.shape[0]:
+            raise ValueError("lens_basis row dimension must match unmasked data length.")
+        self.n_lens = int(self.lens_basis.shape[1])
+        self.lens_light_ridge = float(max(lens_light_ridge, 0.0))
+
         self.image_shape = (int(image_shape[0]), int(image_shape[1]))
         self.psf_shape = (int(psf_shape[0]), int(psf_shape[1]))
 
@@ -263,9 +276,9 @@ class _OperatorSolverBase:
         self.evidence_mode = str(evidence_mode).strip().lower()
         self.reg_operator_mode = str(reg_operator_mode).strip().lower()
 
-        if self.reg_operator_mode not in {"dense_gp", "sparse_knn"}:
+        if self.reg_operator_mode not in {"dense_gp", "sparse_knn", "sparse_rectangular"}:
             raise ValueError(
-                f"Unknown reg_operator_mode: '{reg_operator_mode}'. Must be one of {'dense_gp', 'sparse_knn'}."
+                f"Unknown reg_operator_mode: '{reg_operator_mode}'. Must be one of {'dense_gp', 'sparse_knn', 'sparse_rectangular'}."
             )
 
         if H_sparse_rows is None:
@@ -279,19 +292,20 @@ class _OperatorSolverBase:
         self.H_sparse_values = jnp.asarray(H_sparse_values, dtype=jnp.float32)
         self.H_sparse_n_source = int(H_sparse_n_source) if H_sparse_n_source is not None else int(self.H.shape[0])
 
-        if self.reg_operator_mode == "sparse_knn":
+        if self.reg_operator_mode in {"sparse_knn", "sparse_rectangular"}:
             if self.H_sparse_values.shape[0] == 0:
                 raise ValueError(
-                    "reg_operator_mode='sparse_knn' requires non-empty sparse regularization entries."
+                    "sparse reg_operator_mode requires non-empty sparse regularization entries."
                 )
             self.n_source = int(self.H_sparse_n_source)
         else:
             if self.H.ndim != 2 or self.H.shape[0] != self.H.shape[1]:
                 raise ValueError("Dense regularization mode requires square dense matrix H.")
             self.n_source = int(self.H.shape[0])
+        self.n_dim = int(self.n_source + self.n_lens)
 
     def _ops(self):
-        return _build_forward_and_adjoint(
+        source_forward, source_adjoint = _build_forward_and_adjoint(
             weights=self.weights,
             indices=self.indices,
             psf_fft=self.psf_fft,
@@ -301,20 +315,50 @@ class _OperatorSolverBase:
             n_source=self.n_source,
         )
 
-    def _apply_H(self, x: Array) -> Array:
-        if self.reg_operator_mode != "sparse_knn" or self.H_sparse_values.shape[0] == 0:
+        n_source = self.n_source
+        n_lens = self.n_lens
+
+        if n_lens == 0:
+            return source_forward, source_adjoint
+
+        lens_basis = self.lens_basis
+
+        def forward(x: Array) -> Array:
+            x_src = x[:n_source]
+            x_lens = x[n_source:]
+            return source_forward(x_src) + lens_basis @ x_lens
+
+        def adjoint(y: Array) -> Array:
+            src_term = source_adjoint(y)
+            lens_term = lens_basis.T @ y
+            return jnp.concatenate([src_term, lens_term], axis=0)
+
+        return forward, adjoint
+
+    def _apply_H_source(self, x: Array) -> Array:
+        if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
             return self.H @ x
         return _apply_sparse_matrix(self.H_sparse_rows, self.H_sparse_cols, self.H_sparse_values, self.H_sparse_n_source, x)
 
-    def _half_log_det_H(self) -> Tuple[Array, Array]:
+    def _apply_H(self, x: Array) -> Array:
+        if self.n_lens == 0:
+            return self._apply_H_source(x)
+
+        x_src = x[: self.n_source]
+        x_lens = x[self.n_source :]
+        src_term = self._apply_H_source(x_src)
+        lens_term = self.lens_light_ridge * x_lens
+        return jnp.concatenate([src_term, lens_term], axis=0)
+
+    def _half_log_det_H_source(self) -> Tuple[Array, Array]:
         n_source = self.n_source
-        if self.reg_operator_mode != "sparse_knn" or self.H_sparse_values.shape[0] == 0:
+        if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
             h_stab = self.H + self.jitter * jnp.eye(n_source, dtype=self.H.dtype)
             sign_h, logdet_h = jnp.linalg.slogdet(h_stab)
             return sign_h, 0.5 * logdet_h
 
         def hvec(v: Array) -> Array:
-            return self._apply_H(v) + self.jitter * v
+            return self._apply_H_source(v) + self.jitter * v
 
         if n_source <= self.dense_logdet_max_n:
             eye = jnp.eye(n_source, dtype=self.d.dtype)
@@ -325,6 +369,17 @@ class _OperatorSolverBase:
         probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
         logdet_h = _lanczos_logdet(hvec, n_source, seed=self.slq_seed + 113, probes=probes, steps=steps)
         return jnp.array(1.0, dtype=self.d.dtype), 0.5 * logdet_h
+
+    def _half_log_det_H(self) -> Tuple[Array, Array]:
+        sign_src, half_log_det_src = self._half_log_det_H_source()
+        if self.n_lens == 0:
+            return sign_src, half_log_det_src
+
+        ridge_diag = jnp.asarray(self.lens_light_ridge + self.jitter, dtype=self.d.dtype)
+        sign_lens = jnp.where(ridge_diag > 0.0, 1.0, 0.0).astype(self.d.dtype)
+        ridge_safe = jnp.maximum(ridge_diag, jnp.asarray(1e-12, dtype=self.d.dtype))
+        half_log_det_lens = 0.5 * jnp.asarray(self.n_lens, dtype=self.d.dtype) * jnp.log(ridge_safe)
+        return sign_src * sign_lens, half_log_det_src + half_log_det_lens
 
     @jit
     def model_predict(self, x: Array) -> Array:
@@ -350,6 +405,7 @@ class _OperatorSolverBase:
             self.psf_fft,
             self.unmasked_indices[0],
             self.unmasked_indices[1],
+            self.lens_basis,
             self.H_sparse_rows,
             self.H_sparse_cols,
             self.H_sparse_values,
@@ -365,6 +421,7 @@ class _OperatorSolverBase:
             self.evidence_mode,
             self.reg_operator_mode,
             self.H_sparse_n_source,
+            self.lens_light_ridge,
         )
         return children, aux_data
 
@@ -385,6 +442,8 @@ class OperatorInversion(_OperatorSolverBase):
         psf_shape: Tuple[int, int],
         unmasked_indices: Tuple[Array, Array],
         *,
+        lens_basis: Array | None = None,
+        lens_light_ridge: float = 1e-8,
         jitter: float = 1e-6,
         cg_tol: float = 1e-6,
         cg_maxiter: int = 300,
@@ -401,6 +460,8 @@ class OperatorInversion(_OperatorSolverBase):
     ) -> None:
         super().__init__(
             d, noise_var, H, weights, indices, psf_fft, image_shape, psf_shape, unmasked_indices,
+            lens_basis=lens_basis,
+            lens_light_ridge=lens_light_ridge,
             jitter=jitter, slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
             dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
@@ -412,7 +473,6 @@ class OperatorInversion(_OperatorSolverBase):
 
     @jit
     def solve(self) -> Array:
-        n_source = self.n_source
         _, n_inv = _safe_noise_inverse(self.noise_var)
         forward, adjoint = self._ops()
 
@@ -421,12 +481,12 @@ class OperatorInversion(_OperatorSolverBase):
 
         b = adjoint(self.d * n_inv)
         x, _ = _cg_solve(mvec, b, tol=self.cg_tol, maxiter=self.cg_maxiter)
-        return x[:n_source]
+        return x
 
     @jit
     def log_evidence(self) -> Array:
         n_data = self.d.shape[0]
-        n_source = self.n_source
+        n_dim = self.n_dim
         n_diag, n_inv = _safe_noise_inverse(self.noise_var)
 
         half_log_det_n = 0.5 * jnp.sum(jnp.log(n_diag))
@@ -444,16 +504,16 @@ class OperatorInversion(_OperatorSolverBase):
 
         d_ninv_d = jnp.sum(self.d * self.d * n_inv)
         combined_chi2_reg = d_ninv_d - jnp.dot(s, b)
-        n_source_int = int(n_source)
+        n_dim_int = int(n_dim)
         probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
-        if self.evidence_mode != "fast" and n_source_int <= self.dense_logdet_max_n:
-            eye = jnp.eye(n_source_int, dtype=self.H.dtype)
+        if self.evidence_mode != "fast" and n_dim_int <= self.dense_logdet_max_n:
+            eye = jnp.eye(n_dim_int, dtype=self.H.dtype)
             m_dense = jax.vmap(mvec, in_axes=1, out_axes=1)(eye)
             _, logdet_m = jnp.linalg.slogdet(m_dense)
         else:
             logdet_m = _lanczos_logdet(
                 mvec,
-                n_source_int,
+                n_dim_int,
                 seed=self.slq_seed,
                 probes=probes,
                 steps=steps,
@@ -484,17 +544,18 @@ class OperatorInversion(_OperatorSolverBase):
     def tree_unflatten(cls, aux_data, children):
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
-            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source,
+            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
             cg_tol, cg_maxiter
         ) = aux_data
         (
             d, noise_var, H, weights, indices, psf_fft, y_indices, x_indices,
-            H_sparse_rows, H_sparse_cols, H_sparse_values
+            lens_basis, H_sparse_rows, H_sparse_cols, H_sparse_values
         ) = children
         return cls(
             d=d, noise_var=noise_var, H=H, weights=weights, indices=indices,
             psf_fft=psf_fft, image_shape=image_shape, psf_shape=psf_shape,
             unmasked_indices=(y_indices, x_indices), jitter=jitter,
+            lens_basis=lens_basis, lens_light_ridge=lens_light_ridge,
             cg_tol=cg_tol, cg_maxiter=cg_maxiter,
             slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
             dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
@@ -520,6 +581,8 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         psf_shape: Tuple[int, int],
         unmasked_indices: Tuple[Array, Array],
         *,
+        lens_basis: Array | None = None,
+        lens_light_ridge: float = 1e-8,
         jitter: float = 1e-6,
         maxiter: int = 600,
         tol: float = 1e-6,
@@ -538,6 +601,8 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     ) -> None:
         super().__init__(
             d, noise_var, H, weights, indices, psf_fft, image_shape, psf_shape, unmasked_indices,
+            lens_basis=lens_basis,
+            lens_light_ridge=lens_light_ridge,
             jitter=jitter, slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
             dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
@@ -558,18 +623,18 @@ class OperatorNNLSInversion(_OperatorSolverBase):
 
     @jit
     def solve(self) -> Array:
-        n_source = self.n_source
+        n_dim = self.n_dim
         grad_fn = lambda vec: self._gradient(vec)
 
         l_est = _estimate_lipschitz_power_iteration(
             grad_fn,
-            n_source,
+            n_dim,
             n_iter=self.lipschitz_iters,
             seed=self.fista_seed,
         )
         step = 1.0 / (l_est + 1e-12)
 
-        x0 = jnp.zeros((n_source,), dtype=jnp.float32)
+        x0 = jnp.zeros((n_dim,), dtype=jnp.float32)
         y0 = x0
         t0 = jnp.array(1.0, dtype=jnp.float32)
         obj0 = self.objective_value(x0)
@@ -606,7 +671,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     @jit
     def log_evidence(self) -> Array:
         n_data = self.d.shape[0]
-        n_source = self.n_source
+        n_dim = self.n_dim
         n_diag, n_inv = _safe_noise_inverse(self.noise_var)
 
         half_log_det_n = 0.5 * jnp.sum(jnp.log(n_diag))
@@ -622,16 +687,16 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         def mvec(v: Array) -> Array:
             return adjoint(forward(v) * n_inv) + self._apply_H(v) + self.jitter * v
 
-        n_source_int = int(n_source)
+        n_dim_int = int(n_dim)
         probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
-        if self.evidence_mode != "fast" and n_source_int <= self.dense_logdet_max_n:
-            eye = jnp.eye(n_source_int, dtype=self.H.dtype)
+        if self.evidence_mode != "fast" and n_dim_int <= self.dense_logdet_max_n:
+            eye = jnp.eye(n_dim_int, dtype=self.H.dtype)
             m_dense = jax.vmap(mvec, in_axes=1, out_axes=1)(eye)
             _, logdet_m = jnp.linalg.slogdet(m_dense)
         else:
             logdet_m = _lanczos_logdet(
                 mvec,
-                n_source_int,
+                n_dim_int,
                 seed=self.slq_seed,
                 probes=probes,
                 steps=steps,
@@ -657,17 +722,18 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     def tree_unflatten(cls, aux_data, children):
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
-            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source,
+            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
             maxiter, tol, lipschitz_iters, fista_seed
         ) = aux_data
         (
             d, noise_var, H, weights, indices, psf_fft, y_indices, x_indices,
-            H_sparse_rows, H_sparse_cols, H_sparse_values
+            lens_basis, H_sparse_rows, H_sparse_cols, H_sparse_values
         ) = children
         return cls(
             d=d, noise_var=noise_var, H=H, weights=weights, indices=indices,
             psf_fft=psf_fft, image_shape=image_shape, psf_shape=psf_shape,
             unmasked_indices=(y_indices, x_indices), jitter=jitter,
+            lens_basis=lens_basis, lens_light_ridge=lens_light_ridge,
             maxiter=maxiter, tol=tol, lipschitz_iters=lipschitz_iters, fista_seed=fista_seed,
             slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
             dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,

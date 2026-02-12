@@ -177,6 +177,137 @@ def sparse_regularization_dense_from(
     return dense.at[(rows, cols)].add(values)
 
 
+def _ridge_from_coefficient(coefficient: float) -> jnp.ndarray:
+    return jnp.maximum(1e-8, 1e-6 * jnp.maximum(1.0, jnp.asarray(coefficient, dtype=jnp.float32)))
+
+
+@partial(jax.jit, static_argnames=['nx', 'ny'])
+def _regularization_rect_zero_sparse(
+    coefficient: float,
+    nx: int,
+    ny: int,
+):
+    n_source = int(nx) * int(ny)
+    rows = jnp.arange(n_source, dtype=jnp.int32)
+    cols = jnp.arange(n_source, dtype=jnp.int32)
+    values = jnp.full((n_source,), jnp.asarray(coefficient, dtype=jnp.float32))
+    values = values + _ridge_from_coefficient(coefficient)
+    return rows, cols, values.astype(jnp.float32), n_source
+
+
+@partial(jax.jit, static_argnames=['nx', 'ny'])
+def _regularization_rect_gradient_sparse(
+    coefficient: float,
+    nx: int,
+    ny: int,
+):
+    nx_i = int(nx)
+    ny_i = int(ny)
+    n_source = nx_i * ny_i
+
+    if nx_i > 1:
+        horiz_iy = jnp.repeat(jnp.arange(ny_i, dtype=jnp.int32), nx_i - 1)
+        horiz_ix = jnp.tile(jnp.arange(nx_i - 1, dtype=jnp.int32), ny_i)
+        horiz_a = horiz_iy * nx_i + horiz_ix
+        horiz_b = horiz_a + 1
+    else:
+        horiz_a = jnp.zeros((0,), dtype=jnp.int32)
+        horiz_b = jnp.zeros((0,), dtype=jnp.int32)
+
+    if ny_i > 1:
+        vert_iy = jnp.repeat(jnp.arange(ny_i - 1, dtype=jnp.int32), nx_i)
+        vert_ix = jnp.tile(jnp.arange(nx_i, dtype=jnp.int32), ny_i - 1)
+        vert_a = vert_iy * nx_i + vert_ix
+        vert_b = vert_a + nx_i
+    else:
+        vert_a = jnp.zeros((0,), dtype=jnp.int32)
+        vert_b = jnp.zeros((0,), dtype=jnp.int32)
+
+    edge_a = jnp.concatenate([horiz_a, vert_a], axis=0)
+    edge_b = jnp.concatenate([horiz_b, vert_b], axis=0)
+    n_edges = edge_a.shape[0]
+
+    pair_rows = jnp.stack([edge_a, edge_a, edge_b, edge_b], axis=1).reshape(-1)
+    pair_cols = jnp.stack([edge_a, edge_b, edge_a, edge_b], axis=1).reshape(-1)
+    pair_vals = jnp.tile(
+        jnp.array([coefficient, -coefficient, -coefficient, coefficient], dtype=jnp.float32),
+        (n_edges,),
+    )
+
+    diag_rows = jnp.arange(n_source, dtype=jnp.int32)
+    diag_cols = jnp.arange(n_source, dtype=jnp.int32)
+    diag_vals = jnp.full((n_source,), _ridge_from_coefficient(coefficient), dtype=jnp.float32)
+
+    rows = jnp.concatenate([pair_rows, diag_rows], axis=0)
+    cols = jnp.concatenate([pair_cols, diag_cols], axis=0)
+    vals = jnp.concatenate([pair_vals, diag_vals], axis=0)
+    return rows, cols, vals.astype(jnp.float32), n_source
+
+
+@partial(jax.jit, static_argnames=['nx', 'ny'])
+def _regularization_rect_curvature_sparse(
+    coefficient: float,
+    nx: int,
+    ny: int,
+):
+    nx_i = int(nx)
+    ny_i = int(ny)
+    n_source = nx_i * ny_i
+
+    if nx_i < 3 or ny_i < 3:
+        return _regularization_rect_zero_sparse(coefficient, nx_i, ny_i)
+
+    xs = jnp.arange(1, nx_i - 1, dtype=jnp.int32)
+    ys = jnp.arange(1, ny_i - 1, dtype=jnp.int32)
+    xx, yy = jnp.meshgrid(xs, ys, indexing='xy')
+    center = (yy * nx_i + xx).reshape(-1)
+    left = center - 1
+    right = center + 1
+    up = center - nx_i
+    down = center + nx_i
+
+    stencil_idx = jnp.stack([center, left, right, up, down], axis=1)
+    stencil_val = jnp.array([4.0, -1.0, -1.0, -1.0, -1.0], dtype=jnp.float32)
+
+    rows = jnp.repeat(stencil_idx, repeats=5, axis=1).reshape(-1)
+    cols = jnp.tile(stencil_idx, (1, 5)).reshape(-1)
+    row_vals = (stencil_val[:, None] * stencil_val[None, :]).reshape(-1)
+    vals = (jnp.tile(row_vals, (stencil_idx.shape[0],)) * coefficient).astype(jnp.float32)
+
+    diag_rows = jnp.arange(n_source, dtype=jnp.int32)
+    diag_cols = jnp.arange(n_source, dtype=jnp.int32)
+    diag_vals = jnp.full((n_source,), _ridge_from_coefficient(coefficient), dtype=jnp.float32)
+
+    rows = jnp.concatenate([rows, diag_rows], axis=0)
+    cols = jnp.concatenate([cols, diag_cols], axis=0)
+    vals = jnp.concatenate([vals, diag_vals], axis=0)
+    return rows, cols, vals.astype(jnp.float32), n_source
+
+
+def regularization_sparse_rectangular_from(
+    coefficient: float,
+    nx: int,
+    ny: int,
+    reg_scheme: str = 'gradient',
+):
+    """Build sparse COO rectangular-grid regularization for zero/gradient/curvature schemes."""
+    scheme = str(reg_scheme).strip().lower()
+    valid = {'zero', 'gradient', 'curvature'}
+    if scheme not in valid:
+        raise ValueError(f"Unknown reg_scheme: '{reg_scheme}'. Must be one of {valid}.")
+
+    nx_i = int(nx)
+    ny_i = int(ny)
+    if nx_i <= 0 or ny_i <= 0:
+        raise ValueError(f"Rectangular grid shape must be positive, got nx={nx_i}, ny={ny_i}.")
+
+    if scheme == 'zero':
+        return _regularization_rect_zero_sparse(coefficient, nx_i, ny_i)
+    if scheme == 'gradient':
+        return _regularization_rect_gradient_sparse(coefficient, nx_i, ny_i)
+    return _regularization_rect_curvature_sparse(coefficient, nx_i, ny_i)
+
+
 @jax.jit
 def exp_cov_matrix_from(
     scale_coefficient: float,
@@ -443,5 +574,6 @@ __all__ = [
     'matern52_cov_matrix_from',
     'regularization_matrix_gp_from',
     'regularization_sparse_knn_from',
+    'regularization_sparse_rectangular_from',
     'sparse_regularization_dense_from',
 ]

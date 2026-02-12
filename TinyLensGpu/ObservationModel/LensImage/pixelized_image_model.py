@@ -34,6 +34,18 @@ class PixelizedImageProbModel(ck.Module):
     The key difference from parametric source modeling is that the source intensities
     are marginalized out analytically, resulting in the log evidence rather than a
     simple likelihood.
+
+    Backend summary:
+
+    - ``inversion_backend='matrix'`` builds dense mapping/regularization matrices
+      and performs direct linear-system solves.
+    - ``inversion_backend='operator'`` uses matrix-free operators for mapping and
+      optional sparse regularization.
+
+    Both backends support irregular source meshes and rectangular bilinear source
+    grids. For rectangular grids, regularization is constructed from sparse
+    stencil operators and consumed either directly (operator backend) or via
+    internal densification (matrix backend).
     
     Parameters
     ----------
@@ -54,6 +66,7 @@ class PixelizedImageProbModel(ck.Module):
     inversion_backend : str, optional
         Inversion backend, "matrix" or "operator".
         Legacy aliases: "exact" -> "matrix", "fast" -> "operator".
+        The rectangular-bilinear source grid supports both backends.
     cg_tol : float, optional
         Conjugate gradient tolerance for operator inversion.
     cg_maxiter : int, optional
@@ -225,7 +238,7 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def _build_inverter(self):
         """
-        Build a new LinearInversion object.
+        Build a new inversion object for the configured backend.
 
         This method prepares the data and delegates the actual reconstruction
         to the simulator.
@@ -244,6 +257,9 @@ class PixelizedImageProbModel(ck.Module):
         data_vector = self._data_vector
         noise_variance = self._noise_variance
 
+        # Forward all solver controls to the simulator. The simulator owns the
+        # backend-specific assembly details (dense matrix path vs matrix-free
+        # operator path, including rectangular-grid regularization handling).
         inverter = self.simulator.build_inverter(
             data_vector=data_vector,
             noise_variance=noise_variance,
@@ -327,4 +343,5 @@ class PixelizedImageProbModel(ck.Module):
     def __repr__(self) -> str:
         return (f"PixelizedImageProbModel("
                 f"npix={self.npix}, "
-                f"n_source_points={self.pix_src_model.n_source_points})")
+                f"n_source_points={self.pix_src_model.n_source_points}, "
+                f"source_grid_type='{self.pix_src_model.source_grid_type}')")
