@@ -29,6 +29,11 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized import LinearInversion
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
     PixelizedSourceModel,
 )
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
+    IrregularGridConfig,
+    PixelizedSourceConfig,
+)
+from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
@@ -248,7 +253,11 @@ class TestPixelizedSpeed:
         
         # Setup Model
         sie = SIE(theta_E=1.5, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
-        pix_src = PixelizedSourceModel(reg_scale=0.1, reg_coefficient=1.0, n_source_points=500)
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(grid=IrregularGridConfig(n_source_points=500)),
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+        )
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
         
         prob_model = PixelizedImageProbModel(

@@ -1,63 +1,50 @@
-"""
-Forward model for pixelized source gravitational lensing.
-
-This module provides the forward modeling components for pixelized source
-reconstruction, including ray-tracing, mesh generation, and mapping matrix
-construction.
-"""
+"""Forward model for pixelized source gravitational lensing."""
 
 from __future__ import annotations
 
 import functools
-import jax.numpy as jnp
-from jax import jit, Array
-import numpy as np
+from dataclasses import replace
 from typing import Optional, Tuple, Union
 
+import jax.numpy as jnp
+import numpy as np
+from jax import Array, jit
+
 from .config import make_grid_2d
-from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
-from TinyLensGpu.utils.lensing import (
-    lens_mapping_matrix_from,
-    lens_mapping_matrix_bilinear_rectangular_from,
-    lens_mapping_operator_bilinear_rectangular_from,
-    regularization_sparse_rectangular_from,
-    sparse_regularization_dense_from,
-    apply_psf_to_mapping_matrix,
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
+    IrregularGridConfig,
+    RectangularGridConfig,
+    SolverConfig,
 )
-from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
-from TinyLensGpu.utils.mesh import sample_points_weighted
-from TinyLensGpu.utils.inversion import (
-    LinearInversion,
-    OperatorInversion,
-    OperatorNNLSInversion,
-    NNLSInversion,
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.utils.inversion import LinearInversion, NNLSInversion, OperatorInversion, OperatorNNLSInversion
+from TinyLensGpu.utils.lensing import apply_psf_to_mapping_matrix
+
+from .pixelized_core import (
+    DenseGpRegularizationStrategy,
+    GridArtifacts,
+    InversionAssembler,
+    IrregularGridStrategy,
+    KnnKernelMappingStrategy,
+    MappingArtifacts,
+    RectBilinearMappingStrategy,
+    RectangularGridStrategy,
+    RegularizationArtifacts,
+    SparseKnnRegularizationStrategy,
+    SparseRectangularRegularizationStrategy,
 )
 
 
 def _normalize_inversion_backend(name: str) -> str:
-    """Normalize user-facing backend aliases into canonical backend names.
-
-    Parameters
-    ----------
-    name : str
-        Backend identifier provided by API callers. Supported names are
-        ``"matrix"`` and ``"operator"`` plus legacy aliases
-        ``"exact"`` and ``"fast"``.
-
-    Returns
-    -------
-    str
-        Canonical backend name (``"matrix"`` or ``"operator"``).
-    """
     backend = str(name).strip().lower()
-    if backend in {"exact", "matrix"}:
+    if backend == "matrix":
         return "matrix"
-    if backend in {"fast", "operator"}:
+    if backend == "operator":
         return "operator"
     raise ValueError(
         f"Unknown inversion_backend='{name}'. Expected one of: "
-        "'matrix', 'operator' (legacy aliases: 'exact', 'fast')."
+        "'matrix', 'operator'."
     )
 
 
@@ -71,30 +58,26 @@ class PixelizedLensSimulator:
         mask: Optional[np.ndarray] = None,
         lensed_source_image: Optional[np.ndarray] = None,
     ) -> None:
-        
-        self.dpix = dpix
-        self.npix = image_data.shape[0]
+        self.dpix = float(dpix)
+        self.npix = int(image_data.shape[0])
         self.phys_model = phys_model
-        # Use the centralized extraction method
         self.pix_src_model = self.phys_model.get_pixelized_source_model()
-        self.psf_kernel = jnp.array(psf_kernel)
-        
+        self.psf_kernel = jnp.asarray(psf_kernel)
+
         if mask is None:
             mask = np.zeros_like(image_data, dtype=bool)
-        self.mask = jnp.array(mask)
-        
+        self.mask = jnp.asarray(mask)
+
         if lensed_source_image is None:
             lensed_source_image = np.ones_like(image_data)
-        self.lensed_source_image = jnp.array(lensed_source_image)
-        
+        self.lensed_source_image = jnp.asarray(lensed_source_image)
+
         xgrid_2d, ygrid_2d = make_grid_2d(self.npix, self.dpix)
-        self.xgrid_unmask = jnp.array(xgrid_2d[~mask], dtype=jnp.float32)
-        self.ygrid_unmask = jnp.array(ygrid_2d[~mask], dtype=jnp.float32)
-        
-        # Precompute unmasked indices for PSF application
-        # mask is boolean, True where masked. We want indices of False (unmasked).
+        self.xgrid_unmask = jnp.asarray(xgrid_2d[~mask], dtype=jnp.float32)
+        self.ygrid_unmask = jnp.asarray(ygrid_2d[~mask], dtype=jnp.float32)
+
         y_indices, x_indices = np.where(~mask)
-        self.unmasked_indices = (jnp.array(y_indices), jnp.array(x_indices))
+        self.unmasked_indices = (jnp.asarray(y_indices), jnp.asarray(x_indices))
         self.image_shape = (self.npix, self.npix)
 
         psf_h, psf_w = self.psf_kernel.shape
@@ -106,127 +89,90 @@ class PixelizedLensSimulator:
         self._cached_operator_indices = None
         self._cached_operator_signature = None
 
-        self.source_grid_shape = None
-        self.source_grid_bounds = None
-        
-        self._generate_source_mesh(self.lensed_source_image, self.mask)
-    
-    def _generate_source_mesh(self, lensed_source_image: Array | np.ndarray, mask: Array | np.ndarray) -> None:
-        model = self.pix_src_model
-
-        if getattr(model, "is_rectangular_grid", False):
-            data_mesh_beta = np.asarray(self.data_mesh_beta, dtype=np.float32)
-            explicit_bounds = getattr(model, "source_grid_bounds", None)
-            if explicit_bounds is None:
-                x_min = float(np.min(data_mesh_beta[:, 0]))
-                x_max = float(np.max(data_mesh_beta[:, 0]))
-                y_min = float(np.min(data_mesh_beta[:, 1]))
-                y_max = float(np.max(data_mesh_beta[:, 1]))
-                margin_frac = float(getattr(model, "source_grid_margin_frac", 0.1))
-
-                x_span = max(x_max - x_min, 1e-5)
-                y_span = max(y_max - y_min, 1e-5)
-                x_margin = margin_frac * x_span
-                y_margin = margin_frac * y_span
-                x_min -= x_margin
-                x_max += x_margin
-                y_min -= y_margin
-                y_max += y_margin
-            else:
-                x_min, x_max, y_min, y_max = [float(v) for v in explicit_bounds]
-
-            nx = int(getattr(model, "source_grid_nx", 64))
-            ny = int(getattr(model, "source_grid_ny", 64))
-
-            x_lin = jnp.linspace(x_min, x_max, nx, dtype=jnp.float32)
-            y_lin = jnp.linspace(y_min, y_max, ny, dtype=jnp.float32)
-            xx, yy = jnp.meshgrid(x_lin, y_lin, indexing='xy')
-            source_mesh = jnp.stack([xx.reshape(-1), yy.reshape(-1)], axis=1)
-
-            self.source_mesh = source_mesh
-            self.source_grid_shape = (ny, nx)
-            self.source_grid_bounds = (x_min, x_max, y_min, y_max)
-            return
-        
-        source_mesh, (H, W), _ = sample_points_weighted(
-            img=np.array(lensed_source_image),
-            mask=~np.array(mask),
-            n_points=model.n_source_points,
-            alpha=model.mesh_alpha,
-            blur_sigma_px=model.mesh_blur_sigma,
-            replace=False,
-            normalize_xy=False,
-            pixel_jitter=False,
-            method=model.mesh_method,
-            seed=model.mesh_seed,
+        self._grid_artifacts: Optional[GridArtifacts] = None
+        self._mapping_strategy = self._build_mapping_strategy()
+        self._regularization_strategy = self._build_regularization_strategy()
+        self._inversion_assembler = InversionAssembler(
+            psf_fft=self.psf_fft,
+            image_shape=self.image_shape,
+            psf_shape=self.psf_shape,
+            unmasked_indices=self.unmasked_indices,
         )
-        
-        source_mesh = (source_mesh - np.array([(W-1)/2, (H-1)/2])) * self.dpix
-        self.source_mesh = jnp.array(source_mesh, dtype=jnp.float32)
-        self.source_grid_shape = None
-        self.source_grid_bounds = None
-    
+
+        self._build_grid_artifacts(self.lensed_source_image, self.mask)
+
+    def _solver_config_from_overrides(self, **overrides) -> SolverConfig:
+        base = self.pix_src_model.solver
+        patch = dict(overrides)
+        if "inversion_backend" in patch:
+            patch["inversion_backend"] = _normalize_inversion_backend(str(patch["inversion_backend"]))
+        return replace(base, **patch)
+
+    def _build_mapping_strategy(self):
+        if self.pix_src_model.is_rectangular_grid:
+            return RectBilinearMappingStrategy()
+        return KnnKernelMappingStrategy(config=self.pix_src_model.mapping)
+
+    def _build_regularization_strategy(self):
+        mode = self.pix_src_model.regularization.resolved_mode(self.pix_src_model.grid)
+        if mode == "dense_gp":
+            return DenseGpRegularizationStrategy(config=self.pix_src_model.regularization)
+        if mode == "sparse_knn":
+            return SparseKnnRegularizationStrategy(config=self.pix_src_model.regularization)
+        if mode == "sparse_rectangular":
+            return SparseRectangularRegularizationStrategy(config=self.pix_src_model.regularization)
+        raise ValueError(f"Unknown regularization mode: '{mode}'.")
+
     @functools.partial(jit, static_argnums=(0,))
     def ray_trace(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         beta_x, beta_y = self.phys_model.deflection(x=x, y=y)
         return jnp.stack([beta_x, beta_y], axis=1)
 
     @property
+    def source_mesh(self) -> jnp.ndarray:
+        if self._grid_artifacts is None:
+            raise RuntimeError("Grid artifacts are not initialized.")
+        return self._grid_artifacts.source_mesh
+
+    @property
     def source_mesh_beta(self) -> jnp.ndarray:
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            return self.source_mesh
-        return self.ray_trace(self.source_mesh[:, 0], self.source_mesh[:, 1])
-    
+        if self._grid_artifacts is None:
+            raise RuntimeError("Grid artifacts are not initialized.")
+        return self._grid_artifacts.source_mesh_beta
+
     @property
     def data_mesh_beta(self) -> jnp.ndarray:
-        return self.ray_trace(self.xgrid_unmask, self.ygrid_unmask)
-    
-    def build_lens_mapping_matrix(self) -> jnp.ndarray:
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            if self.source_grid_shape is None or self.source_grid_bounds is None:
-                raise RuntimeError("Rectangular source grid metadata missing.")
-            ny, nx = self.source_grid_shape
-            x_min, x_max, y_min, y_max = self.source_grid_bounds
-            return lens_mapping_matrix_bilinear_rectangular_from(
-                data_mesh_beta=self.data_mesh_beta,
-                x_min=x_min,
-                x_max=x_max,
-                y_min=y_min,
-                y_max=y_max,
-                nx=nx,
-                ny=ny,
-            )
+        if self._grid_artifacts is None:
+            raise RuntimeError("Grid artifacts are not initialized.")
+        return self._grid_artifacts.data_mesh_beta
 
-        return lens_mapping_matrix_from(
-            source_mesh_beta=self.source_mesh_beta,
-            data_mesh_beta=self.data_mesh_beta,
-            k_neighbors=self.pix_src_model.k_neighbors,
-            kernel=self.pix_src_model.interp_kernel,
-            radius_scale=self.pix_src_model.radius_scale,
-        )
+    @property
+    def source_grid_shape(self):
+        if self._grid_artifacts is None:
+            return None
+        return self._grid_artifacts.source_grid_shape
 
-    def _operator_signature_from(self, source_mesh_beta: jnp.ndarray, data_mesh_beta: jnp.ndarray) -> Tuple:
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            return (
-                "rectangular_bilinear",
-                tuple(data_mesh_beta.shape),
-                float(np.asarray(data_mesh_beta, dtype=np.float32).sum()),
-                tuple(self.source_grid_shape) if self.source_grid_shape is not None else None,
-                tuple(self.source_grid_bounds) if self.source_grid_bounds is not None else None,
-            )
+    @property
+    def source_grid_bounds(self):
+        if self._grid_artifacts is None:
+            return None
+        return self._grid_artifacts.source_grid_bounds
 
-        source_np = np.asarray(source_mesh_beta, dtype=np.float32)
-        data_np = np.asarray(data_mesh_beta, dtype=np.float32)
-        return (
-            tuple(source_np.shape),
-            tuple(data_np.shape),
-            float(source_np.sum()),
-            float((source_np * source_np).sum()),
-            float(data_np.sum()),
-            float((data_np * data_np).sum()),
-            int(self.pix_src_model.k_neighbors),
-            str(self.pix_src_model.interp_kernel),
-            float(self.pix_src_model.radius_scale),
+    def _build_grid_artifacts(self, lensed_source_image: Array | np.ndarray, mask: Array | np.ndarray) -> None:
+        data_mesh_beta = self.ray_trace(self.xgrid_unmask, self.ygrid_unmask)
+        if isinstance(self.pix_src_model.grid, RectangularGridConfig):
+            strategy = RectangularGridStrategy(config=self.pix_src_model.grid)
+        elif isinstance(self.pix_src_model.grid, IrregularGridConfig):
+            strategy = IrregularGridStrategy(config=self.pix_src_model.grid)
+        else:
+            raise TypeError("Unknown grid config type.")
+
+        self._grid_artifacts = strategy.build(
+            lensed_source_image=np.asarray(lensed_source_image),
+            mask=np.asarray(mask),
+            dpix=self.dpix,
+            data_mesh_beta=data_mesh_beta,
+            ray_trace=self.ray_trace,
         )
 
     def clear_operator_cache(self) -> None:
@@ -234,136 +180,81 @@ class PixelizedLensSimulator:
         self._cached_operator_indices = None
         self._cached_operator_signature = None
 
+    def _build_mapping_artifacts(self, *, backend: str, cache_policy: str) -> MappingArtifacts:
+        if self._grid_artifacts is None:
+            raise RuntimeError("Grid artifacts are not initialized.")
+
+        need_dense = backend == "matrix"
+        need_operator = backend == "operator"
+
+        dense_matrix = None
+        op_weights = None
+        op_indices = None
+
+        if need_dense:
+            dense_matrix = self._mapping_strategy.build_dense(self._grid_artifacts)
+
+        if need_operator:
+            policy = str(cache_policy).strip().lower()
+            if policy == "unsafe_static" and self._cached_operator_weights is not None and self._cached_operator_indices is not None:
+                op_weights, op_indices = self._cached_operator_weights, self._cached_operator_indices
+            else:
+                key = self._mapping_strategy.operator_cache_key(self._grid_artifacts)
+                if (
+                    policy == "safe"
+                    and self._cached_operator_weights is not None
+                    and self._cached_operator_indices is not None
+                    and self._cached_operator_signature == key.signature
+                ):
+                    op_weights, op_indices = self._cached_operator_weights, self._cached_operator_indices
+                else:
+                    op_weights, op_indices = self._mapping_strategy.build_operator(self._grid_artifacts)
+                    if policy in {"safe", "unsafe_static"}:
+                        self._cached_operator_weights = op_weights
+                        self._cached_operator_indices = op_indices
+                        self._cached_operator_signature = "unsafe_static" if policy == "unsafe_static" else key.signature
+
+        return MappingArtifacts(dense_matrix=dense_matrix, operator_weights=op_weights, operator_indices=op_indices)
+
+    def _build_regularization_artifacts(self, reg_scale: float, reg_coefficient: float) -> RegularizationArtifacts:
+        if self._grid_artifacts is None:
+            raise RuntimeError("Grid artifacts are not initialized.")
+        return self._regularization_strategy.build(
+            grid=self._grid_artifacts,
+            reg_scale=float(reg_scale),
+            reg_coefficient=float(reg_coefficient),
+        )
+
+    def build_lens_mapping_matrix(self) -> jnp.ndarray:
+        mapping = self._build_mapping_artifacts(backend="matrix", cache_policy="safe")
+        if mapping.dense_matrix is None:
+            raise RuntimeError("Dense mapping matrix was not produced.")
+        return mapping.dense_matrix
+
     def build_lens_mapping_operator(
         self,
         *,
         use_cache: bool = True,
         cache_policy: str = "safe",
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        policy = str(cache_policy).strip().lower()
+        policy = cache_policy if use_cache else "off"
+        mapping = self._build_mapping_artifacts(backend="operator", cache_policy=policy)
+        if mapping.operator_weights is None or mapping.operator_indices is None:
+            raise RuntimeError("Operator mapping entries were not produced.")
+        return mapping.operator_weights, mapping.operator_indices
 
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            source_mesh_beta = self.source_mesh_beta
-            data_mesh_beta = self.data_mesh_beta
-            if self.source_grid_shape is None or self.source_grid_bounds is None:
-                raise RuntimeError("Rectangular source grid metadata missing.")
-            ny, nx = self.source_grid_shape
-            x_min, x_max, y_min, y_max = self.source_grid_bounds
-
-            if use_cache and policy == "unsafe_static":
-                if self._cached_operator_weights is not None and self._cached_operator_indices is not None:
-                    return self._cached_operator_weights, self._cached_operator_indices
-                weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
-                    data_mesh_beta=data_mesh_beta,
-                    x_min=x_min,
-                    x_max=x_max,
-                    y_min=y_min,
-                    y_max=y_max,
-                    nx=nx,
-                    ny=ny,
-                )
-                self._cached_operator_weights = weights
-                self._cached_operator_indices = indices
-                self._cached_operator_signature = "unsafe_static"
-                return weights, indices
-
-            if use_cache and policy == "safe":
-                signature = self._operator_signature_from(source_mesh_beta, data_mesh_beta)
-                if (
-                    self._cached_operator_weights is not None
-                    and self._cached_operator_indices is not None
-                    and self._cached_operator_signature == signature
-                ):
-                    return self._cached_operator_weights, self._cached_operator_indices
-
-                weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
-                    data_mesh_beta=data_mesh_beta,
-                    x_min=x_min,
-                    x_max=x_max,
-                    y_min=y_min,
-                    y_max=y_max,
-                    nx=nx,
-                    ny=ny,
-                )
-                self._cached_operator_weights = weights
-                self._cached_operator_indices = indices
-                self._cached_operator_signature = signature
-                return weights, indices
-
-            weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
-                data_mesh_beta=data_mesh_beta,
-                x_min=x_min,
-                x_max=x_max,
-                y_min=y_min,
-                y_max=y_max,
-                nx=nx,
-                ny=ny,
-            )
-            return weights, indices
-
-        if use_cache and policy == "unsafe_static":
-            if self._cached_operator_weights is not None and self._cached_operator_indices is not None:
-                return self._cached_operator_weights, self._cached_operator_indices
-
-            source_mesh_beta = self.source_mesh_beta
-            data_mesh_beta = self.data_mesh_beta
-            weights, indices, _ = get_interpolation_weights(
-                points=source_mesh_beta,
-                query_points=data_mesh_beta,
-                k_neighbors=self.pix_src_model.k_neighbors,
-                kernel=self.pix_src_model.interp_kernel,
-                radius_scale=self.pix_src_model.radius_scale,
-            )
-            self._cached_operator_weights = weights
-            self._cached_operator_indices = indices
-            self._cached_operator_signature = "unsafe_static"
-            return weights, indices
-
-        source_mesh_beta = self.source_mesh_beta
-        data_mesh_beta = self.data_mesh_beta
-
-        if use_cache and policy == "safe":
-            signature = self._operator_signature_from(source_mesh_beta, data_mesh_beta)
-            if (
-                self._cached_operator_weights is not None
-                and self._cached_operator_indices is not None
-                and self._cached_operator_signature == signature
-            ):
-                return self._cached_operator_weights, self._cached_operator_indices
-
-            weights, indices, _ = get_interpolation_weights(
-                points=source_mesh_beta,
-                query_points=data_mesh_beta,
-                k_neighbors=self.pix_src_model.k_neighbors,
-                kernel=self.pix_src_model.interp_kernel,
-                radius_scale=self.pix_src_model.radius_scale,
-            )
-            self._cached_operator_weights = weights
-            self._cached_operator_indices = indices
-            self._cached_operator_signature = signature
-            return weights, indices
-
-        weights, indices, _ = get_interpolation_weights(
-            points=source_mesh_beta,
-            query_points=data_mesh_beta,
-            k_neighbors=self.pix_src_model.k_neighbors,
-            kernel=self.pix_src_model.interp_kernel,
-            radius_scale=self.pix_src_model.radius_scale,
-        )
-        return weights, indices
-    
-    def build_blurred_lens_mapping_matrix(self, method: str = 'fft') -> jnp.ndarray:
+    def build_blurred_lens_mapping_matrix(self, method: str = "fft") -> jnp.ndarray:
         return apply_psf_to_mapping_matrix(
             mapping_matrix=self.build_lens_mapping_matrix(),
             psf_kernel=self.psf_kernel,
             image_shape=self.image_shape,
             unmasked_indices=self.unmasked_indices,
             method=method,
-            psf_fft=self.psf_fft if method == 'fft' else None,
-            psf_shape=self.psf_shape if method == 'fft' else None,
+            psf_fft=self.psf_fft if method == "fft" else None,
+            psf_shape=self.psf_shape if method == "fft" else None,
         )
 
-    def build_lens_light_basis_matrix(self, method: str = 'fft') -> jnp.ndarray:
+    def build_lens_light_basis_matrix(self, method: str = "fft") -> jnp.ndarray:
         n_lens_light = len(self.phys_model.lens_light)
         if n_lens_light == 0:
             return jnp.zeros((self.xgrid_unmask.shape[0], 0), dtype=jnp.float32)
@@ -379,20 +270,23 @@ class PixelizedLensSimulator:
             image_shape=self.image_shape,
             unmasked_indices=self.unmasked_indices,
             method=method,
-            psf_fft=self.psf_fft if method == 'fft' else None,
-            psf_shape=self.psf_shape if method == 'fft' else None,
+            psf_fft=self.psf_fft if method == "fft" else None,
+            psf_shape=self.psf_shape if method == "fft" else None,
         )
-    
+
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            raise ValueError(
-                "build_regularization_matrix() is unavailable for rectangular source grid; "
-                "matrix-mode rectangular regularization is assembled inside build_inverter()."
-            )
-        return self.pix_src_model.regularization_matrix(
-            points=self.source_mesh_beta,
-            reg_scale=reg_scale,
-            reg_coefficient=reg_coefficient,
+        reg = self._build_regularization_artifacts(reg_scale=reg_scale, reg_coefficient=reg_coefficient)
+        if reg.dense_matrix is not None:
+            return reg.dense_matrix
+        from TinyLensGpu.utils.lensing import sparse_regularization_dense_from
+
+        if reg.sparse_rows is None or reg.sparse_cols is None or reg.sparse_values is None or reg.sparse_n_source is None:
+            raise RuntimeError("Sparse regularization artifacts are incomplete.")
+        return sparse_regularization_dense_from(
+            rows=reg.sparse_rows,
+            cols=reg.sparse_cols,
+            values=reg.sparse_values,
+            n_source=reg.sparse_n_source,
         )
 
     def build_inverter(
@@ -402,196 +296,74 @@ class PixelizedLensSimulator:
         reg_scale: float,
         reg_coefficient: float,
         *,
-        include_lens_light: bool = False,
-        lens_light_ridge: float = 1e-8,
-        nonnegative: bool = False,
-        inversion_backend: str = "matrix",
-        cg_tol: float = 1e-4,
-        cg_maxiter: int = 120,
-        slq_seed: int = 0,
-        slq_probes: int = 32,
-        slq_steps: int = 60,
-        evidence_mode: str = "accurate",
-        operator_cache_policy: str = "safe",
-        nnls_maxiter: int = 600,
-        nnls_tol: float = 1e-6,
-        nnls_lipschitz_iters: int = 12,
+        include_lens_light: Optional[bool] = None,
+        lens_light_ridge: Optional[float] = None,
+        nonnegative: Optional[bool] = None,
+        inversion_backend: Optional[str] = None,
+        cg_tol: Optional[float] = None,
+        cg_maxiter: Optional[int] = None,
+        slq_seed: Optional[int] = None,
+        slq_probes: Optional[int] = None,
+        slq_steps: Optional[int] = None,
+        evidence_mode: Optional[str] = None,
+        operator_cache_policy: Optional[str] = None,
+        nnls_maxiter: Optional[int] = None,
+        nnls_tol: Optional[float] = None,
+        nnls_lipschitz_iters: Optional[int] = None,
     ) -> Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]:
-        """Build and configure the semi-linear inversion solver.
+        overrides = {}
+        for name, value in {
+            "include_lens_light": include_lens_light,
+            "lens_light_ridge": lens_light_ridge,
+            "nonnegative": nonnegative,
+            "inversion_backend": inversion_backend,
+            "cg_tol": cg_tol,
+            "cg_maxiter": cg_maxiter,
+            "slq_seed": slq_seed,
+            "slq_probes": slq_probes,
+            "slq_steps": slq_steps,
+            "evidence_mode": evidence_mode,
+            "operator_cache_policy": operator_cache_policy,
+            "nnls_maxiter": nnls_maxiter,
+            "nnls_tol": nnls_tol,
+            "nnls_lipschitz_iters": nnls_lipschitz_iters,
+        }.items():
+            if value is not None:
+                overrides[name] = value
 
-        This method is the central backend dispatcher for source reconstruction.
-        It supports both dense matrix inversion and matrix-free operator inversion,
-        while keeping the numerical interface consistent across source-grid types.
+        solver_cfg = self._solver_config_from_overrides(**overrides)
+        backend = solver_cfg.canonical_backend
 
-        Notes
-        -----
-        Backend behavior by source-grid type:
+        reg = self._build_regularization_artifacts(reg_scale=reg_scale, reg_coefficient=reg_coefficient)
+        mapping = self._build_mapping_artifacts(backend=backend, cache_policy=solver_cfg.operator_cache_policy)
 
-        - ``source_grid_type='irregular'``:
-          - ``matrix`` backend uses dense mapping and dense regularization.
-          - ``operator`` backend uses matrix-free mapping with optional sparse
-            regularization operators.
-        - ``source_grid_type='rectangular_bilinear'``:
-          - Mapping may be built either as a dense matrix (matrix backend) or as
-            sparse bilinear operator entries (operator backend).
-          - Regularization is first constructed in sparse COO form from the
-            rectangular stencil and then either:
-            - consumed directly by operator backends, or
-            - densified for matrix backends.
-
-        The sparse-first regularization pathway guarantees that rectangular
-        regularization semantics are shared across both backends.
-        """
-        d = jnp.array(data_vector)
-        noise_var = jnp.array(noise_variance)
-        backend = _normalize_inversion_backend(inversion_backend)
-
-        if getattr(self.pix_src_model, "is_rectangular_grid", False):
-            reg_operator_mode = "sparse_rectangular"
-        else:
-            reg_operator_mode = str(getattr(self.pix_src_model, "reg_operator_mode", "dense_gp")).strip().lower()
-        sparse_reg_enabled = reg_operator_mode in {"sparse_knn", "sparse_rectangular"}
-        sparse_rows = sparse_cols = sparse_values = None
-        sparse_n_source = None
-
-        if reg_operator_mode == "sparse_knn":
-            from TinyLensGpu.utils.lensing import regularization_sparse_knn_from
-
-            sparse_rows, sparse_cols, sparse_values, sparse_n_source = regularization_sparse_knn_from(
-                scale=float(reg_scale),
-                coefficient=float(reg_coefficient),
-                points=self.source_mesh_beta,
-                reg_type=self.pix_src_model.reg_type,
-                k_neighbors=int(getattr(self.pix_src_model, "reg_sparse_k_neighbors", 16)),
-            )
-
-        if reg_operator_mode == "sparse_rectangular":
-            if self.source_grid_shape is None:
-                raise RuntimeError("Rectangular source grid metadata missing for regularization.")
-            ny, nx = self.source_grid_shape
-            # Build rectangular regularization in sparse COO form once and reuse
-            # it in both backends. Operator backends consume COO entries directly,
-            # while matrix backends densify the same operator for exact solves.
-            sparse_rows, sparse_cols, sparse_values, sparse_n_source = regularization_sparse_rectangular_from(
-                coefficient=float(reg_coefficient),
-                nx=int(nx),
-                ny=int(ny),
-                reg_scheme=str(getattr(self.pix_src_model, "rect_reg_type", "gradient")),
-            )
-
-        if backend == "operator":
-            if sparse_reg_enabled:
-                # Sparse operator mode does not require storing dense H.
-                reg_matrix_src = jnp.zeros((int(self.source_mesh_beta.shape[0]),), dtype=jnp.float32)
-            else:
-                reg_matrix_src = self.pix_src_model.regularization_matrix(
-                    points=self.source_mesh_beta,
-                    reg_scale=reg_scale,
-                    reg_coefficient=reg_coefficient,
-                )
-            lens_basis_matrix = None
-            if include_lens_light:
-                lens_basis_matrix = self.build_lens_light_basis_matrix()
-            weights, indices = self.build_lens_mapping_operator(
-                use_cache=True,
-                cache_policy=operator_cache_policy,
-            )
-            if nonnegative:
-                return OperatorNNLSInversion(
-                    d=d,
-                    noise_var=noise_var,
-                    H=reg_matrix_src,
-                    weights=weights,
-                    indices=indices,
-                    psf_fft=self.psf_fft,
+        if backend == "matrix" and mapping.dense_matrix is not None:
+            mapping = MappingArtifacts(
+                dense_matrix=apply_psf_to_mapping_matrix(
+                    mapping_matrix=mapping.dense_matrix,
+                    psf_kernel=self.psf_kernel,
                     image_shape=self.image_shape,
-                    psf_shape=self.psf_shape,
                     unmasked_indices=self.unmasked_indices,
-                    maxiter=nnls_maxiter,
-                    tol=nnls_tol,
-                    lipschitz_iters=nnls_lipschitz_iters,
-                    fista_seed=slq_seed,
-                    evidence_mode=evidence_mode,
-                    slq_seed=slq_seed,
-                    slq_probes=slq_probes,
-                    slq_steps=slq_steps,
-                    reg_operator_mode=reg_operator_mode,
-                    lens_basis=lens_basis_matrix,
-                    lens_light_ridge=lens_light_ridge,
-                    H_sparse_rows=sparse_rows,
-                    H_sparse_cols=sparse_cols,
-                    H_sparse_values=sparse_values,
-                    H_sparse_n_source=sparse_n_source,
-                )
-            return OperatorInversion(
-                d=d,
-                noise_var=noise_var,
-                H=reg_matrix_src,
-                weights=weights,
-                indices=indices,
-                psf_fft=self.psf_fft,
-                image_shape=self.image_shape,
-                psf_shape=self.psf_shape,
-                unmasked_indices=self.unmasked_indices,
-                cg_tol=cg_tol,
-                cg_maxiter=cg_maxiter,
-                slq_seed=slq_seed,
-                slq_probes=slq_probes,
-                slq_steps=slq_steps,
-                evidence_mode=evidence_mode,
-                reg_operator_mode=reg_operator_mode,
-                lens_basis=lens_basis_matrix,
-                lens_light_ridge=lens_light_ridge,
-                H_sparse_rows=sparse_rows,
-                H_sparse_cols=sparse_cols,
-                H_sparse_values=sparse_values,
-                H_sparse_n_source=sparse_n_source,
+                    method="fft",
+                    psf_fft=self.psf_fft,
+                    psf_shape=self.psf_shape,
+                ),
+                operator_weights=mapping.operator_weights,
+                operator_indices=mapping.operator_indices,
             )
 
-        if backend == "matrix":
-            if sparse_reg_enabled:
-                if sparse_rows is None or sparse_cols is None or sparse_values is None or sparse_n_source is None:
-                    raise RuntimeError("Sparse regularization mode selected but sparse entries are missing.")
-                # Convert COO sparse regularization into dense H for exact matrix
-                # backend solvers. This keeps the matrix backend numerically
-                # aligned with the operator backend while still enabling direct
-                # linear-system solves and block regularization with lens light.
-                reg_matrix_src = sparse_regularization_dense_from(
-                    rows=sparse_rows,
-                    cols=sparse_cols,
-                    values=sparse_values,
-                    n_source=sparse_n_source,
-                )
-            else:
-                reg_matrix_src = self.pix_src_model.regularization_matrix(
-                    points=self.source_mesh_beta,
-                    reg_scale=reg_scale,
-                    reg_coefficient=reg_coefficient,
-                )
+        lens_basis_matrix = None
+        if solver_cfg.include_lens_light:
+            lens_basis_matrix = self.build_lens_light_basis_matrix()
 
-        blurred_lens_map_matrix = self.build_blurred_lens_mapping_matrix()
-        if not include_lens_light:
-            if nonnegative:
-                return NNLSInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix_src)
-            return LinearInversion(d=d, F=blurred_lens_map_matrix, noise_cov=noise_var, H=reg_matrix_src)
-
-        lens_basis_matrix = self.build_lens_light_basis_matrix()
-        F_total = jnp.concatenate([blurred_lens_map_matrix, lens_basis_matrix], axis=1)
-
-        n_src = int(reg_matrix_src.shape[0])
-        n_lens = int(lens_basis_matrix.shape[1])
-        ridge = jnp.array(max(float(lens_light_ridge), 0.0), dtype=jnp.float32)
-        H_lens = ridge * jnp.eye(n_lens, dtype=jnp.float32)
-        H_total = jnp.block(
-            [
-                [reg_matrix_src, jnp.zeros((n_src, n_lens), dtype=jnp.float32)],
-                [jnp.zeros((n_lens, n_src), dtype=jnp.float32), H_lens],
-            ]
+        return self._inversion_assembler.build(
+            data_vector=jnp.asarray(data_vector),
+            noise_variance=jnp.asarray(noise_variance),
+            mapping=mapping,
+            regularization=reg,
+            solver_config=solver_cfg,
+            lens_basis_matrix=lens_basis_matrix,
         )
-
-        if nonnegative:
-            return NNLSInversion(d=d, F=F_total, noise_cov=noise_var, H=H_total)
-        return LinearInversion(d=d, F=F_total, noise_cov=noise_var, H=H_total)
 
     def reconstruct_source_and_lens_light(
         self,
@@ -605,16 +377,6 @@ class PixelizedLensSimulator:
         inversion_backend: str = "matrix",
         **kwargs,
     ):
-        """Jointly reconstruct source and lens-light linear coefficients.
-
-        This routine supports both ``inversion_backend='matrix'`` and
-        ``inversion_backend='operator'`` for joint source+lens-light inference.
-
-        Rectangular source grids are supported: their sparse regularization
-        stencils are internally densified before assembling the source/lens-light
-        block regularization matrix (matrix backend) or consumed as sparse
-        operators (operator backend).
-        """
         inverter = self.build_inverter(
             data_vector=data_vector,
             noise_variance=noise_variance,
@@ -631,7 +393,6 @@ class PixelizedLensSimulator:
         n_src = int(self.source_mesh_beta.shape[0])
         source_intensities = x_total[:n_src]
         lens_light_intensities = x_total[n_src:]
-
         model_data = inverter.model_predict(x_total)
 
         if return_2d:
@@ -656,43 +417,6 @@ class PixelizedLensSimulator:
         jnp.ndarray,
         Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion],
     ]:
-        """
-        Reconstruct the source given observed data and noise.
-
-        This method performs the full source reconstruction pipeline:
-        1. Build lensing mapping matrix with PSF convolution
-        2. Build regularization matrix
-        3. Solve the linear inverse problem for source intensities
-        4. Generate model image
-
-        Parameters
-        ----------
-        data_vector : jnp.ndarray or np.ndarray
-            Observed image data vector (unmasked pixels only)
-        noise_variance : jnp.ndarray or np.ndarray
-            Noise variance for each unmasked pixel
-        reg_scale : float
-            Regularization scale parameter
-        reg_coefficient : float
-            Regularization coefficient (lambda)
-        return_2d : bool, optional
-            If True, returns the model image as a 2D array.
-            If False (default), returns the model image as a 1D vector (unmasked pixels only).
-        **kwargs : dict
-            Additional arguments passed to build_inverter (e.g. inversion_backend, cg_tol, etc.)
-
-        Returns
-        -------
-        source_intensities : jnp.ndarray
-            Reconstructed source intensities at source mesh points
-        source_mesh_beta : jnp.ndarray
-            Source mesh coordinates in source plane (shape: n_source x 2)
-        model_image : jnp.ndarray
-            Model image. Shape is (npix, npix) if return_2d=True, 
-            else (n_unmasked_pixels,) if return_2d=False.
-        inverter : Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]
-            Linear inversion solver object (cached for reuse)
-        """
         inverter = self.build_inverter(
             data_vector=data_vector,
             noise_variance=noise_variance,
@@ -700,15 +424,10 @@ class PixelizedLensSimulator:
             reg_coefficient=reg_coefficient,
             **kwargs,
         )
-
-        # Solve for source intensities
         source_intensities = inverter.solve()
-
-        # Generate model data
         model_data = inverter.model_predict(source_intensities)
 
         if return_2d:
-            # Place model data into full image
             model_image = jnp.zeros((self.npix, self.npix))
             model_image = model_image.at[~self.mask].set(model_data)
         else:
@@ -717,7 +436,16 @@ class PixelizedLensSimulator:
         return source_intensities, self.source_mesh_beta, model_image, inverter
 
     def __repr__(self) -> str:
-        return (f"PixelizedLensSimulator("
-                f"npix={self.npix}, "
-                f"n_source_points={self.pix_src_model.n_source_points}, "
-                f"n_mass={len(self.phys_model.lens_mass)})")
+        if isinstance(self.pix_src_model.grid, IrregularGridConfig):
+            n_source_points = int(self.pix_src_model.grid.n_source_points)
+        elif isinstance(self.pix_src_model.grid, RectangularGridConfig):
+            n_source_points = int(self.pix_src_model.grid.nx * self.pix_src_model.grid.ny)
+        else:
+            n_source_points = 0
+
+        return (
+            "PixelizedLensSimulator("
+            f"npix={self.npix}, "
+            f"n_source_points={n_source_points}, "
+            f"n_mass={len(self.phys_model.lens_mass)})"
+        )

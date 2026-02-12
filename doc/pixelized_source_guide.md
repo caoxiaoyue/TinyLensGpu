@@ -19,19 +19,19 @@ TinyLensGpu now supports **pixelized source reconstruction** in addition to para
 
 The pixelized source implementation consists of several modules:
 
-### 1. Core Utilities (`TinyLensGpu/PixelizedSource/`)
+### 1. Core Utilities (`TinyLensGpu/utils/`, `TinyLensGpu/ForwardSimulation/LensImage/`)
 
-- **`source_inversion.py`**: Linear inversion solver with Bayesian evidence calculation
-- **`regularization.py`**: Gaussian Process regularization matrices (exp, gauss, Matern-3/2, Matern-5/2)
-- **`lensing.py`**: Lens mapping matrix and PSF convolution operations
-- **`source_mesh.py`**: Adaptive source mesh generation
-- **`interp_kernel.py`**: Wendland kernel interpolation
+- **`TinyLensGpu/utils/inversion/linear_solver.py`**: Linear inversion solver with Bayesian evidence calculation
+- **`TinyLensGpu/utils/lensing/regularization.py`**: Gaussian Process and sparse regularization operators
+- **`TinyLensGpu/utils/lensing/mapping.py` + `psf.py`**: Lens mapping matrix and PSF convolution operations
+- **`TinyLensGpu/utils/mesh/source_mesh.py`**: Adaptive source mesh generation
+- **`TinyLensGpu/ForwardSimulation/LensImage/pixelized_core/`**: Grid, mapping, regularization, and inversion assembly strategies
 
-### 2. Model Classes (`TinyLensGpu/Models/`)
+### 2. Model Classes (`TinyLensGpu/PhysicalModel/LensImage/Pixelized/`)
 
 - **`PixelizedSourceModel`**: Caskade module for pixelized source
 
-### 3. Probability Model (`TinyLensGpu/ProbModel/Image/`)
+### 3. Probability Model (`TinyLensGpu/ObservationModel/LensImage/`)
 
 - **`PixelizedImageProbModel`**: Computes log evidence for Bayesian inference
 
@@ -80,14 +80,14 @@ Regularization matrix: `H = λ K^{-1}`
 
 ### Rectangular bilinear source-grid mode
 
-`PixelizedSourceModel` also supports `source_grid_type='rectangular_bilinear'`.
+`PixelizedSourceModel` also supports rectangular bilinear grids via `RectangularGridConfig`.
 
 In this mode:
 
 - Source pixels are laid out on a rectangular source-plane grid.
-- Bounds are auto-estimated from traced unmasked image pixels and expanded by `source_grid_margin_frac`.
+- Bounds are auto-estimated from traced unmasked image pixels and expanded by `RectangularGridConfig.margin_frac`.
 - Mapping uses bilinear interpolation (4 neighbors per data sample).
-- Regularization uses sparse operator schemes: `rect_reg_type` in `{zero, gradient, curvature}`.
+- Regularization uses sparse operator schemes via `RegularizationConfig(rect_scheme=...)` in `{zero, gradient, curvature}`.
 - Semi-linear inversion supports both `inversion_backend='operator'` and `inversion_backend='matrix'`.
 
 Backend guidance for rectangular mode:
@@ -98,10 +98,10 @@ Backend guidance for rectangular mode:
 
 Important parameters for this mode:
 
-- `source_grid_nx`, `source_grid_ny`
-- `source_grid_margin_frac`
-- `source_grid_bounds` (optional explicit `(x_min, x_max, y_min, y_max)`)
-- `rect_reg_type`
+- `RectangularGridConfig(nx, ny)`
+- `RectangularGridConfig(margin_frac)`
+- `RectangularGridConfig(bounds)` (optional explicit `(x_min, x_max, y_min, y_max)`)
+- `RegularizationConfig(rect_scheme)`
 
 ## Usage Guide
 
@@ -116,13 +116,21 @@ from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
 
 # 2. Create pixelized source model
+from TinyLensGpu.PhysicalModel import (
+    PixelizedSourceConfig,
+    IrregularGridConfig,
+    MappingConfig,
+    RegularizationConfig,
+)
+
 pix_src = PixelizedSourceModel(
-    reg_scale=0.05,           # Regularization length scale
-    reg_coefficient=1.0,      # Regularization strength
-    reg_type='exp',           # Kernel type
-    n_source_points=1500,     # Number of source pixels
-    mesh_alpha=1.5,           # Mesh density bias
-    k_neighbors=5,            # Interpolation neighbors
+    config=PixelizedSourceConfig(
+        grid=IrregularGridConfig(n_source_points=1500, mesh_alpha=1.5),
+        mapping=MappingConfig(k_neighbors=5, interp_kernel="wendland_c4", radius_scale=1.5),
+        regularization=RegularizationConfig(mode="dense_gp", gp_kernel="exp"),
+    ),
+    reg_scale=0.05,
+    reg_coefficient=1.0,
 )
 
 # 3. Create physical model
@@ -142,8 +150,15 @@ prob_model = PixelizedImageProbModel(
 log_ev = prob_model.log_evidence()
 print(f"Log evidence: {log_ev:.2f}")
 
-# 6. Reconstruct source
-source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
+# 6. Reconstruct source (via simulator)
+data_vector = prob_model.image_data[~prob_model.mask]
+noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(
+    data_vector=data_vector,
+    noise_variance=noise_variance,
+    reg_scale=prob_model.pix_src_model.reg_scale.value,
+    reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
+)
 ```
 
 ### Hyperparameter Optimization
@@ -210,21 +225,22 @@ sampler.run_nested(dlogz=0.01)
 
 ## Configuration Parameters
 
-### PixelizedSourceModel Parameters
+### PixelizedSourceModel Parameters (Typed Config API)
 
-| Parameter | Type | Default | Description |
+| Field Path | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `reg_scale` | float | 0.05 | Regularization length scale (arcsec) |
-| `reg_coefficient` | float | 1.0 | Regularization strength |
-| `reg_type` | str | 'exp' | Kernel: 'exp', 'gauss', 'matern32', 'matern52' |
-| `n_source_points` | int | 1500 | Number of source mesh points |
-| `mesh_alpha` | float | 1.5 | Density bias (>1 favors bright regions) |
-| `mesh_blur_sigma` | float | 0.0 | Gaussian blur for mesh sampling (pixels) |
-| `mesh_method` | str | 'random' | Sampling: 'random' or 'sobol' |
-| `mesh_seed` | int | 42 | Random seed for reproducibility |
-| `k_neighbors` | int | 5 | Number of interpolation neighbors |
-| `interp_kernel` | str | 'wendland_c4' | Interpolation kernel |
-| `radius_scale` | float | 1.5 | Kernel support radius scale |
+| `reg_scale` | float / `ParamU` | 0.05 | Regularization length scale (arcsec) |
+| `reg_coefficient` | float / `ParamU` | 1.0 | Regularization strength |
+| `config.grid` | `IrregularGridConfig` | irregular grid | Source-plane grid configuration |
+| `config.grid.n_source_points` | int | 1500 | Number of irregular source mesh points |
+| `config.grid.mesh_alpha` | float | 0.0 | Density bias for irregular mesh sampling |
+| `config.grid.mesh_blur_sigma` | float | 0.0 | Gaussian blur for irregular mesh sampling |
+| `config.grid.mesh_method` | str | `'random'` | Irregular mesh sampling method |
+| `config.mapping.k_neighbors` | int | 5 | Interpolation neighbors |
+| `config.mapping.interp_kernel` | str | `'wendland_c4'` | Interpolation kernel |
+| `config.mapping.radius_scale` | float | 1.5 | Kernel support radius scale |
+| `config.regularization.gp_kernel` | str | `'exp'` | GP kernel (`'exp'`, `'gauss'`, `'matern32'`, `'matern52'`) |
+| `config.regularization.mode` | str | `'auto'` | Regularization operator mode |
 
 ### Tuning Guidelines
 
@@ -238,12 +254,12 @@ sampler.run_nested(dlogz=0.01)
 - Medium values (1.0-10): Balanced regularization
 - Larger values (10-100): Strong regularization, smoother source
 
-**Number of Source Points (`n_source_points`)**:
+**Number of Source Points (`config.grid.n_source_points` for irregular; `config.grid.nx/ny` for rectangular)**:
 - Fewer points (500-1000): Faster, less detail
 - Medium (1000-2000): Good balance
 - More points (2000-5000): Slower, more detail
 
-**Mesh Alpha (`mesh_alpha`)**:
+**Mesh Alpha (`config.grid.mesh_alpha`)**:
 - α = 1.0: Uniform sampling
 - α > 1.0: Concentrate points in bright regions
 - α < 1.0: More uniform coverage
@@ -260,7 +276,7 @@ sampler.run_nested(dlogz=0.01)
 For large images (npix > 200), consider:
 1. Using larger masks to reduce N_data
 2. Using sparse PSF matrices
-3. Reducing n_source_points
+3. Reducing irregular `n_source_points` or rectangular `nx/ny`
 
 ### Computational Cost
 
@@ -314,7 +330,7 @@ jax.config.update('jax_platform_name', 'gpu')
 
 ### Custom Regularization Kernels
 
-You can implement custom kernels by adding to `regularization.py`:
+You can implement custom kernels by extending `TinyLensGpu/utils/lensing/regularization.py`:
 
 ```python
 @jax.jit
@@ -357,20 +373,20 @@ For multiple source planes, create separate `PixelizedImageProbModel` instances 
 - Try different regularization parameters
 
 **2. Numerical instability**
-- Reduce n_source_points
+- Reduce irregular `n_source_points` or rectangular `nx/ny`
 - Increase regularization coefficient
 - Check for NaN/Inf in data
 
 **3. Slow performance**
-- Reduce n_source_points
+- Reduce irregular `n_source_points` or rectangular `nx/ny`
 - Use larger mask
 - Enable GPU acceleration
 - Cache PSF matrix
 
 **4. Poor reconstruction quality**
 - Tune regularization parameters
-- Increase n_source_points
-- Adjust mesh_alpha for better coverage
+- Increase irregular `n_source_points` (or `nx/ny` for rectangular)
+- Adjust `config.grid.mesh_alpha` for better coverage
 - Try different regularization kernels
 
 ## References
@@ -390,5 +406,5 @@ For multiple source planes, create separate `PixelizedImageProbModel` instances 
 ## See Also
 
 - [Demo: Pixelized Source Reconstruction](../paper/demo/src_only_pix_src/demo_pix_src.py)
-- [API Reference: PixelizedSourceModel](../TinyLensGpu/Models/pixelized_source.py)
-- [API Reference: PixelizedImageProbModel](../TinyLensGpu/ProbModel/Image/pixelized_image_model.py)
+- [API Reference: PixelizedSourceModel](../TinyLensGpu/PhysicalModel/LensImage/Pixelized/pixelized_source.py)
+- [API Reference: PixelizedImageProbModel](../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py)

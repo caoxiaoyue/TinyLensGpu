@@ -10,16 +10,14 @@ January 2026
 
 ## Key Features Delivered
 
-### 1. Core Utilities Module (`TinyLensGpu/PixelizedSource/`)
+### 1. Core Utilities Module (`TinyLensGpu/utils/` + `TinyLensGpu/ForwardSimulation/LensImage/pixelized_core/`)
 
-**New Files Created**:
-- `__init__.py` - Module exports
-- `source_inversion.py` - Linear inversion solver with Bayesian evidence
-- `regularization.py` - GP regularization matrices (4 kernel types)
-- `lensing.py` - Lens mapping and PSF convolution operations
-- `source_mesh.py` - Adaptive source mesh generation
-- `interp_kernel.py` - Wendland kernel interpolation
-- `README.md` - Module documentation
+**Core Files**:
+- `TinyLensGpu/utils/inversion/linear_solver.py` - Linear inversion solver with Bayesian evidence
+- `TinyLensGpu/utils/lensing/regularization.py` - GP/sparse regularization operators
+- `TinyLensGpu/utils/lensing/mapping.py` + `psf.py` - Lens mapping and PSF convolution operations
+- `TinyLensGpu/utils/mesh/source_mesh.py` - Adaptive source mesh generation
+- `TinyLensGpu/ForwardSimulation/LensImage/pixelized_core/*` - strategy-based assembly for grid/mapping/regularization/inversion
 
 **Key Capabilities**:
 - JAX-optimized linear inversion with O(N³) complexity
@@ -29,10 +27,11 @@ January 2026
 - Dense and sparse PSF matrix implementations
 - Brightness-weighted adaptive mesh generation (random and Sobol sampling)
 
-### 2. Model Classes (`TinyLensGpu/Models/`)
+### 2. Model Classes (`TinyLensGpu/PhysicalModel/LensImage/Pixelized/`)
 
-**New File Created**:
-- `pixelized_source.py` - Pixelized source model with caskade integration
+**Core Files**:
+- `config.py` - typed config dataclasses for grid/mapping/regularization/solver
+- `pixelized_source.py` - `PixelizedSourceModel` with typed-config integration
 
 **Key Components**:
 - `PixelizedSourceModel`: Caskade module for pixelized source
@@ -42,15 +41,15 @@ January 2026
 **Hyperparameters Exposed**:
 - `reg_scale`: Regularization length scale (caskade parameter)
 - `reg_coefficient`: Regularization strength (caskade parameter)
-- `reg_type`: Kernel type (static configuration)
-- `n_source_points`: Number of source mesh points
-- `mesh_alpha`: Density bias for mesh sampling
-- `k_neighbors`: Interpolation neighbors
-- Plus additional mesh and interpolation settings
+- `config.regularization.gp_kernel`: Kernel type (static configuration)
+- `config.grid.n_source_points` (irregular) / `config.grid.nx, config.grid.ny` (rectangular)
+- `config.grid.mesh_alpha`: Density bias for irregular mesh sampling
+- `config.mapping.k_neighbors`: Interpolation neighbors
+- Plus additional typed mesh/mapping/solver settings
 
-### 3. Probability Model (`TinyLensGpu/ProbModel/Image/`)
+### 3. Probability Model (`TinyLensGpu/ObservationModel/LensImage/`)
 
-**New File Created**:
+**Core File**:
 - `pixelized_image_model.py` - Probability model computing log evidence
 
 **Key Features**:
@@ -73,7 +72,7 @@ January 2026
 **Files Created**:
 - `doc/pixelized_source_guide.md` - Comprehensive user guide (300+ lines)
 - `doc/pixelized_source_code_review.md` - Systematic code review (500+ lines)
-- `TinyLensGpu/PixelizedSource/README.md` - Module-level documentation
+- `TinyLensGpu/PhysicalModel/LensImage/Pixelized/README.md` - Module-level documentation
 - `doc/PIXELIZED_SOURCE_IMPLEMENTATION_SUMMARY.md` - This file
 
 **Documentation Coverage**:
@@ -101,8 +100,8 @@ January 2026
 ### 6. Updated Files
 
 **Modified Files**:
-- `TinyLensGpu/Models/__init__.py` - Added pixelized source exports
-- `TinyLensGpu/ProbModel/Image/__init__.py` - Added PixelizedImageProbModel export
+- `TinyLensGpu/PhysicalModel/LensImage/__init__.py` - Added pixelized source exports
+- `TinyLensGpu/ObservationModel/LensImage/__init__.py` - Added PixelizedImageProbModel export
 - `README.md` - Added pixelized source section with examples
 
 ## Architecture Design
@@ -276,7 +275,15 @@ from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Setup
 sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
+pix_src = PixelizedSourceModel(
+    config=PixelizedSourceConfig(
+        grid=IrregularGridConfig(n_source_points=1500),
+        mapping=MappingConfig(k_neighbors=5, interp_kernel="wendland_c4", radius_scale=1.5),
+        regularization=RegularizationConfig(mode="dense_gp", gp_kernel="exp"),
+    ),
+    reg_scale=0.05,
+    reg_coefficient=1.0,
+)
 phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
 
 # Create probability model
@@ -288,8 +295,15 @@ prob_model = PixelizedImageProbModel(
 # Compute log evidence
 log_ev = prob_model.log_evidence()
 
-# Reconstruct source
-source_intensities, source_mesh_beta, model_image = prob_model.reconstruct_source()
+# Reconstruct source (via simulator)
+data_vector = prob_model.image_data[~prob_model.mask]
+noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(
+    data_vector=data_vector,
+    noise_variance=noise_variance,
+    reg_scale=prob_model.pix_src_model.reg_scale.value,
+    reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
+)
 ```
 
 ### Hyperparameter Optimization
@@ -306,7 +320,7 @@ prior_dict = {
 
 # Create prior and likelihood
 prior = build_prior.make_prior(prob_model, prior_dict)
-loglike = likelihood.make_likelihood(prob_model, vectorized=True)
+loglike = build_likelihood.make_likelihood(prob_model, vectorized=True)
 
 # Run nested sampling
 sampler = dynesty.NestedSampler(loglike, prior, ndim=2, nlive=100)
@@ -346,22 +360,22 @@ The pixelized source implementation is **complete, well-designed, and production
 
 ## Files Created/Modified Summary
 
-### New Files (18 total)
+### Key Files
 
-**Core Module**:
-1. `TinyLensGpu/PixelizedSource/__init__.py`
-2. `TinyLensGpu/PixelizedSource/source_inversion.py`
-3. `TinyLensGpu/PixelizedSource/regularization.py`
-4. `TinyLensGpu/PixelizedSource/lensing.py`
-5. `TinyLensGpu/PixelizedSource/source_mesh.py`
-6. `TinyLensGpu/PixelizedSource/interp_kernel.py`
-7. `TinyLensGpu/PixelizedSource/README.md`
+**Core Utilities**:
+1. `TinyLensGpu/utils/inversion/linear_solver.py`
+2. `TinyLensGpu/utils/lensing/regularization.py`
+3. `TinyLensGpu/utils/lensing/mapping.py`
+4. `TinyLensGpu/utils/lensing/psf.py`
+5. `TinyLensGpu/utils/mesh/source_mesh.py`
+6. `TinyLensGpu/ForwardSimulation/LensImage/pixelized_core/`
 
 **Model Classes**:
-8. `TinyLensGpu/Models/pixelized_source.py`
+7. `TinyLensGpu/PhysicalModel/LensImage/Pixelized/config.py`
+8. `TinyLensGpu/PhysicalModel/LensImage/Pixelized/pixelized_source.py`
 
 **Probability Model**:
-9. `TinyLensGpu/ProbModel/Image/pixelized_image_model.py`
+9. `TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py`
 
 **Documentation**:
 10. `doc/pixelized_source_guide.md`
@@ -371,11 +385,11 @@ The pixelized source implementation is **complete, well-designed, and production
 **Demo**:
 13. `paper/demo/src_only_pix_src/demo_pix_src.py`
 
-### Modified Files (3 total)
+### Modified Files
 
-14. `TinyLensGpu/Models/__init__.py` - Added exports
-15. `TinyLensGpu/ProbModel/Image/__init__.py` - Added exports
-16. `README.md` - Added pixelized source section
+10. `TinyLensGpu/PhysicalModel/LensImage/__init__.py` - Added exports
+11. `TinyLensGpu/ObservationModel/LensImage/__init__.py` - Added exports
+12. `README.md` - Added pixelized source section
 
 ## Contact and Support
 

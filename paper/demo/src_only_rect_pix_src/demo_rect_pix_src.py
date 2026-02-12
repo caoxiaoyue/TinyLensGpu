@@ -22,7 +22,13 @@ from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_g
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
+    PixelizedSourceConfig,
+    PixelizedSourceModel,
+    RectangularGridConfig,
+    RegularizationConfig,
+    SolverConfig,
+)
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
@@ -113,16 +119,29 @@ def setup_rectangular_pixelized_model(
     e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
     sie = SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0)
 
-    pix_src_model = PixelizedSourceModel(
-        reg_scale=0.05,
-        reg_coefficient=1.0,
-        reg_type="exp",
-        source_grid_type="rectangular_bilinear",
-        source_grid_nx=int(source_grid_nx),
-        source_grid_ny=int(source_grid_ny),
-        source_grid_margin_frac=float(source_grid_margin_frac),
-        rect_reg_type=rect_reg_type,
+    pix_config = PixelizedSourceConfig(
+        grid=RectangularGridConfig(
+            nx=int(source_grid_nx),
+            ny=int(source_grid_ny),
+            margin_frac=float(source_grid_margin_frac),
+        ),
+        regularization=RegularizationConfig(
+            mode="sparse_rectangular",
+            gp_kernel="exp",
+            rect_scheme=rect_reg_type,
+        ),
+        solver=SolverConfig(
+            inversion_backend=inversion_backend,
+            nonnegative=nonnegative,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+            slq_probes=slq_probes,
+            slq_steps=slq_steps,
+            evidence_mode=evidence_mode,
+            operator_cache_policy=operator_cache_policy,
+        ),
     )
+    pix_src_model = PixelizedSourceModel(config=pix_config, reg_scale=0.05, reg_coefficient=1.0)
     phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model], lens_light=[])
 
     return PixelizedImageProbModel(

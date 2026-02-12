@@ -14,7 +14,14 @@ from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_g
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
+    IrregularGridConfig,
+    MappingConfig,
+    PixelizedSourceConfig,
+    PixelizedSourceModel,
+    RegularizationConfig,
+    SolverConfig,
+)
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.visualizer import _plot_irregular_source_voronoi
@@ -95,21 +102,36 @@ def setup_pixelized_model(
     e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
     sie = SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0)
 
-    pix_src_model = PixelizedSourceModel(
-        reg_scale=0.05,
-        reg_coefficient=1.0,
-        reg_type="exp",
-        n_source_points=1500,
-        mesh_alpha=1.5,
-        mesh_blur_sigma=0.0,
-        mesh_method="random",
-        mesh_seed=42,
-        k_neighbors=5,
-        interp_kernel="wendland_c4",
-        radius_scale=1.5,
-        reg_operator_mode=reg_operator_mode,
-        reg_sparse_k_neighbors=reg_sparse_k_neighbors,
+    pix_config = PixelizedSourceConfig(
+        grid=IrregularGridConfig(
+            n_source_points=1500,
+            mesh_alpha=1.5,
+            mesh_blur_sigma=0.0,
+            mesh_method="random",
+            mesh_seed=42,
+        ),
+        mapping=MappingConfig(
+            k_neighbors=5,
+            interp_kernel="wendland_c4",
+            radius_scale=1.5,
+        ),
+        regularization=RegularizationConfig(
+            mode=reg_operator_mode,
+            gp_kernel="exp",
+            sparse_k_neighbors=reg_sparse_k_neighbors,
+        ),
+        solver=SolverConfig(
+            inversion_backend=backend,
+            nonnegative=nonnegative,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+            slq_probes=slq_probes,
+            slq_steps=slq_steps,
+            evidence_mode=evidence_mode,
+            operator_cache_policy=operator_cache_policy,
+        ),
     )
+    pix_src_model = PixelizedSourceModel(config=pix_config, reg_scale=0.05, reg_coefficient=1.0)
     phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model], lens_light=[])
 
     return PixelizedImageProbModel(

@@ -40,6 +40,14 @@ from TinyLensGpu.utils.inversion import (
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
     PixelizedSourceModel,
 )
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
+    IrregularGridConfig,
+    MappingConfig,
+    PixelizedSourceConfig,
+    RectangularGridConfig,
+    RegularizationConfig,
+)
+from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
@@ -759,64 +767,69 @@ class TestPixelizedSourceModel:
     
     def test_model_default_values(self):
         """Test that default configuration values are set correctly."""
-        model = PixelizedSourceModel()
+        model = build_pixelized_source_model()
         
         assert model.reg_scale.value == 0.05, "Default reg_scale should be 0.05"
         assert model.reg_coefficient.value == 1.0, "Default reg_coefficient should be 1.0"
-        assert model.reg_type == 'exp', "Default reg_type should be 'exp'"
-        assert model.n_source_points == 1500, "Default n_source_points should be 1500"
-        assert model.mesh_alpha == 0.0, "Default mesh_alpha should be 0.0"
-        assert model.k_neighbors == 5, "Default k_neighbors should be 5"
         assert model.source_grid_type == 'irregular'
-        assert model.rect_reg_type == 'gradient'
+        assert model.regularization.gp_kernel == 'exp', "Default reg_type should be 'exp'"
+        assert model.grid.n_source_points == 1500, "Default n_source_points should be 1500"
+        assert model.grid.mesh_alpha == 0.0, "Default mesh_alpha should be 0.0"
+        assert model.mapping.k_neighbors == 5, "Default k_neighbors should be 5"
+        assert model.regularization.rect_scheme == 'gradient'
     
     def test_model_custom_values(self):
         """Test configuration with custom values."""
         model = PixelizedSourceModel(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=40, ny=28, margin_frac=0.2),
+                mapping=MappingConfig(k_neighbors=7, interp_kernel='wendland_c2', radius_scale=2.0),
+                regularization=RegularizationConfig(
+                    mode='sparse_rectangular',
+                    gp_kernel='matern32',
+                    sparse_k_neighbors=16,
+                    rect_scheme='curvature',
+                ),
+            ),
             reg_scale=0.1,
             reg_coefficient=2.0,
-            reg_type='matern32',
-            n_source_points=1000,
-            mesh_alpha=2.0,
-            mesh_method='sobol',
-            k_neighbors=7,
-            interp_kernel='wendland_c2',
-            radius_scale=2.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=40,
-            source_grid_ny=28,
-            source_grid_margin_frac=0.2,
-            rect_reg_type='curvature',
         )
         
         assert model.reg_scale.value == 0.1
         assert model.reg_coefficient.value == 2.0
-        assert model.reg_type == 'matern32'
-        assert model.n_source_points == 1000
-        assert model.mesh_alpha == 2.0
-        assert model.mesh_method == 'sobol'
-        assert model.k_neighbors == 7
-        assert model.interp_kernel == 'wendland_c2'
-        assert model.radius_scale == 2.0
+        assert model.regularization.gp_kernel == 'matern32'
+        assert model.grid.nx * model.grid.ny == 40 * 28
+        assert model.mapping.k_neighbors == 7
+        assert model.mapping.interp_kernel == 'wendland_c2'
+        assert model.mapping.radius_scale == 2.0
         assert model.source_grid_type == 'rectangular_bilinear'
-        assert model.source_grid_nx == 40
-        assert model.source_grid_ny == 28
-        assert model.source_grid_margin_frac == 0.2
-        assert model.rect_reg_type == 'curvature'
+        assert model.grid.nx == 40
+        assert model.grid.ny == 28
+        assert model.grid.margin_frac == 0.2
+        assert model.regularization.rect_scheme == 'curvature'
 
     def test_model_invalid_rectangular_config(self):
-        with pytest.raises(ValueError, match="Unknown source_grid_type"):
-            PixelizedSourceModel(source_grid_type='unknown_mode')
+        with pytest.raises(ValueError, match="IrregularGridConfig cannot use regularization mode"):
+            PixelizedSourceConfig(
+                grid=IrregularGridConfig(),
+                regularization=RegularizationConfig(mode='sparse_rectangular'),
+            )
 
-        with pytest.raises(ValueError, match="Unknown rect_reg_type"):
-            PixelizedSourceModel(rect_reg_type='unknown_scheme')
+        with pytest.raises(ValueError, match="Unknown rect_scheme"):
+            PixelizedSourceModel(
+                config=PixelizedSourceConfig(
+                    grid=RectangularGridConfig(nx=8, ny=8),
+                    mapping=MappingConfig(),
+                    regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='unknown_scheme'),
+                )
+            )
 
     def test_model_rectangular_sparse_regularization_builder(self):
-        model = PixelizedSourceModel(
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=10,
-            source_grid_ny=7,
-            rect_reg_type='gradient',
+        model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=10, ny=7),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_coefficient=2.0,
         )
         rows, cols, values, n_source = model.regularization_sparse_rectangular(nx=10, ny=7)
@@ -826,29 +839,46 @@ class TestPixelizedSourceModel:
         assert jnp.all(jnp.diag(dense) > 0.0)
 
     def test_model_rectangular_disables_dense_regularization_matrix(self):
-        model = PixelizedSourceModel(source_grid_type='rectangular_bilinear')
+        model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=8, ny=8),
+                regularization=RegularizationConfig(mode='sparse_rectangular'),
+            )
+        )
         points = jnp.zeros((5, 2), dtype=jnp.float32)
         with pytest.raises(ValueError, match="not available for source_grid_type='rectangular_bilinear'"):
             _ = model.regularization_matrix(points=points)
     
-    def test_model_get_config_dict(self):
-        """Test get_config_dict method."""
-        model = PixelizedSourceModel(reg_scale=0.1, reg_coefficient=2.0)
-        config_dict = model.get_config_dict()
-        
-        assert isinstance(config_dict, dict), "Should return a dictionary"
-        assert 'reg_scale' in config_dict
-        assert 'reg_coefficient' in config_dict
-        assert 'reg_type' in config_dict
-        assert abs(config_dict['reg_scale'] - 0.1) < 1e-6
-        assert abs(config_dict['reg_coefficient'] - 2.0) < 1e-6
+    def test_model_removed_legacy_flat_api_accessors(self):
+        """Legacy flat config accessors are removed in favor of typed config."""
+        model = build_pixelized_source_model()
+        for attr_name in (
+            'reg_type',
+            'reg_operator_mode',
+            'reg_sparse_k_neighbors',
+            'rect_reg_type',
+            'k_neighbors',
+            'interp_kernel',
+            'radius_scale',
+            'n_source_points',
+            'mesh_alpha',
+            'mesh_blur_sigma',
+            'mesh_method',
+            'mesh_seed',
+            'source_grid_nx',
+            'source_grid_ny',
+            'source_grid_margin_frac',
+            'source_grid_bounds',
+            'get_config_dict',
+        ):
+            assert not hasattr(model, attr_name), f"Legacy API attr should be removed: {attr_name}"
 
     def test_model_repr(self):
         """Test model string representation."""
-        model = PixelizedSourceModel(
+        model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(grid=IrregularGridConfig(n_source_points=1000)),
             reg_scale=0.05,
             reg_coefficient=1.5,
-            n_source_points=1000
         )
         
         repr_str = repr(model)
@@ -878,11 +908,12 @@ class TestPixelizedImageProbModel:
         sie.center_y.to_static()
 
         # Create pixelized source model with fewer points for faster testing
-        pix_src_model = PixelizedSourceModel(
+        pix_src_model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=IrregularGridConfig(n_source_points=200, mesh_seed=42),
+            ),
             reg_scale=0.05,
             reg_coefficient=1.0,
-            n_source_points=200,  # Reduced for test speed
-            mesh_seed=42
         )
 
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
@@ -962,7 +993,10 @@ class TestPixelizedImageProbModel:
             mask=setup['mask']
         )
 
-        n_source = setup['pix_src_model'].n_source_points
+        if isinstance(setup['pix_src_model'].grid, IrregularGridConfig):
+            n_source = setup['pix_src_model'].grid.n_source_points
+        else:
+            n_source = setup['pix_src_model'].grid.nx * setup['pix_src_model'].grid.ny
         npix = setup['image'].shape[0]
         n_unmasked = jnp.sum(~setup['mask'])
 
@@ -1039,12 +1073,13 @@ class TestPixelizedImageProbModel:
         setup = mock_lensing_setup
         
         for reg_type in ['exp', 'gauss', 'matern32', 'matern52']:
-            pix_src_model = PixelizedSourceModel(
+            pix_src_model = build_pixelized_source_model(
+                config=PixelizedSourceConfig(
+                    grid=IrregularGridConfig(n_source_points=100, mesh_seed=42),
+                    regularization=RegularizationConfig(gp_kernel=reg_type),
+                ),
                 reg_scale=0.05,
                 reg_coefficient=1.0,
-                n_source_points=100,  # Small for speed
-                reg_type=reg_type,
-                mesh_seed=42
             )
 
             sie = SIE(
@@ -1084,14 +1119,13 @@ class TestPixelizedImageProbModel:
         sie.center_x.to_static()
         sie.center_y.to_static()
 
-        pix_src_model = PixelizedSourceModel(
+        pix_src_model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=24, ny=24, margin_frac=0.15),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_scale=0.05,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=24,
-            source_grid_ny=24,
-            source_grid_margin_frac=0.15,
-            rect_reg_type='gradient',
         )
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
 
@@ -1146,11 +1180,11 @@ class TestPixelizedImageProbModel:
         sie.center_x.to_static()
         sie.center_y.to_static()
 
-        pix_src_model = PixelizedSourceModel(
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=16,
-            source_grid_ny=16,
-            rect_reg_type='zero',
+        pix_src_model = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=16, ny=16),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='zero'),
+            ),
         )
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
 

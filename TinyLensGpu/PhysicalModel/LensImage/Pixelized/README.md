@@ -17,14 +17,14 @@ The `PixelizedSource` module provides core utilities for pixelized source recons
 
 ## Rectangular bilinear source-grid mode
 
-`PixelizedSourceModel` now supports `source_grid_type='rectangular_bilinear'`.
+`PixelizedSourceModel` now uses structured configuration objects and supports rectangular mode via `RectangularGridConfig`.
 
 When rectangular mode is enabled:
 
 - The source grid is a regular rectangle on the source plane.
-- Grid bounds are auto-inferred from traced unmasked image pixels and expanded by `source_grid_margin_frac`.
+- Grid bounds are auto-inferred from traced unmasked image pixels and expanded by `RectangularGridConfig.margin_frac`.
 - Mapping from source grid to image-plane samples uses bilinear interpolation.
-- Regularization uses sparse operators with `rect_reg_type` in `{zero, gradient, curvature}`.
+- Regularization uses sparse operators with `RegularizationConfig(rect_scheme=...)` in `{zero, gradient, curvature}`.
 - Semi-linear inversion supports both `inversion_backend='operator'` and `inversion_backend='matrix'`.
 
 Backend guidance:
@@ -35,10 +35,10 @@ Backend guidance:
 
 Main parameters:
 
-- `source_grid_nx`, `source_grid_ny`: rectangular grid resolution.
-- `source_grid_margin_frac`: fractional margin for auto source-plane bounds.
-- `source_grid_bounds`: optional explicit `(x_min, x_max, y_min, y_max)` bounds.
-- `rect_reg_type`: sparse regularization scheme (`zero`, `gradient`, `curvature`).
+- `RectangularGridConfig(nx, ny)`: rectangular grid resolution.
+- `RectangularGridConfig(margin_frac)`: fractional margin for auto source-plane bounds.
+- `RectangularGridConfig(bounds)`: optional explicit `(x_min, x_max, y_min, y_max)` bounds.
+- `RegularizationConfig(rect_scheme)`: sparse regularization scheme (`zero`, `gradient`, `curvature`).
 
 ## Modules
 
@@ -252,11 +252,26 @@ where λ is the regularization coefficient and K is the covariance matrix.
 This module is designed to work seamlessly with TinyLensGpu's higher-level interfaces:
 
 ```python
-from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel
+from TinyLensGpu.PhysicalModel import (
+    PhysicalModel,
+    PixelizedSourceModel,
+    PixelizedSourceConfig,
+    IrregularGridConfig,
+    MappingConfig,
+    RegularizationConfig,
+)
 from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Create models
-pix_src = PixelizedSourceModel(reg_scale=0.05, reg_coefficient=1.0)
+pix_src = PixelizedSourceModel(
+    config=PixelizedSourceConfig(
+        grid=IrregularGridConfig(n_source_points=1500, mesh_alpha=1.5),
+        mapping=MappingConfig(k_neighbors=5, interp_kernel="wendland_c4", radius_scale=1.5),
+        regularization=RegularizationConfig(mode="dense_gp", gp_kernel="exp"),
+    ),
+    reg_scale=0.05,
+    reg_coefficient=1.0,
+)
 phys_model = PhysicalModel(lens_mass=[...], source_light=[pix_src])
 
 # Create probability model (uses PixelizedSource utilities internally)

@@ -25,7 +25,13 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, GaussianEllipse
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
-from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+from TinyLensGpu.PhysicalModel import (
+    IrregularGridConfig,
+    MappingConfig,
+    PixelizedSourceConfig,
+    PixelizedSourceModel,
+    RegularizationConfig,
+)
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -115,13 +121,27 @@ def build_model(data_dict):
     sie = SIE(theta_E=theta_E, e1=e1, e2=e2, center_x=0.0, center_y=0.0)
     
     # Fixed regularization parameters
+    pix_config = PixelizedSourceConfig(
+        grid=IrregularGridConfig(
+            n_source_points=1500,
+            mesh_alpha=1.5,
+            mesh_seed=42,
+        ),
+        mapping=MappingConfig(
+            k_neighbors=5,
+            interp_kernel="wendland_c4",
+            radius_scale=1.5,
+        ),
+        regularization=RegularizationConfig(
+            mode="dense_gp",
+            gp_kernel="exp",
+            sparse_k_neighbors=16,
+        ),
+    )
     pix_src_model = PixelizedSourceModel(
+        config=pix_config,
         reg_scale=0.05,
         reg_coefficient=1.0,
-        reg_type='exp',
-        n_source_points=1500,
-        mesh_alpha=1.5,
-        mesh_seed=42,
     )
 
     phys_model = PhysicalModel(

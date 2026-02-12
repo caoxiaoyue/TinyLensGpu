@@ -18,9 +18,13 @@ from TinyLensGpu.utils.inversion.operator_solver import (
     _apply_mapping,
     _apply_mapping_transpose
 )
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
-    PixelizedSourceModel,
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
+    IrregularGridConfig,
+    PixelizedSourceConfig,
+    RectangularGridConfig,
+    RegularizationConfig,
 )
+from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -187,11 +191,12 @@ class TestSolverComparison:
         sie.center_x.to_static()
         sie.center_y.to_static()
             
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            n_source_points=100,
-            mesh_seed=123
         )
         
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
@@ -290,9 +295,7 @@ class TestSolverComparison:
             f"Log evidence mismatch too large: Exact={log_ev_exact}, Fast={log_ev_fast}"
 
     def test_reconstruct_source_works_with_operator_backend(self, prob_model_setup):
-        """
-        Check if reconstruct_source works with fast backend.
-        """
+        """Check if reconstruct_source works with operator backend."""
         setup = prob_model_setup
         model = PixelizedImageProbModel(
             image_data=setup['image'],
@@ -321,10 +324,10 @@ class TestSolverComparison:
         assert not jnp.any(jnp.isnan(source_intensities))
         assert not jnp.any(jnp.isnan(model_image))
 
-    def test_backend_legacy_aliases(self, prob_model_setup):
-        """Legacy exact/fast aliases should remain functional."""
+    def test_backend_rejects_removed_aliases(self, prob_model_setup):
+        """Removed inversion-backend aliases should raise ValueError."""
         setup = prob_model_setup
-        model_exact = PixelizedImageProbModel(
+        model_exact_alias = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
@@ -333,9 +336,10 @@ class TestSolverComparison:
             mask=setup['mask'],
             inversion_backend='exact',
         )
-        assert model_exact.inversion_backend == 'matrix'
+        with pytest.raises(ValueError, match="Unknown inversion_backend"):
+            _ = model_exact_alias.log_evidence()
 
-        model_fast = PixelizedImageProbModel(
+        model_fast_alias = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
@@ -344,7 +348,8 @@ class TestSolverComparison:
             mask=setup['mask'],
             inversion_backend='fast',
         )
-        assert model_fast.inversion_backend == 'operator'
+        with pytest.raises(ValueError, match="Unknown inversion_backend"):
+            _ = model_fast_alias.log_evidence()
 
     def test_operator_nonnegative_matches_matrix_nnls(self, prob_model_setup):
         """Operator NNLS (FISTA) should match matrix NNLS backend."""
@@ -424,16 +429,26 @@ class TestSolverComparison:
     def test_sparse_knn_operator_matches_matrix_solution(self, prob_model_setup):
         """Sparse regularization mode should agree between matrix and operator solves."""
         setup = prob_model_setup
-        pix_src = setup['phys_model'].get_pixelized_source_model()
-        object.__setattr__(pix_src, 'reg_operator_mode', 'sparse_knn')
-        object.__setattr__(pix_src, 'reg_sparse_k_neighbors', 16)
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
+                regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+            ),
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+        )
+        phys_model = PhysicalModel(
+            lens_mass=setup['phys_model'].lens_mass,
+            source_light=[pix_src],
+            lens_light=setup['phys_model'].lens_light,
+        )
 
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
+            phys_model=phys_model,
             mask=setup['mask'],
             inversion_backend='matrix',
         )
@@ -480,16 +495,26 @@ class TestSolverComparison:
     def test_sparse_knn_operator_log_evidence_close_to_matrix(self, prob_model_setup):
         """Sparse regularization mode keeps evidence close across backends."""
         setup = prob_model_setup
-        pix_src = setup['phys_model'].get_pixelized_source_model()
-        object.__setattr__(pix_src, 'reg_operator_mode', 'sparse_knn')
-        object.__setattr__(pix_src, 'reg_sparse_k_neighbors', 16)
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
+                regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+            ),
+            reg_scale=0.1,
+            reg_coefficient=1.0,
+        )
+        phys_model = PhysicalModel(
+            lens_mass=setup['phys_model'].lens_mass,
+            source_light=[pix_src],
+            lens_light=setup['phys_model'].lens_light,
+        )
 
         model_matrix = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
+            phys_model=phys_model,
             mask=setup['mask'],
             inversion_backend='matrix',
         )
@@ -498,7 +523,7 @@ class TestSolverComparison:
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
+            phys_model=phys_model,
             mask=setup['mask'],
             inversion_backend='operator',
             evidence_mode='accurate',
@@ -518,13 +543,13 @@ class TestSolverComparison:
         """Rectangular bilinear source-grid runs in sparse operator mode."""
         setup = prob_model_setup
 
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=20, ny=18),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='curvature'),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=20,
-            source_grid_ny=18,
-            rect_reg_type='curvature',
         )
         phys_model = PhysicalModel(lens_mass=setup['phys_model'].lens_mass, source_light=[pix_src])
 
@@ -571,13 +596,13 @@ class TestSolverComparison:
         """Rectangular bilinear source-grid also supports the matrix backend."""
         setup = prob_model_setup
 
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=10, ny=10),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=10,
-            source_grid_ny=10,
-            rect_reg_type='gradient',
         )
         phys_model = PhysicalModel(lens_mass=setup['phys_model'].lens_mass, source_light=[pix_src])
 
@@ -646,13 +671,13 @@ class TestSolverComparison:
         """Rectangular matrix backend supports joint source+lens-light inversion."""
         setup = prob_model_setup
 
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=12, ny=9),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=12,
-            source_grid_ny=9,
-            rect_reg_type='gradient',
         )
         lens_light = SersicEllipse(
             R_sersic=0.8,
@@ -716,13 +741,13 @@ class TestSolverComparison:
         """Rectangular operator backend supports joint source+lens-light inversion."""
         setup = prob_model_setup
 
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=12, ny=9),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=12,
-            source_grid_ny=9,
-            rect_reg_type='gradient',
         )
         lens_light = SersicEllipse(
             R_sersic=0.8,
@@ -797,13 +822,13 @@ class TestSolverComparison:
         """Joint source+lens-light operator solution should match matrix backend."""
         setup = prob_model_setup
 
-        pix_src = PixelizedSourceModel(
+        pix_src = build_pixelized_source_model(
+            config=PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=10, ny=8),
+                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+            ),
             reg_scale=0.1,
             reg_coefficient=1.0,
-            source_grid_type='rectangular_bilinear',
-            source_grid_nx=10,
-            source_grid_ny=8,
-            rect_reg_type='gradient',
         )
         lens_light = SersicEllipse(
             R_sersic=0.8,

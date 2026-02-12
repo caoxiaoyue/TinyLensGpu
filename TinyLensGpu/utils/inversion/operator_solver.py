@@ -533,7 +533,12 @@ class OperatorInversion(_OperatorSolverBase):
             val -= 0.5 * logdet_m
             return val
 
-        return jax.lax.cond(is_valid, valid, lambda _: -jnp.inf, operand=None)
+        return jax.lax.cond(
+            is_valid,
+            valid,
+            lambda _: jnp.asarray(-jnp.inf, dtype=log_evidence_const.dtype),
+            operand=None,
+        )
 
     def tree_flatten(self):
         children, aux = self._get_common_children_aux()
@@ -711,7 +716,12 @@ class OperatorNNLSInversion(_OperatorSolverBase):
             val -= 0.5 * logdet_m
             return val
 
-        return jax.lax.cond(is_valid, valid, lambda _: -jnp.inf, operand=None)
+        return jax.lax.cond(
+            is_valid,
+            valid,
+            lambda _: jnp.asarray(-jnp.inf, dtype=log_evidence_const.dtype),
+            operand=None,
+        )
 
     def tree_flatten(self):
         children, aux = self._get_common_children_aux()
