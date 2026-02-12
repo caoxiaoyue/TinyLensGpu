@@ -40,16 +40,6 @@ def _time_reconstruct(prob_model, n_runs: int = 3) -> float:
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
             return_2d=False,
-            inversion_backend=prob_model.inversion_backend,
-            nonnegative=prob_model.nonnegative,
-            cg_tol=prob_model.cg_tol,
-            cg_maxiter=prob_model.cg_maxiter,
-            slq_seed=prob_model.slq_seed,
-            slq_probes=prob_model.slq_probes,
-            slq_steps=prob_model.slq_steps,
-            nnls_maxiter=prob_model.nnls_maxiter,
-            nnls_tol=prob_model.nnls_tol,
-            nnls_lipschitz_iters=prob_model.nnls_lipschitz_iters,
         )
 
     vals = []
@@ -78,20 +68,6 @@ def _time_solve_only(prob_model, n_runs: int = 3) -> float:
             noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
-            include_lens_light=prob_model.include_lens_light,
-            lens_light_ridge=prob_model.lens_light_ridge,
-            nonnegative=prob_model.nonnegative,
-            inversion_backend=prob_model.inversion_backend,
-            cg_tol=prob_model.cg_tol,
-            cg_maxiter=prob_model.cg_maxiter,
-            slq_seed=prob_model.slq_seed,
-            slq_probes=prob_model.slq_probes,
-            slq_steps=prob_model.slq_steps,
-            evidence_mode=prob_model.evidence_mode,
-            operator_cache_policy=prob_model.operator_cache_policy,
-            nnls_maxiter=prob_model.nnls_maxiter,
-            nnls_tol=prob_model.nnls_tol,
-            nnls_lipschitz_iters=prob_model.nnls_lipschitz_iters,
         )
         return inverter.solve()
 

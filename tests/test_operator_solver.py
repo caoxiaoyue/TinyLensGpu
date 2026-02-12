@@ -2,6 +2,8 @@
 Tests for OperatorInversion solver and comparison with LinearInversion.
 """
 
+from dataclasses import replace
+
 import pytest
 import numpy as np
 import jax.numpy as jnp
@@ -23,6 +25,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
     PixelizedSourceConfig,
     RectangularGridConfig,
     RegularizationConfig,
+    SolverConfig,
 )
 from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
@@ -31,6 +34,23 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
+
+
+def _clone_phys_model_with_solver(phys_model: PhysicalModel, **solver_updates) -> PhysicalModel:
+    """Clone physical model with an updated solver config on the pixelized source."""
+    pix_src = phys_model.get_pixelized_source_model()
+    solver_cfg = replace(pix_src.solver, **solver_updates)
+    pix_cfg = replace(pix_src.config, solver=solver_cfg)
+    cloned_pix_src = build_pixelized_source_model(
+        config=pix_cfg,
+        reg_scale=float(pix_src.reg_scale.value),
+        reg_coefficient=float(pix_src.reg_coefficient.value),
+    )
+    return PhysicalModel(
+        lens_mass=phys_model.lens_mass,
+        source_light=[cloned_pix_src],
+        lens_light=phys_model.lens_light,
+    )
 
 
 class TestOperatorSolverComponents:
@@ -222,7 +242,20 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='matrix'
+        )
+        operator_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
+            inversion_backend='operator',
+            cg_tol=1e-8,
+            cg_maxiter=400,
+        )
+        model_fast = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
         )
         
         # Access simulator directly to get inverter
@@ -233,18 +266,17 @@ class TestSolverComparison:
             data_vector, noise_variance, 
             model_exact.pix_src_model.reg_scale.value,
             model_exact.pix_src_model.reg_coefficient.value,
-            inversion_backend='matrix'
         )
         s_exact = inverter_exact.solve()
         
         # 2. Operator inversion
-        inverter_fast = model_exact.simulator.build_inverter(
-            data_vector, noise_variance,
-            model_exact.pix_src_model.reg_scale.value,
-            model_exact.pix_src_model.reg_coefficient.value,
-            inversion_backend='operator',
-            cg_tol=1e-8, # High precision for comparison
-            cg_maxiter=400
+        data_vector_fast = model_fast.image_data[~model_fast.mask]
+        noise_variance_fast = model_fast.noise_map[~model_fast.mask] ** 2
+        inverter_fast = model_fast.simulator.build_inverter(
+            data_vector_fast,
+            noise_variance_fast,
+            model_fast.pix_src_model.reg_scale.value,
+            model_fast.pix_src_model.reg_coefficient.value,
         )
         s_fast = inverter_fast.solve()
         
@@ -265,23 +297,25 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=setup['phys_model'],
             mask=setup['mask'],
-            inversion_backend='matrix'
         )
         log_ev_exact = model_exact.log_evidence()
         
         # 2. Fast
-        model_fast = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
-            mask=setup['mask'],
+        operator_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
             inversion_backend='operator',
             cg_tol=1e-6,
             cg_maxiter=300,
             slq_probes=32,
             slq_steps=60,
+        )
+        model_fast = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
         )
         log_ev_fast = model_fast.log_evidence()
         
@@ -297,14 +331,17 @@ class TestSolverComparison:
     def test_reconstruct_source_works_with_operator_backend(self, prob_model_setup):
         """Check if reconstruct_source works with operator backend."""
         setup = prob_model_setup
+        operator_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
+            inversion_backend='operator',
+        )
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
+            phys_model=operator_phys_model,
             mask=setup['mask'],
-            inversion_backend='operator'
         )
         
         # This calls reconstruct_source internally via prob_model (if we had a method)
@@ -317,7 +354,6 @@ class TestSolverComparison:
             data_vector, noise_variance,
             model.pix_src_model.reg_scale.value,
             model.pix_src_model.reg_coefficient.value,
-            inversion_backend='operator'
         )
         
         assert isinstance(inverter, OperatorInversion)
@@ -327,67 +363,59 @@ class TestSolverComparison:
     def test_backend_rejects_removed_aliases(self, prob_model_setup):
         """Removed inversion-backend aliases should raise ValueError."""
         setup = prob_model_setup
-        model_exact_alias = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
-            mask=setup['mask'],
-            inversion_backend='exact',
-        )
         with pytest.raises(ValueError, match="Unknown inversion_backend"):
-            _ = model_exact_alias.log_evidence()
-
-        model_fast_alias = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
-            mask=setup['mask'],
-            inversion_backend='fast',
-        )
+            _ = _clone_phys_model_with_solver(setup['phys_model'], inversion_backend='exact')
         with pytest.raises(ValueError, match="Unknown inversion_backend"):
-            _ = model_fast_alias.log_evidence()
+            _ = _clone_phys_model_with_solver(setup['phys_model'], inversion_backend='fast')
 
     def test_operator_nonnegative_matches_matrix_nnls(self, prob_model_setup):
         """Operator NNLS (FISTA) should match matrix NNLS backend."""
         setup = prob_model_setup
-
-        model = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
-            mask=setup['mask'],
+        matrix_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
             inversion_backend='matrix',
             nonnegative=True,
         )
-
-        data_vector = model.image_data[~model.mask]
-        noise_variance = model.noise_map[~model.mask] ** 2
-        reg_scale = model.pix_src_model.reg_scale.value
-        reg_coeff = model.pix_src_model.reg_coefficient.value
-
-        inv_matrix = model.simulator.build_inverter(
-            data_vector,
-            noise_variance,
-            reg_scale,
-            reg_coeff,
-            inversion_backend='matrix',
-            nonnegative=True,
-        )
-        inv_operator = model.simulator.build_inverter(
-            data_vector,
-            noise_variance,
-            reg_scale,
-            reg_coeff,
+        operator_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
             inversion_backend='operator',
             nonnegative=True,
             nnls_maxiter=900,
             nnls_tol=1e-7,
+        )
+        model_matrix = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=matrix_phys_model,
+            mask=setup['mask'],
+        )
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
+        )
+
+        data_vector = model_matrix.image_data[~model_matrix.mask]
+        noise_variance = model_matrix.noise_map[~model_matrix.mask] ** 2
+        reg_scale = model_matrix.pix_src_model.reg_scale.value
+        reg_coeff = model_matrix.pix_src_model.reg_coefficient.value
+
+        inv_matrix = model_matrix.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
+        )
+        inv_operator = model_operator.simulator.build_inverter(
+            data_vector,
+            noise_variance,
+            reg_scale,
+            reg_coeff,
         )
 
         assert isinstance(inv_matrix, NNLSInversion)
@@ -413,15 +441,18 @@ class TestSolverComparison:
     def test_operator_nonnegative_log_evidence_finite(self, prob_model_setup):
         """Nonnegative operator backend returns a finite approximate evidence."""
         setup = prob_model_setup
+        operator_phys_model = _clone_phys_model_with_solver(
+            setup['phys_model'],
+            inversion_backend='operator',
+            nonnegative=True,
+        )
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=setup['phys_model'],
+            phys_model=operator_phys_model,
             mask=setup['mask'],
-            inversion_backend='operator',
-            nonnegative=True,
         )
         log_ev = model.log_evidence()
         assert np.isfinite(log_ev)
@@ -433,6 +464,7 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
                 regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+                solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -450,7 +482,23 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
+        )
+        operator_phys_model = _clone_phys_model_with_solver(
+            phys_model,
+            inversion_backend='operator',
+            cg_tol=1e-7,
+            cg_maxiter=500,
+            evidence_mode='accurate',
+            slq_probes=32,
+            slq_steps=60,
+        )
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
@@ -463,19 +511,12 @@ class TestSolverComparison:
             noise_variance,
             reg_scale,
             reg_coeff,
-            inversion_backend='matrix',
         )
-        inv_operator = model.simulator.build_inverter(
+        inv_operator = model_operator.simulator.build_inverter(
             data_vector,
             noise_variance,
             reg_scale,
             reg_coeff,
-            inversion_backend='operator',
-            cg_tol=1e-7,
-            cg_maxiter=500,
-            evidence_mode='accurate',
-            slq_probes=32,
-            slq_steps=60,
         )
 
         assert isinstance(inv_operator, OperatorInversion)
@@ -499,6 +540,7 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
                 regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+                solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -516,21 +558,23 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
         )
-        model_operator = PixelizedImageProbModel(
-            image_data=setup['image'],
-            noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
-            phys_model=phys_model,
-            mask=setup['mask'],
+        operator_phys_model = _clone_phys_model_with_solver(
+            phys_model,
             inversion_backend='operator',
             evidence_mode='accurate',
             cg_tol=1e-7,
             cg_maxiter=500,
             slq_probes=32,
             slq_steps=60,
+        )
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
         )
 
         log_ev_matrix = model_matrix.log_evidence()
@@ -547,6 +591,14 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=20, ny=18),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='curvature'),
+                solver=SolverConfig(
+                    inversion_backend='operator',
+                    evidence_mode='fast',
+                    cg_tol=1e-5,
+                    cg_maxiter=200,
+                    slq_probes=8,
+                    slq_steps=20,
+                ),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -560,12 +612,6 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='operator',
-            evidence_mode='fast',
-            cg_tol=1e-5,
-            cg_maxiter=200,
-            slq_probes=8,
-            slq_steps=20,
         )
 
         data_vector = model_operator.image_data[~model_operator.mask]
@@ -576,12 +622,6 @@ class TestSolverComparison:
             noise_variance,
             model_operator.pix_src_model.reg_scale.value,
             model_operator.pix_src_model.reg_coefficient.value,
-            inversion_backend='operator',
-            evidence_mode='fast',
-            cg_tol=1e-5,
-            cg_maxiter=200,
-            slq_probes=8,
-            slq_steps=20,
         )
 
         assert isinstance(inv_operator, OperatorInversion)
@@ -600,11 +640,21 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=10, ny=10),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
         )
         phys_model = PhysicalModel(lens_mass=setup['phys_model'].lens_mass, source_light=[pix_src])
+        operator_phys_model = _clone_phys_model_with_solver(
+            phys_model,
+            inversion_backend='operator',
+            evidence_mode='fast',
+            cg_tol=1e-5,
+            cg_maxiter=240,
+            slq_probes=8,
+            slq_steps=20,
+        )
 
         model_matrix = PixelizedImageProbModel(
             image_data=setup['image'],
@@ -613,7 +663,6 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
         )
 
         model_operator = PixelizedImageProbModel(
@@ -621,14 +670,8 @@ class TestSolverComparison:
             noise_map=setup['noise'],
             psf_kernel=setup['psf'],
             dpix=setup['dpix'],
-            phys_model=phys_model,
+            phys_model=operator_phys_model,
             mask=setup['mask'],
-            inversion_backend='operator',
-            evidence_mode='fast',
-            cg_tol=1e-5,
-            cg_maxiter=240,
-            slq_probes=8,
-            slq_steps=20,
         )
 
         data_vector = model_matrix.image_data[~model_matrix.mask]
@@ -639,7 +682,6 @@ class TestSolverComparison:
             noise_variance,
             model_matrix.pix_src_model.reg_scale.value,
             model_matrix.pix_src_model.reg_coefficient.value,
-            inversion_backend='matrix',
         )
 
         inv_operator = model_operator.simulator.build_inverter(
@@ -647,12 +689,6 @@ class TestSolverComparison:
             noise_variance,
             model_operator.pix_src_model.reg_scale.value,
             model_operator.pix_src_model.reg_coefficient.value,
-            inversion_backend='operator',
-            evidence_mode='fast',
-            cg_tol=1e-5,
-            cg_maxiter=240,
-            slq_probes=8,
-            slq_steps=20,
         )
 
         s_matrix = inv_matrix.solve()
@@ -675,6 +711,12 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=12, ny=9),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                solver=SolverConfig(
+                    inversion_backend='matrix',
+                    include_lens_light=True,
+                    nonnegative=False,
+                    lens_light_ridge=1e-6,
+                ),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -709,10 +751,6 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
-            include_lens_light=True,
-            nonnegative=False,
-            lens_light_ridge=1e-6,
         )
 
         data_vector = model.image_data[~model.mask]
@@ -722,8 +760,6 @@ class TestSolverComparison:
             noise_variance=noise_variance,
             reg_scale=model.pix_src_model.reg_scale.value,
             reg_coefficient=model.pix_src_model.reg_coefficient.value,
-            lens_light_ridge=model.lens_light_ridge,
-            nonnegative=model.nonnegative,
             return_2d=True,
         )
 
@@ -745,6 +781,17 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=12, ny=9),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                solver=SolverConfig(
+                    inversion_backend='operator',
+                    include_lens_light=True,
+                    nonnegative=False,
+                    lens_light_ridge=1e-6,
+                    evidence_mode='fast',
+                    cg_tol=1e-6,
+                    cg_maxiter=300,
+                    slq_probes=8,
+                    slq_steps=20,
+                ),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -779,15 +826,6 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='operator',
-            include_lens_light=True,
-            nonnegative=False,
-            lens_light_ridge=1e-6,
-            evidence_mode='fast',
-            cg_tol=1e-6,
-            cg_maxiter=300,
-            slq_probes=8,
-            slq_steps=20,
         )
 
         data_vector = model.image_data[~model.mask]
@@ -797,14 +835,6 @@ class TestSolverComparison:
             noise_variance=noise_variance,
             reg_scale=model.pix_src_model.reg_scale.value,
             reg_coefficient=model.pix_src_model.reg_coefficient.value,
-            lens_light_ridge=model.lens_light_ridge,
-            nonnegative=model.nonnegative,
-            inversion_backend='operator',
-            evidence_mode='fast',
-            cg_tol=1e-6,
-            cg_maxiter=300,
-            slq_probes=8,
-            slq_steps=20,
             return_2d=True,
         )
 
@@ -826,6 +856,12 @@ class TestSolverComparison:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=10, ny=8),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                solver=SolverConfig(
+                    inversion_backend='matrix',
+                    include_lens_light=True,
+                    nonnegative=False,
+                    lens_light_ridge=1e-6,
+                ),
             ),
             reg_scale=0.1,
             reg_coefficient=1.0,
@@ -860,10 +896,23 @@ class TestSolverComparison:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
-            include_lens_light=True,
-            nonnegative=False,
-            lens_light_ridge=1e-6,
+        )
+        operator_phys_model = _clone_phys_model_with_solver(
+            phys_model,
+            inversion_backend='operator',
+            evidence_mode='accurate',
+            cg_tol=1e-7,
+            cg_maxiter=500,
+            slq_probes=32,
+            slq_steps=60,
+        )
+        model_operator = PixelizedImageProbModel(
+            image_data=setup['image'],
+            noise_map=setup['noise'],
+            psf_kernel=setup['psf'],
+            dpix=setup['dpix'],
+            phys_model=operator_phys_model,
+            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
@@ -876,25 +925,12 @@ class TestSolverComparison:
             noise_variance,
             reg_scale,
             reg_coeff,
-            include_lens_light=True,
-            lens_light_ridge=model.lens_light_ridge,
-            nonnegative=False,
-            inversion_backend='matrix',
         )
-        inv_operator = model.simulator.build_inverter(
+        inv_operator = model_operator.simulator.build_inverter(
             data_vector,
             noise_variance,
             reg_scale,
             reg_coeff,
-            include_lens_light=True,
-            lens_light_ridge=model.lens_light_ridge,
-            nonnegative=False,
-            inversion_backend='operator',
-            evidence_mode='accurate',
-            cg_tol=1e-7,
-            cg_maxiter=500,
-            slq_probes=32,
-            slq_steps=60,
         )
 
         x_matrix = inv_matrix.solve()

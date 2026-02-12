@@ -6,13 +6,11 @@ import functools
 from typing import Dict, Optional, Union
 
 import caskade as ck
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit
 
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import IrregularGridConfig, RectangularGridConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
@@ -29,20 +27,6 @@ class PixelizedImageProbModel(ck.Module):
         phys_model: PhysicalModel,
         mask: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
-        include_lens_light: Optional[bool] = None,
-        nonnegative: Optional[bool] = None,
-        lens_light_ridge: Optional[float] = None,
-        inversion_backend: Optional[str] = None,
-        cg_tol: Optional[float] = None,
-        cg_maxiter: Optional[int] = None,
-        slq_seed: Optional[int] = None,
-        slq_probes: Optional[int] = None,
-        slq_steps: Optional[int] = None,
-        evidence_mode: Optional[str] = None,
-        operator_cache_policy: Optional[str] = None,
-        nnls_maxiter: Optional[int] = None,
-        nnls_tol: Optional[float] = None,
-        nnls_lipschitz_iters: Optional[int] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
 
@@ -70,27 +54,6 @@ class PixelizedImageProbModel(ck.Module):
             psf_kernel=np.asarray(psf_kernel),
             mask=np.asarray(mask),
         )
-
-        solver_defaults = self.pix_src_model.solver
-        override_values = {
-            "include_lens_light": include_lens_light,
-            "nonnegative": nonnegative,
-            "lens_light_ridge": lens_light_ridge,
-            "inversion_backend": inversion_backend,
-            "cg_tol": cg_tol,
-            "cg_maxiter": cg_maxiter,
-            "slq_seed": slq_seed,
-            "slq_probes": slq_probes,
-            "slq_steps": slq_steps,
-            "evidence_mode": evidence_mode,
-            "operator_cache_policy": operator_cache_policy,
-            "nnls_maxiter": nnls_maxiter,
-            "nnls_tol": nnls_tol,
-            "nnls_lipschitz_iters": nnls_lipschitz_iters,
-        }
-        for field_name, field_value in override_values.items():
-            value = getattr(solver_defaults, field_name) if field_value is None else field_value
-            object.__setattr__(self, field_name, value)
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         self._pos_px = None
@@ -131,20 +94,6 @@ class PixelizedImageProbModel(ck.Module):
             noise_variance=self._noise_variance,
             reg_scale=model.reg_scale.value,
             reg_coefficient=model.reg_coefficient.value,
-            include_lens_light=bool(self.include_lens_light),
-            lens_light_ridge=float(self.lens_light_ridge),
-            nonnegative=bool(self.nonnegative),
-            inversion_backend=str(self.inversion_backend),
-            cg_tol=float(self.cg_tol),
-            cg_maxiter=int(self.cg_maxiter),
-            slq_seed=int(self.slq_seed),
-            slq_probes=int(self.slq_probes),
-            slq_steps=int(self.slq_steps),
-            evidence_mode=str(self.evidence_mode),
-            operator_cache_policy=str(self.operator_cache_policy),
-            nnls_maxiter=int(self.nnls_maxiter),
-            nnls_tol=float(self.nnls_tol),
-            nnls_lipschitz_iters=int(self.nnls_lipschitz_iters),
         )
         return inverter
 

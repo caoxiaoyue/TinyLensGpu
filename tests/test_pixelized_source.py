@@ -46,6 +46,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
     PixelizedSourceConfig,
     RectangularGridConfig,
     RegularizationConfig,
+    SolverConfig,
 )
 from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
@@ -1123,6 +1124,14 @@ class TestPixelizedImageProbModel:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=24, ny=24, margin_frac=0.15),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                solver=SolverConfig(
+                    inversion_backend='operator',
+                    cg_tol=1e-5,
+                    cg_maxiter=200,
+                    slq_probes=8,
+                    slq_steps=20,
+                    evidence_mode='fast',
+                ),
             ),
             reg_scale=0.05,
             reg_coefficient=1.0,
@@ -1136,12 +1145,6 @@ class TestPixelizedImageProbModel:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='operator',
-            cg_tol=1e-5,
-            cg_maxiter=200,
-            slq_probes=8,
-            slq_steps=20,
-            evidence_mode='fast',
         )
 
         log_ev = prob_model.log_evidence()
@@ -1155,12 +1158,6 @@ class TestPixelizedImageProbModel:
             reg_scale=prob_model.pix_src_model.reg_scale.value,
             reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
             return_2d=True,
-            inversion_backend='operator',
-            cg_tol=1e-5,
-            cg_maxiter=200,
-            slq_probes=8,
-            slq_steps=20,
-            evidence_mode='fast',
         )
 
         assert s.shape[0] == 24 * 24
@@ -1184,6 +1181,7 @@ class TestPixelizedImageProbModel:
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=16, ny=16),
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='zero'),
+                solver=SolverConfig(inversion_backend='matrix'),
             ),
         )
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
@@ -1195,7 +1193,6 @@ class TestPixelizedImageProbModel:
             dpix=setup['dpix'],
             phys_model=phys_model,
             mask=setup['mask'],
-            inversion_backend='matrix',
         )
 
         log_ev = prob_model.log_evidence()
@@ -1209,7 +1206,6 @@ class TestPixelizedImageProbModel:
             reg_scale=prob_model.pix_src_model.reg_scale.value,
             reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
             return_2d=True,
-            inversion_backend='matrix',
         )
 
         assert s.shape[0] == 16 * 16

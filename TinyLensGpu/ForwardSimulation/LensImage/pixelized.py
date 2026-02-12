@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-from dataclasses import replace
 from typing import Optional, Tuple, Union
 
 import jax.numpy as jnp
@@ -15,7 +14,6 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
     IrregularGridConfig,
     RectangularGridConfig,
-    SolverConfig,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.inversion import LinearInversion, NNLSInversion, OperatorInversion, OperatorNNLSInversion
@@ -34,19 +32,6 @@ from .pixelized_core import (
     SparseKnnRegularizationStrategy,
     SparseRectangularRegularizationStrategy,
 )
-
-
-def _normalize_inversion_backend(name: str) -> str:
-    backend = str(name).strip().lower()
-    if backend == "matrix":
-        return "matrix"
-    if backend == "operator":
-        return "operator"
-    raise ValueError(
-        f"Unknown inversion_backend='{name}'. Expected one of: "
-        "'matrix', 'operator'."
-    )
-
 
 class PixelizedLensSimulator:
     def __init__(
@@ -100,13 +85,6 @@ class PixelizedLensSimulator:
         )
 
         self._build_grid_artifacts(self.lensed_source_image, self.mask)
-
-    def _solver_config_from_overrides(self, **overrides) -> SolverConfig:
-        base = self.pix_src_model.solver
-        patch = dict(overrides)
-        if "inversion_backend" in patch:
-            patch["inversion_backend"] = _normalize_inversion_backend(str(patch["inversion_backend"]))
-        return replace(base, **patch)
 
     def _build_mapping_strategy(self):
         if self.pix_src_model.is_rectangular_grid:
@@ -295,43 +273,8 @@ class PixelizedLensSimulator:
         noise_variance: Union[jnp.ndarray, np.ndarray],
         reg_scale: float,
         reg_coefficient: float,
-        *,
-        include_lens_light: Optional[bool] = None,
-        lens_light_ridge: Optional[float] = None,
-        nonnegative: Optional[bool] = None,
-        inversion_backend: Optional[str] = None,
-        cg_tol: Optional[float] = None,
-        cg_maxiter: Optional[int] = None,
-        slq_seed: Optional[int] = None,
-        slq_probes: Optional[int] = None,
-        slq_steps: Optional[int] = None,
-        evidence_mode: Optional[str] = None,
-        operator_cache_policy: Optional[str] = None,
-        nnls_maxiter: Optional[int] = None,
-        nnls_tol: Optional[float] = None,
-        nnls_lipschitz_iters: Optional[int] = None,
     ) -> Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]:
-        overrides = {}
-        for name, value in {
-            "include_lens_light": include_lens_light,
-            "lens_light_ridge": lens_light_ridge,
-            "nonnegative": nonnegative,
-            "inversion_backend": inversion_backend,
-            "cg_tol": cg_tol,
-            "cg_maxiter": cg_maxiter,
-            "slq_seed": slq_seed,
-            "slq_probes": slq_probes,
-            "slq_steps": slq_steps,
-            "evidence_mode": evidence_mode,
-            "operator_cache_policy": operator_cache_policy,
-            "nnls_maxiter": nnls_maxiter,
-            "nnls_tol": nnls_tol,
-            "nnls_lipschitz_iters": nnls_lipschitz_iters,
-        }.items():
-            if value is not None:
-                overrides[name] = value
-
-        solver_cfg = self._solver_config_from_overrides(**overrides)
+        solver_cfg = self.pix_src_model.solver
         backend = solver_cfg.canonical_backend
 
         reg = self._build_regularization_artifacts(reg_scale=reg_scale, reg_coefficient=reg_coefficient)
@@ -371,22 +314,19 @@ class PixelizedLensSimulator:
         noise_variance: Union[jnp.ndarray, np.ndarray],
         reg_scale: float,
         reg_coefficient: float,
-        lens_light_ridge: float = 1e-8,
-        nonnegative: bool = True,
         return_2d: bool = False,
-        inversion_backend: str = "matrix",
-        **kwargs,
     ):
+        if not self.pix_src_model.solver.include_lens_light:
+            raise ValueError(
+                "SolverConfig.include_lens_light must be True for reconstruct_source_and_lens_light(). "
+                "Please configure SolverConfig(include_lens_light=True) when creating the PixelizedSourceModel."
+            )
+
         inverter = self.build_inverter(
             data_vector=data_vector,
             noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
-            include_lens_light=True,
-            lens_light_ridge=lens_light_ridge,
-            nonnegative=nonnegative,
-            inversion_backend=inversion_backend,
-            **kwargs,
         )
 
         x_total = inverter.solve()
@@ -410,7 +350,6 @@ class PixelizedLensSimulator:
         reg_scale: float,
         reg_coefficient: float,
         return_2d: bool = False,
-        **kwargs,
     ) -> Tuple[
         jnp.ndarray,
         jnp.ndarray,
@@ -422,7 +361,6 @@ class PixelizedLensSimulator:
             noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
-            **kwargs,
         )
         source_intensities = inverter.solve()
         model_data = inverter.model_predict(source_intensities)

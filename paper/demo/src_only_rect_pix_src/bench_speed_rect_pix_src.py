@@ -129,20 +129,6 @@ def _solve_once(prob_model):
         noise_variance=noise_variance,
         reg_scale=prob_model.pix_src_model.reg_scale.value,
         reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
-        include_lens_light=prob_model.include_lens_light,
-        lens_light_ridge=prob_model.lens_light_ridge,
-        nonnegative=prob_model.nonnegative,
-        inversion_backend=prob_model.inversion_backend,
-        cg_tol=prob_model.cg_tol,
-        cg_maxiter=prob_model.cg_maxiter,
-        slq_seed=prob_model.slq_seed,
-        slq_probes=prob_model.slq_probes,
-        slq_steps=prob_model.slq_steps,
-        evidence_mode=prob_model.evidence_mode,
-        operator_cache_policy=prob_model.operator_cache_policy,
-        nnls_maxiter=prob_model.nnls_maxiter,
-        nnls_tol=prob_model.nnls_tol,
-        nnls_lipschitz_iters=prob_model.nnls_lipschitz_iters,
     )
     return inverter.solve()
 

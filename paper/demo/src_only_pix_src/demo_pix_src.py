@@ -141,14 +141,6 @@ def setup_pixelized_model(
         dpix=data_dict["dpix"],
         phys_model=phys_model,
         mask=data_dict["mask"],
-        inversion_backend=backend,
-        nonnegative=nonnegative,
-        cg_tol=cg_tol,
-        cg_maxiter=cg_maxiter,
-        slq_probes=slq_probes,
-        slq_steps=slq_steps,
-        evidence_mode=evidence_mode,
-        operator_cache_policy=operator_cache_policy,
     )
 
 
@@ -165,18 +157,6 @@ def reconstruct_source(prob_model):
         reg_scale=reg_scale,
         reg_coefficient=reg_coefficient,
         return_2d=True,
-        inversion_backend=prob_model.inversion_backend,
-        nonnegative=prob_model.nonnegative,
-        cg_tol=prob_model.cg_tol,
-        cg_maxiter=prob_model.cg_maxiter,
-        slq_seed=prob_model.slq_seed,
-        slq_probes=prob_model.slq_probes,
-        slq_steps=prob_model.slq_steps,
-        evidence_mode=prob_model.evidence_mode,
-        operator_cache_policy=prob_model.operator_cache_policy,
-        nnls_maxiter=prob_model.nnls_maxiter,
-        nnls_tol=prob_model.nnls_tol,
-        nnls_lipschitz_iters=prob_model.nnls_lipschitz_iters,
     )
 
     return {

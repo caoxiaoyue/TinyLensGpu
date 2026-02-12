@@ -132,20 +132,6 @@ def _run_backend_inproc(
             noise_variance=noise_variance,
             reg_scale=reg_scale,
             reg_coefficient=reg_coefficient,
-            include_lens_light=model.include_lens_light,
-            lens_light_ridge=model.lens_light_ridge,
-            nonnegative=model.nonnegative,
-            inversion_backend=model.inversion_backend,
-            cg_tol=model.cg_tol,
-            cg_maxiter=model.cg_maxiter,
-            slq_seed=model.slq_seed,
-            slq_probes=model.slq_probes,
-            slq_steps=model.slq_steps,
-            evidence_mode=model.evidence_mode,
-            operator_cache_policy=model.operator_cache_policy,
-            nnls_maxiter=model.nnls_maxiter,
-            nnls_tol=model.nnls_tol,
-            nnls_lipschitz_iters=model.nnls_lipschitz_iters,
         )
         return inverter.solve()
 
@@ -372,4 +358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
