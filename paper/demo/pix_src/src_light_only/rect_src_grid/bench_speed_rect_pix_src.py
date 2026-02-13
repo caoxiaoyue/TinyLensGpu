@@ -17,11 +17,8 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 
-from demo_rect_pix_src import (
-    reconstruct_source,
-    setup_rectangular_pixelized_model,
-    simulate_lensing_data,
-)
+from single_step_inversion import reconstruct_source, setup_rectangular_pixelized_model
+from sim_data import simulate_lensing_data
 
 
 def _time_call(fn, n_runs: int) -> dict:

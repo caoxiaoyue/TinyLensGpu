@@ -207,6 +207,42 @@ class TestProbModelIntegration:
         assert not np.isnan(log_like)
         assert not np.isinf(log_like)
         assert log_like < 0  # Log-likelihood should be negative
+
+    def test_position_likelihood_penalty_inactive_returns_zero(self):
+        sie = SIE(theta_E=1.5, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+        source = GaussianEllipse(
+            flux=10.0, sigma=0.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0
+        )
+
+        for param in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            param.to_static()
+        for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+            param.to_static()
+
+        model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+
+        npix = 40
+        image_data = np.random.randn(npix, npix) * 0.1 + 1.0
+        noise_map = np.ones((npix, npix)) * 0.1
+        psf_kernel = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+
+        prob_model = ImageProbModel(
+            image_data=image_data,
+            noise_map=noise_map,
+            psf_kernel=psf_kernel,
+            dpix=0.05,
+            nsub=2,
+            phys_model=model,
+            use_linear=False,
+            position_likelihood={
+                "positions": [(0.0, 0.0), (0.1, 0.1)],
+                "threshold_arcsec": 1.0e3,
+                "min_log_like": -10.0,
+            },
+        )
+
+        penalty = float(np.asarray(prob_model._position_likelihood_penalty_jax()))
+        assert np.isclose(penalty, 0.0)
     
     def test_likelihood_with_mask(self):
         """Test likelihood computation with mask."""

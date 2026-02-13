@@ -185,10 +185,8 @@ def _lanczos_logdet(matvec, n_dim: int, *, seed: int, probes: int, steps: int) -
     return jnp.mean(values)
 
 
-def _choose_slq_size(evidence_mode: str, probes: int, steps: int) -> Tuple[int, int]:
-    """Selects SLQ probes and steps based on evidence mode."""
-    if evidence_mode == "fast":
-        return max(4, min(int(probes), 8)), max(10, min(int(steps), 20))
+def _choose_slq_size(probes: int, steps: int) -> Tuple[int, int]:
+    """Normalizes SLQ probes/steps to positive integers."""
     return int(probes), int(steps)
 
 
@@ -236,7 +234,6 @@ class _OperatorSolverBase:
         slq_probes: int,
         slq_steps: int,
         dense_logdet_max_n: int,
-        evidence_mode: str,
         reg_operator_mode: str,
         H_sparse_rows: Array | None,
         H_sparse_cols: Array | None,
@@ -273,7 +270,6 @@ class _OperatorSolverBase:
         self.slq_probes = int(slq_probes)
         self.slq_steps = int(slq_steps)
         self.dense_logdet_max_n = int(dense_logdet_max_n)
-        self.evidence_mode = str(evidence_mode).strip().lower()
         self.reg_operator_mode = str(reg_operator_mode).strip().lower()
 
         if self.reg_operator_mode not in {"dense_gp", "sparse_knn", "sparse_rectangular"}:
@@ -366,7 +362,7 @@ class _OperatorSolverBase:
             sign_h, logdet_h = jnp.linalg.slogdet(h_dense)
             return sign_h, 0.5 * logdet_h
 
-        probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
+        probes, steps = _choose_slq_size(self.slq_probes, self.slq_steps)
         logdet_h = _lanczos_logdet(hvec, n_source, seed=self.slq_seed + 113, probes=probes, steps=steps)
         return jnp.array(1.0, dtype=self.d.dtype), 0.5 * logdet_h
 
@@ -418,7 +414,6 @@ class _OperatorSolverBase:
             self.slq_probes,
             self.slq_steps,
             self.dense_logdet_max_n,
-            self.evidence_mode,
             self.reg_operator_mode,
             self.H_sparse_n_source,
             self.lens_light_ridge,
@@ -451,7 +446,6 @@ class OperatorInversion(_OperatorSolverBase):
         slq_probes: int = 32,
         slq_steps: int = 60,
         dense_logdet_max_n: int = 256,
-        evidence_mode: str = "accurate",
         reg_operator_mode: str = "dense_gp",
         H_sparse_rows: Array | None = None,
         H_sparse_cols: Array | None = None,
@@ -463,7 +457,7 @@ class OperatorInversion(_OperatorSolverBase):
             lens_basis=lens_basis,
             lens_light_ridge=lens_light_ridge,
             jitter=jitter, slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
-            dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
+            dense_logdet_max_n=dense_logdet_max_n,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
             H_sparse_cols=H_sparse_cols, H_sparse_values=H_sparse_values,
             H_sparse_n_source=H_sparse_n_source
@@ -505,8 +499,8 @@ class OperatorInversion(_OperatorSolverBase):
         d_ninv_d = jnp.sum(self.d * self.d * n_inv)
         combined_chi2_reg = d_ninv_d - jnp.dot(s, b)
         n_dim_int = int(n_dim)
-        probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
-        if self.evidence_mode != "fast" and n_dim_int <= self.dense_logdet_max_n:
+        probes, steps = _choose_slq_size(self.slq_probes, self.slq_steps)
+        if n_dim_int <= self.dense_logdet_max_n:
             eye = jnp.eye(n_dim_int, dtype=self.H.dtype)
             m_dense = jax.vmap(mvec, in_axes=1, out_axes=1)(eye)
             _, logdet_m = jnp.linalg.slogdet(m_dense)
@@ -549,7 +543,7 @@ class OperatorInversion(_OperatorSolverBase):
     def tree_unflatten(cls, aux_data, children):
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
-            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
+            dense_logdet_max_n, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
             cg_tol, cg_maxiter
         ) = aux_data
         (
@@ -563,7 +557,7 @@ class OperatorInversion(_OperatorSolverBase):
             lens_basis=lens_basis, lens_light_ridge=lens_light_ridge,
             cg_tol=cg_tol, cg_maxiter=cg_maxiter,
             slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
-            dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
+            dense_logdet_max_n=dense_logdet_max_n,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
             H_sparse_cols=H_sparse_cols, H_sparse_values=H_sparse_values,
             H_sparse_n_source=H_sparse_n_source,
@@ -593,7 +587,6 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         tol: float = 1e-6,
         lipschitz_iters: int = 12,
         fista_seed: int = 0,
-        evidence_mode: str = "accurate",
         slq_seed: int = 0,
         slq_probes: int = 32,
         slq_steps: int = 60,
@@ -609,7 +602,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
             lens_basis=lens_basis,
             lens_light_ridge=lens_light_ridge,
             jitter=jitter, slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
-            dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
+            dense_logdet_max_n=dense_logdet_max_n,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
             H_sparse_cols=H_sparse_cols, H_sparse_values=H_sparse_values,
             H_sparse_n_source=H_sparse_n_source
@@ -693,8 +686,8 @@ class OperatorNNLSInversion(_OperatorSolverBase):
             return adjoint(forward(v) * n_inv) + self._apply_H(v) + self.jitter * v
 
         n_dim_int = int(n_dim)
-        probes, steps = _choose_slq_size(self.evidence_mode, self.slq_probes, self.slq_steps)
-        if self.evidence_mode != "fast" and n_dim_int <= self.dense_logdet_max_n:
+        probes, steps = _choose_slq_size(self.slq_probes, self.slq_steps)
+        if n_dim_int <= self.dense_logdet_max_n:
             eye = jnp.eye(n_dim_int, dtype=self.H.dtype)
             m_dense = jax.vmap(mvec, in_axes=1, out_axes=1)(eye)
             _, logdet_m = jnp.linalg.slogdet(m_dense)
@@ -732,7 +725,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     def tree_unflatten(cls, aux_data, children):
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
-            dense_logdet_max_n, evidence_mode, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
+            dense_logdet_max_n, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
             maxiter, tol, lipschitz_iters, fista_seed
         ) = aux_data
         (
@@ -746,7 +739,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
             lens_basis=lens_basis, lens_light_ridge=lens_light_ridge,
             maxiter=maxiter, tol=tol, lipschitz_iters=lipschitz_iters, fista_seed=fista_seed,
             slq_seed=slq_seed, slq_probes=slq_probes, slq_steps=slq_steps,
-            dense_logdet_max_n=dense_logdet_max_n, evidence_mode=evidence_mode,
+            dense_logdet_max_n=dense_logdet_max_n,
             reg_operator_mode=reg_operator_mode, H_sparse_rows=H_sparse_rows,
             H_sparse_cols=H_sparse_cols, H_sparse_values=H_sparse_values,
             H_sparse_n_source=H_sparse_n_source,

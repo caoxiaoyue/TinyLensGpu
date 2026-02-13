@@ -96,7 +96,8 @@ def _run_backend_inproc(
     reg_operator_mode: str,
     reg_sparse_k_neighbors: int,
 ) -> Dict[str, Any]:
-    from demo_pix_src import simulate_lensing_data, setup_pixelized_model, reconstruct_source
+    from sim_data import simulate_lensing_data
+    from single_step_inversion import reconstruct_source, setup_pixelized_model
 
     np.random.seed(seed)
     data_dict = simulate_lensing_data()

@@ -115,13 +115,11 @@ def test_operator_backend_speed_and_vram(tmp_path):
     model_matrix = setup_pixelized_model(
         data,
         backend="matrix",
-        evidence_mode="accurate",
         operator_cache_policy="safe",
     )
     model_operator = setup_pixelized_model(
         data,
         backend="operator",
-        evidence_mode="accurate",
         operator_cache_policy="safe",
     )
 

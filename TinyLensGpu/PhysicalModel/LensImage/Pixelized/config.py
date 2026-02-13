@@ -125,7 +125,6 @@ class SolverConfig:
     slq_seed: int = 0
     slq_probes: int = 32
     slq_steps: int = 60
-    evidence_mode: str = "accurate"
     operator_cache_policy: str = "safe"
 
     nnls_maxiter: int = 600

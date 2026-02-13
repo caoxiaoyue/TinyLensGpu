@@ -328,6 +328,7 @@ class TestSolverComparison:
         assert diff < 0.25 or diff / abs(log_ev_exact) < 2e-3, \
             f"Log evidence mismatch too large: Exact={log_ev_exact}, Fast={log_ev_fast}"
 
+
     def test_reconstruct_source_works_with_operator_backend(self, prob_model_setup):
         """Check if reconstruct_source works with operator backend."""
         setup = prob_model_setup
@@ -488,7 +489,6 @@ class TestSolverComparison:
             inversion_backend='operator',
             cg_tol=1e-7,
             cg_maxiter=500,
-            evidence_mode='accurate',
             slq_probes=32,
             slq_steps=60,
         )
@@ -562,7 +562,6 @@ class TestSolverComparison:
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
             inversion_backend='operator',
-            evidence_mode='accurate',
             cg_tol=1e-7,
             cg_maxiter=500,
             slq_probes=32,
@@ -593,7 +592,6 @@ class TestSolverComparison:
                 regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='curvature'),
                 solver=SolverConfig(
                     inversion_backend='operator',
-                    evidence_mode='fast',
                     cg_tol=1e-5,
                     cg_maxiter=200,
                     slq_probes=8,
@@ -649,7 +647,6 @@ class TestSolverComparison:
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
             inversion_backend='operator',
-            evidence_mode='fast',
             cg_tol=1e-5,
             cg_maxiter=240,
             slq_probes=8,
@@ -786,7 +783,6 @@ class TestSolverComparison:
                     include_lens_light=True,
                     nonnegative=False,
                     lens_light_ridge=1e-6,
-                    evidence_mode='fast',
                     cg_tol=1e-6,
                     cg_maxiter=300,
                     slq_probes=8,
@@ -900,7 +896,6 @@ class TestSolverComparison:
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
             inversion_backend='operator',
-            evidence_mode='accurate',
             cg_tol=1e-7,
             cg_maxiter=500,
             slq_probes=32,

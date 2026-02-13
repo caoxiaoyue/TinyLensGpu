@@ -980,6 +980,26 @@ class TestPixelizedImageProbModel:
         log_ev = prob_model()
         
         assert jnp.isfinite(log_ev), "Call should return finite log evidence"
+
+    def test_prob_model_position_likelihood_penalty_inactive_returns_zero(self, mock_lensing_setup):
+        setup = mock_lensing_setup
+
+        prob_model = PixelizedImageProbModel(
+            image_data=setup["image"],
+            noise_map=setup["noise"],
+            psf_kernel=setup["psf"],
+            dpix=setup["dpix"],
+            phys_model=setup["phys_model"],
+            mask=setup["mask"],
+            position_likelihood={
+                "positions": [(0.0, 0.0), (0.1, 0.1)],
+                "threshold_arcsec": 1.0e3,
+                "min_log_like": -10.0,
+            },
+        )
+
+        penalty = float(np.asarray(prob_model._position_likelihood_penalty_jax()))
+        assert np.isclose(penalty, 0.0)
     
     def test_prob_model_reconstruct_source(self, mock_lensing_setup):
         """Test source reconstruction via simulator."""
@@ -1130,7 +1150,6 @@ class TestPixelizedImageProbModel:
                     cg_maxiter=200,
                     slq_probes=8,
                     slq_steps=20,
-                    evidence_mode='fast',
                 ),
             ),
             reg_scale=0.05,

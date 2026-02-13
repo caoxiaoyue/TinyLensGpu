@@ -86,7 +86,6 @@ class InversionAssembler:
                 slq_seed=solver_config.slq_seed,
                 slq_probes=solver_config.slq_probes,
                 slq_steps=solver_config.slq_steps,
-                evidence_mode=solver_config.evidence_mode,
                 reg_operator_mode=regularization.mode,
                 lens_basis=lens_basis_matrix,
                 lens_light_ridge=solver_config.lens_light_ridge,
@@ -134,4 +133,3 @@ class InversionAssembler:
         if solver_config.nonnegative:
             return NNLSInversion(d=d, F=f_total, noise_cov=noise_var, H=h_total)
         return LinearInversion(d=d, F=f_total, noise_cov=noise_var, H=h_total)
-

@@ -122,7 +122,7 @@ class PixelizedImageProbModel(ck.Module):
         pen_continuous = self._pos_minl * (1.0 - jnp.exp(-ratio))
 
         pen_clipped = jnp.clip(pen_continuous, min=self._pos_minl, max=0.0)
-        return jnp.where(jnp.logical_or(self._pos_thr <= 0.0, exceed <= 0.0), 0.0, pen_clipped)
+        return pen_clipped
 
     def __repr__(self) -> str:
         if isinstance(self.pix_src_model.grid, IrregularGridConfig):

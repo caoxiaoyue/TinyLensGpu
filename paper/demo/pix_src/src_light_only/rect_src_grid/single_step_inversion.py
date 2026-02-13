@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 from matplotlib import pyplot as plt
 
-from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
     PixelizedSourceConfig,
@@ -30,67 +29,8 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
     SolverConfig,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
-
-
-def simulate_lensing_data(seed: int = 0):
-    np.random.seed(seed)
-
-    e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
-    phy_model = PhysicalModel(
-        lens_mass=[SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0)],
-        source_light=[
-            SersicEllipse(
-                R_sersic=0.3,
-                n_sersic=1.0,
-                e1=0.05,
-                e2=0.05,
-                center_x=0.0,
-                center_y=0.3,
-                Ie=1.0,
-            )
-        ],
-        lens_light=[],
-    )
-
-    npix = 200
-    image_size = 10.0
-    dpix = image_size / npix
-
-    x_psf, y_psf = make_grid_2d(21, dpix)
-    psf_kernel = GaussianEllipse(
-        flux=1.0,
-        sigma=0.05,
-        e1=0.0,
-        e2=0.0,
-        center_x=0.0,
-        center_y=0.0,
-    ).light(x=x_psf, y=y_psf)
-    psf_kernel /= psf_kernel.sum()
-    psf_kernel = np.asarray(psf_kernel)
-
-    sim_config = SimulatorConfig(dpix=dpix, npix=npix, psf_kernel=psf_kernel, nsub=16)
-    sim_obj = LensSimulator(phy_model, sim_config)
-    img_2d = sim_obj.simulate()
-
-    def mock_lens(ideal_image, back_rms, exp_time):
-        noise_map = np.sqrt(ideal_image / exp_time + back_rms**2)
-        noisy_image = ideal_image + np.random.normal(0, noise_map)
-        return noisy_image, noise_map
-
-    noisy_image, noise_map = mock_lens(img_2d, 0.1, 300)
-
-    xgrid_image, ygrid_image = make_grid_2d(npix, dpix)
-    rgrid_image = np.sqrt(xgrid_image**2 + ygrid_image**2)
-    mask = rgrid_image > 2.7
-
-    return {
-        "noisy_image": noisy_image,
-        "noise_map": noise_map,
-        "psf_kernel": psf_kernel,
-        "mask": mask,
-        "dpix": dpix,
-    }
 
 
 def setup_rectangular_pixelized_model(
@@ -183,6 +123,7 @@ def reconstruct_source(prob_model: PixelizedImageProbModel):
 
 
 def visualize_results(data_dict, results, *, output_path: Path):
+    """Visualize the reconstruction results."""
     noisy_image = data_dict["noisy_image"]
     noise_map = data_dict["noise_map"]
     mask = data_dict["mask"]
@@ -247,9 +188,11 @@ def visualize_results(data_dict, results, *, output_path: Path):
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
+    print(f"Figure saved to {output_path}")
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
+    """Build CLI parser."""
     parser = argparse.ArgumentParser(description="Rectangular bilinear pixelized source demo (matrix/operator backend)")
     parser.add_argument("--inversion-backend", choices=["matrix", "operator"], default="operator")
     parser.add_argument("--source-grid-nx", type=int, default=64)
@@ -273,10 +216,30 @@ def build_cli_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    # --- Step 1: Parse CLI arguments ---
     parser = build_cli_parser()
     args = parser.parse_args()
+    np.random.seed(args.seed)
 
-    data_dict = simulate_lensing_data(seed=args.seed)
+    # --- Step 2: Load observational data ---
+    print("Loading data from data/ directory...")
+    image_data, noise_map, psf_kernel, mask = load_lens_data(
+        image_path='data/image.fits',
+        noise_path='data/noise.fits',
+        psf_path='data/psf.fits',
+        mask_path='data/mask.fits'
+    )
+    
+    data_dict = {
+        "noisy_image": image_data,
+        "noise_map": noise_map,
+        "psf_kernel": psf_kernel,
+        "mask": mask,
+        "dpix": 0.05, # Assumed dpix=10.0/200=0.05 from sim_data
+    }
+
+    # --- Step 3: Setup the rectangular pixelized source model ---
+    print(f"Setting up model with backend: {args.inversion_backend}...")
     prob_model = setup_rectangular_pixelized_model(
         data_dict,
         inversion_backend=args.inversion_backend,
@@ -291,7 +254,13 @@ def main():
         slq_steps=args.slq_steps,
         operator_cache_policy=args.operator_cache_policy,
     )
+
+    # --- Step 4: Perform source reconstruction (Inversion) ---
+    print("Reconstructing source...")
     results = reconstruct_source(prob_model)
+
+    # --- Step 5: Visualize and save results ---
+    print(f"Visualizing results to {args.save_figure}...")
     visualize_results(data_dict, results, output_path=args.save_figure)
 
     payload = {
@@ -309,6 +278,7 @@ def main():
         "operator_cache_policy": args.operator_cache_policy,
     }
     args.save_json.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    print("\nSummary results:")
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
