@@ -39,6 +39,36 @@ class HernquistEllipse(ck.Module):
     def __init__(self, amp: Optional[float] = None, Rs: Optional[float] = None, 
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `HernquistEllipse` instance with validated configuration.
+        
+        Parameters
+        ----------
+        amp : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        Rs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
 
         self.amp = amp if isinstance(amp, ParamU) else ParamU("amp", amp)
@@ -100,6 +130,22 @@ class HernquistEllipse(ck.Module):
         X = jnp.where(jnp.abs(X - 1.0) < 1e-10, 1.000001, X)
         
         def F(X):
+            """
+            Compute F.
+            
+            Parameters
+            ----------
+            X : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             cond1 = X < 1
             # For X < 1: 1 / sqrt(1 - X^2) * arctanh(sqrt(1 - X^2))
             u1 = jnp.sqrt(1 - X**2)

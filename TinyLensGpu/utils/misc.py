@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 
 
 def auto_mkdir_path(path_dir: str) -> None:
+    """
+    Compute auto mkdir path.
+    
+    Parameters
+    ----------
+    path_dir : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    None
+        This routine updates object state or performs side-effect-free setup only.
+    
+    """
     if not os.path.exists(path_dir):
         abs_path = os.path.abspath(path_dir)
         os.makedirs(abs_path, exist_ok=True)

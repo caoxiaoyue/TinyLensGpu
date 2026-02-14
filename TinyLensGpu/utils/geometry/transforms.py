@@ -68,19 +68,75 @@ def xy_transform(x: Array, y: Array, xc: Array, yc: Array, phi: Array) -> Tuple[
 
 
 def cart2polar(x: Array, y: Array) -> Tuple[Array, Array]:
+    """
+    Compute cart2polar.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     r = jnp.sqrt(x**2+y**2)
     phi = jnp.arctan2(y, x)
     return r, phi
 
 
 def polar2cart(r: Array, phi: Array) -> Tuple[Array, Array]:
+    """
+    Compute polar2cart.
+    
+    Parameters
+    ----------
+    r : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    phi : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     x = r*jnp.cos(phi)
     y = r*jnp.sin(phi)
     return x, y
 
 
 def relocate_radii(x: Array, y: Array) -> Tuple[Array, Array, Array]:
-    """Handle numerical singularity at origin."""
+    """
+    Compute relocate radii.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     r, theta = cart2polar(x, y)
     r = jnp.where(r < 1e-5, 1e-5, r)
     x, y = polar2cart(r, theta)
@@ -89,6 +145,37 @@ def relocate_radii(x: Array, y: Array) -> Tuple[Array, Array, Array]:
 
 def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array, 
                             center_x: Array, center_y: Array) -> Tuple[Array, Array]:
+    """
+    Compute ellipse2circle transform.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    e1 : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    e2 : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    center_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    center_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     phi_G, q = ellipticity2phi_q(e1, e2)
     xt1, xt2 = xy_transform(x, y, center_x, center_y, phi_G)
     return xt1 * jnp.sqrt(q), xt2 / jnp.sqrt(q)
@@ -96,7 +183,20 @@ def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array,
 
 def q2e(q: Array) -> Array:
     """
-    Computes e = (1 - q^2) / (1 + q^2).
+    Compute q2e.
+    
+    Parameters
+    ----------
+    q : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     e = jnp.abs(1 - q**2) / (1 + q**2)
     return e
@@ -105,8 +205,35 @@ def q2e(q: Array) -> Array:
 def transform_e1e2_square_average(x: Array, y: Array, e1: Array, e2: Array, 
                                  center_x: Array, center_y: Array) -> Tuple[Array, Array]:
     """
-    Maps the coordinates x, y with eccentricities e1 e2 into a new elliptical
-    coordinate system such that R = sqrt(R_major**2 + R_minor**2)
+    Compute transform e1e2 square average.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    e1 : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    e2 : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    center_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    center_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     phi_g, q = ellipticity2phi_q(e1, e2)
     x_shift = x - center_x

@@ -43,6 +43,26 @@ class SersicEllipse(ck.Module):
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None, 
                  Ie: Optional[float] = None) -> None:
+        """
+        Initialize the SersicEllipse profile.
+
+        Parameters
+        ----------
+        R_sersic : float, optional
+            Effective radius (half-light radius) in arcseconds.
+        n_sersic : float, optional
+            Sersic index (n=1 is exponential, n=4 is de Vaucouleurs).
+        e1 : float, optional
+            Ellipticity component 1.
+        e2 : float, optional
+            Ellipticity component 2.
+        center_x : float, optional
+            Center x-coordinate in arcseconds.
+        center_y : float, optional
+            Center y-coordinate in arcseconds.
+        Ie : float, optional
+            Intensity at the effective radius (R_sersic).
+        """
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)

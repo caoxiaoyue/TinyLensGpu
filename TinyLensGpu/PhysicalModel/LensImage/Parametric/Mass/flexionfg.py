@@ -11,12 +11,63 @@ from .flexion import Flexion
 
 class Flexionfg(ck.Module):
     """
-    Flexion consist of basis F flexion and G flexion (F1,F2,G1,G2).
+    Represent the `Flexionfg` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    F1 : Any
+        Configuration argument consumed during construction of this component.
+    F2 : Any
+        Configuration argument consumed during construction of this component.
+    G1 : Any
+        Configuration argument consumed during construction of this component.
+    G2 : Any
+        Configuration argument consumed during construction of this component.
+    ra_0 : Any
+        Configuration argument consumed during construction of this component.
+    dec_0 : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
     """
 
     def __init__(self, F1: Optional[float] = None, F2: Optional[float] = None, 
                  G1: Optional[float] = None, G2: Optional[float] = None, 
                  ra_0: Optional[float] = None, dec_0: Optional[float] = None) -> None:
+        """
+        Initialize a `Flexionfg` instance with validated configuration.
+        
+        Parameters
+        ----------
+        F1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ra_0 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dec_0 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
         # self.flexion_cart = Flexion()
         
@@ -29,7 +80,31 @@ class Flexionfg(ck.Module):
 
     @staticmethod
     def transform_fg(F1, F2, G1, G2):
-        """Basis transform from (F1,F2,G1,G2) to (g1,g2,g3,g4)."""
+        """
+        Compute transform fg.
+        
+        Parameters
+        ----------
+        F1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         g1 = (3 * F1 + G1) * 0.5
         g2 = (3 * F2 + G2) * 0.5
         g3 = (F1 - G1) * 0.5
@@ -42,6 +117,43 @@ class Flexionfg(ck.Module):
               G2: Optional[Array] = None, ra_0: Optional[Array] = None, 
               dec_0: Optional[Array] = None) -> Tuple[Array, Array]:
         
+        """
+        Compute deriv.
+        
+        Parameters
+        ----------
+        x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        G2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ra_0 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dec_0 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         F1 = jnp.asarray(F1)
         F2 = jnp.asarray(F2)
         G1 = jnp.asarray(G1)

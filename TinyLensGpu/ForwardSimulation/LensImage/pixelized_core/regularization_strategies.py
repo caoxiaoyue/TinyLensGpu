@@ -17,7 +17,15 @@ from .artifacts import GridArtifacts, RegularizationArtifacts
 
 
 class BaseRegularizationStrategy:
-    """Base interface for source regularization builders."""
+    """
+    Represent the `BaseRegularizationStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     mode: str
 
@@ -28,12 +36,46 @@ class BaseRegularizationStrategy:
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        grid : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        NotImplementedError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         raise NotImplementedError
 
 
 @dataclass(frozen=True)
 class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
-    """Dense GP inverse-covariance regularization."""
+    """
+    Represent the `DenseGpRegularizationStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     config: RegularizationConfig
     mode: str = "dense_gp"
@@ -45,6 +87,33 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        grid : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         kernel = self.config.gp_kernel
         if kernel is None:
             raise ValueError("dense_gp regularization requires an irregular_gp_* scheme.")
@@ -66,7 +135,15 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
 
 @dataclass(frozen=True)
 class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
-    """Sparse KNN graph Laplacian regularization."""
+    """
+    Represent the `SparseKnnRegularizationStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     config: RegularizationConfig
     mode: str = "sparse_knn"
@@ -78,6 +155,33 @@ class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        grid : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         kernel = self.config.gp_kernel
         if kernel is None:
             raise ValueError("sparse_knn regularization requires an irregular_knn_* scheme.")
@@ -100,7 +204,15 @@ class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
 
 @dataclass(frozen=True)
 class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
-    """Sparse finite-difference regularization on rectangular grids."""
+    """
+    Represent the `SparseRectangularRegularizationStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     config: RegularizationConfig
     mode: str = "sparse_rectangular"
@@ -112,6 +224,35 @@ class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        grid : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         _ = reg_scale
         rect_scheme = self.config.rect_scheme
         if rect_scheme is None:
@@ -143,7 +284,30 @@ def select_regularization_strategy(
     *,
     resolved_mode: str,
 ) -> BaseRegularizationStrategy:
-    """Select concrete regularization strategy from config."""
+    """
+    Compute select regularization strategy.
+    
+    Parameters
+    ----------
+    regularization_config : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    resolved_mode : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    Raises
+    ------
+    ValueError
+        Raised when input validation fails or required runtime state is missing.
+    
+    """
     mode = str(resolved_mode).strip().lower()
     if mode == "dense_gp":
         return DenseGpRegularizationStrategy(config=regularization_config)

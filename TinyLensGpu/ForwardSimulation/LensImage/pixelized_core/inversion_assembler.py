@@ -24,7 +24,15 @@ InversionType = Union[LinearInversion, OperatorInversion, NNLSInversion, Operato
 
 @dataclass(frozen=True)
 class InversionAssembler:
-    """Build concrete inversion solver from prepared artifacts."""
+    """
+    Represent the `InversionAssembler` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     psf_fft: jnp.ndarray
     image_shape: tuple[int, int]
@@ -32,6 +40,27 @@ class InversionAssembler:
     unmasked_indices: tuple[jnp.ndarray, jnp.ndarray]
 
     def _regularization_dense_from(self, reg: RegularizationArtifacts) -> jnp.ndarray:
+        """
+        Internal helper to regularization dense from.
+        
+        Parameters
+        ----------
+        reg : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if reg.is_sparse:
             if reg.sparse_rows is None or reg.sparse_cols is None or reg.sparse_values is None or reg.sparse_n_source is None:
                 raise RuntimeError("Sparse regularization entries are incomplete.")
@@ -46,6 +75,30 @@ class InversionAssembler:
         return reg.dense_matrix
 
     def _regularization_for_operator(self, reg: RegularizationArtifacts, n_source: int) -> jnp.ndarray:
+        """
+        Internal helper to regularization for operator.
+        
+        Parameters
+        ----------
+        reg : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        n_source : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if reg.is_sparse:
             return jnp.zeros((int(n_source),), dtype=jnp.float32)
         if reg.dense_matrix is None:
@@ -62,6 +115,42 @@ class InversionAssembler:
         solver_config: SolverConfig,
         lens_basis_matrix: Optional[jnp.ndarray] = None,
     ) -> InversionType:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        data_vector : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_variance : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        mapping : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        regularization : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        solver_config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        lens_basis_matrix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         backend = solver_config.canonical_backend
         d = jnp.asarray(data_vector)
         noise_var = jnp.asarray(noise_variance)

@@ -64,12 +64,53 @@ class ParamU(ck.Param):
         limits: Optional[Sequence[float]] = None,
         **kwargs: Any,
     ) -> None:
+        """
+        Initialize a `ParamU` instance with validated configuration.
+        
+        Parameters
+        ----------
+        name : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        value : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        prior_type : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        prior_settings : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        limits : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        **kwargs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__(name, value, **kwargs)
         self.prior_type = prior_type
         self.prior_settings = prior_settings
         self.limits = limits
     
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (f"ParamU(name={self.name}, value={self.value}, "
                 f"prior_type={self.prior_type}, "
                 f"prior_settings={self.prior_settings}, "

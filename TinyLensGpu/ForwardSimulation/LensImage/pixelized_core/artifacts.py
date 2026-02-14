@@ -10,7 +10,15 @@ import jax.numpy as jnp
 
 @dataclass(frozen=True)
 class GridArtifacts:
-    """Artifacts produced by source-grid generation."""
+    """
+    Represent the `GridArtifacts` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     source_mesh: jnp.ndarray
     source_mesh_beta: jnp.ndarray
@@ -21,7 +29,15 @@ class GridArtifacts:
 
 @dataclass(frozen=True)
 class MappingArtifacts:
-    """Artifacts for source-to-image mapping operators."""
+    """
+    Represent the `MappingArtifacts` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     dense_matrix: Optional[jnp.ndarray]
     operator_weights: Optional[jnp.ndarray]
@@ -30,7 +46,15 @@ class MappingArtifacts:
 
 @dataclass(frozen=True)
 class RegularizationArtifacts:
-    """Artifacts for source regularization."""
+    """
+    Represent the `RegularizationArtifacts` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     mode: str
     dense_matrix: Optional[jnp.ndarray]
@@ -41,10 +65,37 @@ class RegularizationArtifacts:
 
     @property
     def is_sparse(self) -> bool:
+        """
+        Compute is sparse.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.mode in {"sparse_knn", "sparse_rectangular"}
 
     @property
     def n_source(self) -> int:
+        """
+        Compute n source.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self.is_sparse:
             if self.sparse_n_source is None:
                 raise RuntimeError("Sparse regularization artifacts missing n_source.")
@@ -56,7 +107,15 @@ class RegularizationArtifacts:
 
 @dataclass(frozen=True)
 class OperatorCacheKey:
-    """Cache key for mapping operators."""
+    """
+    Represent the `OperatorCacheKey` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     signature: Tuple
 

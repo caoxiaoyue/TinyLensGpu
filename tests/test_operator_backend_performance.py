@@ -12,7 +12,147 @@ import numpy as np
 import pytest
 import jax
 
-from paper.demo.src_only_pix_src.demo_pix_src import simulate_lensing_data, setup_pixelized_model
+from TinyLensGpu.PhysicalModel import (
+    PhysicalModel,
+    SIE,
+    SersicEllipse,
+    GaussianEllipse,
+    PixelizedSourceConfig,
+    PixelizedSourceModel,
+    IrregularGridConfig,
+    MappingConfig,
+    RegularizationConfig,
+    SolverConfig,
+)
+from TinyLensGpu.ForwardSimulation import SimulatorConfig, LensSimulator, make_grid_2d
+from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.utils.geometry import phi_q2_ellipticity
+
+
+def simulate_lensing_data():
+    """Simulate lensing data and return a dictionary of arrays."""
+    # 1. Define physical model
+    e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
+    phy_model = PhysicalModel(
+        lens_mass=[SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0)],
+        source_light=[
+            SersicEllipse(
+                R_sersic=0.3,
+                n_sersic=1.0,
+                e1=0.05,
+                e2=0.05,
+                center_x=0.0,
+                center_y=0.3,
+                Ie=1.0,
+            )
+        ],
+        lens_light=[],
+    )
+
+    # 2. Simulation configuration
+    npix = 200
+    image_size = 10.0
+    dpix = image_size / npix
+
+    # PSF
+    x_psf, y_psf = make_grid_2d(21, dpix)
+    psf_kernel = GaussianEllipse(
+        flux=1.0,
+        sigma=0.05,
+        e1=0.0,
+        e2=0.0,
+        center_x=0.0,
+        center_y=0.0,
+    ).light(x=x_psf, y=y_psf)
+    psf_kernel /= psf_kernel.sum()
+    psf_kernel = np.asarray(psf_kernel)
+
+    sim_config = SimulatorConfig(dpix=dpix, npix=npix, psf_kernel=psf_kernel, nsub=16)
+    sim_obj = LensSimulator(phy_model, sim_config)
+    img_2d = sim_obj.simulate()
+
+    # 3. Add noise
+    def mock_lens(ideal_image, back_rms, exp_time):
+        noise_map = np.sqrt(ideal_image / exp_time + back_rms**2)
+        noisy_image = ideal_image + np.random.normal(0, noise_map)
+        return noisy_image, noise_map
+
+    noisy_image, noise_map = mock_lens(img_2d, 0.1, 300)
+
+    # 4. Create mask
+    xgrid_image, ygrid_image = make_grid_2d(npix, dpix)
+    rgrid_image = np.sqrt(xgrid_image**2 + ygrid_image**2)
+    mask = rgrid_image > 3.0
+
+    return {
+        "noisy_image": noisy_image,
+        "noise_map": noise_map,
+        "psf_kernel": psf_kernel,
+        "mask": mask,
+        "dpix": dpix,
+    }
+
+
+def setup_pixelized_model(
+    data_dict,
+    *,
+    backend: str = "matrix",
+    nonnegative: bool = False,
+    cg_tol: float = 1e-4,
+    cg_maxiter: int = 120,
+    slq_probes: int = 32,
+    slq_steps: int = 60,
+    operator_cache_policy: str = "safe",
+    scheme: str = "irregular_gp_exp",
+    reg_sparse_k_neighbors: int = 16,
+):
+    """Setup the pixelized source model."""
+    e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
+    sie = SIE(theta_E=1.5, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0)
+
+    pix_config = PixelizedSourceConfig(
+        grid=IrregularGridConfig(
+            n_source_points=1500,
+            mesh_alpha=1.5,
+            mesh_blur_sigma=0.0,
+            mesh_method="random",
+            mesh_seed=42,
+        ),
+        mapping=MappingConfig(
+            k_neighbors=5,
+            interp_kernel="wendland_c4",
+            radius_scale=1.5,
+        ),
+        regularization=RegularizationConfig(
+            scheme=scheme,
+            sparse_k_neighbors=reg_sparse_k_neighbors,
+        ),
+        solver=SolverConfig(
+            inversion_backend=backend,
+            nonnegative=nonnegative,
+            cg_tol=cg_tol,
+            cg_maxiter=cg_maxiter,
+            slq_probes=slq_probes,
+            slq_steps=slq_steps,
+            operator_cache_policy=operator_cache_policy,
+        ),
+    )
+    pix_src_model = PixelizedSourceModel(config=pix_config, reg_scale=0.05, reg_coefficient=1.0)
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model], lens_light=[])
+
+    sim_config = SimulatorConfig(
+        dpix=data_dict["dpix"],
+        npix=data_dict["noisy_image"].shape[0],
+        psf_kernel=data_dict["psf_kernel"],
+        mask=data_dict["mask"],
+    )
+
+    return PixelizedImageProbModel(
+        image_data=data_dict["noisy_image"],
+        noise_map=data_dict["noise_map"],
+        sim_config=sim_config,
+        phys_model=phys_model,
+    )
 
 
 def _time_call(fn, n_runs: int = 3) -> float:

@@ -27,7 +27,31 @@ def _build_matrix_numba(
     idx_map: np.ndarray,
     psf_data: np.ndarray,
 ) -> np.ndarray:
-    """Numba-accelerated dense matrix construction."""
+    """
+    Internal helper to build matrix numba.
+    
+    Parameters
+    ----------
+    h_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    w_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    idx_map : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    psf_data : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_pixels = len(h_indices)
     psf_h, psf_w = psf_data.shape
     psf_cy, psf_cx = psf_h // 2, psf_w // 2
@@ -62,7 +86,34 @@ def _build_sparse_numba(
     psf_data: np.ndarray,
     max_nnz: int
 ):
-    """Numba-accelerated sparse matrix construction (COO format)."""
+    """
+    Internal helper to build sparse numba.
+    
+    Parameters
+    ----------
+    h_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    w_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    idx_map : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    psf_data : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    max_nnz : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_pixels = len(h_indices)
     psf_h, psf_w = psf_data.shape
     psf_cy, psf_cx = psf_h // 2, psf_w // 2
@@ -96,7 +147,22 @@ def _build_sparse_numba(
 
 
 def _get_indices_and_map(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Get pixel indices and index map from mask."""
+    """
+    Internal helper to get indices and map.
+    
+    Parameters
+    ----------
+    mask : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     inv_mask = ~mask
     h_indices, w_indices = np.where(inv_mask)
     
@@ -168,7 +234,31 @@ def _apply_psf_fft(
     image_shape: Tuple[int, int],
     unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray]
 ) -> jnp.ndarray:
-    """JIT-compiled FFT implementation."""
+    """
+    Internal helper to apply psf fft.
+    
+    Parameters
+    ----------
+    mapping_matrix : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    psf_kernel : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    image_shape : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    unmasked_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_unmasked, n_source = mapping_matrix.shape
     h, w = image_shape
     y_indices, x_indices = unmasked_indices
@@ -201,6 +291,34 @@ def _apply_psf_fft_precomputed(
     unmasked_indices: Tuple[jnp.ndarray, jnp.ndarray],
     psf_shape: Tuple[int, int],
 ) -> jnp.ndarray:
+    """
+    Internal helper to apply psf fft precomputed.
+    
+    Parameters
+    ----------
+    mapping_matrix : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    psf_fft : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    image_shape : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    unmasked_indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    psf_shape : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_unmasked, n_source = mapping_matrix.shape
     h, w = image_shape
     psf_h, psf_w = psf_shape

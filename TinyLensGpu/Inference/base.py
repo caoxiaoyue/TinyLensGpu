@@ -7,18 +7,72 @@ import jax.numpy as jnp
 from .build_prior import make_prior_transformation
 
 class AbstractInference(ABC): 
+    """
+    Represent the `AbstractInference` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    prob_model : Any
+        Configuration argument consumed during construction of this component.
+    ndim : Any
+        Configuration argument consumed during construction of this component.
+    prior_transform : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
     def __init__(
         self,
         prob_model: Optional[Any] = None,
         ndim: Optional[int] = None,
         prior_transform: Optional[Callable[[Any], Any]] = None,
     ):
+        """
+        Initialize a `AbstractInference` instance with validated configuration.
+        
+        Parameters
+        ----------
+        prob_model : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ndim : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        prior_transform : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         self.prob_model = prob_model
         self.ndim = ndim
         self.prior_transform = prior_transform
 
 
     def _ensure_prior_transform(self) -> None:
+        """
+        Internal helper to ensure prior transform.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self.prior_transform is not None and self.ndim is not None:
             return
         if self.prob_model is None:
@@ -32,7 +86,22 @@ class AbstractInference(ABC):
 
 
     def loglike_jax(self, theta):
-        """JAX-friendly log-likelihood. Safe to use with jax.jit/jax.vmap."""
+        """
+        Compute loglike jax.
+        
+        Parameters
+        ----------
+        theta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         theta = jnp.asarray(theta, dtype=jnp.float32)
         return self.prob_model(theta)
 
@@ -56,7 +125,22 @@ class AbstractInference(ABC):
 
 
     def prior(self, u):
-        """Prior transform from unit cube to parameter space."""
+        """
+        Compute prior.
+        
+        Parameters
+        ----------
+        u : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         self._ensure_prior_transform()
         return np.asarray(self.prior_transform(u))
 
@@ -64,6 +148,21 @@ class AbstractInference(ABC):
     @abstractmethod
     def run(self, nlive=1000, **kwargs):
         """
-        Runs the inference
+        Compute run.
+        
+        Parameters
+        ----------
+        nlive : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        **kwargs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
         """
         pass

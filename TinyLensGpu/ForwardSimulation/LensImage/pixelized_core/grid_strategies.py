@@ -21,7 +21,15 @@ RayTraceFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
 
 
 class BaseGridStrategy:
-    """Base interface for source-grid construction strategies."""
+    """
+    Represent the `BaseGridStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     def build(
         self,
@@ -32,12 +40,52 @@ class BaseGridStrategy:
         data_mesh_beta: jnp.ndarray,
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        lensed_source_image : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        mask : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dpix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        data_mesh_beta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ray_trace : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        NotImplementedError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         raise NotImplementedError
 
 
 @dataclass(frozen=True)
 class IrregularGridStrategy(BaseGridStrategy):
-    """Adaptive irregular mesh sampled in image plane and ray-traced to source plane."""
+    """
+    Represent the `IrregularGridStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     config: IrregularGridConfig
 
@@ -50,6 +98,34 @@ class IrregularGridStrategy(BaseGridStrategy):
         data_mesh_beta: jnp.ndarray,
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        lensed_source_image : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        mask : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dpix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        data_mesh_beta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ray_trace : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         source_mesh_px, (height, width), _ = sample_points_weighted(
             img=np.array(lensed_source_image),
             mask=~np.array(mask),
@@ -76,7 +152,15 @@ class IrregularGridStrategy(BaseGridStrategy):
 
 @dataclass(frozen=True)
 class RectangularGridStrategy(BaseGridStrategy):
-    """Regular rectangular source grid in source plane."""
+    """
+    Represent the `RectangularGridStrategy` component in the TinyLensGpu pipeline.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     config: RectangularGridConfig
 
@@ -89,6 +173,34 @@ class RectangularGridStrategy(BaseGridStrategy):
         data_mesh_beta: jnp.ndarray,
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
+        """
+        Compute build.
+        
+        Parameters
+        ----------
+        lensed_source_image : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        mask : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dpix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        data_mesh_beta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ray_trace : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         _ = lensed_source_image, mask, dpix, ray_trace
 
         data_mesh_beta_np = np.asarray(data_mesh_beta, dtype=np.float32)

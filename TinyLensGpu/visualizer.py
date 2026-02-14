@@ -21,6 +21,37 @@ def _plot_irregular_source_interpolate(
     npixels=150,
     cmap="inferno",
 ):
+    """
+    Internal helper to plot irregular source interpolate.
+    
+    Parameters
+    ----------
+    ax : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    points_xy : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    values : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    enlarge_factor : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    npixels : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cmap : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     points_xy = np.asarray(points_xy)
     values = np.asarray(values)
 
@@ -47,6 +78,39 @@ def _plot_irregular_source_voronoi(
     minima=None,
     maxima=None,
 ):
+    """
+    Internal helper to plot irregular source voronoi.
+    
+    Parameters
+    ----------
+    ax : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    points_xy : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    values : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    enlarge_factor : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cmap : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    minima : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    maxima : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    None
+        This routine updates object state or performs side-effect-free setup only.
+    
+    """
     points_xy = np.asarray(points_xy)
     values = np.asarray(values)
 

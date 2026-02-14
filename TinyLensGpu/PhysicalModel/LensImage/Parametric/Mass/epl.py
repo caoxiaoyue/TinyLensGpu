@@ -16,14 +16,54 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 def omega_iterative(phi: Array, t: Array, q: Array, niter: int = 50) -> Array:
     """
-    Compute Omega function iteratively.
-    Based on Tessore & Metcalf (2015) and lenstronomy implementation.
+    Compute omega iterative.
+    
+    Parameters
+    ----------
+    phi : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    t : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    q : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    niter : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     f = (1.0 - q) / (1.0 + q)
     Omega_0 = jnp.exp(1j * phi)
     fact = -f * jnp.exp(2j * phi)
     
     def body_fun(carry, n):
+        """
+        Compute body fun.
+        
+        Parameters
+        ----------
+        carry : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        n : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         current_sum, current_term = carry
         # n is 1-based index from scan over range
         factor = (2.0 * n - (2.0 - t)) / (2.0 * n + (2.0 - t)) * fact
@@ -63,6 +103,36 @@ class EPL(ck.Module):
     def __init__(self, theta_E: Optional[float] = None, gamma: Optional[float] = None,
                  e1: Optional[float] = None, e2: Optional[float] = None, 
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `EPL` instance with validated configuration.
+        
+        Parameters
+        ----------
+        theta_E : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        gamma : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)

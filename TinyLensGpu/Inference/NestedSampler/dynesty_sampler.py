@@ -4,18 +4,51 @@ from TinyLensGpu.Inference.base import AbstractInference
 import numpy as np
 
 class DynestySampler(AbstractInference):
+    """
+    Represent the `DynestySampler` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    prob_model : Any
+        Configuration argument consumed during construction of this component.
+    ndim : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
     def __init__(self, prob_model=None, ndim=None):
         """
-        Initialize the DynestySampler
+        Initialize the DynestySampler.
 
-        Args:
-            prob_model: The probability model to sample from
-            ndim (int): Number of dimensions in the parameter space
+        Parameters
+        ----------
+        prob_model : Any
+            The probability model providing `likelihood` and `prior` methods.
+        ndim : int
+            Number of dimensions for the sampling parameter space.
         """
         super().__init__(prob_model=prob_model, ndim=ndim)
 
     def _wrap_likelihood(self, x):
-        """Wrapper for likelihood function to handle array dimensions"""
+        """
+        Wrap the probability model's likelihood function for Dynesty.
+
+        Dynesty expects the likelihood function to return a scalar float.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Parameter vector.
+
+        Returns
+        -------
+        float
+            Log-likelihood value.
+        """
         # print("x shape", x.shape)
         like = self.likelihood(x)
         # print("like shape", like.shape)
@@ -24,7 +57,22 @@ class DynestySampler(AbstractInference):
         return float(like)  # dynesty expects scalar output
 
     def _wrap_prior(self, x):
-        """Wrapper for prior transform to handle array dimensions"""
+        """
+        Internal helper to wrap prior.
+        
+        Parameters
+        ----------
+        x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         # print("hahaha", x.shape)
         # if x.ndim == 1:
         #     x = x.reshape(1, -1)
@@ -34,17 +82,20 @@ class DynestySampler(AbstractInference):
 
     def run(self, nlive=1000, dlogz=None, bound='multi', sample='auto', **kwargs):
         """
-        Runs the sampler using dynesty's NestedSampler
+        Run the Nested Sampling process using dynesty.NestedSampler.
 
-        Args:
-            nlive (int): Number of live points
-            dlogz (float, optional): Target evidence tolerance. Defaults to None.
-            bound (str): Method used to bound the prior volume. Options include 
-                        'none', 'single', 'multi', 'balls', 'cubes'. Defaults to 'multi'.
-            sample (str): Method used to sample uniformly within the likelihood constraint.
-                         Options include 'auto', 'unif', 'rwalk', 'slice', 'rslice'.
-                         Defaults to 'auto'.
-            **kwargs: Additional arguments passed to dynesty.NestedSampler
+        Parameters
+        ----------
+        nlive : int, optional
+            Number of live points, by default 1000.
+        dlogz : float, optional
+            Target evidence tolerance for stopping, by default None.
+        bound : str, optional
+            Method used to bound the prior volume ('none', 'single', 'multi', 'balls', 'cubes'), by default 'multi'.
+        sample : str, optional
+            Method used to sample uniformly within the likelihood constraint ('auto', 'unif', 'rwalk', 'slice', 'rslice'), by default 'auto'.
+        **kwargs
+            Additional arguments passed to `dynesty.NestedSampler`.
         """
         # Ensure ndim and prior_transform are initialized from prob_model
         self._ensure_prior_transform()

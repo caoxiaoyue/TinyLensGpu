@@ -77,6 +77,32 @@ class ImageProbModel(ck.Module):
         solver_type: str = 'nnls',
         position_likelihood: Optional[Dict] = None,
     ) -> None:
+        """
+        Initialize the ImageProbModel.
+
+        Parameters
+        ----------
+        image_data : Union[np.ndarray, Array]
+            Observed image data (npix, npix).
+        noise_map : Union[np.ndarray, Array]
+            Standard deviation of noise for each pixel (npix, npix).
+        psf_kernel : Union[np.ndarray, Array]
+            Point Spread Function kernel.
+        dpix : float
+            Pixel scale (arcseconds per pixel).
+        nsub : int
+            Subsampling factor for ray-tracing (e.g. 2 means 2x2 sub-pixels).
+        phys_model : PhysicalModel
+            Physical model containing mass and light profiles.
+        use_linear : bool
+            If True, use linear least squares to solve for intensity parameters.
+        mask : Optional[Union[np.ndarray, Array]], optional
+            Boolean mask where True indicates pixels to exclude from fitting, by default None.
+        solver_type : str, optional
+            Linear solver type ('nnls' or 'normal'), by default 'nnls'.
+        position_likelihood : Optional[Dict], optional
+            Configuration for position-based likelihood penalties (e.g. point source positions), by default None.
+        """
         super().__init__("image_prob_model")
 
         self.image_data = jnp.array(image_data)
@@ -118,7 +144,21 @@ class ImageProbModel(ck.Module):
         self._check_nnls = bool(self.use_linear and self.sim_obj.solver_type == "nnls")
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
-        """Initialize position likelihood parameters for JIT optimization."""
+        """
+        Internal helper to init position likelihood.
+        
+        Parameters
+        ----------
+        config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         self._pos_px = None
         self._pos_py = None
         self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
@@ -141,7 +181,17 @@ class ImageProbModel(ck.Module):
                 self._has_pos_penalty = True
 
     def get_dynamic_params(self):
-        """Get dynamic parameters from the underlying physical model."""
+        """
+        Compute get dynamic params.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.phys_model.dynamic_params
 
     @ck.forward
@@ -163,17 +213,34 @@ class ImageProbModel(ck.Module):
         Tuple[Array, Array, Optional[Array]],
     ]:
         """
-        Run forward model to generate simulated image.
+        Run the forward model to generate a simulated image.
 
-        With caskade, parameters are already set in the PhysicalModel,
-        so we don't need to pass them explicitly.
+        This method integrates the physical model and simulator to produce
+        the expected image, optionally solving for linear parameters.
+
+        Parameters
+        ----------
+        use_linear : bool, optional
+            Override the instance's linear solver setting.
+        return_intensity : bool, optional
+            If True, return the intensity vector (default: True).
+        ret_each_plane : bool, optional
+            If True, return separate images for source and lens planes (default: False).
+        image_map : Array, optional
+            Override image data (for linear solver).
+        noise_map : Array, optional
+            Override noise map (for linear solver).
+        xgrid_sub : Array, optional
+            Override subgrid X coordinates.
+        ygrid_sub : Array, optional
+            Override subgrid Y coordinates.
+        psf_kernel : Array, optional
+            Override PSF kernel.
 
         Returns
         -------
-        image_model : jnp.ndarray
-            Simulated image, shape (npix, npix)
-        intensity_list : jnp.ndarray or None
-            Intensity values if linear solver used, else None
+        Union[Array, Tuple[Array, ...]]
+            The simulated image and optionally other components depending on flags.
         """
         linear_flag = self.use_linear if use_linear is None else use_linear
 
@@ -195,10 +262,16 @@ class ImageProbModel(ck.Module):
     @ck.forward
     @functools.partial(jit, static_argnums=(0,))
     def __call__(self):
-        """Vectorization-friendly log-likelihood evaluation.
-
-        This function is designed to be used with `make_likelihood(..., vectorized=True)`
-        where `theta` is vmapped over.
+        """
+        Evaluate the callable interface for this object.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         image_model, intensity_list = self.forward_model()
 
@@ -243,7 +316,17 @@ class ImageProbModel(ck.Module):
 
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
-        """JAX-compatible position likelihood penalty (JIT/vmap safe)."""
+        """
+        Internal helper to position likelihood penalty jax.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
 
         dx = beta_x[:, None] - beta_x[None, :]
@@ -298,6 +381,24 @@ class ImageProbModel(ck.Module):
 
         def update_intensity_param(module, value):
             # Try common intensity parameter names
+            """
+            Compute update intensity param.
+            
+            Parameters
+            ----------
+            module : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            value : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            None
+                This routine updates object state or performs side-effect-free setup only.
+            
+            """
             for name in ['Ie', 'amp', 'intensity', 'I0', 'flux']:
                 if hasattr(module, name):
                     param = getattr(module, name)
@@ -316,6 +417,17 @@ class ImageProbModel(ck.Module):
         return params
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (f"ImageProbModel("
                 f"npix={self.image_data.shape[0]}, "
                 f"use_linear={self.use_linear}, "

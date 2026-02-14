@@ -84,6 +84,22 @@ class SimulatorConfig:
         nsub: int = 1,
         mask: Optional[Array] = None,
     ) -> None:
+        """
+        Initialize a `SimulatorConfig` instance with validated configuration.
+
+        Parameters
+        ----------
+        dpix : float
+            Pixel scale in arcsec/pixel.
+        npix : int
+            Number of pixels per side (image is npix x npix).
+        psf_kernel : array_like, optional
+            PSF kernel for convolution. Default is a delta function.
+        nsub : int, optional
+            Subsampling factor for higher resolution ray-tracing (default: 1).
+        mask : array_like, optional
+            Boolean mask array. True values are masked out. Default: no mask.
+        """
         self.dpix = dpix
         self.npix = npix
 
@@ -106,6 +122,16 @@ class SimulatorConfig:
         self._prepare_1d_subgrid()
 
     def _prepare_1d_subgrid(self):
+        """
+        Internal helper to prepare 1d subgrid.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         if self.nsub > 1:
             self.mask_sub = jnp.repeat(jnp.repeat(self.mask, self.nsub, axis=0), self.nsub, axis=1)
         else:
@@ -124,10 +150,43 @@ class SimulatorConfig:
 
     @staticmethod
     def get_coords(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array, Array, Array]:
+        """
+        Compute get coords.
+        
+        Parameters
+        ----------
+        npix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        dpix : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        nsub : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         xgrid, ygrid = make_grid_2d(npix, dpix, 1)
         xgrid_sub, ygrid_sub = make_grid_2d(npix, dpix, nsub)
         return xgrid, ygrid, xgrid_sub, ygrid_sub
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (f"SimulatorConfig(npix={self.npix}, dpix={self.dpix}, "
                 f"nsub={self.nsub}, psf_shape={self.psf_kernel.shape})")

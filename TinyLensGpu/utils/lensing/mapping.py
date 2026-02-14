@@ -14,6 +14,28 @@ def _dense_mapping_from_weights_indices(
     indices: jnp.ndarray,
     n_source: int,
 ) -> jnp.ndarray:
+    """
+    Internal helper to dense mapping from weights indices.
+    
+    Parameters
+    ----------
+    weights : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    indices : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_source : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_data = int(weights.shape[0])
     n_neighbors = int(weights.shape[1])
     row_indices = jnp.repeat(jnp.arange(n_data, dtype=jnp.int32), n_neighbors)
@@ -31,7 +53,34 @@ def lens_mapping_matrix_from(
     kernel: Literal["wendland_c2", "wendland_c4", "wendland_c6"] = "wendland_c4",
     radius_scale: float = 1.5,
 ) -> jnp.ndarray:
-    """Compute dense mapping matrix using KNN Wendland interpolation."""
+    """
+    Compute lens mapping matrix from.
+    
+    Parameters
+    ----------
+    source_mesh_beta : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    data_mesh_beta : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_neighbors : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    kernel : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    radius_scale : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_source = source_mesh_beta.shape[0]
     weights, indices, _ = get_interpolation_weights(
         points=source_mesh_beta,
@@ -53,7 +102,40 @@ def lens_mapping_operator_bilinear_rectangular_from(
     nx: int,
     ny: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Build bilinear interpolation operator entries for a rectangular source grid."""
+    """
+    Compute lens mapping operator bilinear rectangular from.
+    
+    Parameters
+    ----------
+    data_mesh_beta : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    x_min : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    x_max : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y_min : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y_max : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    nx : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ny : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     nx_i = int(nx)
     ny_i = int(ny)
 
@@ -112,7 +194,40 @@ def lens_mapping_matrix_bilinear_rectangular_from(
     nx: int,
     ny: int,
 ) -> jnp.ndarray:
-    """Compute dense bilinear mapping matrix for a rectangular source grid."""
+    """
+    Compute lens mapping matrix bilinear rectangular from.
+    
+    Parameters
+    ----------
+    data_mesh_beta : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    x_min : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    x_max : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y_min : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    y_max : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    nx : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ny : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
         data_mesh_beta=data_mesh_beta,
         x_min=x_min,

@@ -33,12 +33,47 @@ from .pixelized_core import (
 )
 
 class PixelizedLensSimulator:
+    """
+    Represent the `PixelizedLensSimulator` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    phys_model : Any
+        Configuration argument consumed during construction of this component.
+    sim_config : Any
+        Configuration argument consumed during construction of this component.
+    lensed_source_image : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
     def __init__(
         self,
         phys_model: PhysicalModel,
         sim_config: SimulatorConfig,
         lensed_source_image: Optional[np.ndarray] = None,
     ) -> None:
+        """
+        Initialize the PixelizedLensSimulator.
+
+        Parameters
+        ----------
+        phys_model : PhysicalModel
+            The physical model containing mass and source definitions.
+        sim_config : SimulatorConfig
+            Configuration for the simulation (grid, PSF, mask, etc.).
+        lensed_source_image : Optional[np.ndarray], optional
+            The observed lensed image (used for grid adaptation), by default None.
+        
+        Raises
+        ------
+        ValueError
+            If PSF kernel is not 2D, or if mask/grid shapes do not match.
+        """
         self.sim_config = sim_config
         self.dpix = float(sim_config.dpix)
         self.npix = int(sim_config.npix)
@@ -102,11 +137,38 @@ class PixelizedLensSimulator:
         self._build_grid_artifacts(self.lensed_source_image, self.mask)
 
     def _build_mapping_strategy(self):
+        """
+        Internal helper to build mapping strategy.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if self.pix_src_model.is_rectangular_grid:
             return RectBilinearMappingStrategy()
         return KnnKernelMappingStrategy(config=self.pix_src_model.mapping)
 
     def _build_regularization_strategy(self):
+        """
+        Internal helper to build regularization strategy.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         mode = self.pix_src_model.regularization.resolved_mode()
         if mode == "dense_gp":
             return DenseGpRegularizationStrategy(config=self.pix_src_model.regularization)
@@ -118,40 +180,149 @@ class PixelizedLensSimulator:
 
     @functools.partial(jit, static_argnums=(0,))
     def ray_trace(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+        """
+        Ray-trace image plane coordinates to the source plane.
+
+        Parameters
+        ----------
+        x : jnp.ndarray
+            X-coordinates in the image plane (arcseconds).
+        y : jnp.ndarray
+            Y-coordinates in the image plane (arcseconds).
+
+        Returns
+        -------
+        jnp.ndarray
+            Source plane coordinates [beta_x, beta_y] stacked along axis 1.
+        """
         beta_x, beta_y = self.phys_model.deflection(x=x, y=y)
         return jnp.stack([beta_x, beta_y], axis=1)
 
     @property
     def source_mesh(self) -> jnp.ndarray:
+        """
+        Compute source mesh.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
         return self._grid_artifacts.source_mesh
 
     @property
     def source_mesh_beta(self) -> jnp.ndarray:
+        """
+        Compute source mesh beta.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
         return self._grid_artifacts.source_mesh_beta
 
     @property
     def data_mesh_beta(self) -> jnp.ndarray:
+        """
+        Compute data mesh beta.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
         return self._grid_artifacts.data_mesh_beta
 
     @property
     def source_grid_shape(self):
+        """
+        Compute source grid shape.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if self._grid_artifacts is None:
             return None
         return self._grid_artifacts.source_grid_shape
 
     @property
     def source_grid_bounds(self):
+        """
+        Compute source grid bounds.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if self._grid_artifacts is None:
             return None
         return self._grid_artifacts.source_grid_bounds
 
     def _build_grid_artifacts(self, lensed_source_image: Array | np.ndarray, mask: Array | np.ndarray) -> None:
+        """
+        Internal helper to build grid artifacts.
+        
+        Parameters
+        ----------
+        lensed_source_image : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        mask : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        TypeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
+        # Ray-trace only unmasked image pixels to build the source-plane sampling set.
         data_mesh_beta = self.ray_trace(self.xgrid_unmask, self.ygrid_unmask)
         if isinstance(self.pix_src_model.grid, RectangularGridConfig):
             strategy = RectangularGridStrategy(config=self.pix_src_model.grid)
@@ -169,11 +340,45 @@ class PixelizedLensSimulator:
         )
 
     def clear_operator_cache(self) -> None:
+        """
+        Compute clear operator cache.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         self._cached_operator_weights = None
         self._cached_operator_indices = None
         self._cached_operator_signature = None
 
     def _build_mapping_artifacts(self, *, backend: str, cache_policy: str) -> MappingArtifacts:
+        """
+        Internal helper to build mapping artifacts.
+        
+        Parameters
+        ----------
+        backend : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        cache_policy : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
 
@@ -190,6 +395,7 @@ class PixelizedLensSimulator:
         if need_operator:
             policy = str(cache_policy).strip().lower()
             if policy == "unsafe_static" and self._cached_operator_weights is not None and self._cached_operator_indices is not None:
+                # Fast path: always reuse previous operator entries, regardless of geometry change.
                 op_weights, op_indices = self._cached_operator_weights, self._cached_operator_indices
             else:
                 key = self._mapping_strategy.operator_cache_key(self._grid_artifacts)
@@ -199,8 +405,10 @@ class PixelizedLensSimulator:
                     and self._cached_operator_indices is not None
                     and self._cached_operator_signature == key.signature
                 ):
+                    # Safe reuse only if the strategy-specific signature is identical.
                     op_weights, op_indices = self._cached_operator_weights, self._cached_operator_indices
                 else:
+                    # Rebuild whenever cache is off or signature no longer matches.
                     op_weights, op_indices = self._mapping_strategy.build_operator(self._grid_artifacts)
                     if policy in {"safe", "unsafe_static"}:
                         self._cached_operator_weights = op_weights
@@ -210,6 +418,30 @@ class PixelizedLensSimulator:
         return MappingArtifacts(dense_matrix=dense_matrix, operator_weights=op_weights, operator_indices=op_indices)
 
     def _build_regularization_artifacts(self, reg_scale: float, reg_coefficient: float) -> RegularizationArtifacts:
+        """
+        Internal helper to build regularization artifacts.
+        
+        Parameters
+        ----------
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
         return self._regularization_strategy.build(
@@ -219,6 +451,22 @@ class PixelizedLensSimulator:
         )
 
     def build_lens_mapping_matrix(self) -> jnp.ndarray:
+        """
+        Compute build lens mapping matrix.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         mapping = self._build_mapping_artifacts(backend="matrix", cache_policy="safe")
         if mapping.dense_matrix is None:
             raise RuntimeError("Dense mapping matrix was not produced.")
@@ -230,6 +478,30 @@ class PixelizedLensSimulator:
         use_cache: bool = True,
         cache_policy: str = "safe",
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """
+        Compute build lens mapping operator.
+        
+        Parameters
+        ----------
+        use_cache : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        cache_policy : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         policy = cache_policy if use_cache else "off"
         mapping = self._build_mapping_artifacts(backend="operator", cache_policy=policy)
         if mapping.operator_weights is None or mapping.operator_indices is None:
@@ -237,6 +509,22 @@ class PixelizedLensSimulator:
         return mapping.operator_weights, mapping.operator_indices
 
     def build_blurred_lens_mapping_matrix(self, method: str = "fft") -> jnp.ndarray:
+        """
+        Compute build blurred lens mapping matrix.
+        
+        Parameters
+        ----------
+        method : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return apply_psf_to_mapping_matrix(
             mapping_matrix=self.build_lens_mapping_matrix(),
             psf_kernel=self.psf_kernel,
@@ -248,6 +536,22 @@ class PixelizedLensSimulator:
         )
 
     def build_lens_light_basis_matrix(self, method: str = "fft") -> jnp.ndarray:
+        """
+        Compute build lens light basis matrix.
+        
+        Parameters
+        ----------
+        method : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         n_lens_light = len(self.phys_model.lens_light)
         if n_lens_light == 0:
             return jnp.zeros((self.xgrid_unmask.shape[0], 0), dtype=jnp.float32)
@@ -268,6 +572,30 @@ class PixelizedLensSimulator:
         )
 
     def build_regularization_matrix(self, reg_scale: float, reg_coefficient: float) -> jnp.ndarray:
+        """
+        Compute build regularization matrix.
+        
+        Parameters
+        ----------
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        RuntimeError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         reg = self._build_regularization_artifacts(reg_scale=reg_scale, reg_coefficient=reg_coefficient)
         if reg.dense_matrix is not None:
             return reg.dense_matrix
@@ -289,6 +617,31 @@ class PixelizedLensSimulator:
         reg_scale: float,
         reg_coefficient: float,
     ) -> Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion]:
+        """
+        Compute build inverter.
+        
+        Parameters
+        ----------
+        data_vector : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_variance : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         solver_cfg = self.pix_src_model.solver
         backend = solver_cfg.canonical_backend
 
@@ -331,6 +684,39 @@ class PixelizedLensSimulator:
         reg_coefficient: float,
         return_2d: bool = False,
     ):
+        """
+        Compute reconstruct source and lens light.
+        
+        Parameters
+        ----------
+        data_vector : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_variance : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        return_2d : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if not self.pix_src_model.solver.include_lens_light:
             raise ValueError(
                 "SolverConfig.include_lens_light must be True for reconstruct_source_and_lens_light(). "
@@ -371,6 +757,30 @@ class PixelizedLensSimulator:
         jnp.ndarray,
         Union[LinearInversion, OperatorInversion, NNLSInversion, OperatorNNLSInversion],
     ]:
+        """
+        Reconstruct the source light distribution given the data and regularization.
+
+        Parameters
+        ----------
+        data_vector : Union[jnp.ndarray, np.ndarray]
+            The observed image data (flattened or 2D).
+        noise_variance : Union[jnp.ndarray, np.ndarray]
+            The noise variance map (flattened or 2D).
+        reg_scale : float
+            Scale length for regularization (e.g., correlation length).
+        reg_coefficient : float
+            Regularization strength (lambda).
+        return_2d : bool, optional
+            If True, returns the model image as a 2D array, by default False.
+
+        Returns
+        -------
+        Tuple
+            - source_intensities: Reconstructed source pixel values.
+            - source_mesh_beta: Source plane mesh coordinates.
+            - model_image: The predicted model image (data space).
+            - inverter: The inversion object used.
+        """
         inverter = self.build_inverter(
             data_vector=data_vector,
             noise_variance=noise_variance,
@@ -389,6 +799,17 @@ class PixelizedLensSimulator:
         return source_intensities, self.source_mesh_beta, model_image, inverter
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if isinstance(self.pix_src_model.grid, IrregularGridConfig):
             n_source_points = int(self.pix_src_model.grid.n_source_points)
         elif isinstance(self.pix_src_model.grid, RectangularGridConfig):

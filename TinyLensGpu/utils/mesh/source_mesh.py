@@ -11,7 +11,25 @@ from scipy.stats import qmc
 
 
 def apply_gaussian_blur(img, sigma):
-    """Apply Gaussian blur to image using separable convolution."""
+    """
+    Compute apply gaussian blur.
+    
+    Parameters
+    ----------
+    img : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    sigma : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     if sigma <= 0:
         return img
     
@@ -88,7 +106,51 @@ def sample_points_weighted(img, mask, n_points=1500, alpha=1.5, blur_sigma_px=0.
 
 
 def _sample_random(probabilities, n_points, W, H, replace, normalize_xy, pixel_jitter, seed, Y):
-    """Random sampling implementation."""
+    """
+    Internal helper to sample random.
+    
+    Parameters
+    ----------
+    probabilities : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_points : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    W : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    H : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    replace : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    normalize_xy : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    pixel_jitter : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    seed : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    Y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    Raises
+    ------
+    ValueError
+        Raised when input validation fails or required runtime state is missing.
+    
+    """
     if not replace:
         positive_pixels = int(np.count_nonzero(probabilities > 0))
         if n_points > positive_pixels:
@@ -115,7 +177,43 @@ def _sample_random(probabilities, n_points, W, H, replace, normalize_xy, pixel_j
 
 
 def _sample_sobol(probabilities, n_points, W, H, normalize_xy, pixel_jitter, seed, Y):
-    """Sobol sequence (quasi-Monte Carlo) sampling implementation."""
+    """
+    Internal helper to sample sobol.
+    
+    Parameters
+    ----------
+    probabilities : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_points : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    W : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    H : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    normalize_xy : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    pixel_jitter : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    seed : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    Y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     sampler = qmc.Sobol(d=3, scramble=True, seed=seed)
     m = int(np.ceil(np.log2(n_points)))
     U = sampler.random_base2(m)[:n_points]

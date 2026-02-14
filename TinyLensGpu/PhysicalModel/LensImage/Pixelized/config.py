@@ -80,8 +80,19 @@ class IrregularGridConfig:
 
     def __post_init__(self) -> None:
         """
-        Validate configuration parameters after initialization.
-        Ensures all numerical values are within physical or logical bounds.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # Ensure number of source points is a positive integer
         if int(self.n_source_points) <= 0:
@@ -123,8 +134,19 @@ class RectangularGridConfig:
 
     def __post_init__(self) -> None:
         """
-        Validate grid dimensions and coordinate boundaries.
-        Ensures the grid has a valid shape and correctly ordered bounds.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # Pixel counts must be positive integers
         if int(self.nx) <= 0 or int(self.ny) <= 0:
@@ -178,8 +200,19 @@ class MappingConfig:
 
     def __post_init__(self) -> None:
         """
-        Validate interpolation settings.
-        Ensures kernels are supported and numerical parameters are positive.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # k_neighbors must be a positive integer
         if int(self.k_neighbors) <= 0:
@@ -219,8 +252,19 @@ class RegularizationConfig:
 
     def __post_init__(self) -> None:
         """
-        Ensure the selected scheme is supported and parameters are valid.
-        Cross-checks against global registry of valid schemes.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # Validate that the scheme exists in our supported list
         if str(self.scheme).strip().lower() not in REGULARIZATION_SCHEMES:
@@ -235,30 +279,65 @@ class RegularizationConfig:
     @property
     def normalized_scheme(self) -> str:
         """
-        Returns the scheme name in a standardized lowercase format.
-        Useful for internal comparisons and dictionary lookups.
+        Compute normalized scheme.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return str(self.scheme).strip().lower()
 
     @property
     def is_rectangular_scheme(self) -> bool:
         """
-        True if the selected scheme is designed for rectangular Cartesian grids.
+        Compute is rectangular scheme.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return self.normalized_scheme.startswith("rectangular_")
 
     @property
     def is_irregular_scheme(self) -> bool:
         """
-        True if the selected scheme is designed for irregular unstructured meshes.
+        Compute is irregular scheme.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return self.normalized_scheme.startswith("irregular_")
 
     @property
     def mode(self) -> Literal["dense_gp", "sparse_knn", "sparse_rectangular"]:
         """
-        Resolved high-level regularization mode derived from the scheme name.
-        Determines the underlying mathematical approach (e.g., GP vs. FD).
+        Compute mode.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         scheme = self.normalized_scheme
         if scheme in RECTANGULAR_SCHEME_TO_OPERATOR:
@@ -276,8 +355,15 @@ class RegularizationConfig:
     @property
     def gp_kernel(self) -> Optional[Literal["exp", "gauss", "matern32", "matern52"]]:
         """
-        Resolved GP kernel type for irregular schemes.
-        Returns None if the scheme is rectangular (finite-difference based).
+        Compute gp kernel.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         scheme = self.normalized_scheme
         
@@ -296,8 +382,15 @@ class RegularizationConfig:
     @property
     def rect_scheme(self) -> Optional[Literal["zero", "gradient", "curvature"]]:
         """
-        Resolved finite-difference operator type for rectangular schemes.
-        Returns None if the scheme is irregular.
+        Compute rect scheme.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         scheme = self.normalized_scheme
         rect = RECTANGULAR_SCHEME_TO_OPERATOR.get(scheme)
@@ -307,8 +400,15 @@ class RegularizationConfig:
 
     def resolved_mode(self) -> Literal["dense_gp", "sparse_knn", "sparse_rectangular"]:
         """
-        Alias for the 'mode' property. 
-        Provides the high-level implementation strategy for the regularization.
+        Compute resolved mode.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return self.mode
 
@@ -375,8 +475,19 @@ class SolverConfig:
 
     def __post_init__(self) -> None:
         """
-        Validate all solver-related numerical parameters.
-        Ensures convergence tolerances and iteration limits are valid.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # Validate inversion backend
         if str(self.inversion_backend).strip().lower() not in SOLVER_BACKENDS:
@@ -409,8 +520,20 @@ class SolverConfig:
     @property
     def canonical_backend(self) -> Literal["matrix", "operator"]:
         """
-        Standardizes the inversion backend name to lowercase.
-        Returns 'matrix' or 'operator'.
+        Compute canonical backend.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         backend = str(self.inversion_backend).strip().lower()
         if backend == "matrix":
@@ -450,8 +573,19 @@ class PixelizedSourceConfig:
 
     def __post_init__(self) -> None:
         """
-        Cross-validate sub-configurations for consistency.
-        Ensures that the grid type and regularization scheme are compatible.
+        Internal helper to post init.
+        
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
         """
         # Ensure rectangular grid is paired with a rectangular regularization scheme
         if isinstance(self.grid, RectangularGridConfig) and not self.regularization.is_rectangular_scheme:
@@ -470,14 +604,29 @@ class PixelizedSourceConfig:
     @property
     def is_rectangular(self) -> bool:
         """
-        Returns True if the source plane is discretized using a rectangular grid.
+        Compute is rectangular.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return isinstance(self.grid, RectangularGridConfig)
 
     @property
     def source_grid_type(self) -> str:
         """
-        Returns a string identifier of the source grid type.
-        Used for downstream logic to dispatch to appropriate implementation classes.
+        Compute source grid type.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return "rectangular_bilinear" if self.is_rectangular else "irregular"

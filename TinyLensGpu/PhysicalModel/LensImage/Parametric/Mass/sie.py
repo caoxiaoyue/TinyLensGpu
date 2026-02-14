@@ -34,6 +34,22 @@ class SIE(ck.Module):
     def __init__(self, theta_E: Optional[float] = None, e1: Optional[float] = None, 
                  e2: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
+        """
+        Initialize the Singular Isothermal Ellipsoid (SIE) mass profile.
+
+        Parameters
+        ----------
+        theta_E : float, optional
+            Einstein radius in arcseconds.
+        e1 : float, optional
+            Ellipticity component 1.
+        e2 : float, optional
+            Ellipticity component 2.
+        center_x : float, optional
+            Center x-coordinate in arcseconds.
+        center_y : float, optional
+            Center y-coordinate in arcseconds.
+        """
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)

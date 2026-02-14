@@ -51,8 +51,23 @@ def get_interpolation_weights(points, query_points, k_neighbors=10, kernel='wend
 
 def wendland_c2(r, h):
     """
-    Wendland C2: (1 - r/h)^4 * (4*r/h + 1)
-    C2 continuous, compact support
+    Compute wendland c2.
+    
+    Parameters
+    ----------
+    r : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    h : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**4 * (4.0 * s + 1.0), 0.0)
@@ -61,8 +76,23 @@ def wendland_c2(r, h):
 
 def wendland_c4(r, h):
     """
-    Wendland C4: (1 - r/h)^6 * (35*(r/h)^2 + 18*r/h + 3)
-    C4 continuous, smoother, compact support
+    Compute wendland c4.
+    
+    Parameters
+    ----------
+    r : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    h : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**6 * (35.0 * s**2 + 18.0 * s + 3.0), 0.0)
@@ -71,8 +101,23 @@ def wendland_c4(r, h):
 
 def wendland_c6(r, h):
     """
-    Wendland C6: (1 - r/h)^8 * (32*(r/h)^3 + 25*(r/h)^2 + 8*r/h + 1)
-    C6 continuous, very smooth, compact support
+    Compute wendland c6.
+    
+    Parameters
+    ----------
+    r : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    h : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**8 * (32.0 * s**3 + 25.0 * s**2 + 8.0 * s + 1.0), 0.0)

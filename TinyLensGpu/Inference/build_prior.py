@@ -73,7 +73,17 @@ class PriorSpec:
         return jnp.clip(val, *self.limits) if self.limits else val
     
     def describe(self) -> str:
-        """Get human-readable description of prior."""
+        """
+        Compute describe.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         a, b = self.settings
         desc = f"N({a:.2f}, {b:.2f})" if self.prior_type == "gaussian" else f"[{a:.2f}, {b:.2f}]"
         return f"{desc}, limits={self.limits}" if self.limits else desc
@@ -166,6 +176,27 @@ def make_prior_transformation(
     specs = extract_prior_specs(module)
     
     def transform(u):
+        """
+        Compute transform.
+        
+        Parameters
+        ----------
+        u : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         u = jnp.asarray(u, dtype=dtype) if dtype is not None else jnp.asarray(u)
         if u.shape[-1] != len(specs):
             raise ValueError(f"Expected {len(specs)} parameters, got {u.shape[-1]}")

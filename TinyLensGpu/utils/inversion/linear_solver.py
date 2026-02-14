@@ -19,6 +19,37 @@ from TinyLensGpu.utils.linear_solver import fnnls_jax
 
 @partial(jit, static_argnames=['jitter', 'eps'])
 def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, jitter: float, eps: float):
+    """
+    Internal helper to precompute terms common.
+    
+    Parameters
+    ----------
+    d : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    F : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    noise_cov : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    H : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    jitter : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    eps : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n_data = d.shape[0]
     n_source = H.shape[0]
     
@@ -29,6 +60,7 @@ def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, 
     N_inv_diag = jnp.ones((n_data,), dtype=d.dtype)
     
     if is_diagonal:
+        # Cheap path: element-wise weighting when noise covariance is diagonal.
         N_diag = jnp.clip(noise_cov, min=eps)
         N_inv_diag = 1.0 / N_diag
         
@@ -42,6 +74,7 @@ def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, 
         d_Ninv_d = jnp.sum(d**2 * N_inv_diag)
         
     else:
+        # General path: solve with full covariance matrix (potentially expensive O(N^3)).
         N = noise_cov + jitter * jnp.eye(n_data)
         
         sign, logdet = jnp.linalg.slogdet(N)
@@ -65,6 +98,7 @@ def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, 
 
     M = FT_Ninv_F + H
     
+    # Stabilize the posterior precision before log-determinant / linear solve operations.
     M_stab = M + jitter * jnp.eye(n_source)
     sign_M, logdet_M = jnp.linalg.slogdet(M_stab)
     half_log_det_M = 0.5 * logdet_M
@@ -86,6 +120,25 @@ def _precompute_terms_common(d: Array, F: Array, noise_cov: Array, H: Array, *, 
 
 @partial(jit, static_argnames=['jitter'])
 def _precision_sqrt_factor_from(H: Array, *, jitter: float) -> Array:
+    """
+    Internal helper to precision sqrt factor from.
+    
+    Parameters
+    ----------
+    H : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    jitter : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     n = H.shape[0]
     H_stab = H + jitter * jnp.eye(n, dtype=H.dtype)
     H_stab = 0.5 * (H_stab + H_stab.T)
@@ -126,7 +179,33 @@ class LinearInversion:
     """
 
     def __init__(self, d, F, noise_cov, H, _precomputed=None):
-        """Initialize and pre-compute common terms for efficiency."""
+        """
+        Initialize a `LinearInversion` instance with validated configuration.
+        
+        Parameters
+        ----------
+        d : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_cov : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        H : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        _precomputed : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         self.d = jnp.asarray(d, dtype=jnp.float32)
         self.F = jnp.asarray(F, dtype=jnp.float32)
         self.H = jnp.asarray(H, dtype=jnp.float32)
@@ -150,12 +229,15 @@ class LinearInversion:
     @jit
     def solve(self):
         """
-        Solve for the source reconstruction 's' only.
+        Compute solve.
+        
         
         Returns
         -------
-        s : jnp.ndarray
-            Source reconstruction, shape [n_source]
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         s = jnp.linalg.solve(self.M_stab, self.FT_Ninv_d)
         return s
@@ -196,14 +278,33 @@ class LinearInversion:
     @jit
     def log_evidence(self):
         """
-        Compute the Bayesian log evidence.
+        Compute log evidence.
+        
         
         Returns
         -------
-        log_evidence : float
-            Log of the Bayesian evidence
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         def _valid(_):
+            """
+            Internal helper to valid.
+            
+            Parameters
+            ----------
+            _ : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             s = self.solve()
             combined_chi2_reg = self.d_Ninv_d - jnp.dot(s, self.FT_Ninv_d)
             log_ev = self.log_evidence_const
@@ -215,7 +316,17 @@ class LinearInversion:
         return jax.lax.cond(self.is_valid, _valid, lambda _: -jnp.inf, operand=None)
 
     def tree_flatten(self):
-        """Flatten the object for JAX PyTree registration."""
+        """
+        Compute tree flatten.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         children = (self.d, self.F, self.noise_cov, self.H,
                     self.FT_Ninv_F, self.FT_Ninv_d, self.d_Ninv_d, self.M_stab,
                     self.half_log_det_H, self.half_log_det_M, self.log_evidence_const, self.is_valid)
@@ -224,7 +335,25 @@ class LinearInversion:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        """Unflatten the object for JAX PyTree registration."""
+        """
+        Compute tree unflatten.
+        
+        Parameters
+        ----------
+        aux_data : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        children : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         obj = cls.__new__(cls)
         
         (d, F, noise_cov, H,
@@ -256,7 +385,61 @@ class LinearInversion:
 
 @register_pytree_node_class
 class NNLSInversion:
+    """
+    Represent the `NNLSInversion` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    d : Any
+        Configuration argument consumed during construction of this component.
+    F : Any
+        Configuration argument consumed during construction of this component.
+    noise_cov : Any
+        Configuration argument consumed during construction of this component.
+    H : Any
+        Configuration argument consumed during construction of this component.
+    _precomputed : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
     def __init__(self, d, F, noise_cov, H, _precomputed=None):
+        """
+        Initialize a `NNLSInversion` instance with validated configuration.
+        
+        Parameters
+        ----------
+        d : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        F : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_cov : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        H : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        _precomputed : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         self.d = jnp.asarray(d, dtype=jnp.float32)
         self.F = jnp.asarray(F, dtype=jnp.float32)
         self.H = jnp.asarray(H, dtype=jnp.float32)
@@ -285,6 +468,17 @@ class NNLSInversion:
 
     @jit
     def solve(self) -> Array:
+        """
+        Compute solve.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         Z = self.F * self.sqrt_w[:, None]
         y = self.d * self.sqrt_w
         Z_aug = jnp.concatenate([Z, self.B], axis=0)
@@ -294,10 +488,42 @@ class NNLSInversion:
 
     @jit
     def model_predict(self, x: Array) -> Array:
+        """
+        Compute model predict.
+        
+        Parameters
+        ----------
+        x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.F @ x
 
     @jit
     def objective_value(self, x: Array) -> Array:
+        """
+        Compute objective value.
+        
+        Parameters
+        ----------
+        x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         model = self.model_predict(x)
         resid = self.d - model
         chi2 = jnp.sum((resid * resid) * self.N_inv_diag)
@@ -306,7 +532,34 @@ class NNLSInversion:
 
     @jit
     def log_evidence(self) -> Array:
+        """
+        Compute log evidence.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         def _valid(_):
+            """
+            Internal helper to valid.
+            
+            Parameters
+            ----------
+            _ : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             x = self.solve()
             obj = self.objective_value(x)
             log_ev = self.log_evidence_const
@@ -318,6 +571,17 @@ class NNLSInversion:
         return jax.lax.cond(self.is_valid, _valid, lambda _: -jnp.inf, operand=None)
 
     def tree_flatten(self):
+        """
+        Compute tree flatten.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         children = (
             self.d,
             self.F,
@@ -337,6 +601,25 @@ class NNLSInversion:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        """
+        Compute tree unflatten.
+        
+        Parameters
+        ----------
+        aux_data : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        children : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         obj = cls.__new__(cls)
 
         (

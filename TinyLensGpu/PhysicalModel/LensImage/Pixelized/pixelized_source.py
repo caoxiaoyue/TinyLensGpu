@@ -25,7 +25,24 @@ from TinyLensGpu.utils.lensing import (
 
 
 class PixelizedSourceModel(ck.Module):
-    """Pixelized source model driven by typed configuration objects."""
+    """
+    Represent the `PixelizedSourceModel` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    config : Any
+        Configuration argument consumed during construction of this component.
+    reg_scale : Any
+        Configuration argument consumed during construction of this component.
+    reg_coefficient : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     def __init__(
         self,
@@ -33,6 +50,27 @@ class PixelizedSourceModel(ck.Module):
         reg_scale: float | ParamU = 0.05,
         reg_coefficient: float | ParamU = 1.0,
     ) -> None:
+        """
+        Initialize a `PixelizedSourceModel` instance with validated configuration.
+        
+        Parameters
+        ----------
+        config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
         self.reg_scale = reg_scale if isinstance(reg_scale, ParamU) else ParamU("reg_scale", reg_scale)
         self.reg_coefficient = (
@@ -42,26 +80,92 @@ class PixelizedSourceModel(ck.Module):
 
     @property
     def is_rectangular_grid(self) -> bool:
+        """
+        Compute is rectangular grid.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.is_rectangular
 
     @property
     def source_grid_type(self) -> str:
+        """
+        Compute source grid type.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.source_grid_type
 
     @property
     def grid(self):
+        """
+        Compute grid.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.grid
 
     @property
     def mapping(self):
+        """
+        Compute mapping.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.mapping
 
     @property
     def regularization(self):
+        """
+        Compute regularization.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.regularization
 
     @property
     def solver(self):
+        """
+        Compute solver.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.config.solver
 
     def regularization_sparse_rectangular(
@@ -71,6 +175,36 @@ class PixelizedSourceModel(ck.Module):
         reg_coefficient: Optional[float] = None,
         rect_reg_type: Optional[str] = None,
     ):
+        """
+        Compute regularization sparse rectangular.
+        
+        Parameters
+        ----------
+        nx : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        ny : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        rect_reg_type : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         coefficient = reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
         if rect_reg_type is not None:
             scheme = rect_reg_type
@@ -96,6 +230,33 @@ class PixelizedSourceModel(ck.Module):
         reg_scale: Optional[float] = None,
         reg_coefficient: Optional[float] = None,
     ) -> jnp.ndarray:
+        """
+        Compute regularization matrix.
+        
+        Parameters
+        ----------
+        points : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_scale : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        reg_coefficient : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         if self.is_rectangular_grid:
             raise ValueError(
                 "regularization_matrix() is not available for source_grid_type='rectangular_bilinear'. "
@@ -137,6 +298,17 @@ class PixelizedSourceModel(ck.Module):
         )
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if isinstance(self.config.grid, IrregularGridConfig):
             n_source_points = int(self.config.grid.n_source_points)
         elif isinstance(self.config.grid, RectangularGridConfig):

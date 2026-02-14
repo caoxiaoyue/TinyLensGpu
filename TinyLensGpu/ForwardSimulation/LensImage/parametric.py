@@ -19,6 +19,21 @@ from ...utils.linear_solver import LinearSolver, prepare_linear_system
 
 
 def bin_image_general(img: Array, nsub: int) -> Array:
+    """
+    Bin an image by averaging blocks of pixels.
+
+    Parameters
+    ----------
+    img : Array
+        Image array to bin.
+    nsub : int
+        Subsampling factor for binning operation.
+
+    Returns
+    -------
+    img_binned : Array
+        Binned image array.
+    """
     if nsub == 1:
         return img
 
@@ -40,11 +55,22 @@ def bin_image_general(img: Array, nsub: int) -> Array:
 
 class LensSimulator:
     """
-    Gravitational lens simulator  models.
+    Represent the `LensSimulator` component in the TinyLensGpu pipeline.
 
-    This class performs forward simulation of gravitational lensing,
-    including ray-tracing, surface brightness calculation, PSF convolution,
-    and optional linear parameter solving for intensity values.
+    Parameters
+    ----------
+    phys_model : PhysicalModel
+        Physical model containing lens mass, lens light, and source light profiles.
+    sim_config : SimulatorConfig
+        Configuration for grid, PSF, sub-sampling, and masks.
+    solver_type : str, optional
+        Linear solver type for intensity parameters ('nnls' or 'normal'), by default 'nnls'.
+
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
     """
 
     def __init__(
@@ -53,6 +79,24 @@ class LensSimulator:
         sim_config: SimulatorConfig,
         solver_type: str = 'nnls'
     ) -> None:
+        """
+        Initialize the LensSimulator for parametric models.
+
+        Parameters
+        ----------
+        phys_model : PhysicalModel
+            Physical model containing lens mass, lens light, and source light profiles.
+        sim_config : SimulatorConfig
+            Configuration for grid, PSF, sub-sampling, and masks.
+        solver_type : str, optional
+            Linear solver type for intensity parameters ('nnls' for non-negative least squares,
+            'normal' for standard least squares), by default 'nnls'.
+        
+        Raises
+        ------
+        ValueError
+            If solver_type is not 'nnls' or 'normal'.
+        """
         self.phys_model = phys_model
         self.sim_config = sim_config
         self.solver_type = solver_type
@@ -68,6 +112,19 @@ class LensSimulator:
         self.psf_kernel = jnp.array(self.sim_config.psf_kernel)
 
     def _restore_2d_from_1d(self, img_1d: Array) -> Array:
+        """
+        Internal helper to restore 2d from 1d.
+
+        Parameters
+        ----------
+        img_1d : Array
+            1D image array to be restored to 2D.
+
+        Returns
+        -------
+        img_2d : Array
+            Restored 2D image array.
+        """
         shape = self.sim_config.subgrid_shape
         flat_indices = self.sim_config.flat_indices
 
@@ -106,6 +163,50 @@ class LensSimulator:
         Tuple[Array, Array],
         Tuple[Array, Array, Array],
     ]:
+        """
+        Simulate the lensed image.
+
+        Parameters
+        ----------
+        use_linear : bool, optional
+            If True, solve for linear intensity parameters using the provided data.
+            If False, use the intensity parameters currently in the physical model.
+            By default False.
+        return_intensity : bool, optional
+            If True, return the solved intensity vector along with the image.
+            Only relevant if use_linear=True (or technically if you want the intensities used).
+            By default False.
+        ret_each_plane : bool, optional
+            If True, return separate images for the source plane and lens plane.
+            By default False.
+        image_map : Optional[Array], optional
+            Observed image data, required if use_linear=True.
+        noise_map : Optional[Array], optional
+            Noise map (sigma), required if use_linear=True.
+        xgrid_sub : Optional[Array], optional
+            Custom sub-grid x-coordinates.
+        ygrid_sub : Optional[Array], optional
+            Custom sub-grid y-coordinates.
+        psf_kernel : Optional[Array], optional
+            Custom PSF kernel.
+
+        Returns
+        -------
+        Union[Array, Tuple[Array, Array], Tuple[Array, Array, Array]]
+            - If ret_each_plane=False, return_intensity=False:
+              Returns `image` (2D array).
+            - If ret_each_plane=False, return_intensity=True:
+              Returns `(image, intensity_vector)`.
+            - If ret_each_plane=True, return_intensity=False:
+              Returns `(source_plane_image, lens_plane_image)`.
+            - If ret_each_plane=True, return_intensity=True:
+              Returns `(source_plane_image, lens_plane_image, intensity_vector)`.
+        
+        Raises
+        ------
+        ValueError
+            If use_linear is True but image_map or noise_map are missing.
+        """
         if xgrid_sub is None:
             xgrid_sub = self.xgrid_sub
         else:
@@ -164,6 +265,29 @@ class LensSimulator:
         n_lens_light: int,
         n_lens_mass: int,
     ) -> Tuple[Array, Array]:
+        """
+        Generate ideal (unconvolved, noiseless) model images on the sub-grid.
+
+        Parameters
+        ----------
+        xgrid_sub : Array
+            Sub-grid x-coordinates.
+        ygrid_sub : Array
+            Sub-grid y-coordinates.
+        n_src : int
+            Number of source light profiles.
+        n_lens_light : int
+            Number of lens light profiles.
+        n_lens_mass : int
+            Number of lens mass profiles.
+
+        Returns
+        -------
+        img_lens_sub : Array
+            Lens light image on the sub-grid.
+        img_arc_sub : Array
+            Lensed source (arc) image on the sub-grid.
+        """
         img_sub = jnp.zeros_like(xgrid_sub)
         img_arc_sub = jnp.repeat(img_sub[..., jnp.newaxis], n_src, axis=-1)
         img_lens_sub = jnp.repeat(img_sub[..., jnp.newaxis], n_lens_light, axis=-1)
@@ -195,6 +319,26 @@ class LensSimulator:
         psf_kernel: Array,
         ret_each_plane: bool = False,
     ) -> Union[Tuple[Array, None], Tuple[Array, Array, None]]:
+        """
+        Simulate image for non-linear optimization (no linear intensity solving).
+
+        Parameters
+        ----------
+        img_lens_sub : Array
+            Lens light image on the sub-grid.
+        img_arc_sub : Array
+            Lensed source (arc) image on the sub-grid.
+        psf_kernel : Array
+            PSF kernel for convolution.
+        ret_each_plane : bool, optional
+            Whether to return separate images for lens and source planes.
+
+        Returns
+        -------
+        Union[Tuple[Array, None], Tuple[Array, Array, None]]
+            - (image, None) if ret_each_plane=False
+            - (source_plane_image, lens_plane_image, None) if ret_each_plane=True
+        """
         img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
         img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
 
@@ -224,6 +368,34 @@ class LensSimulator:
         n_src: int,
         ret_each_plane: bool = False,
     ) -> Union[Tuple[Array, Array], Tuple[Array, Array, Array]]:
+        """
+        Simulate image with linear intensity parameter solving.
+
+        Parameters
+        ----------
+        img_lens_sub : Array
+            Lens light image on the sub-grid.
+        img_arc_sub : Array
+            Lensed source (arc) image on the sub-grid.
+        psf_kernel : Array
+            PSF kernel for convolution.
+        image_map : Array
+            Observed image data (for linear solving).
+        noise_map : Array
+            Noise map (sigma) (for linear solving).
+        n_lens_light : int
+            Number of lens light profiles.
+        n_src : int
+            Number of source light profiles.
+        ret_each_plane : bool, optional
+            Whether to return separate images for lens and source planes.
+
+        Returns
+        -------
+        Union[Tuple[Array, Array], Tuple[Array, Array, Array]]
+            - (image, intensity_vector) if ret_each_plane=False
+            - (source_plane_image, lens_plane_image, intensity_vector) if ret_each_plane=True
+        """
         img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
         img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
 
@@ -241,6 +413,19 @@ class LensSimulator:
 
         # Vectorized convolution using vmap
         def convolve_func(x):
+            """
+            Internal helper to convolve 2D image with PSF kernel.
+
+            Parameters
+            ----------
+            x : Array
+                Input 2D image.
+
+            Returns
+            -------
+            convolved_x : Array
+                Convolved 2D image.
+            """
             return jsp.signal.fftconvolve(x, psf_kernel, mode='same')
 
         if n_lens_light > 0:
@@ -270,6 +455,17 @@ class LensSimulator:
         return img, X_vec
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (f"LensSimulator("
                 f"n_mass={len(self.phys_model.lens_mass)}, "
                 f"n_src={len(self.phys_model.source_light)}, "

@@ -40,6 +40,36 @@ class GaussianEllipse(ck.Module):
     def __init__(self, flux: Optional[float] = None, sigma: Optional[float] = None, 
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `GaussianEllipse` instance with validated configuration.
+        
+        Parameters
+        ----------
+        flux : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        sigma : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
 
         # Define parameters using ParamU (or convert if already ParamU)

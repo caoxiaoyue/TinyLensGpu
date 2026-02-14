@@ -53,7 +53,22 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     
     @jit
     def loglike_fn(theta):
-        """JIT-compiled single sample evaluation."""
+        """
+        Compute loglike fn.
+        
+        Parameters
+        ----------
+        theta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return likelihood_obj(theta)
     
     if vectorized:
@@ -61,6 +76,22 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
         batch_loglike = jit(jax.vmap(loglike_fn))
         
         def loglike(params):
+            """
+            Compute loglike.
+            
+            Parameters
+            ----------
+            params : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             if theta.ndim > 1:
                 # Batch evaluation using vmap
@@ -74,6 +105,22 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     else:
         # Non-vectorized version
         def loglike(params):
+            """
+            Compute loglike.
+            
+            Parameters
+            ----------
+            params : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             res = loglike_fn(theta)
             return float(res)

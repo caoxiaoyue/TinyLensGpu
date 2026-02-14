@@ -59,6 +59,27 @@ class PhysicalModel(ck.Module):
         source_light: Optional[List[ck.Module]] = None,
         lens_light: Optional[List[ck.Module]] = None,
     ) -> None:
+        """
+        Initialize a `PhysicalModel` instance with validated configuration.
+        
+        Parameters
+        ----------
+        lens_mass : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        source_light : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        lens_light : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
 
         # Store component lists as regular Python lists (not caskade NodeList)
@@ -83,17 +104,47 @@ class PhysicalModel(ck.Module):
 
     @property
     def lens_mass(self) -> List[ck.Module]:
-        """Access lens mass components as a list."""
+        """
+        Compute lens mass.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self._lens_mass_list
 
     @property
     def source_light(self) -> List[ck.Module]:
-        """Access source light components as a list."""
+        """
+        Compute source light.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self._source_light_list
 
     @property
     def lens_light(self) -> List[ck.Module]:
-        """Access lens light components as a list."""
+        """
+        Compute lens light.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self._lens_light_list
 
     @ck.forward
@@ -174,12 +225,15 @@ class PhysicalModel(ck.Module):
 
     def get_component_counts(self) -> Dict[str, int]:
         """
-        Get the number of components in each category.
-
+        Compute get component counts.
+        
+        
         Returns
         -------
-        dict
-            Dictionary with counts of lens_mass, source_light, and lens_light
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
         """
         return {
             'n_lens_mass': len(self.lens_mass),

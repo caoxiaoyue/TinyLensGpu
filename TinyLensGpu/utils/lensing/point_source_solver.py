@@ -21,7 +21,25 @@ import jax.numpy as jnp
 
 
 def _ray_trace_from_fn(theta: jnp.ndarray, ray_trace_fn: Callable[[jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-    """Evaluate lens equation mapping for stacked image-plane coordinates."""
+    """
+    Internal helper to ray trace from fn.
+    
+    Parameters
+    ----------
+    theta : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     return ray_trace_fn(theta)
 
 
@@ -33,7 +51,37 @@ def _find_initial_candidates(
     n_y: int,
     k_keep: int,
 ) -> Tuple[jnp.ndarray, float]:
-    """Find coarse image-plane candidates with local-minimum preference."""
+    """
+    Internal helper to find initial candidates.
+    
+    Parameters
+    ----------
+    source_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    initial_range : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_keep : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     xs = jnp.linspace(-initial_range, initial_range, int(n_x) + 1)
     ys = jnp.linspace(-initial_range, initial_range, int(n_y) + 1)
     grid_x, grid_y = jnp.meshgrid(xs, ys)
@@ -82,7 +130,43 @@ def solve_lens_equation_optimization_core(
     num_iters: int = 20,
     jacobian_eps: float = 1.0e-6,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Solve lens equation with coarse search + Newton refinement."""
+    """
+    Compute solve lens equation optimization core.
+    
+    Parameters
+    ----------
+    source_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    initial_range : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_keep : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    num_iters : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    jacobian_eps : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     source_pos = jnp.asarray(source_pos, dtype=jnp.float32)
     best_candidates, _ = _find_initial_candidates(
         source_pos=source_pos,
@@ -96,8 +180,59 @@ def solve_lens_equation_optimization_core(
     eye2 = jnp.eye(2, dtype=jnp.float32)
 
     def refine_candidate(start_theta: jnp.ndarray) -> jnp.ndarray:
+        """
+        Compute refine candidate.
+        
+        Parameters
+        ----------
+        start_theta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         def body_fn(theta: jnp.ndarray, _: None) -> Tuple[jnp.ndarray, None]:
+            """
+            Compute body fn.
+            
+            Parameters
+            ----------
+            theta : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            _ : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             def f(t: jnp.ndarray) -> jnp.ndarray:
+                """
+                Compute f.
+                
+                Parameters
+                ----------
+                t : Any
+                    Input argument used by this routine. Shapes/units follow the surrounding
+                    simulation or inference convention in the calling context.
+                
+                Returns
+                -------
+                value : Any
+                    Computed output produced by this routine. For array outputs, shape follows
+                    the input mesh/matrix conventions used by the corresponding pipeline stage.
+                
+                """
                 return _ray_trace_from_fn(t, ray_trace_fn) - source_pos
 
             val = f(theta)
@@ -127,7 +262,46 @@ def solve_lens_equation_mesh_refine_core(
     depth: int = 10,
     search_factor: float = 2.0,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Solve lens equation with static-budget adaptive mesh refinement."""
+    """
+    Compute solve lens equation mesh refine core.
+    
+    Parameters
+    ----------
+    source_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    initial_range : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_keep : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    subgrid_res : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    depth : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    search_factor : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     source_pos = jnp.asarray(source_pos, dtype=jnp.float32)
     best_candidates, initial_pixel_width = _find_initial_candidates(
         source_pos=source_pos,
@@ -142,6 +316,25 @@ def solve_lens_equation_mesh_refine_core(
     init_val = (best_candidates, current_width)
 
     def body_fn(carry: Tuple[jnp.ndarray, float], _: None):
+        """
+        Compute body fn.
+        
+        Parameters
+        ----------
+        carry : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        _ : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         candidates, width = carry
 
         local_xs = jnp.linspace(-width / 2.0, width / 2.0, int(subgrid_res) + 1)
@@ -150,6 +343,22 @@ def solve_lens_equation_mesh_refine_core(
         offsets = jnp.stack([lx.reshape(-1), ly.reshape(-1)], axis=-1)
 
         def refine_candidate(center: jnp.ndarray) -> jnp.ndarray:
+            """
+            Compute refine candidate.
+            
+            Parameters
+            ----------
+            center : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             subgrid_theta = center + offsets
             betas = _ray_trace_from_fn(subgrid_theta, ray_trace_fn)
             dists = jnp.linalg.norm(betas - source_pos, axis=-1)
@@ -178,12 +387,55 @@ def _compute_cluster_mask(
     tolerance: float,
     cluster_tol: float,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Compute boolean mask for unique valid image solutions."""
+    """
+    Internal helper to compute cluster mask.
+    
+    Parameters
+    ----------
+    images : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    dists : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tolerance : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cluster_tol : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     sort_idx = jnp.argsort(dists)
     sorted_images = images[sort_idx]
     sorted_dists = dists[sort_idx]
 
     def scan_body(mask: jnp.ndarray, idx: jnp.ndarray):
+        """
+        Compute scan body.
+        
+        Parameters
+        ----------
+        mask : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        idx : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         curr_img = sorted_images[idx]
         curr_dist = sorted_dists[idx]
         all_dists = jnp.linalg.norm(sorted_images - curr_img, axis=-1)
@@ -202,7 +454,31 @@ def post_process_images(
     tolerance: float = 1.0e-4,
     cluster_tol: float = 0.05,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Filter and cluster lens-equation candidates (dynamic output length)."""
+    """
+    Compute post process images.
+    
+    Parameters
+    ----------
+    images : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    dists : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tolerance : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cluster_tol : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     if images.shape[0] == 0:
         return images, dists
 
@@ -227,7 +503,49 @@ def solve_lens_equation_optimization(
     cluster_tol: float = 0.05,
     jacobian_eps: float = 1.0e-6,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """High-level optimization solver returning clustered image solutions."""
+    """
+    Compute solve lens equation optimization.
+    
+    Parameters
+    ----------
+    source_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    initial_range : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_keep : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    num_iters : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tolerance : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cluster_tol : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    jacobian_eps : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     candidates, dists = solve_lens_equation_optimization_core(
         source_pos=source_pos,
         ray_trace_fn=ray_trace_fn,
@@ -254,7 +572,52 @@ def solve_lens_equation_mesh_refine(
     tolerance: float = 1.0e-4,
     cluster_tol: float = 0.05,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """High-level AMR solver returning clustered image solutions."""
+    """
+    Compute solve lens equation mesh refine.
+    
+    Parameters
+    ----------
+    source_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    ray_trace_fn : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    initial_range : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    n_y : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    k_keep : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    subgrid_res : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    depth : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    search_factor : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tolerance : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    cluster_tol : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     candidates, dists = solve_lens_equation_mesh_refine_core(
         source_pos=source_pos,
         ray_trace_fn=ray_trace_fn,
@@ -320,6 +683,25 @@ def select_unique_images_fixed(
     init_count = jnp.array(0, dtype=jnp.int32)
 
     def body_fn(carry, idx):
+        """
+        Compute body fn.
+        
+        Parameters
+        ----------
+        carry : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        idx : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         selected, selected_mask, count = carry
         curr_img = sorted_images[idx]
         curr_dist = sorted_dists[idx]
@@ -490,7 +872,22 @@ def min_assignment_chi2(
 
 
 def _hungarian_assignment_callback(cost_matrix):
-    """Callback function for scipy's linear_sum_assignment."""
+    """
+    Internal helper to hungarian assignment callback.
+    
+    Parameters
+    ----------
+    cost_matrix : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     row_ind, col_ind = scipy.optimize.linear_sum_assignment(cost_matrix)
     # Sort by row_ind to ensure we get the permutation for rows 0, 1, 2...
     sort_idx = np.argsort(row_ind)
@@ -504,9 +901,26 @@ def min_assignment_chi2_hungarian(
     sigma_pos: jnp.ndarray,
 ) -> jnp.ndarray:
     """
-    Compute minimum chi-square using the Hungarian algorithm.
+    Compute min assignment chi2 hungarian.
     
-    This is O(N^3) instead of O(N!) and supports arbitrary N.
+    Parameters
+    ----------
+    observed_positions : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    predicted_positions : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    sigma_pos : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
     """
     sigma2 = jnp.square(sigma_pos) + 1.0e-12
 

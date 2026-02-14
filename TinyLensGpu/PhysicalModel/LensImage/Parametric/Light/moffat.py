@@ -42,6 +42,39 @@ class MoffatEllipse(ck.Module):
                  beta: Optional[float] = None, e1: Optional[float] = None, 
                  e2: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `MoffatEllipse` instance with validated configuration.
+        
+        Parameters
+        ----------
+        amp : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        alpha : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        beta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
 
         self.amp = amp if isinstance(amp, ParamU) else ParamU("amp", amp)

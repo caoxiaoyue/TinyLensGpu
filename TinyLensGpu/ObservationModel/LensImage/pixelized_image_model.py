@@ -17,7 +17,30 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 
 class PixelizedImageProbModel(ck.Module):
-    """Bayesian evidence model for pixelized source reconstruction."""
+    """
+    Represent the `PixelizedImageProbModel` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    image_data : Any
+        Configuration argument consumed during construction of this component.
+    noise_map : Any
+        Configuration argument consumed during construction of this component.
+    sim_config : Any
+        Configuration argument consumed during construction of this component.
+    phys_model : Any
+        Configuration argument consumed during construction of this component.
+    lensed_source_image : Any
+        Configuration argument consumed during construction of this component.
+    position_likelihood : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     def __init__(
         self,
@@ -28,6 +51,41 @@ class PixelizedImageProbModel(ck.Module):
         lensed_source_image: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
     ) -> None:
+        """
+        Initialize a `PixelizedImageProbModel` instance with validated configuration.
+        
+        Parameters
+        ----------
+        image_data : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        noise_map : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        sim_config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        phys_model : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        lensed_source_image : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        position_likelihood : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         super().__init__("pixelized_image_prob_model")
 
         self.image_data = jnp.asarray(image_data)
@@ -78,6 +136,21 @@ class PixelizedImageProbModel(ck.Module):
         )
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
+        """
+        Internal helper to init position likelihood.
+        
+        Parameters
+        ----------
+        config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         self._pos_px = None
         self._pos_py = None
         self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
@@ -95,6 +168,25 @@ class PixelizedImageProbModel(ck.Module):
         self._pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
 
         def get_val(keys, default):
+            """
+            Compute get val.
+            
+            Parameters
+            ----------
+            keys : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            default : Any
+                Input argument used by this routine. Shapes/units follow the surrounding
+                simulation or inference convention in the calling context.
+            
+            Returns
+            -------
+            value : Any
+                Computed output produced by this routine. For array outputs, shape follows
+                the input mesh/matrix conventions used by the corresponding pipeline stage.
+            
+            """
             for key in keys:
                 if key in config:
                     return config[key]
@@ -109,6 +201,17 @@ class PixelizedImageProbModel(ck.Module):
 
     @ck.forward
     def _build_inverter(self):
+        """
+        Internal helper to build inverter.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         model = self.pix_src_model
 
         inverter = self.simulator.build_inverter(
@@ -121,6 +224,17 @@ class PixelizedImageProbModel(ck.Module):
 
     @ck.forward
     def __call__(self):
+        """
+        Evaluate the callable interface for this object.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         inverter = self._build_inverter()
         log_ev = inverter.log_evidence()
         if self._has_pos_penalty:
@@ -128,10 +242,32 @@ class PixelizedImageProbModel(ck.Module):
         return jnp.where(jnp.isfinite(log_ev), log_ev, -jnp.inf)
 
     def log_evidence(self) -> float:
+        """
+        Compute log evidence.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return float(np.asarray(self.__call__()))
 
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
+        """
+        Internal helper to position likelihood penalty jax.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
 
         dx = beta_x[:, None] - beta_x[None, :]
@@ -147,6 +283,17 @@ class PixelizedImageProbModel(ck.Module):
         return pen_clipped
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if isinstance(self.pix_src_model.grid, IrregularGridConfig):
             n_source_points = int(self.pix_src_model.grid.n_source_points)
         elif isinstance(self.pix_src_model.grid, RectangularGridConfig):

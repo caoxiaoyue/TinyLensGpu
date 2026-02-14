@@ -30,7 +30,38 @@ from TinyLensGpu.utils.lensing.point_source_solver import (
 
 
 class PointSourceProbModel(ck.Module):
-    """Likelihood model using lensed point-image positions."""
+    """
+    Represent the `PointSourceProbModel` component in the TinyLensGpu pipeline.
+    
+    Parameters
+    ----------
+    phys_model : Any
+        Configuration argument consumed during construction of this component.
+    observed_positions : Any
+        Configuration argument consumed during construction of this component.
+    position_sigma : Any
+        Configuration argument consumed during construction of this component.
+    source_x : Any
+        Configuration argument consumed during construction of this component.
+    source_y : Any
+        Configuration argument consumed during construction of this component.
+    source_position_fixed : Any
+        Configuration argument consumed during construction of this component.
+    solver : Any
+        Configuration argument consumed during construction of this component.
+    solver_config : Any
+        Configuration argument consumed during construction of this component.
+    matching : Any
+        Configuration argument consumed during construction of this component.
+    min_log_like : Any
+        Configuration argument consumed during construction of this component.
+    
+    Notes
+    -----
+    Instances of this class participate in TinyLensGpu forward modeling and/or
+    inference workflows. Keep parameter semantics consistent with neighboring
+    modules to ensure predictable numerical behavior.
+    """
 
     def __init__(
         self,
@@ -45,6 +76,53 @@ class PointSourceProbModel(ck.Module):
         matching: str = "global_min_cost",
         min_log_like: float = -1.0e12,
     ) -> None:
+        """
+        Initialize a `PointSourceProbModel` instance with validated configuration.
+        
+        Parameters
+        ----------
+        phys_model : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        observed_positions : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        position_sigma : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        source_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        source_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        source_position_fixed : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        solver : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        solver_config : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        matching : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        min_log_like : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        Raises
+        ------
+        ValueError
+            Raised when input validation fails or required runtime state is missing.
+        
+        """
         super().__init__("point_source_prob_model")
 
         self.phys_model = phys_model
@@ -119,6 +197,25 @@ class PointSourceProbModel(ck.Module):
 
     @staticmethod
     def _build_source_param(name: str, value: Optional[Union[ParamU, float]]) -> ParamU:
+        """
+        Internal helper to build source param.
+        
+        Parameters
+        ----------
+        name : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        value : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         if isinstance(value, ParamU):
             return value
         if value is None:
@@ -138,11 +235,37 @@ class PointSourceProbModel(ck.Module):
         )
 
     def get_dynamic_params(self):
-        """Return dynamic parameters for prior extraction."""
+        """
+        Compute get dynamic params.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return self.dynamic_params
 
     @ck.forward
     def _ray_trace(self, theta: Array) -> Array:
+        """
+        Internal helper to ray trace.
+        
+        Parameters
+        ----------
+        theta : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         x = theta[..., 0]
         y = theta[..., 1]
         beta_x, beta_y = self.phys_model.deflection(x, y)
@@ -150,7 +273,17 @@ class PointSourceProbModel(ck.Module):
 
     @ck.forward
     def solve_image_positions(self) -> Tuple[Array, Array]:
-        """Solve for candidate image positions for current parameters."""
+        """
+        Compute solve image positions.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
         if self._use_amr:
@@ -184,6 +317,17 @@ class PointSourceProbModel(ck.Module):
     @ck.forward
     @functools.partial(jit, static_argnums=(0,))
     def __call__(self) -> Array:
+        """
+        Evaluate the callable interface for this object.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
         if self._use_amr:
@@ -244,10 +388,31 @@ class PointSourceProbModel(ck.Module):
         return jnp.where(valid, log_like, self.min_log_like)
 
     def likelihood(self) -> float:
-        """Return scalar log-likelihood value."""
+        """
+        Compute likelihood.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return float(np.asarray(self.__call__()))
 
     def __repr__(self) -> str:
+        """
+        Internal helper to repr.
+        
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (
             f"PointSourceProbModel(n_observed={self.n_observed}, solver='{self.solver}', "
             f"matching='{self.matching}')"

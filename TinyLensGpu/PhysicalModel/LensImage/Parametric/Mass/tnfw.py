@@ -17,22 +17,109 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 
 def _L(x: Array, tau: Array, s: float = 0.001) -> Array:
-    """Logarithm helper function."""
+    """
+    Internal helper to L.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tau : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    s : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     x = jnp.maximum(x, s)
     return jnp.log(x * (tau + jnp.sqrt(tau**2 + x**2))**-1)
 
 
 def _F(x: Array, s: float = 0.001) -> Array:
-    """Classic NFW function in terms of arctanh and arctan."""
+    """
+    Internal helper to F.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    s : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     x = jnp.maximum(x, s)
     
     def f_less_1(val):
+        """
+        Compute f less 1.
+        
+        Parameters
+        ----------
+        val : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (1 - val**2)**-0.5 * jnp.arctanh((1 - val**2)**0.5)
     
     def f_more_1(val):
+        """
+        Compute f more 1.
+        
+        Parameters
+        ----------
+        val : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return (val**2 - 1)**-0.5 * jnp.arctan((val**2 - 1)**0.5)
     
     def f_equal_1(val):
+        """
+        Compute f equal 1.
+        
+        Parameters
+        ----------
+        val : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        value : Any
+            Computed output produced by this routine. For array outputs, shape follows
+            the input mesh/matrix conventions used by the corresponding pipeline stage.
+        
+        """
         return jnp.ones_like(val)
 
     # Use where for element-wise conditional logic
@@ -42,7 +129,28 @@ def _F(x: Array, s: float = 0.001) -> Array:
 
 
 def _tnfw_F_analytic(x: Array, tau: Array, s: float = 0.001) -> Array:
-    """Analytic solution of the projection integral (convergence) for TNFW."""
+    """
+    Internal helper to tnfw F analytic.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tau : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    s : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     t2 = tau**2
     x = jnp.maximum(x, s)
     _F_val = _F(x, s)
@@ -62,7 +170,28 @@ def _tnfw_F_analytic(x: Array, tau: Array, s: float = 0.001) -> Array:
 
 
 def _tnfw_g(x: Array, tau: Array, s: float = 0.001) -> Array:
-    """Analytic solution of integral for TNFW profile to compute deflection angle."""
+    """
+    Internal helper to tnfw g.
+    
+    Parameters
+    ----------
+    x : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    tau : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    s : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     x = jnp.maximum(x, s)
     F_x = _F(x, s)
     L_x = _L(x, tau, s)
@@ -76,7 +205,25 @@ def _tnfw_g(x: Array, tau: Array, s: float = 0.001) -> Array:
 
 
 def alpha2rho0(alpha_Rs: Array, Rs: Array) -> Array:
-    """Convert angle at Rs into rho0; neglects the truncation."""
+    """
+    Compute alpha2rho0.
+    
+    Parameters
+    ----------
+    alpha_Rs : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    Rs : Any
+        Input argument used by this routine. Shapes/units follow the surrounding
+        simulation or inference convention in the calling context.
+    
+    Returns
+    -------
+    value : Any
+        Computed output produced by this routine. For array outputs, shape follows
+        the input mesh/matrix conventions used by the corresponding pipeline stage.
+    
+    """
     return alpha_Rs / (4.0 * Rs**2 * (1.0 + jnp.log(0.5)))
 
 
@@ -101,6 +248,33 @@ class TNFWSpherical(ck.Module):
     def __init__(self, Rs: Optional[float] = None, alpha_Rs: Optional[float] = None,
                  r_trunc: Optional[float] = None, center_x: Optional[float] = None,
                  center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `TNFWSpherical` instance with validated configuration.
+        
+        Parameters
+        ----------
+        Rs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        alpha_Rs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        r_trunc : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
         
         self.Rs = Rs if isinstance(Rs, ParamU) else ParamU("Rs", Rs)
@@ -185,6 +359,39 @@ class TNFWEllipsePotential(ck.Module):
                  r_trunc: Optional[float] = None, e1: Optional[float] = None,
                  e2: Optional[float] = None, center_x: Optional[float] = None,
                  center_y: Optional[float] = None) -> None:
+        """
+        Initialize a `TNFWEllipsePotential` instance with validated configuration.
+        
+        Parameters
+        ----------
+        Rs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        alpha_Rs : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        r_trunc : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e1 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        e2 : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_x : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        center_y : Any
+            Input argument used by this routine. Shapes/units follow the surrounding
+            simulation or inference convention in the calling context.
+        
+        Returns
+        -------
+        None
+            This routine updates object state or performs side-effect-free setup only.
+        
+        """
         super().__init__()
         
         self.Rs = Rs if isinstance(Rs, ParamU) else ParamU("Rs", Rs)
