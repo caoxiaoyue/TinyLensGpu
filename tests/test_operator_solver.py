@@ -456,7 +456,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
-                regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+                regularization=RegularizationConfig(scheme='irregular_knn_exp', sparse_k_neighbors=16),
                 solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
@@ -527,7 +527,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=IrregularGridConfig(n_source_points=100, mesh_seed=123),
-                regularization=RegularizationConfig(mode='sparse_knn', sparse_k_neighbors=16),
+                regularization=RegularizationConfig(scheme='irregular_knn_exp', sparse_k_neighbors=16),
                 solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
@@ -573,7 +573,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=20, ny=18),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='curvature'),
+                regularization=RegularizationConfig(scheme='rectangular_second'),
                 solver=SolverConfig(
                     inversion_backend='operator',
                     cg_tol=1e-5,
@@ -619,7 +619,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=10, ny=10),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
                 solver=SolverConfig(inversion_backend='matrix'),
             ),
             reg_scale=0.1,
@@ -685,7 +685,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=12, ny=9),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
                 solver=SolverConfig(
                     inversion_backend='matrix',
                     include_lens_light=True,
@@ -753,7 +753,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=12, ny=9),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
                 solver=SolverConfig(
                     inversion_backend='operator',
                     include_lens_light=True,
@@ -825,7 +825,7 @@ class TestSolverComparison:
         pix_src = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=10, ny=8),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
                 solver=SolverConfig(
                     inversion_backend='matrix',
                     include_lens_light=True,

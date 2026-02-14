@@ -45,11 +45,14 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        kernel = self.config.gp_kernel
+        if kernel is None:
+            raise ValueError("dense_gp regularization requires an irregular_gp_* scheme.")
         dense = regularization_matrix_gp_from(
             scale=float(reg_scale),
             coefficient=float(reg_coefficient),
             points=grid.source_mesh_beta,
-            reg_type=self.config.gp_kernel,
+            reg_type=kernel,
         )
         return RegularizationArtifacts(
             mode=self.mode,
@@ -75,11 +78,14 @@ class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
         reg_scale: float,
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
+        kernel = self.config.gp_kernel
+        if kernel is None:
+            raise ValueError("sparse_knn regularization requires an irregular_knn_* scheme.")
         rows, cols, values, n_source = regularization_sparse_knn_from(
             scale=float(reg_scale),
             coefficient=float(reg_coefficient),
             points=grid.source_mesh_beta,
-            reg_type=self.config.gp_kernel,
+            reg_type=kernel,
             k_neighbors=int(self.config.sparse_k_neighbors),
         )
         return RegularizationArtifacts(
@@ -107,6 +113,12 @@ class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
         _ = reg_scale
+        rect_scheme = self.config.rect_scheme
+        if rect_scheme is None:
+            raise ValueError(
+                "sparse_rectangular regularization requires a rectangular scheme "
+                "('rectangular_zero', 'rectangular_first', or 'rectangular_second')."
+            )
         if grid.source_grid_shape is None:
             raise RuntimeError("Rectangular regularization requires source_grid_shape.")
         ny, nx = grid.source_grid_shape
@@ -114,7 +126,7 @@ class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
             coefficient=float(reg_coefficient),
             nx=int(nx),
             ny=int(ny),
-            reg_scheme=self.config.rect_scheme,
+            reg_scheme=rect_scheme,
         )
         return RegularizationArtifacts(
             mode=self.mode,

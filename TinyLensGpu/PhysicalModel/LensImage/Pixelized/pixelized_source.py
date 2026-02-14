@@ -72,7 +72,16 @@ class PixelizedSourceModel(ck.Module):
         rect_reg_type: Optional[str] = None,
     ):
         coefficient = reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
-        scheme = rect_reg_type if rect_reg_type is not None else self.config.regularization.rect_scheme
+        if rect_reg_type is not None:
+            scheme = rect_reg_type
+        else:
+            rect_scheme = self.config.regularization.rect_scheme
+            if rect_scheme is None:
+                raise ValueError(
+                    "regularization_sparse_rectangular() requires a rectangular regularization scheme "
+                    "('rectangular_zero', 'rectangular_first', or 'rectangular_second')."
+                )
+            scheme = rect_scheme
         return regularization_sparse_rectangular_from(
             coefficient=coefficient,
             nx=int(nx),
@@ -97,10 +106,12 @@ class PixelizedSourceModel(ck.Module):
         scale = reg_scale if reg_scale is not None else self.reg_scale.value
         coefficient = reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
         kernel_type = self.config.regularization.gp_kernel
-        operator_mode = self.config.regularization.resolved_mode(self.config.grid)
+        operator_mode = self.config.regularization.mode
         sparse_k = int(self.config.regularization.sparse_k_neighbors)
 
         if operator_mode == "sparse_knn":
+            if kernel_type is None:
+                raise ValueError("sparse_knn regularization requires an irregular_knn_* scheme.")
             rows, cols, values, n_source = regularization_sparse_knn_from(
                 scale=scale,
                 coefficient=coefficient,
@@ -115,6 +126,8 @@ class PixelizedSourceModel(ck.Module):
                 f"Unknown reg_operator_mode: '{operator_mode}'. "
                 "Must be one of {'dense_gp', 'sparse_knn'}."
             )
+        if kernel_type is None:
+            raise ValueError("dense_gp regularization requires an irregular_gp_* scheme.")
 
         return regularization_matrix_gp_from(
             scale=scale,

@@ -24,7 +24,10 @@ When rectangular mode is enabled:
 - The source grid is a regular rectangle on the source plane.
 - Grid bounds are auto-inferred from traced unmasked image pixels and expanded by `RectangularGridConfig.margin_frac`.
 - Mapping from source grid to image-plane samples uses bilinear interpolation.
-- Regularization uses sparse operators with `RegularizationConfig(rect_scheme=...)` in `{zero, gradient, curvature}`.
+- Regularization uses sparse operators selected by `RegularizationConfig(scheme=...)`, e.g.:
+  - `rectangular_zero` (zero order)
+  - `rectangular_first` (first-order gradient)
+  - `rectangular_second` (second-order curvature)
 - Semi-linear inversion supports both `inversion_backend='operator'` and `inversion_backend='matrix'`.
 
 Backend guidance:
@@ -38,7 +41,10 @@ Main parameters:
 - `RectangularGridConfig(nx, ny)`: rectangular grid resolution.
 - `RectangularGridConfig(margin_frac)`: fractional margin for auto source-plane bounds.
 - `RectangularGridConfig(bounds)`: optional explicit `(x_min, x_max, y_min, y_max)` bounds.
-- `RegularizationConfig(rect_scheme)`: sparse regularization scheme (`zero`, `gradient`, `curvature`).
+- `RegularizationConfig(scheme)`: unified grid+regularization selector.
+  - Rectangular: `rectangular_zero`, `rectangular_first`, `rectangular_second`
+  - Irregular GP: `irregular_gp_exp`, `irregular_gp_gauss`, `irregular_gp_matern32`, `irregular_gp_matern52`
+  - Irregular KNN: `irregular_knn_exp`, `irregular_knn_gauss`, `irregular_knn_matern32`, `irregular_knn_matern52`
 
 ## Modules
 
@@ -268,7 +274,7 @@ pix_src = PixelizedSourceModel(
     config=PixelizedSourceConfig(
         grid=IrregularGridConfig(n_source_points=1500, mesh_alpha=1.5),
         mapping=MappingConfig(k_neighbors=5, interp_kernel="wendland_c4", radius_scale=1.5),
-        regularization=RegularizationConfig(mode="dense_gp", gp_kernel="exp"),
+        regularization=RegularizationConfig(scheme="irregular_gp_exp"),
     ),
     reg_scale=0.05,
     reg_coefficient=1.0,

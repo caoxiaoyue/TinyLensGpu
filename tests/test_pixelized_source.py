@@ -766,6 +766,28 @@ class TestLinearInversion:
 
 class TestPixelizedSourceModel:
     """Tests for PixelizedSourceModel class."""
+
+    @pytest.mark.parametrize(
+        ("scheme", "expected_mode", "expected_kernel", "expected_rect"),
+        [
+            ("rectangular_zero", "sparse_rectangular", None, "zero"),
+            ("rectangular_first", "sparse_rectangular", None, "gradient"),
+            ("rectangular_second", "sparse_rectangular", None, "curvature"),
+            ("irregular_gp_exp", "dense_gp", "exp", None),
+            ("irregular_gp_gauss", "dense_gp", "gauss", None),
+            ("irregular_gp_matern32", "dense_gp", "matern32", None),
+            ("irregular_gp_matern52", "dense_gp", "matern52", None),
+            ("irregular_knn_exp", "sparse_knn", "exp", None),
+            ("irregular_knn_gauss", "sparse_knn", "gauss", None),
+            ("irregular_knn_matern32", "sparse_knn", "matern32", None),
+            ("irregular_knn_matern52", "sparse_knn", "matern52", None),
+        ],
+    )
+    def test_regularization_scheme_resolution(self, scheme, expected_mode, expected_kernel, expected_rect):
+        reg = RegularizationConfig(scheme=scheme)
+        assert reg.mode == expected_mode
+        assert reg.gp_kernel == expected_kernel
+        assert reg.rect_scheme == expected_rect
     
     def test_model_default_values(self):
         """Test that default configuration values are set correctly."""
@@ -774,11 +796,11 @@ class TestPixelizedSourceModel:
         assert model.reg_scale.value == 0.05, "Default reg_scale should be 0.05"
         assert model.reg_coefficient.value == 1.0, "Default reg_coefficient should be 1.0"
         assert model.source_grid_type == 'irregular'
-        assert model.regularization.gp_kernel == 'exp', "Default reg_type should be 'exp'"
+        assert model.regularization.scheme == 'irregular_gp_exp', "Default scheme should be irregular_gp_exp"
         assert model.grid.n_source_points == 1500, "Default n_source_points should be 1500"
         assert model.grid.mesh_alpha == 0.0, "Default mesh_alpha should be 0.0"
         assert model.mapping.k_neighbors == 5, "Default k_neighbors should be 5"
-        assert model.regularization.rect_scheme == 'gradient'
+        assert model.regularization.mode == 'dense_gp'
     
     def test_model_custom_values(self):
         """Test configuration with custom values."""
@@ -787,10 +809,8 @@ class TestPixelizedSourceModel:
                 grid=RectangularGridConfig(nx=40, ny=28, margin_frac=0.2),
                 mapping=MappingConfig(k_neighbors=7, interp_kernel='wendland_c2', radius_scale=2.0),
                 regularization=RegularizationConfig(
-                    mode='sparse_rectangular',
-                    gp_kernel='matern32',
+                    scheme='rectangular_second',
                     sparse_k_neighbors=16,
-                    rect_scheme='curvature',
                 ),
             ),
             reg_scale=0.1,
@@ -799,7 +819,7 @@ class TestPixelizedSourceModel:
         
         assert model.reg_scale.value == 0.1
         assert model.reg_coefficient.value == 2.0
-        assert model.regularization.gp_kernel == 'matern32'
+        assert model.regularization.scheme == 'rectangular_second'
         assert model.grid.nx * model.grid.ny == 40 * 28
         assert model.mapping.k_neighbors == 7
         assert model.mapping.interp_kernel == 'wendland_c2'
@@ -811,26 +831,32 @@ class TestPixelizedSourceModel:
         assert model.regularization.rect_scheme == 'curvature'
 
     def test_model_invalid_rectangular_config(self):
-        with pytest.raises(ValueError, match="IrregularGridConfig cannot use regularization mode"):
+        with pytest.raises(ValueError, match="IrregularGridConfig requires an irregular regularization scheme"):
             PixelizedSourceConfig(
                 grid=IrregularGridConfig(),
-                regularization=RegularizationConfig(mode='sparse_rectangular'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
             )
 
-        with pytest.raises(ValueError, match="Unknown rect_scheme"):
+        with pytest.raises(ValueError, match="Unknown regularization scheme"):
             PixelizedSourceModel(
                 config=PixelizedSourceConfig(
                     grid=RectangularGridConfig(nx=8, ny=8),
                     mapping=MappingConfig(),
-                    regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='unknown_scheme'),
+                    regularization=RegularizationConfig(scheme='unknown_scheme'),
                 )
+            )
+
+        with pytest.raises(ValueError, match="RectangularGridConfig requires a rectangular regularization scheme"):
+            PixelizedSourceConfig(
+                grid=RectangularGridConfig(nx=8, ny=8),
+                regularization=RegularizationConfig(scheme='irregular_gp_exp'),
             )
 
     def test_model_rectangular_sparse_regularization_builder(self):
         model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=10, ny=7),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
             ),
             reg_coefficient=2.0,
         )
@@ -844,7 +870,7 @@ class TestPixelizedSourceModel:
         model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=8, ny=8),
-                regularization=RegularizationConfig(mode='sparse_rectangular'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
             )
         )
         points = jnp.zeros((5, 2), dtype=jnp.float32)
@@ -1097,7 +1123,7 @@ class TestPixelizedImageProbModel:
             pix_src_model = build_pixelized_source_model(
                 config=PixelizedSourceConfig(
                     grid=IrregularGridConfig(n_source_points=100, mesh_seed=42),
-                    regularization=RegularizationConfig(gp_kernel=reg_type),
+                    regularization=RegularizationConfig(scheme=f'irregular_gp_{reg_type}'),
                 ),
                 reg_scale=0.05,
                 reg_coefficient=1.0,
@@ -1141,7 +1167,7 @@ class TestPixelizedImageProbModel:
         pix_src_model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=24, ny=24, margin_frac=0.15),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='gradient'),
+                regularization=RegularizationConfig(scheme='rectangular_first'),
                 solver=SolverConfig(
                     inversion_backend='operator',
                     cg_tol=1e-5,
@@ -1195,7 +1221,7 @@ class TestPixelizedImageProbModel:
         pix_src_model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
                 grid=RectangularGridConfig(nx=16, ny=16),
-                regularization=RegularizationConfig(mode='sparse_rectangular', rect_scheme='zero'),
+                regularization=RegularizationConfig(scheme='rectangular_zero'),
                 solver=SolverConfig(inversion_backend='matrix'),
             ),
         )

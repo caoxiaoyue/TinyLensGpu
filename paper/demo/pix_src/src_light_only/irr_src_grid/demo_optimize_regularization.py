@@ -118,8 +118,7 @@ def build_model(data_dict):
             radius_scale=1.5,
         ),
         regularization=RegularizationConfig(
-            mode="dense_gp",
-            gp_kernel="exp",
+            scheme="irregular_gp_exp",
             sparse_k_neighbors=16,
         ),
     )

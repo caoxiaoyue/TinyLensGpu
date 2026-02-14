@@ -107,7 +107,7 @@ class PixelizedLensSimulator:
         return KnnKernelMappingStrategy(config=self.pix_src_model.mapping)
 
     def _build_regularization_strategy(self):
-        mode = self.pix_src_model.regularization.resolved_mode(self.pix_src_model.grid)
+        mode = self.pix_src_model.regularization.resolved_mode()
         if mode == "dense_gp":
             return DenseGpRegularizationStrategy(config=self.pix_src_model.regularization)
         if mode == "sparse_knn":

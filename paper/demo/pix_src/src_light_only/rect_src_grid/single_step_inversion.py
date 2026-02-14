@@ -41,7 +41,7 @@ def setup_rectangular_pixelized_model(
     source_grid_nx: int = 64,
     source_grid_ny: int = 64,
     source_grid_margin_frac: float = 0.10,
-    rect_reg_type: str = "gradient",
+    scheme: str = "rectangular_first",
     nonnegative: bool = False,
     cg_tol: float = 1e-4,
     cg_maxiter: int = 120,
@@ -66,9 +66,7 @@ def setup_rectangular_pixelized_model(
             margin_frac=float(source_grid_margin_frac),
         ),
         regularization=RegularizationConfig(
-            mode="sparse_rectangular",
-            gp_kernel="exp",
-            rect_scheme=rect_reg_type,
+            scheme=scheme,
         ),
         solver=SolverConfig(
             inversion_backend=inversion_backend,
@@ -204,7 +202,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-grid-nx", type=int, default=64)
     parser.add_argument("--source-grid-ny", type=int, default=64)
     parser.add_argument("--source-grid-margin-frac", type=float, default=0.10)
-    parser.add_argument("--rect-reg-type", choices=["zero", "gradient", "curvature"], default="gradient")
+    parser.add_argument(
+        "--scheme",
+        choices=["rectangular_zero", "rectangular_first", "rectangular_second"],
+        default="rectangular_first",
+    )
     parser.add_argument("--nonnegative", action="store_true")
     parser.add_argument("--cg_tol", type=float, default=1e-4)
     parser.add_argument("--cg_maxiter", type=int, default=120)
@@ -252,7 +254,7 @@ def main():
         source_grid_nx=args.source_grid_nx,
         source_grid_ny=args.source_grid_ny,
         source_grid_margin_frac=args.source_grid_margin_frac,
-        rect_reg_type=args.rect_reg_type,
+        scheme=args.scheme,
         nonnegative=args.nonnegative,
         cg_tol=args.cg_tol,
         cg_maxiter=args.cg_maxiter,
@@ -275,7 +277,7 @@ def main():
         "source_grid_nx": int(args.source_grid_nx),
         "source_grid_ny": int(args.source_grid_ny),
         "source_grid_margin_frac": float(args.source_grid_margin_frac),
-        "rect_reg_type": args.rect_reg_type,
+        "scheme": args.scheme,
         "nonnegative": bool(args.nonnegative),
         "log_evidence": float(results["log_evidence"]),
         "n_source": int(results["source_intensities"].shape[0]),

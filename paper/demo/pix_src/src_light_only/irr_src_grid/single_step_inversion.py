@@ -39,7 +39,7 @@ def setup_pixelized_model(
     slq_probes: int = 32,
     slq_steps: int = 60,
     operator_cache_policy: str = "safe",
-    reg_operator_mode: str = "dense_gp",
+    scheme: str = "irregular_gp_exp",
     reg_sparse_k_neighbors: int = 16,
 ):
     """Setup the pixelized source model."""
@@ -60,8 +60,7 @@ def setup_pixelized_model(
             radius_scale=1.5,
         ),
         regularization=RegularizationConfig(
-            mode=reg_operator_mode,
-            gp_kernel="exp",
+            scheme=scheme,
             sparse_k_neighbors=reg_sparse_k_neighbors,
         ),
         solver=SolverConfig(
@@ -182,7 +181,20 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--slq_probes", type=int, default=32)
     parser.add_argument("--slq_steps", type=int, default=60)
     parser.add_argument("--operator-cache-policy", choices=["off", "safe", "unsafe_static"], default="safe")
-    parser.add_argument("--reg-operator-mode", choices=["dense_gp", "sparse_knn"], default="dense_gp")
+    parser.add_argument(
+        "--scheme",
+        choices=[
+            "irregular_gp_exp",
+            "irregular_gp_gauss",
+            "irregular_gp_matern32",
+            "irregular_gp_matern52",
+            "irregular_knn_exp",
+            "irregular_knn_gauss",
+            "irregular_knn_matern32",
+            "irregular_knn_matern52",
+        ],
+        default="irregular_gp_exp",
+    )
     parser.add_argument("--reg-sparse-k-neighbors", type=int, default=16)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-json", type=Path, default=Path("demo_pix_src_results.json"))
@@ -228,7 +240,7 @@ def main():
         slq_probes=args.slq_probes,
         slq_steps=args.slq_steps,
         operator_cache_policy=args.operator_cache_policy,
-        reg_operator_mode=args.reg_operator_mode,
+        scheme=args.scheme,
         reg_sparse_k_neighbors=args.reg_sparse_k_neighbors,
     )
 
@@ -248,7 +260,7 @@ def main():
         "n_data": int(np.sum(~data_dict["mask"])),
         "figure_path": str(args.save_figure),
         "operator_cache_policy": args.operator_cache_policy,
-        "reg_operator_mode": args.reg_operator_mode,
+        "scheme": args.scheme,
         "reg_sparse_k_neighbors": int(args.reg_sparse_k_neighbors),
     }
     args.save_json.write_text(json.dumps(payload, indent=2, sort_keys=True))
