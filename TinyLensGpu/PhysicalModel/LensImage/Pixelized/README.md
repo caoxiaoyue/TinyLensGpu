@@ -260,6 +260,7 @@ from TinyLensGpu.PhysicalModel import (
     MappingConfig,
     RegularizationConfig,
 )
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Create models
@@ -275,11 +276,17 @@ pix_src = PixelizedSourceModel(
 phys_model = PhysicalModel(lens_mass=[...], source_light=[pix_src])
 
 # Create probability model (uses PixelizedSource utilities internally)
+sim_config = SimulatorConfig(
+    dpix=0.05,
+    npix=image.shape[0],
+    psf_kernel=psf,
+    mask=None,
+)
+
 prob_model = PixelizedImageProbModel(
     image_data=image,
     noise_map=noise,
-    psf_kernel=psf,
-    dpix=0.05,
+    sim_config=sim_config,
     phys_model=phys_model,
 )
 

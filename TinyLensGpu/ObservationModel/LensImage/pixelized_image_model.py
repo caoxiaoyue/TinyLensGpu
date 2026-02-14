@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit
 
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import IrregularGridConfig, RectangularGridConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -22,37 +23,58 @@ class PixelizedImageProbModel(ck.Module):
         self,
         image_data: Union[np.ndarray, Array],
         noise_map: Union[np.ndarray, Array],
-        psf_kernel: Union[np.ndarray, Array],
-        dpix: float,
+        sim_config: SimulatorConfig,
         phys_model: PhysicalModel,
-        mask: Optional[Union[np.ndarray, Array]] = None,
+        lensed_source_image: Optional[Union[np.ndarray, Array]] = None,
         position_likelihood: Optional[Dict] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
 
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
+        self.sim_config = sim_config
         self.phys_model = phys_model
         extracted_pix_src_model = self.phys_model.get_pixelized_source_model()
         object.__setattr__(self, "pix_src_model", extracted_pix_src_model)
 
-        if mask is None:
-            mask = np.zeros_like(image_data, dtype=bool)
-        self.mask = jnp.asarray(mask)
+        self.npix = int(self.sim_config.npix)
+        expected_shape = (self.npix, self.npix)
+
+        if self.image_data.shape != expected_shape:
+            raise ValueError(
+                f"image_data shape mismatch: expected {expected_shape}, got {self.image_data.shape}."
+            )
+        if self.noise_map.shape != expected_shape:
+            raise ValueError(
+                f"noise_map shape mismatch: expected {expected_shape}, got {self.noise_map.shape}."
+            )
+
+        self.mask = jnp.asarray(self.sim_config.mask, dtype=bool)
+        if self.mask.shape != expected_shape:
+            raise ValueError(
+                f"sim_config.mask shape mismatch: expected {expected_shape}, got {self.mask.shape}."
+            )
+
+        self.lensed_source_image = lensed_source_image
+        if self.lensed_source_image is not None and np.asarray(self.lensed_source_image).shape != expected_shape:
+            raise ValueError(
+                "lensed_source_image shape mismatch: "
+                f"expected {expected_shape}, got {np.asarray(self.lensed_source_image).shape}."
+            )
+
         self.unmask = ~self.mask
         self._data_vector = self.image_data[self.unmask]
         self._noise_variance = self.noise_map[self.unmask] ** 2
 
         self.position_like_config = position_likelihood
-        self.npix = int(image_data.shape[0])
         self._init_position_likelihood(self.position_like_config)
 
         self.simulator = PixelizedLensSimulator(
-            image_data=np.asarray(image_data),
-            dpix=float(dpix),
             phys_model=self.phys_model,
-            psf_kernel=np.asarray(psf_kernel),
-            mask=np.asarray(mask),
+            sim_config=self.sim_config,
+            lensed_source_image=(
+                None if self.lensed_source_image is None else np.asarray(self.lensed_source_image)
+            ),
         )
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:

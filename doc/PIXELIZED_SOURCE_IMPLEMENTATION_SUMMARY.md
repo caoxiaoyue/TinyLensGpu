@@ -271,6 +271,7 @@ For typical case (npix=200, n_source=1500):
 
 ```python
 from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel, SIE
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # Setup
@@ -287,9 +288,18 @@ pix_src = PixelizedSourceModel(
 phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
 
 # Create probability model
+sim_config = SimulatorConfig(
+    dpix=0.05,
+    npix=image.shape[0],
+    psf_kernel=psf,
+    mask=mask,
+)
+
 prob_model = PixelizedImageProbModel(
-    image_data=image, noise_map=noise, psf_kernel=psf, dpix=0.05,
-    phys_model=phys_model, mask=mask
+    image_data=image,
+    noise_map=noise,
+    sim_config=sim_config,
+    phys_model=phys_model,
 )
 
 # Compute log evidence

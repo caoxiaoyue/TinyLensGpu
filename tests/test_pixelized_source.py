@@ -54,6 +54,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 
 
 # =============================================================================
@@ -921,12 +922,19 @@ class TestPixelizedImageProbModel:
         
         # Convert mask format: our fixture has True=valid, model expects True=masked
         mask_out = ~simple_mask
+        sim_config = SimulatorConfig(
+            dpix=0.05,
+            npix=simple_image.shape[0],
+            psf_kernel=simple_psf,
+            mask=mask_out,
+        )
         
         return {
             'image': simple_image,
             'noise': simple_noise_map,
             'psf': simple_psf,
             'mask': mask_out,
+            'sim_config': sim_config,
             'phys_model': phys_model,
             'pix_src_model': pix_src_model,
             'dpix': 0.05
@@ -939,10 +947,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask']
         )
         assert prob_model is not None, "Model should be created"
         assert prob_model.npix == setup['image'].shape[0], "npix should match image size"
@@ -954,10 +960,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask']
         )
         
         log_ev = prob_model.log_evidence()
@@ -971,10 +975,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask']
         )
         
         log_ev = prob_model()
@@ -987,10 +989,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup["image"],
             noise_map=setup["noise"],
-            psf_kernel=setup["psf"],
-            dpix=setup["dpix"],
+            sim_config=setup["sim_config"],
             phys_model=setup["phys_model"],
-            mask=setup["mask"],
             position_likelihood={
                 "positions": [(0.0, 0.0), (0.1, 0.1)],
                 "threshold_arcsec": 1.0e3,
@@ -1008,10 +1008,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask']
         )
 
         if isinstance(setup['pix_src_model'].grid, IrregularGridConfig):
@@ -1064,10 +1062,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask']
         )
         
         repr_str = repr(prob_model)
@@ -1076,14 +1072,18 @@ class TestPixelizedImageProbModel:
     def test_prob_model_no_mask(self, mock_lensing_setup):
         """Test model without mask (uses full image)."""
         setup = mock_lensing_setup
+        sim_config_no_mask = SimulatorConfig(
+            dpix=setup["dpix"],
+            npix=setup["image"].shape[0],
+            psf_kernel=setup["psf"],
+            mask=None,
+        )
         
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=sim_config_no_mask,
             phys_model=setup['phys_model'],
-            mask=None  # No mask
         )
         
         log_ev = prob_model.log_evidence()
@@ -1118,10 +1118,8 @@ class TestPixelizedImageProbModel:
             prob_model = PixelizedImageProbModel(
                 image_data=setup['image'],
                 noise_map=setup['noise'],
-                psf_kernel=setup['psf'],
-                dpix=setup['dpix'],
+                sim_config=setup['sim_config'],
                 phys_model=phys_model,
-                mask=setup['mask']
             )
             
             log_ev = prob_model.log_evidence()
@@ -1160,10 +1158,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         log_ev = prob_model.log_evidence()
@@ -1208,10 +1204,8 @@ class TestPixelizedImageProbModel:
         prob_model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         log_ev = prob_model.log_evidence()
@@ -1233,6 +1227,42 @@ class TestPixelizedImageProbModel:
         assert not jnp.any(jnp.isnan(model_image))
         assert isinstance(inv, LinearInversion)
         assert inv.H.shape == (16 * 16, 16 * 16)
+
+    def test_prob_model_accepts_lensed_source_image(self, mock_lensing_setup):
+        setup = mock_lensing_setup
+        prob_model = PixelizedImageProbModel(
+            image_data=setup["image"],
+            noise_map=setup["noise"],
+            sim_config=setup["sim_config"],
+            phys_model=setup["phys_model"],
+            lensed_source_image=setup["image"],
+        )
+        log_ev = prob_model.log_evidence()
+        assert np.isfinite(log_ev)
+
+    def test_prob_model_rejects_bad_lensed_source_image_shape(self, mock_lensing_setup):
+        setup = mock_lensing_setup
+        bad_shape = np.ones((setup["image"].shape[0] - 1, setup["image"].shape[1]))
+        with pytest.raises(ValueError, match="lensed_source_image shape mismatch"):
+            PixelizedImageProbModel(
+                image_data=setup["image"],
+                noise_map=setup["noise"],
+                sim_config=setup["sim_config"],
+                phys_model=setup["phys_model"],
+                lensed_source_image=bad_shape,
+            )
+
+    def test_prob_model_rejects_image_shape_mismatch_with_sim_config(self, mock_lensing_setup):
+        setup = mock_lensing_setup
+        bad_image = setup["image"][:-1, :]
+        bad_noise = setup["noise"][:-1, :]
+        with pytest.raises(ValueError, match="image_data shape mismatch"):
+            PixelizedImageProbModel(
+                image_data=bad_image,
+                noise_map=bad_noise,
+                sim_config=setup["sim_config"],
+                phys_model=setup["phys_model"],
+            )
 
 
 # =============================================================================

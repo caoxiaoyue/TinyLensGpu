@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import functools
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit
 
-from .config import make_grid_2d
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized import PixelizedSourceModel
+from .config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
     IrregularGridConfig,
     RectangularGridConfig,
@@ -36,32 +35,48 @@ from .pixelized_core import (
 class PixelizedLensSimulator:
     def __init__(
         self,
-        image_data: np.ndarray,
-        dpix: float,
         phys_model: PhysicalModel,
-        psf_kernel: np.ndarray,
-        mask: Optional[np.ndarray] = None,
+        sim_config: SimulatorConfig,
         lensed_source_image: Optional[np.ndarray] = None,
     ) -> None:
-        self.dpix = float(dpix)
-        self.npix = int(image_data.shape[0])
+        self.sim_config = sim_config
+        self.dpix = float(sim_config.dpix)
+        self.npix = int(sim_config.npix)
         self.phys_model = phys_model
         self.pix_src_model = self.phys_model.get_pixelized_source_model()
-        self.psf_kernel = jnp.asarray(psf_kernel)
+        self.psf_kernel = jnp.asarray(sim_config.psf_kernel)
+        if self.psf_kernel.ndim != 2:
+            raise ValueError(f"sim_config.psf_kernel must be 2D, got shape {self.psf_kernel.shape}.")
 
-        if mask is None:
-            mask = np.zeros_like(image_data, dtype=bool)
-        self.mask = jnp.asarray(mask)
+        self.mask = jnp.asarray(sim_config.mask, dtype=bool)
+        expected_shape = (self.npix, self.npix)
+        if self.mask.shape != expected_shape:
+            raise ValueError(
+                f"sim_config.mask shape mismatch: expected {expected_shape}, got {self.mask.shape}."
+            )
+
+        xgrid_2d = jnp.asarray(sim_config.xgrid)
+        ygrid_2d = jnp.asarray(sim_config.ygrid)
+        if xgrid_2d.shape != expected_shape or ygrid_2d.shape != expected_shape:
+            raise ValueError(
+                "sim_config grid shape mismatch: "
+                f"expected {expected_shape}, got xgrid={xgrid_2d.shape}, ygrid={ygrid_2d.shape}."
+            )
 
         if lensed_source_image is None:
-            lensed_source_image = np.ones_like(image_data)
+            lensed_source_image = np.ones(expected_shape, dtype=np.float32)
+        else:
+            if np.asarray(lensed_source_image).shape != expected_shape:
+                raise ValueError(
+                    "lensed_source_image shape mismatch: "
+                    f"expected {expected_shape}, got {np.asarray(lensed_source_image).shape}."
+                )
         self.lensed_source_image = jnp.asarray(lensed_source_image)
 
-        xgrid_2d, ygrid_2d = make_grid_2d(self.npix, self.dpix)
-        self.xgrid_unmask = jnp.asarray(xgrid_2d[~mask], dtype=jnp.float32)
-        self.ygrid_unmask = jnp.asarray(ygrid_2d[~mask], dtype=jnp.float32)
+        self.xgrid_unmask = jnp.asarray(xgrid_2d[~self.mask], dtype=jnp.float32)
+        self.ygrid_unmask = jnp.asarray(ygrid_2d[~self.mask], dtype=jnp.float32)
 
-        y_indices, x_indices = np.where(~mask)
+        y_indices, x_indices = np.where(~np.asarray(self.mask))
         self.unmasked_indices = (jnp.asarray(y_indices), jnp.asarray(x_indices))
         self.image_shape = (self.npix, self.npix)
 

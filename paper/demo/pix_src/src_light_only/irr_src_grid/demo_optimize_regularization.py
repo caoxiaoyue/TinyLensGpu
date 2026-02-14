@@ -142,13 +142,18 @@ def build_model(data_dict):
     pix_src_model.reg_scale.to_dynamic()
     pix_src_model.reg_coefficient.to_dynamic()
     
+    sim_config = SimulatorConfig(
+        dpix=data_dict["dpix"],
+        npix=data_dict["noisy_image"].shape[0],
+        psf_kernel=data_dict["psf_kernel"],
+        mask=data_dict["mask"],
+    )
+
     prob_model = PixelizedImageProbModel(
         image_data=data_dict['noisy_image'],
         noise_map=data_dict['noise_map'],
-        psf_kernel=data_dict['psf_kernel'],
-        dpix=data_dict['dpix'],
+        sim_config=sim_config,
         phys_model=phys_model,
-        mask=data_dict['mask'],
     )
     
     return prob_model, phys_model

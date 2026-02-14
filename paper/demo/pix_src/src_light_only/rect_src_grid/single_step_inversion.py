@@ -20,6 +20,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized import (
     PixelizedSourceConfig,
@@ -82,13 +83,18 @@ def setup_rectangular_pixelized_model(
     pix_src_model = PixelizedSourceModel(config=pix_config, reg_scale=0.05, reg_coefficient=1.0)
     phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model], lens_light=[])
 
+    sim_config = SimulatorConfig(
+        dpix=data_dict["dpix"],
+        npix=data_dict["noisy_image"].shape[0],
+        psf_kernel=data_dict["psf_kernel"],
+        mask=data_dict["mask"],
+    )
+
     return PixelizedImageProbModel(
         image_data=data_dict["noisy_image"],
         noise_map=data_dict["noise_map"],
-        psf_kernel=data_dict["psf_kernel"],
-        dpix=data_dict["dpix"],
+        sim_config=sim_config,
         phys_model=phys_model,
-        mask=data_dict["mask"],
     )
 
 

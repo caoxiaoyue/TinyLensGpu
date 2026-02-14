@@ -110,6 +110,7 @@ Important parameters for this mode:
 ```python
 import numpy as np
 from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel, SIE
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ObservationModel import PixelizedImageProbModel
 
 # 1. Create mass model
@@ -136,21 +137,27 @@ pix_src = PixelizedSourceModel(
 # 3. Create physical model
 phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
 
-# 3. Create probability model
-prob_model = PixelizedImageProbModel(
-    image_data=image,
-    noise_map=noise,
-    psf_kernel=psf,
+# 4. Create simulation config
+sim_config = SimulatorConfig(
     dpix=0.05,
-    phys_model=phys_model,
+    npix=image.shape[0],
+    psf_kernel=psf,
     mask=mask,
 )
 
-# 5. Compute log evidence
+# 5. Create probability model
+prob_model = PixelizedImageProbModel(
+    image_data=image,
+    noise_map=noise,
+    sim_config=sim_config,
+    phys_model=phys_model,
+)
+
+# 6. Compute log evidence
 log_ev = prob_model.log_evidence()
 print(f"Log evidence: {log_ev:.2f}")
 
-# 6. Reconstruct source (via simulator)
+# 7. Reconstruct source (via simulator)
 data_vector = prob_model.image_data[~prob_model.mask]
 noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
 source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(

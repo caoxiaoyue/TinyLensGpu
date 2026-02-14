@@ -36,6 +36,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
 from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
@@ -77,7 +78,13 @@ def benchmark_data():
         'mask': mask,
         'psf': psf,
         'noise_map': noise_map,
-        'dpix': 0.05
+        'dpix': 0.05,
+        'sim_config': SimulatorConfig(
+            dpix=0.05,
+            npix=size,
+            psf_kernel=psf,
+            mask=mask,
+        ),
     }
 
 def time_function(func, *args, n_repeats=5, warmup=True, name="Function", **kwargs):
@@ -263,10 +270,8 @@ class TestPixelizedSpeed:
         prob_model = PixelizedImageProbModel(
             image_data=benchmark_data['image'],
             noise_map=benchmark_data['noise_map'],
-            psf_kernel=benchmark_data['psf'],
-            dpix=benchmark_data['dpix'],
+            sim_config=benchmark_data['sim_config'],
             phys_model=phys_model,
-            mask=benchmark_data['mask']
         )
         
         # Benchmark __call__

@@ -31,6 +31,7 @@ from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
@@ -220,12 +221,19 @@ class TestSolverComparison:
         )
         
         phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
+        sim_config = SimulatorConfig(
+            dpix=0.05,
+            npix=size,
+            psf_kernel=psf,
+            mask=mask,
+        )
         
         return {
             'image': image,
             'noise': noise,
             'psf': psf,
             'mask': mask,
+            'sim_config': sim_config,
             'phys_model': phys_model,
             'dpix': 0.05
         }
@@ -238,10 +246,8 @@ class TestSolverComparison:
         model_exact = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask'],
         )
         operator_phys_model = _clone_phys_model_with_solver(
             setup['phys_model'],
@@ -252,10 +258,8 @@ class TestSolverComparison:
         model_fast = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
         
         # Access simulator directly to get inverter
@@ -293,10 +297,8 @@ class TestSolverComparison:
         model_exact = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=setup['phys_model'],
-            mask=setup['mask'],
         )
         log_ev_exact = model_exact.log_evidence()
         
@@ -312,10 +314,8 @@ class TestSolverComparison:
         model_fast = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
         log_ev_fast = model_fast.log_evidence()
         
@@ -339,10 +339,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
         
         # This calls reconstruct_source internally via prob_model (if we had a method)
@@ -387,18 +385,14 @@ class TestSolverComparison:
         model_matrix = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=matrix_phys_model,
-            mask=setup['mask'],
         )
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model_matrix.image_data[~model_matrix.mask]
@@ -450,10 +444,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
         log_ev = model.log_evidence()
         assert np.isfinite(log_ev)
@@ -479,10 +471,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
@@ -495,10 +485,8 @@ class TestSolverComparison:
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
@@ -554,10 +542,8 @@ class TestSolverComparison:
         model_matrix = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
@@ -570,10 +556,8 @@ class TestSolverComparison:
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
 
         log_ev_matrix = model_matrix.log_evidence()
@@ -606,10 +590,8 @@ class TestSolverComparison:
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model_operator.image_data[~model_operator.mask]
@@ -656,19 +638,15 @@ class TestSolverComparison:
         model_matrix = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model_matrix.image_data[~model_matrix.mask]
@@ -744,10 +722,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
@@ -818,10 +794,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
@@ -888,10 +862,8 @@ class TestSolverComparison:
         model = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=phys_model,
-            mask=setup['mask'],
         )
         operator_phys_model = _clone_phys_model_with_solver(
             phys_model,
@@ -904,10 +876,8 @@ class TestSolverComparison:
         model_operator = PixelizedImageProbModel(
             image_data=setup['image'],
             noise_map=setup['noise'],
-            psf_kernel=setup['psf'],
-            dpix=setup['dpix'],
+            sim_config=setup['sim_config'],
             phys_model=operator_phys_model,
-            mask=setup['mask'],
         )
 
         data_vector = model.image_data[~model.mask]
