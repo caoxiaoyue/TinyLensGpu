@@ -139,7 +139,7 @@ class TestOperatorSolverComponents:
         data_mesh = jnp.array(np.random.randn(n_data, 2).astype(np.float32))
         
         from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
-        from TinyLensGpu.utils.lensing import lens_mapping_matrix_from
+        from TinyLensGpu.utils.lensing import dense_mapping_from_weights_indices
         
         # 1. Operator weights
         weights, indices, _ = get_interpolation_weights(
@@ -151,13 +151,7 @@ class TestOperatorSolverComponents:
         )
         
         # 2. Dense Matrix
-        mapping_matrix = lens_mapping_matrix_from(
-            source_mesh_beta=source_mesh,
-            data_mesh_beta=data_mesh,
-            k_neighbors=5,
-            kernel='wendland_c2',
-            radius_scale=2.0
-        )
+        mapping_matrix = dense_mapping_from_weights_indices(weights, indices, int(n_source))
         
         # Test forward mapping
         source_vals = jnp.array(np.random.randn(n_source).astype(np.float32))

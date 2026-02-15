@@ -9,32 +9,27 @@ import jax.numpy as jnp
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 
 
-def _dense_mapping_from_weights_indices(
+def dense_mapping_from_weights_indices(
     weights: jnp.ndarray,
     indices: jnp.ndarray,
     n_source: int,
 ) -> jnp.ndarray:
     """
-    Internal helper to dense mapping from weights indices.
-    
+    Construct a dense mapping matrix from sparse interpolation weights and indices.
+
     Parameters
     ----------
-    weights : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    indices : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_source : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    weights : jnp.ndarray
+        Interpolation weights array of shape ``(n_data, k_neighbors)``.
+    indices : jnp.ndarray
+        Neighbor indices array of shape ``(n_data, k_neighbors)``.
+    n_source : int
+        Total number of source points (columns in the output matrix).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Dense mapping matrix of shape ``(n_data, n_source)``.
     """
     n_data = int(weights.shape[0])
     n_neighbors = int(weights.shape[1])
@@ -43,53 +38,6 @@ def _dense_mapping_from_weights_indices(
     weights_flat = weights.reshape(-1)
     mapping_matrix = jnp.zeros((n_data, int(n_source)), dtype=weights_flat.dtype)
     return mapping_matrix.at[row_indices, col_indices].add(weights_flat)
-
-
-@partial(jax.jit, static_argnames=("k_neighbors", "kernel", "radius_scale"))
-def lens_mapping_matrix_from(
-    source_mesh_beta: jnp.ndarray,
-    data_mesh_beta: jnp.ndarray,
-    k_neighbors: int = 5,
-    kernel: Literal["wendland_c2", "wendland_c4", "wendland_c6"] = "wendland_c4",
-    radius_scale: float = 1.5,
-) -> jnp.ndarray:
-    """
-    Compute lens mapping matrix from.
-    
-    Parameters
-    ----------
-    source_mesh_beta : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    data_mesh_beta : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    k_neighbors : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    kernel : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    radius_scale : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
-    n_source = source_mesh_beta.shape[0]
-    weights, indices, _ = get_interpolation_weights(
-        points=source_mesh_beta,
-        query_points=data_mesh_beta,
-        k_neighbors=k_neighbors,
-        kernel=kernel,
-        radius_scale=radius_scale,
-    )
-    return _dense_mapping_from_weights_indices(weights, indices, int(n_source))
 
 
 @partial(jax.jit, static_argnames=("nx", "ny"))
@@ -184,64 +132,7 @@ def lens_mapping_operator_bilinear_rectangular_from(
     return weights, indices, valid
 
 
-@partial(jax.jit, static_argnames=("nx", "ny"))
-def lens_mapping_matrix_bilinear_rectangular_from(
-    data_mesh_beta: jnp.ndarray,
-    x_min: float,
-    x_max: float,
-    y_min: float,
-    y_max: float,
-    nx: int,
-    ny: int,
-) -> jnp.ndarray:
-    """
-    Compute lens mapping matrix bilinear rectangular from.
-    
-    Parameters
-    ----------
-    data_mesh_beta : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    x_min : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    x_max : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y_min : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y_max : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
-    weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
-        data_mesh_beta=data_mesh_beta,
-        x_min=x_min,
-        x_max=x_max,
-        y_min=y_min,
-        y_max=y_max,
-        nx=nx,
-        ny=ny,
-    )
-    return _dense_mapping_from_weights_indices(weights, indices, int(nx) * int(ny))
-
-
 __all__ = [
-    "lens_mapping_matrix_from",
     "lens_mapping_operator_bilinear_rectangular_from",
-    "lens_mapping_matrix_bilinear_rectangular_from",
+    "dense_mapping_from_weights_indices",
 ]

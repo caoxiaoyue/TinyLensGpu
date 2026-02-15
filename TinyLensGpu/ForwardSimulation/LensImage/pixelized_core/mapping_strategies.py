@@ -11,8 +11,7 @@ import numpy as np
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import MappingConfig
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.utils.lensing import (
-    lens_mapping_matrix_bilinear_rectangular_from,
-    lens_mapping_matrix_from,
+    dense_mapping_from_weights_indices,
     lens_mapping_operator_bilinear_rectangular_from,
 )
 
@@ -131,13 +130,9 @@ class KnnKernelMappingStrategy(BaseMappingStrategy):
             the input mesh/matrix conventions used by the corresponding pipeline stage.
         
         """
-        return lens_mapping_matrix_from(
-            source_mesh_beta=grid.source_mesh_beta,
-            data_mesh_beta=grid.data_mesh_beta,
-            k_neighbors=int(self.config.k_neighbors),
-            kernel=self.config.interp_kernel,
-            radius_scale=float(self.config.radius_scale),
-        )
+        weights, indices = self.build_operator(grid)
+        n_source = grid.source_mesh_beta.shape[0]
+        return dense_mapping_from_weights_indices(weights, indices, int(n_source))
 
     def build_operator(self, grid: GridArtifacts) -> tuple[jnp.ndarray, jnp.ndarray]:
         """
@@ -256,17 +251,9 @@ class RectBilinearMappingStrategy(BaseMappingStrategy):
             the input mesh/matrix conventions used by the corresponding pipeline stage.
         
         """
-        nx, ny, bounds = self._grid_meta(grid)
-        x_min, x_max, y_min, y_max = bounds
-        return lens_mapping_matrix_bilinear_rectangular_from(
-            data_mesh_beta=grid.data_mesh_beta,
-            x_min=x_min,
-            x_max=x_max,
-            y_min=y_min,
-            y_max=y_max,
-            nx=nx,
-            ny=ny,
-        )
+        nx, ny, _ = self._grid_meta(grid)
+        weights, indices = self.build_operator(grid)
+        return dense_mapping_from_weights_indices(weights, indices, int(nx) * int(ny))
 
     def build_operator(self, grid: GridArtifacts) -> tuple[jnp.ndarray, jnp.ndarray]:
         """

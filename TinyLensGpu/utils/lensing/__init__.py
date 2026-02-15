@@ -1,9 +1,8 @@
 """Lensing operation utilities."""
 
 from .mapping import (
-    lens_mapping_matrix_from,
+    dense_mapping_from_weights_indices,
     lens_mapping_operator_bilinear_rectangular_from,
-    lens_mapping_matrix_bilinear_rectangular_from,
 )
 from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .regularization import (
@@ -28,9 +27,8 @@ from .point_source_solver import (
 )
 
 __all__ = [
-    'lens_mapping_matrix_from',
+    'dense_mapping_from_weights_indices',
     'lens_mapping_operator_bilinear_rectangular_from',
-    'lens_mapping_matrix_bilinear_rectangular_from',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',
     'apply_psf_to_mapping_matrix',

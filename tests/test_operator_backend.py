@@ -11,7 +11,7 @@ from TinyLensGpu.utils.inversion.operator_solver import (
     _apply_psf_unmasked_to_unmasked,
 )
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
-from TinyLensGpu.utils.lensing import lens_mapping_matrix_from, apply_psf_to_mapping_matrix
+from TinyLensGpu.utils.lensing import dense_mapping_from_weights_indices, apply_psf_to_mapping_matrix
 
 
 @pytest.mark.unit
@@ -47,13 +47,7 @@ def test_operator_forward_equals_dense_bf():
         kernel='wendland_c4',
         radius_scale=1.5,
     )
-    f = lens_mapping_matrix_from(
-        source_mesh_beta=source_mesh,
-        data_mesh_beta=data_mesh,
-        k_neighbors=5,
-        kernel='wendland_c4',
-        radius_scale=1.5,
-    )
+    f = dense_mapping_from_weights_indices(weights, indices, int(n_source))
     bf = apply_psf_to_mapping_matrix(
         mapping_matrix=f,
         psf_kernel=jnp.array(psf),

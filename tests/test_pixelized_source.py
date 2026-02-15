@@ -30,10 +30,11 @@ from TinyLensGpu.utils.lensing import (
     regularization_sparse_knn_from,
     regularization_sparse_rectangular_from,
     sparse_regularization_dense_from,
-    lens_mapping_matrix_from,
+    dense_mapping_from_weights_indices,
     build_psf_matrix_dense,
     apply_psf_to_mapping_matrix,
 )
+from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.utils.inversion import (
     LinearInversion,
 )
@@ -458,21 +459,24 @@ class TestLensMappingMatrix:
         n_source = source_points.shape[0]
         n_data = data_points.shape[0]
         
-        map_mat = lens_mapping_matrix_from(
-            source_mesh_beta=source_points,
-            data_mesh_beta=data_points,
-            k_neighbors=5
+        weights, indices, _ = get_interpolation_weights(
+            points=source_points,
+            query_points=data_points,
+            k_neighbors=5,
         )
+        map_mat = dense_mapping_from_weights_indices(weights, indices, int(n_source))
         
         assert map_mat.shape == (n_data, n_source), "Mapping matrix shape mismatch"
     
     def test_lens_mapping_matrix_row_sums(self, source_points, data_points):
         """Test that mapping matrix rows sum to approximately 1."""
-        map_mat = lens_mapping_matrix_from(
-            source_mesh_beta=source_points,
-            data_mesh_beta=data_points,
-            k_neighbors=5
+        n_source = source_points.shape[0]
+        weights, indices, _ = get_interpolation_weights(
+            points=source_points,
+            query_points=data_points,
+            k_neighbors=5,
         )
+        map_mat = dense_mapping_from_weights_indices(weights, indices, int(n_source))
         
         row_sums = jnp.sum(map_mat, axis=1)
         assert_allclose(row_sums, jnp.ones_like(row_sums), rtol=0.1,
@@ -480,11 +484,13 @@ class TestLensMappingMatrix:
     
     def test_lens_mapping_matrix_non_negative(self, source_points, data_points):
         """Test that mapping matrix entries are non-negative."""
-        map_mat = lens_mapping_matrix_from(
-            source_mesh_beta=source_points,
-            data_mesh_beta=data_points,
-            k_neighbors=5
+        n_source = source_points.shape[0]
+        weights, indices, _ = get_interpolation_weights(
+            points=source_points,
+            query_points=data_points,
+            k_neighbors=5,
         )
+        map_mat = dense_mapping_from_weights_indices(weights, indices, int(n_source))
         
         assert jnp.all(map_mat >= 0), "Mapping matrix should have non-negative entries"
     
@@ -494,11 +500,12 @@ class TestLensMappingMatrix:
         n_source = source_points.shape[0]
         n_data = data_points.shape[0]
         
-        map_mat = lens_mapping_matrix_from(
-            source_mesh_beta=source_points,
-            data_mesh_beta=data_points,
-            k_neighbors=k
+        weights, indices, _ = get_interpolation_weights(
+            points=source_points,
+            query_points=data_points,
+            k_neighbors=k,
         )
+        map_mat = dense_mapping_from_weights_indices(weights, indices, int(n_source))
         
         # Each row should have exactly k non-zero entries
         nnz_per_row = jnp.sum(map_mat > 0, axis=1)
@@ -506,13 +513,15 @@ class TestLensMappingMatrix:
     
     def test_lens_mapping_matrix_different_kernels(self, source_points, data_points):
         """Test mapping matrix with different kernel types."""
+        n_source = source_points.shape[0]
         for kernel in ['wendland_c2', 'wendland_c4', 'wendland_c6']:
-            map_mat = lens_mapping_matrix_from(
-                source_mesh_beta=source_points,
-                data_mesh_beta=data_points,
+            weights, indices, _ = get_interpolation_weights(
+                points=source_points,
+                query_points=data_points,
                 k_neighbors=5,
                 kernel=kernel
             )
+            map_mat = dense_mapping_from_weights_indices(weights, indices, int(n_source))
             
             assert not jnp.any(jnp.isnan(map_mat)), f"NaN in {kernel} mapping matrix"
             assert jnp.all(map_mat >= 0), f"Negative values in {kernel} mapping matrix"

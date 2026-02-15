@@ -21,10 +21,11 @@ from TinyLensGpu.utils.lensing import (
     gauss_cov_matrix_from,
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
-    lens_mapping_matrix_from,
+    dense_mapping_from_weights_indices,
     build_psf_matrix_dense,
     apply_psf_to_mapping_matrix,
 )
+from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import LinearInversion
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.pixelized_source import (
     PixelizedSourceModel,
@@ -140,12 +141,22 @@ class TestPixelizedSpeed:
             data_mesh = random.normal(k2, (n_data, 2))
             
             print(f"N_source = {n_source}, N_data = {n_data}")
+            
+            @jax.jit
+            def build_mapping(source, data):
+                weights, indices, _ = get_interpolation_weights(
+                    points=source,
+                    query_points=data,
+                    k_neighbors=5,
+                    kernel='wendland_c4',
+                    radius_scale=1.5
+                )
+                return dense_mapping_from_weights_indices(weights, indices, n_source)
+
             time_function(
-                lens_mapping_matrix_from, 
+                build_mapping, 
                 source_mesh, 
                 data_mesh, 
-                k_neighbors=5,
-                kernel='wendland_c4',
                 name="Lens Mapping Matrix"
             )
 
