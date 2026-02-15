@@ -434,15 +434,15 @@ class SolverConfig:
         lens_light_ridge (float): Ridge regularization strength (Tikhonov) 
             specifically for lens light components. Default is 1e-8.
         cg_tol (float): Convergence tolerance for the Conjugate Gradient (CG) 
-            iterative solver. Default is 1e-4.
+            iterative solver. Default is 1e-5.
         cg_maxiter (int): Maximum number of iterations for the CG solver. 
-            Default is 120.
+            Default is 300.
         slq_seed (int): Random seed for Stochastic Lanczos Quadrature (SLQ) 
             log-determinant estimation. Default is 0.
         slq_probes (int): Number of random probe vectors for SLQ estimation. 
             Default is 32.
         slq_steps (int): Number of Lanczos steps for each probe in SLQ. 
-            Default is 60.
+            Default is 30.
         operator_cache_policy (str): Caching strategy for operator-based backends 
             to reuse intermediate computations. Default is 'safe'.
         nnls_maxiter (int): Maximum iterations for the NNLS solver (e.g., FISTA). 
@@ -459,13 +459,13 @@ class SolverConfig:
     lens_light_ridge: float = 1e-8
 
     # Iterative solver parameters (CG)
-    cg_tol: float = 1e-4
-    cg_maxiter: int = 120
+    cg_tol: float = 1e-5
+    cg_maxiter: int = 300
     
     # Determinant estimation parameters (SLQ)
     slq_seed: int = 0
     slq_probes: int = 32
-    slq_steps: int = 60
+    slq_steps: int = 30
     operator_cache_policy: str = "safe"
 
     # Non-negative solver parameters (FISTA/NNLS)

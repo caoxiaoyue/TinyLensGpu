@@ -52,39 +52,35 @@ class PixelizedImageProbModel(ck.Module):
         position_likelihood: Optional[Dict] = None,
     ) -> None:
         """
-        Initialize a `PixelizedImageProbModel` instance with validated configuration.
-        
+        Initialize a `PixelizedImageProbModel` instance.
+
+        This model computes the marginal likelihood (Bayesian evidence) of the image data given the
+        lens mass model and pixelized source regularization hyperparameters. The source surface
+        brightness is marginalized out analytically (linear inversion).
+
         Parameters
         ----------
-        image_data : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        noise_map : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        sim_config : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        phys_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lensed_source_image : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        position_likelihood : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        image_data : Union[np.ndarray, Array]
+            The observed imaging data (pixel values), typically in units of counts or flux.
+            Shape must match `sim_config.npix` x `sim_config.npix`.
+        noise_map : Union[np.ndarray, Array]
+            The 1-sigma noise map corresponding to `image_data`. Must have the same shape.
+        sim_config : SimulatorConfig
+            Configuration object defining the simulation grid (e.g., pixel count, pixel scale, mask).
+        phys_model : PhysicalModel
+            The physical model definition containing lens mass and source light components.
+            Must contain a pixelized source model.
+        lensed_source_image : Optional[Union[np.ndarray, Array]], optional
+            An optional pre-computed image of the lensed source. If provided, it can be used
+            for certain optimization or debugging workflows. Defaults to None.
+        position_likelihood : Optional[Dict], optional
+            Configuration dictionary for adding a penalty based on the positions of multiply
+            imaged point sources (e.g., quasars). Defaults to None.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If the shapes of `image_data`, `noise_map`, or `mask` do not match `sim_config`.
         """
         super().__init__("pixelized_image_prob_model")
 
@@ -137,19 +133,19 @@ class PixelizedImageProbModel(ck.Module):
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         """
-        Internal helper to init position likelihood.
-        
+        Initialize the position likelihood penalty configuration.
+
+        This sets up the parameters for penalizing the lens model if the predicted positions
+        of multiply imaged point sources deviate too much from their observed positions or
+        do not map back to a common source position within a threshold.
+
         Parameters
         ----------
-        config : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        config : Optional[Dict]
+            A dictionary containing configuration keys:
+            - 'positions': List of [x, y] coordinates of observed image positions.
+            - 'threshold_arcsec' or 'position_threshold': Max allowed source plane spread (arcsec).
+            - 'min_log_like' or 'min_position_likelihood': Penalty value applied when threshold is exceeded.
         """
         self._pos_px = None
         self._pos_py = None
@@ -202,15 +198,16 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def _build_inverter(self):
         """
-        Internal helper to build inverter.
-        
-        
+        Construct the linear inversion solver for the current model state.
+
+        This method initializes the `LinearInversion` or `NNLSInversion` object (via the simulator)
+        using the current data vector, noise variance, and regularization parameters.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        inverter : LinearInversion
+            An initialized inverter object capable of computing the Bayesian evidence
+            and reconstructing the source.
         """
         model = self.pix_src_model
 
@@ -225,15 +222,15 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def __call__(self):
         """
-        Evaluate the callable interface for this object.
-        
-        
+        Compute the total log-probability (evidence + penalties) of the model.
+
+        Calculates the Bayesian evidence of the linear inversion and adds any
+        position likelihood penalties if configured.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        log_prob : Array
+            The total log-probability value. Returns -inf if the evidence is not finite.
         """
         inverter = self._build_inverter()
         log_ev = inverter.log_evidence()
@@ -258,15 +255,15 @@ class PixelizedImageProbModel(ck.Module):
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         """
-        Internal helper to position likelihood penalty jax.
-        
-        
+        Compute the position likelihood penalty using JAX.
+
+        Calculates the ray-traced source positions for the observed image positions.
+        If the spread of these source positions exceeds `_pos_thr`, a penalty is applied.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        penalty : Array
+            The calculated log-likelihood penalty (negative value).
         """
         beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
 
@@ -284,15 +281,13 @@ class PixelizedImageProbModel(ck.Module):
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return a string representation of the `PixelizedImageProbModel`.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            A string summarizing the model configuration, including pixel count
+            and source grid type.
         """
         if isinstance(self.pix_src_model.grid, IrregularGridConfig):
             n_source_points = int(self.pix_src_model.grid.n_source_points)

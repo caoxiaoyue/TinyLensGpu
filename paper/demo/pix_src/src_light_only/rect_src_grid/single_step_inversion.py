@@ -43,10 +43,6 @@ def setup_rectangular_pixelized_model(
     source_grid_margin_frac: float = 0.10,
     scheme: str = "rectangular_first",
     nonnegative: bool = False,
-    cg_tol: float = 1e-4,
-    cg_maxiter: int = 120,
-    slq_probes: int = 32,
-    slq_steps: int = 60,
     operator_cache_policy: str = "safe",
 ):
     """Build a rectangular-grid pixelized-source probability model.
@@ -71,10 +67,6 @@ def setup_rectangular_pixelized_model(
         solver=SolverConfig(
             inversion_backend=inversion_backend,
             nonnegative=nonnegative,
-            cg_tol=cg_tol,
-            cg_maxiter=cg_maxiter,
-            slq_probes=slq_probes,
-            slq_steps=slq_steps,
             operator_cache_policy=operator_cache_policy,
         ),
     )
@@ -208,10 +200,6 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default="rectangular_first",
     )
     parser.add_argument("--nonnegative", action="store_true")
-    parser.add_argument("--cg_tol", type=float, default=1e-4)
-    parser.add_argument("--cg_maxiter", type=int, default=120)
-    parser.add_argument("--slq_probes", type=int, default=32)
-    parser.add_argument("--slq_steps", type=int, default=60)
     parser.add_argument("--operator-cache-policy", choices=["off", "safe", "unsafe_static"], default="safe")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-json", type=Path, default=Path("demo_rect_pix_src_results.json"))
@@ -256,10 +244,6 @@ def main():
         source_grid_margin_frac=args.source_grid_margin_frac,
         scheme=args.scheme,
         nonnegative=args.nonnegative,
-        cg_tol=args.cg_tol,
-        cg_maxiter=args.cg_maxiter,
-        slq_probes=args.slq_probes,
-        slq_steps=args.slq_steps,
         operator_cache_policy=args.operator_cache_policy,
     )
 

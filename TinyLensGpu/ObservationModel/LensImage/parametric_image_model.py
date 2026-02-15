@@ -263,15 +263,18 @@ class ImageProbModel(ck.Module):
     @functools.partial(jit, static_argnums=(0,))
     def __call__(self):
         """
-        Evaluate the callable interface for this object.
-        
-        
+        Evaluate the log-likelihood of the model given the data.
+
+        Computes $\ln P(d|\theta) = -\frac{1}{2} \chi^2 + C$.
+        If `use_linear=True`, this includes the implicit marginalization or maximization over linear parameters.
+
+        If `solver_type='nnls'`, a hard constraint is applied: if any linear parameter is negative,
+        the likelihood is set to $-\infty$.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Scalar log-likelihood value.
         """
         image_model, intensity_list = self.forward_model()
 
@@ -317,15 +320,18 @@ class ImageProbModel(ck.Module):
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         """
-        Internal helper to position likelihood penalty jax.
-        
-        
+        Compute penalty for multiply imaged point source positions.
+
+        Penalizes the model if ray-traced image positions do not map to the same source position.
+        The penalty function is a smooth approximation of a step function (soft truncation).
+
+        $Penalty = min\_log\_like \cdot (1 - \exp(-ratio))$
+        where $ratio = \max(separation) / threshold$.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Log-likelihood penalty (<= 0).
         """
         beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
 
@@ -345,6 +351,8 @@ class ImageProbModel(ck.Module):
         """
         Update model with non-linear parameters and return dictionary including linear-solved parameters.
 
+        Useful for retrieving the optimal intensities (amplitudes) after a fitting step.
+
         Parameters
         ----------
         nonlinear_params : array_like or dict
@@ -354,6 +362,7 @@ class ImageProbModel(ck.Module):
         -------
         params_dict : dict
             Dictionary containing both non-linear and linear-solved parameters.
+            Keys are parameter names (e.g. 'source_light_0_amp').
         """
         # Set non-linear parameters
         self.set_values(nonlinear_params)
@@ -382,22 +391,10 @@ class ImageProbModel(ck.Module):
         def update_intensity_param(module, value):
             # Try common intensity parameter names
             """
-            Compute update intensity param.
-            
-            Parameters
-            ----------
-            module : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            value : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            None
-                This routine updates object state or performs side-effect-free setup only.
-            
+            Update the intensity parameter of a light profile module.
+
+            Searches for standard intensity attributes ('Ie', 'amp', 'intensity', 'I0', 'flux')
+            and updates the corresponding entry in the `params` dictionary.
             """
             for name in ['Ie', 'amp', 'intensity', 'I0', 'flux']:
                 if hasattr(module, name):

@@ -51,38 +51,54 @@ def lens_mapping_operator_bilinear_rectangular_from(
     ny: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
-    Compute lens mapping operator bilinear rectangular from.
-    
+    Compute sparse bilinear interpolation weights for a rectangular source grid.
+
+    This function calculates the interpolation weights and indices required to map
+    ray-traced image coordinates (beta) onto a regular Cartesian source grid.
+    For each image pixel ray that hits the source plane at $(u, v)$, it finds the
+    four enclosing source grid points and computes bilinear weights.
+
+    Coordinate Normalization:
+    The source plane coordinates $(u, v)$ are normalized to grid indices $(i, j)$:
+    $i = (u - u_{min}) / \Delta u$
+    $j = (v - v_{min}) / \Delta v$
+
+    Interpolation:
+    For a point $(i+f_x, j+f_y)$ where $i, j$ are integers and $f_x, f_y \in [0, 1)$,
+    the weights for the four corners are:
+    - (i, j)     : $(1-f_x)(1-f_y)$
+    - (i+1, j)   : $f_x(1-f_y)$
+    - (i, j+1)   : $(1-f_x)f_y$
+    - (i+1, j+1) : $f_x f_y$
+
     Parameters
     ----------
-    data_mesh_beta : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    x_min : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    x_max : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y_min : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y_max : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    data_mesh_beta : jnp.ndarray
+        Ray-traced source plane coordinates for each image pixel.
+        Shape: ``(n_data, 2)`` where column 0 is x (u) and column 1 is y (v).
+    x_min : float
+        Minimum x-coordinate of the source grid.
+    x_max : float
+        Maximum x-coordinate of the source grid.
+    y_min : float
+        Minimum y-coordinate of the source grid.
+    y_max : float
+        Maximum y-coordinate of the source grid.
+    nx : int
+        Number of grid points along the x-axis.
+    ny : int
+        Number of grid points along the y-axis.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    weights : jnp.ndarray
+        Interpolation weights. Shape ``(n_data, 4)``.
+    indices : jnp.ndarray
+        Flat indices of the 4 corner source pixels. Shape ``(n_data, 4)``.
+    valid : jnp.ndarray
+        Boolean mask indicating which rays fall within the source grid bounds.
+        Shape ``(n_data,)``.
+
     """
     nx_i = int(nx)
     ny_i = int(ny)

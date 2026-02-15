@@ -77,51 +77,48 @@ class PointSourceProbModel(ck.Module):
         min_log_like: float = -1.0e12,
     ) -> None:
         """
-        Initialize a `PointSourceProbModel` instance with validated configuration.
-        
+        Initialize a `PointSourceProbModel`.
+
+        This model computes the likelihood of observing point sources (e.g., quasar images)
+        at specific positions, given a lens mass model and a source position.
+
         Parameters
         ----------
-        phys_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        observed_positions : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        position_sigma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        source_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        source_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        source_position_fixed : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        solver : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        solver_config : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        matching : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        min_log_like : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        phys_model : PhysicalModel
+            The physical model definition containing the lens mass profile.
+        observed_positions : Union[Array, np.ndarray, Sequence[Sequence[float]]]
+            A collection of (x, y) coordinates of the observed point source images.
+            Shape: (N_images, 2).
+        position_sigma : Union[Array, np.ndarray, Sequence[float], float]
+            The astrometric uncertainty (1-sigma) of the observed positions.
+            Can be a scalar or an array of shape (N_images,).
+        source_x : Optional[Union[ParamU, float]], optional
+            The source x-coordinate. Can be a fixed float or a `ParamU` parameter.
+            Defaults to None (creates a default parameter).
+        source_y : Optional[Union[ParamU, float]], optional
+            The source y-coordinate. Can be a fixed float or a `ParamU` parameter.
+            Defaults to None (creates a default parameter).
+        source_position_fixed : bool, optional
+            If True, the source position parameters are treated as static (non-optimizable)
+            values in the `caskade` graph. Defaults to False.
+        solver : str, optional
+            The algorithm used to solve the lens equation. Options:
+            - 'optimization': Uses gradient-based optimization to find image positions.
+            - 'amr': Uses Adaptive Mesh Refinement to find image positions.
+            Defaults to "optimization".
+        solver_config : Optional[Dict], optional
+            Configuration dictionary for the chosen solver (e.g., number of iterations, grid depth).
+        matching : str, optional
+            Strategy to match predicted image positions to observed positions.
+            Currently only 'global_min_cost' (Hungarian algorithm or permutation) is supported.
+        min_log_like : float, optional
+            Minimum log-likelihood floor to avoid numerical issues when no images are found.
+            Defaults to -1.0e12.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If `observed_positions` shape is invalid or `position_sigma` is non-positive.
         """
         super().__init__("point_source_prob_model")
 
@@ -198,23 +195,22 @@ class PointSourceProbModel(ck.Module):
     @staticmethod
     def _build_source_param(name: str, value: Optional[Union[ParamU, float]]) -> ParamU:
         """
-        Internal helper to build source param.
-        
+        Helper to construct a source position parameter.
+
+        Ensures the input is wrapped in a `ParamU` object with appropriate defaults
+        if not already provided.
+
         Parameters
         ----------
-        name : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        value : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        name : str
+            Name of the parameter (e.g., "source_x").
+        value : Optional[Union[ParamU, float]]
+            The input value or parameter object.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        ParamU
+            The constructed parameter object.
         """
         if isinstance(value, ParamU):
             return value
@@ -236,35 +232,29 @@ class PointSourceProbModel(ck.Module):
 
     def get_dynamic_params(self):
         """
-        Compute get dynamic params.
-        
-        
+        Retrieve the dynamic parameters of this model.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        dict
+            Dictionary of dynamic parameters (e.g., source position if not fixed).
         """
         return self.dynamic_params
 
     @ck.forward
     def _ray_trace(self, theta: Array) -> Array:
         """
-        Internal helper to ray trace.
-        
+        Map image plane coordinates to the source plane.
+
         Parameters
         ----------
-        theta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        theta : Array
+            Image plane coordinates of shape (..., 2), where the last dimension contains (x, y).
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        beta : Array
+            Source plane coordinates of shape (..., 2).
         """
         x = theta[..., 0]
         y = theta[..., 1]
@@ -274,15 +264,17 @@ class PointSourceProbModel(ck.Module):
     @ck.forward
     def solve_image_positions(self) -> Tuple[Array, Array]:
         """
-        Compute solve image positions.
-        
-        
+        Solve the lens equation to find image positions for the current source position.
+
+        Uses the configured solver (Optimization or AMR) to find roots of the lens equation.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        candidates : Array
+            The found image positions (x, y).
+        dists : Array
+            The distance in the source plane between the ray-traced image position and the true source position.
+            Used to filter valid solutions.
         """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
@@ -318,15 +310,19 @@ class PointSourceProbModel(ck.Module):
     @functools.partial(jit, static_argnums=(0,))
     def __call__(self) -> Array:
         """
-        Evaluate the callable interface for this object.
-        
-        
+        Compute the log-likelihood of the observed point source positions.
+
+        1. Solves the lens equation to find predicted image positions.
+        2. Filters valid images based on the source plane distance threshold.
+        3. Matches predicted images to observed images (via Hungarian algorithm or permutation)
+           to minimize the total squared distance.
+        4. Computes the Gaussian log-likelihood.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        log_like : Array
+            The log-likelihood value. Returns `min_log_like` if no valid images are found
+            or if the number of predicted images does not match the observed count.
         """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
@@ -389,29 +385,23 @@ class PointSourceProbModel(ck.Module):
 
     def likelihood(self) -> float:
         """
-        Compute likelihood.
-        
-        
+        Compute the scalar likelihood value (non-JIT wrapper).
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        float
+            The log-likelihood value.
         """
         return float(np.asarray(self.__call__()))
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return a string representation of the `PointSourceProbModel`.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            A string summarizing the model state (observed count, solver type, matching strategy).
         """
         return (
             f"PointSourceProbModel(n_observed={self.n_observed}, solver='{self.solver}', "

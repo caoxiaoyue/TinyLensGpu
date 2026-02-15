@@ -102,12 +102,20 @@ def _run_backend_inproc(
     np.random.seed(seed)
     data_dict = simulate_lensing_data()
 
+    # Map reg_operator_mode to scheme
+    if reg_operator_mode == "dense_gp":
+        scheme = "irregular_gp_exp"
+    elif reg_operator_mode == "sparse_knn":
+        scheme = "irregular_knn_exp"
+    else:
+        scheme = "irregular_gp_exp"
+
     model = setup_pixelized_model(
         data_dict,
         backend=backend,
         nonnegative=nonnegative,
         operator_cache_policy=operator_cache_policy,
-        reg_operator_mode=reg_operator_mode,
+        scheme=scheme,
         reg_sparse_k_neighbors=reg_sparse_k_neighbors,
     )
 

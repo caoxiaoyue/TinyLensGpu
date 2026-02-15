@@ -12,23 +12,24 @@ from jax.tree_util import register_pytree_node_class
 
 def _safe_noise_inverse(noise_var: Array, eps: float = 1e-12) -> Tuple[Array, Array]:
     """
-    Internal helper to safe noise inverse.
-    
+    Compute the inverse of the noise variance with numerical stability.
+
+    This helper avoids division by zero by clamping the noise variance to a minimum value.
+
     Parameters
     ----------
-    noise_var : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    eps : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    noise_var : Array
+        The noise variance vector (diagonal of the noise covariance matrix).
+    eps : float, optional
+        Small constant to ensure numerical stability (default is 1e-12).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    n_diag : Array
+        The stabilized noise variance vector (clamped).
+    n_inv : Array
+        The inverse of the stabilized noise variance vector.
+
     """
     n_diag = jnp.maximum(noise_var, eps)
     n_inv = 1.0 / n_diag
@@ -45,29 +46,41 @@ def _apply_psf_unmasked_to_unmasked(
     adjoint: bool,
 ) -> Array:
     """
-    Apply PSF convolution to a vector of unmasked pixels.
+    Apply PSF convolution (or its adjoint) to a vector of unmasked pixels.
 
-    Handles the mapping from unmasked vector -> full 2D image -> FFT convolution -> unmasked vector.
+    This function handles the transformation between the compact 1D vector representation
+    of unmasked pixels and the full 2D image domain required for FFT-based convolution.
+
+    Operations:
+    1.  **Forward (adjoint=False)**:
+        -   Scatter 1D unmasked vector -> 2D full image (masked pixels are 0).
+        -   Convolve with PSF via FFT.
+        -   Gather unmasked pixels from the result -> 1D vector.
+    2.  **Adjoint (adjoint=True)**:
+        -   Scatter 1D unmasked vector -> 2D full image.
+        -   Correlate with PSF (equivalent to convolving with flipped PSF) via FFT.
+        -   Gather unmasked pixels from the result -> 1D vector.
 
     Parameters
     ----------
     x_unmasked : Array
-        Input vector of values at unmasked pixel locations.
+        Input vector containing values at the unmasked pixel locations.
     psf_fft : Array
-        PSF in the Fourier domain.
+        The Fast Fourier Transform of the PSF kernel.
     image_shape : Tuple[int, int]
-        Shape of the full image (H, W).
+        The shape of the full 2D image (height, width).
     psf_shape : Tuple[int, int]
-        Shape of the PSF (H_psf, W_psf).
+        The shape of the PSF kernel (height, width).
     unmasked_indices : Tuple[Array, Array]
-        Indices of unmasked pixels.
+        A tuple of (y_indices, x_indices) identifying the unmasked pixels in the 2D grid.
     adjoint : bool
-        If True, applies the adjoint (transpose) operation.
+        If True, applies the adjoint (transpose) of the convolution operator.
 
     Returns
     -------
     Array
-        Convolved values at unmasked pixel locations.
+        The result of the convolution (or adjoint convolution) evaluated at the unmasked locations.
+
     """
     h, w = image_shape
     psf_h, psf_w = psf_shape
@@ -103,26 +116,25 @@ def _apply_psf_unmasked_to_unmasked(
 
 def _apply_mapping(source: Array, weights: Array, indices: Array) -> Array:
     """
-    Internal helper to apply mapping.
-    
+    Apply the lensing mapping operator (Source Plane -> Image Plane).
+
+    This performs a weighted sum of source pixel values to compute image pixel values.
+    Mathematically, this corresponds to the operation $y = M x$.
+
     Parameters
     ----------
-    source : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    weights : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    indices : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    source : Array
+        The source light profile vector (1D).
+    weights : Array
+        Interpolation weights for each image pixel (shape: [n_image_pixels, n_interp_points]).
+    indices : Array
+        Indices of the source pixels contributing to each image pixel (shape: [n_image_pixels, n_interp_points]).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        The mapped image vector (1D).
+
     """
     vals = jnp.take(source, indices, axis=0)
     return jnp.sum(weights * vals, axis=1)
@@ -130,29 +142,27 @@ def _apply_mapping(source: Array, weights: Array, indices: Array) -> Array:
 
 def _apply_mapping_transpose(x_unmasked: Array, weights: Array, indices: Array, n_source: int) -> Array:
     """
-    Internal helper to apply mapping transpose.
-    
+    Apply the transpose of the lensing mapping operator (Image Plane -> Source Plane).
+
+    This distributes image pixel values back to the source plane using the interpolation weights.
+    Mathematically, this corresponds to the operation $x = M^T y$.
+
     Parameters
     ----------
-    x_unmasked : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    weights : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    indices : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_source : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x_unmasked : Array
+        The image plane vector (1D, unmasked pixels).
+    weights : Array
+        Interpolation weights (same as in forward mapping).
+    indices : Array
+        Source pixel indices (same as in forward mapping).
+    n_source : int
+        The total number of pixels in the source plane grid.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        The accumulated source plane vector (1D).
+
     """
     contrib = weights * x_unmasked[:, None]
     out = jnp.zeros((n_source,), dtype=contrib.dtype)
@@ -171,57 +181,39 @@ def _build_forward_and_adjoint(
     n_source: int,
 ):
     """
-    Internal helper to build forward and adjoint.
-    
+    Construct the forward and adjoint operators for the full lensing system (Mapping + PSF).
+
+    This combines the geometric lensing mapping ($M$) and the PSF convolution ($P$)
+    into a single linear operator $A = P M$.
+
     Parameters
     ----------
-    weights : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    indices : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    psf_fft : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    image_shape : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    psf_shape : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    unmasked_indices : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_source : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    weights : Array
+        Interpolation weights.
+    indices : Array
+        Interpolation indices.
+    psf_fft : Array
+        PSF in Fourier domain.
+    image_shape : Tuple[int, int]
+        Shape of full image.
+    psf_shape : Tuple[int, int]
+        Shape of PSF.
+    unmasked_indices : Tuple[Array, Array]
+        Indices of unmasked pixels.
+    n_source : int
+        Number of source pixels.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    forward : Callable[[Array], Array]
+        Function computing $y = A x$ (Source -> Image).
+    adjoint : Callable[[Array], Array]
+        Function computing $x = A^T y$ (Image -> Source).
+
     """
 
     def forward(x: Array) -> Array:
-        """
-        Compute forward.
-        
-        Parameters
-        ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Compute the forward operation $y = P M x$."""
         unblur = _apply_mapping(x, weights, indices)
         return _apply_psf_unmasked_to_unmasked(
             unblur,
@@ -233,22 +225,7 @@ def _build_forward_and_adjoint(
         )
 
     def adjoint(y: Array) -> Array:
-        """
-        Compute adjoint.
-        
-        Parameters
-        ----------
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Compute the adjoint operation $x = M^T P^T y$."""
         pre = _apply_psf_unmasked_to_unmasked(
             y,
             psf_fft,
@@ -264,32 +241,28 @@ def _build_forward_and_adjoint(
 
 def _apply_sparse_matrix(rows: Array, cols: Array, values: Array, n: int, x: Array) -> Array:
     """
-    Internal helper to apply sparse matrix.
-    
+    Apply a sparse matrix-vector multiplication (COO format).
+
+    Computes $y = H x$ where H is a sparse matrix.
+
     Parameters
     ----------
-    rows : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    cols : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    values : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    rows : Array
+        Row indices of non-zero elements.
+    cols : Array
+        Column indices of non-zero elements.
+    values : Array
+        Values of non-zero elements.
+    n : int
+        Dimension of the output vector (number of rows in matrix).
+    x : Array
+        Input vector.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        The result vector $y$.
+
     """
     y = jnp.zeros((int(n),), dtype=x.dtype)
     contrib = values * x[cols]
@@ -299,29 +272,31 @@ def _apply_sparse_matrix(rows: Array, cols: Array, values: Array, n: int, x: Arr
 
 def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Array]:
     """
-    Internal helper to cg solve.
-    
+    Solve a linear system Ax = b using the Conjugate Gradient (CG) method.
+
+    This function implements the standard Conjugate Gradient algorithm for solving
+    symmetric positive-definite (SPD) linear systems without explicitly forming the matrix A.
+    It uses a matrix-vector product function `matvec` to represent A.
+
     Parameters
     ----------
-    matvec : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    b : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    tol : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    maxiter : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    matvec : Callable[[Array], Array]
+        Function that computes the matrix-vector product A @ v.
+    b : Array
+        The right-hand side vector of the linear system.
+    tol : float
+        Relative tolerance for convergence based on the residual norm.
+        Stopping criterion: ||r_k||^2 <= tol^2 * ||b||^2 (conceptually, though here checked against absolute tol^2).
+    maxiter : int
+        Maximum number of iterations allowed.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    x : Array
+        The approximate solution vector.
+    rs_final : Array
+        The squared Euclidean norm of the final residual vector (r^T r).
+
     """
     x = jnp.zeros_like(b)
     r = b
@@ -331,23 +306,9 @@ def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Arr
 
     def body(state, _):
         """
-        Compute body.
-        
-        Parameters
-        ----------
-        state : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        _ : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Single iteration of the Conjugate Gradient loop.
+
+        Updates position x, residual r, and search direction p.
         """
         x_k, r_k, p_k, rs_k, done = state
 
@@ -364,41 +325,9 @@ def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Arr
         done_new = done | (rs_new <= tol2)
 
         def keep(_):
-            """
-            Compute keep.
-            
-            Parameters
-            ----------
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
             return x_k, r_k, p_k, rs_k, done
 
         def update(_):
-            """
-            Compute update.
-            
-            Parameters
-            ----------
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
             return x_new, r_new, p_new, rs_new, done_new
 
         return jax.lax.cond(done, keep, update, operand=None), None
@@ -414,50 +343,42 @@ def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Arr
 
 def _lanczos_logdet(matvec, n_dim: int, *, seed: int, probes: int, steps: int) -> Array:
     """
-    Internal helper to lanczos logdet.
-    
+    Estimate the log-determinant of a matrix using Stochastic Lanczos Quadrature (SLQ).
+
+    Computes an unbiased estimate of log|A| (or trace(log(A))) for a symmetric positive-definite matrix A.
+    The method combines:
+    1.  **Stochastic Trace Estimation**: trace(f(A)) = E[z^T f(A) z] where z are Rademacher random vectors.
+    2.  **Lanczos Quadrature**: Approximates the quadratic form z^T f(A) z using a tridiagonalization
+        of A via the Lanczos algorithm.
+
+    References
+    ----------
+    - Ubaru, S., Chen, J., & Saad, Y. (2017). Fast Estimation of tr(f(A)) via Stochastic Lanczos Quadrature.
+      SIAM Journal on Matrix Analysis and Applications.
+
     Parameters
     ----------
-    matvec : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_dim : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    seed : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    probes : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    steps : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    matvec : Callable[[Array], Array]
+        Function that computes the matrix-vector product A @ v.
+    n_dim : int
+        Dimension of the square matrix A.
+    seed : int
+        Random seed for generating probe vectors.
+    probes : int
+        Number of stochastic probe vectors (z) to average over.
+    steps : int
+        Number of Lanczos iterations (size of the Krylov subspace).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Estimated value of log|A| = trace(log(A)).
+
     """
 
     def lanczos_one(z: Array) -> Array:
         """
-        Compute lanczos one.
-        
-        Parameters
-        ----------
-        z : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Run Lanczos algorithm for a single probe vector z to approximate z^T log(A) z.
         """
         z = z.astype(jnp.float32)
         eps = jnp.array(1e-12, dtype=z.dtype)
@@ -467,25 +388,7 @@ def _lanczos_logdet(matvec, n_dim: int, *, seed: int, probes: int, steps: int) -
         beta_prev = jnp.array(0.0, dtype=q.dtype)
 
         def body(carry, _):
-            """
-            Compute body.
-            
-            Parameters
-            ----------
-            carry : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Lanczos three-term recurrence step."""
             q_k, q_prev_k, beta_prev_k = carry
             # Three-term Lanczos recurrence for Krylov basis construction.
             w = jnp.asarray(matvec(q_k), dtype=q_k.dtype) - beta_prev_k * q_prev_k
@@ -513,23 +416,20 @@ def _lanczos_logdet(matvec, n_dim: int, *, seed: int, probes: int, steps: int) -
 
 def _choose_slq_size(probes: int, steps: int) -> Tuple[int, int]:
     """
-    Internal helper to choose slq size.
-    
+    Ensure SLQ parameters are valid integers.
+
     Parameters
     ----------
-    probes : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    steps : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    probes : int
+        Number of probes.
+    steps : int
+        Number of steps.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Tuple[int, int]
+        Validated (probes, steps).
+
     """
     return int(probes), int(steps)
 
@@ -542,29 +442,32 @@ def _estimate_lipschitz_power_iteration(
     seed: int = 0,
 ) -> Array:
     """
-    Internal helper to estimate lipschitz power iteration.
-    
+    Estimate the Lipschitz constant of the gradient using Power Iteration.
+
+    The Lipschitz constant L is the spectral radius (largest eigenvalue) of the Hessian matrix.
+    For a linear least squares problem, the Hessian is A^T A.
+    This function estimates the largest eigenvalue of the operator implicitly defined by `grad_fn`
+    (conceptually the Hessian application) using the Power Method.
+
+    This is crucial for determining the step size in proximal gradient methods like FISTA,
+    where step size <= 1/L is required for convergence.
+
     Parameters
     ----------
-    grad_fn : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_dim : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_iter : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    seed : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    grad_fn : Callable[[Array], Array]
+        Function computing the gradient (or Hessian-vector product) for a given input vector.
+    n_dim : int
+        Dimension of the vector space.
+    n_iter : int
+        Number of power iterations.
+    seed : int
+        Random seed for the initial vector.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Estimated Lipschitz constant (spectral radius).
+
     """
     key = jax.random.PRNGKey(seed)
     v = jax.random.normal(key, (n_dim,), dtype=jnp.float32)
@@ -572,25 +475,7 @@ def _estimate_lipschitz_power_iteration(
     v = v / (jnp.linalg.norm(v) + eps)
 
     def body(vec, _):
-        """
-        Compute body.
-        
-        Parameters
-        ----------
-        vec : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        _ : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Power iteration step: v_{k+1} = A v_k / ||A v_k||."""
         w = jnp.asarray(grad_fn(vec), dtype=vec.dtype)
         nrm = jnp.asarray(jnp.linalg.norm(w), dtype=vec.dtype)
         return w / (nrm + eps), nrm
@@ -602,58 +487,58 @@ def _estimate_lipschitz_power_iteration(
 
 class _OperatorSolverBase:
     """
-    Represent the `_OperatorSolverBase` component in the TinyLensGpu pipeline.
-    
+    Base class for operator-based inversion solvers.
+
+    This class encapsulates the common state and operations for solving the inverse problem
+    $d = A x + n$ where $A = P M$ (PSF convolution + Lensing Mapping).
+    It supports both dense and sparse regularization and handles the construction of
+    forward/adjoint operators and objective function evaluation.
+
     Parameters
     ----------
-    d : Any
-        Configuration argument consumed during construction of this component.
-    noise_var : Any
-        Configuration argument consumed during construction of this component.
-    H : Any
-        Configuration argument consumed during construction of this component.
-    weights : Any
-        Configuration argument consumed during construction of this component.
-    indices : Any
-        Configuration argument consumed during construction of this component.
-    psf_fft : Any
-        Configuration argument consumed during construction of this component.
-    image_shape : Any
-        Configuration argument consumed during construction of this component.
-    psf_shape : Any
-        Configuration argument consumed during construction of this component.
-    unmasked_indices : Any
-        Configuration argument consumed during construction of this component.
-    lens_basis : Any
-        Configuration argument consumed during construction of this component.
-    lens_light_ridge : Any
-        Configuration argument consumed during construction of this component.
-    jitter : Any
-        Configuration argument consumed during construction of this component.
-    slq_seed : Any
-        Configuration argument consumed during construction of this component.
-    slq_probes : Any
-        Configuration argument consumed during construction of this component.
-    slq_steps : Any
-        Configuration argument consumed during construction of this component.
-    dense_logdet_max_n : Any
-        Configuration argument consumed during construction of this component.
-    reg_operator_mode : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_rows : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_cols : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_values : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_n_source : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    d : Array
+        Data vector (1D, unmasked pixels).
+    noise_var : Array
+        Noise variance vector (1D, matching d).
+    H : Array
+        Regularization matrix (or operator representation).
+    weights : Array
+        Interpolation weights for mapping.
+    indices : Array
+        Interpolation indices for mapping.
+    psf_fft : Array
+        PSF in the Fourier domain.
+    image_shape : Tuple[int, int]
+        Shape of the full 2D image (height, width).
+    psf_shape : Tuple[int, int]
+        Shape of the PSF kernel.
+    unmasked_indices : Tuple[Array, Array]
+        Indices (y, x) of unmasked pixels in the 2D grid.
+    lens_basis : Array | None
+        Basis functions for lens light model (optional).
+    lens_light_ridge : float
+        Ridge regression coefficient for lens light.
+    jitter : float
+        Small constant added to diagonal for numerical stability.
+    slq_seed : int
+        Random seed for Stochastic Lanczos Quadrature (SLQ).
+    slq_probes : int
+        Number of probe vectors for SLQ.
+    slq_steps : int
+        Number of Lanczos steps for SLQ.
+    dense_logdet_max_n : int
+        Threshold for switching from dense to SLQ log-determinant computation.
+    reg_operator_mode : str
+        Mode for regularization operator ('dense_gp', 'sparse_knn', etc.).
+    H_sparse_rows : Array | None
+        Row indices for sparse regularization matrix.
+    H_sparse_cols : Array | None
+        Column indices for sparse regularization matrix.
+    H_sparse_values : Array | None
+        Values for sparse regularization matrix.
+    H_sparse_n_source : int | None
+        Number of source pixels (for sparse mode).
+
     """
 
     def __init__(
@@ -681,54 +566,7 @@ class _OperatorSolverBase:
         H_sparse_values: Array | None,
         H_sparse_n_source: int | None,
     ) -> None:
-        """
-        Initialize the OperatorSolverBase.
-
-        Parameters
-        ----------
-        d : Array
-            Data vector (1D, unmasked pixels).
-        noise_var : Array
-            Noise variance vector (1D, matching d).
-        H : Array
-            Regularization matrix (or operator representation).
-        weights : Array
-            Interpolation weights for mapping.
-        indices : Array
-            Interpolation indices for mapping.
-        psf_fft : Array
-            PSF in the Fourier domain.
-        image_shape : Tuple[int, int]
-            Shape of the full 2D image (height, width).
-        psf_shape : Tuple[int, int]
-            Shape of the PSF kernel.
-        unmasked_indices : Tuple[Array, Array]
-            Indices (y, x) of unmasked pixels in the 2D grid.
-        lens_basis : Array | None
-            Basis functions for lens light model (optional).
-        lens_light_ridge : float
-            Ridge regression coefficient for lens light.
-        jitter : float
-            Small constant added to diagonal for numerical stability.
-        slq_seed : int
-            Random seed for Stochastic Lanczos Quadrature (SLQ).
-        slq_probes : int
-            Number of probe vectors for SLQ.
-        slq_steps : int
-            Number of Lanczos steps for SLQ.
-        dense_logdet_max_n : int
-            Threshold for switching from dense to SLQ log-determinant computation.
-        reg_operator_mode : str
-            Mode for regularization operator ('dense_gp', 'sparse_knn', etc.).
-        H_sparse_rows : Array | None
-            Row indices for sparse regularization matrix.
-        H_sparse_cols : Array | None
-            Column indices for sparse regularization matrix.
-        H_sparse_values : Array | None
-            Values for sparse regularization matrix.
-        H_sparse_n_source : int | None
-            Number of source pixels (for sparse mode).
-        """
+        """Initialize the OperatorSolverBase."""
         self.d = jnp.asarray(d, dtype=jnp.float32)
         self.noise_var = jnp.asarray(noise_var, dtype=jnp.float32)
         self.H = jnp.asarray(H, dtype=jnp.float32)
@@ -791,15 +629,15 @@ class _OperatorSolverBase:
 
     def _ops(self):
         """
-        Internal helper to ops.
-        
-        
+        Construct the linear operators for the full system.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        forward : Callable[[Array], Array]
+            Forward operator $y = A x$ where $x$ is the concatenated [source, lens_light] vector.
+        adjoint : Callable[[Array], Array]
+            Adjoint operator $x = A^T y$.
+
         """
         source_forward, source_adjoint = _build_forward_and_adjoint(
             weights=self.weights,
@@ -820,43 +658,13 @@ class _OperatorSolverBase:
         lens_basis = self.lens_basis
 
         def forward(x: Array) -> Array:
-            """
-            Compute forward.
-            
-            Parameters
-            ----------
-            x : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Compute forward $A x = A_{src} x_{src} + A_{lens} x_{lens}$."""
             x_src = x[:n_source]
             x_lens = x[n_source:]
             return source_forward(x_src) + lens_basis @ x_lens
 
         def adjoint(y: Array) -> Array:
-            """
-            Compute adjoint.
-            
-            Parameters
-            ----------
-            y : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Compute adjoint $A^T y = [A_{src}^T y, A_{lens}^T y]$."""
             src_term = source_adjoint(y)
             lens_term = lens_basis.T @ y
             return jnp.concatenate([src_term, lens_term], axis=0)
@@ -864,43 +672,13 @@ class _OperatorSolverBase:
         return forward, adjoint
 
     def _apply_H_source(self, x: Array) -> Array:
-        """
-        Internal helper to apply H source.
-        
-        Parameters
-        ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Apply the regularization matrix H to a source vector."""
         if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
             return self.H @ x
         return _apply_sparse_matrix(self.H_sparse_rows, self.H_sparse_cols, self.H_sparse_values, self.H_sparse_n_source, x)
 
     def _apply_H(self, x: Array) -> Array:
-        """
-        Internal helper to apply H.
-        
-        Parameters
-        ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Apply the full regularization operator (including lens light ridge)."""
         if self.n_lens == 0:
             return self._apply_H_source(x)
 
@@ -912,15 +690,16 @@ class _OperatorSolverBase:
 
     def _half_log_det_H_source(self) -> Tuple[Array, Array]:
         """
-        Internal helper to half log det H source.
-        
-        
+        Compute 0.5 * log|H| for the source regularization matrix.
+
+        Uses dense slogdet for small matrices and SLQ for large matrices/operators.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        sign : Array
+            Sign of the determinant.
+        half_logdet : Array
+            Half of the log-determinant.
         """
         n_source = self.n_source
         if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
@@ -929,22 +708,6 @@ class _OperatorSolverBase:
             return sign_h, 0.5 * logdet_h
 
         def hvec(v: Array) -> Array:
-            """
-            Compute hvec.
-            
-            Parameters
-            ----------
-            v : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
             return self._apply_H_source(v) + self.jitter * v
 
         if n_source <= self.dense_logdet_max_n:
@@ -958,17 +721,7 @@ class _OperatorSolverBase:
         return jnp.array(1.0, dtype=self.d.dtype), 0.5 * logdet_h
 
     def _half_log_det_H(self) -> Tuple[Array, Array]:
-        """
-        Internal helper to half log det H.
-        
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Compute 0.5 * log|H| for the full parameter vector (source + lens light)."""
         sign_src, half_log_det_src = self._half_log_det_H_source()
         if self.n_lens == 0:
             return sign_src, half_log_det_src
@@ -982,20 +735,17 @@ class _OperatorSolverBase:
     @jit
     def model_predict(self, x: Array) -> Array:
         """
-        Compute model predict.
-        
+        Compute the model prediction $d_{pred} = A x$.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x : Array
+            Parameter vector (source pixels + lens light coefficients).
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Predicted data vector.
         """
         forward, _ = self._ops()
         return forward(jnp.asarray(x, dtype=jnp.float32))
@@ -1003,20 +753,19 @@ class _OperatorSolverBase:
     @jit
     def objective_value(self, x: Array) -> Array:
         """
-        Compute objective value.
-        
+        Compute the objective function (negative log-posterior up to constant).
+
+        $S(x) = \chi^2 + x^T H x = (d - Ax)^T N^{-1} (d - Ax) + x^T H x$
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x : Array
+            Parameter vector.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Scalar objective value.
         """
         _, n_inv = _safe_noise_inverse(self.noise_var)
         model = self.model_predict(x)
@@ -1026,17 +775,7 @@ class _OperatorSolverBase:
         return chi2 + reg
 
     def _get_common_children_aux(self):
-        """
-        Internal helper to get common children aux.
-        
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Helper for PyTree flattening."""
         children = (
             self.d,
             self.noise_var,
@@ -1069,62 +808,65 @@ class _OperatorSolverBase:
 @register_pytree_node_class
 class OperatorInversion(_OperatorSolverBase):
     """
-    Represent the `OperatorInversion` component in the TinyLensGpu pipeline.
-    
+    Unconstrained linear inversion using Conjugate Gradient.
+
+    Solves the regularized linear least squares problem:
+    $x^* = \text{argmin}_x \frac{1}{2} (d - Ax)^T N^{-1} (d - Ax) + \frac{1}{2} x^T H x$
+
+    This class uses the Conjugate Gradient (CG) method to solve the normal equations:
+    $(A^T N^{-1} A + H) x = A^T N^{-1} d$
+
+    It handles the linear system implicitly using operator-vector products.
+
     Parameters
     ----------
-    d : Any
-        Configuration argument consumed during construction of this component.
-    noise_var : Any
-        Configuration argument consumed during construction of this component.
-    H : Any
-        Configuration argument consumed during construction of this component.
-    weights : Any
-        Configuration argument consumed during construction of this component.
-    indices : Any
-        Configuration argument consumed during construction of this component.
-    psf_fft : Any
-        Configuration argument consumed during construction of this component.
-    image_shape : Any
-        Configuration argument consumed during construction of this component.
-    psf_shape : Any
-        Configuration argument consumed during construction of this component.
-    unmasked_indices : Any
-        Configuration argument consumed during construction of this component.
-    lens_basis : Any
-        Configuration argument consumed during construction of this component.
-    lens_light_ridge : Any
-        Configuration argument consumed during construction of this component.
-    jitter : Any
-        Configuration argument consumed during construction of this component.
-    cg_tol : Any
-        Configuration argument consumed during construction of this component.
-    cg_maxiter : Any
-        Configuration argument consumed during construction of this component.
-    slq_seed : Any
-        Configuration argument consumed during construction of this component.
-    slq_probes : Any
-        Configuration argument consumed during construction of this component.
-    slq_steps : Any
-        Configuration argument consumed during construction of this component.
-    dense_logdet_max_n : Any
-        Configuration argument consumed during construction of this component.
-    reg_operator_mode : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_rows : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_cols : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_values : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_n_source : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    d : Array
+        Data vector.
+    noise_var : Array
+        Noise variance vector.
+    H : Array
+        Regularization matrix/operator.
+    weights : Array
+        Mapping weights.
+    indices : Array
+        Mapping indices.
+    psf_fft : Array
+        PSF in Fourier domain.
+    image_shape : Tuple[int, int]
+        Image dimensions.
+    psf_shape : Tuple[int, int]
+        PSF dimensions.
+    unmasked_indices : Tuple[Array, Array]
+        Unmasked pixel indices.
+    lens_basis : Array | None, optional
+        Lens light basis.
+    lens_light_ridge : float, optional
+        Lens light regularization strength.
+    jitter : float, optional
+        Diagonal jitter.
+    cg_tol : float, optional
+        CG convergence tolerance (relative).
+    cg_maxiter : int, optional
+        Maximum CG iterations.
+    slq_seed : int, optional
+        SLQ random seed.
+    slq_probes : int, optional
+        Number of SLQ probes.
+    slq_steps : int, optional
+        Number of SLQ Lanczos steps.
+    dense_logdet_max_n : int, optional
+        Max dimension for dense logdet.
+    reg_operator_mode : str, optional
+        Regularization mode.
+    H_sparse_rows : Array | None, optional
+        Sparse H rows.
+    H_sparse_cols : Array | None, optional
+        Sparse H cols.
+    H_sparse_values : Array | None, optional
+        Sparse H values.
+    H_sparse_n_source : int | None, optional
+        Sparse H dimension.
+
     """
 
     def __init__(
@@ -1154,87 +896,7 @@ class OperatorInversion(_OperatorSolverBase):
         H_sparse_values: Array | None = None,
         H_sparse_n_source: int | None = None,
     ) -> None:
-        """
-        Initialize a `OperatorInversion` instance with validated configuration.
-        
-        Parameters
-        ----------
-        d : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        noise_var : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        weights : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        indices : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        psf_fft : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        image_shape : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        psf_shape : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        unmasked_indices : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_basis : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_light_ridge : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        jitter : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        cg_tol : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        cg_maxiter : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_seed : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_probes : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_steps : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dense_logdet_max_n : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_operator_mode : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_rows : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_cols : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_values : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_n_source : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        """
+        """Initialize the OperatorInversion solver."""
         super().__init__(
             d, noise_var, H, weights, indices, psf_fft, image_shape, psf_shape, unmasked_indices,
             lens_basis=lens_basis,
@@ -1254,33 +916,18 @@ class OperatorInversion(_OperatorSolverBase):
         Solve the linear system for source (and optionally lens) light intensities.
 
         Uses Conjugate Gradient (CG) to solve:
-        (M^T N^{-1} M + H + jitter*I) x = M^T N^{-1} d
+        $(A^T N^{-1} A + H + jitter \cdot I) x = A^T N^{-1} d$
 
         Returns
         -------
         Array
-            The solution vector x.
+            The maximum a posteriori (MAP) solution vector $x$.
         """
         _, n_inv = _safe_noise_inverse(self.noise_var)
         forward, adjoint = self._ops()
 
         def mvec(x: Array) -> Array:
-            """
-            Compute mvec.
-            
-            Parameters
-            ----------
-            x : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Compute Matrix-Vector product $(A^T N^{-1} A + H) x$."""
             return adjoint(forward(x) * n_inv) + self._apply_H(x) + self.jitter * x
 
         b = adjoint(self.d * n_inv)
@@ -1290,15 +937,18 @@ class OperatorInversion(_OperatorSolverBase):
     @jit
     def log_evidence(self) -> Array:
         """
-        Compute log evidence.
-        
-        
+        Compute the Bayesian Log-Evidence (Marginal Likelihood).
+
+        $\ln P(d|M) \approx -\frac{1}{2} \chi^2 - \frac{1}{2} x^T H x - \frac{1}{2} \ln|N| + \frac{1}{2} \ln|H| - \frac{1}{2} \ln|A^T N^{-1} A + H|$
+        where $x$ is the MAP solution.
+
+        The term $\ln|A^T N^{-1} A + H|$ is estimated using SLQ.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            The log-evidence value. Returns -inf if any component is invalid (NaN/Inf).
+
         """
         n_data = self.d.shape[0]
         n_dim = self.n_dim
@@ -1312,22 +962,7 @@ class OperatorInversion(_OperatorSolverBase):
         forward, adjoint = self._ops()
 
         def mvec(x: Array) -> Array:
-            """
-            Compute mvec.
-            
-            Parameters
-            ----------
-            x : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Compute Matrix-Vector product $(A^T N^{-1} A + H) x$."""
             return adjoint(forward(x) * n_inv) + self._apply_H(x) + self.jitter * x
 
         b = adjoint(self.d * n_inv)
@@ -1358,22 +993,6 @@ class OperatorInversion(_OperatorSolverBase):
         )
 
         def valid(_):
-            """
-            Compute valid.
-            
-            Parameters
-            ----------
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
             val = log_evidence_const
             val += half_log_det_h
             val -= 0.5 * combined_chi2_reg
@@ -1388,42 +1007,14 @@ class OperatorInversion(_OperatorSolverBase):
         )
 
     def tree_flatten(self):
-        """
-        Compute tree flatten.
-        
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Flatten for JAX pytree registration."""
         children, aux = self._get_common_children_aux()
         aux_final = aux + (self.cg_tol, self.cg_maxiter)
         return children, aux_final
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        """
-        Compute tree unflatten.
-        
-        Parameters
-        ----------
-        aux_data : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        children : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Unflatten for JAX pytree registration."""
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
             dense_logdet_max_n, reg_operator_mode, H_sparse_n_source, lens_light_ridge,
@@ -1450,66 +1041,67 @@ class OperatorInversion(_OperatorSolverBase):
 @register_pytree_node_class
 class OperatorNNLSInversion(_OperatorSolverBase):
     """
-    Represent the `OperatorNNLSInversion` component in the TinyLensGpu pipeline.
-    
+    Non-Negative Least Squares (NNLS) inversion using FISTA.
+
+    Solves the constrained optimization problem:
+    $x^* = \text{argmin}_{x \ge 0} \frac{1}{2} (d - Ax)^T N^{-1} (d - Ax) + \frac{1}{2} x^T H x$
+
+    Uses the Fast Iterative Shrinkage-Thresholding Algorithm (FISTA) to enforce non-negativity constraints.
+    It automatically estimates the Lipschitz constant of the gradient to determine the step size.
+
     Parameters
     ----------
-    d : Any
-        Configuration argument consumed during construction of this component.
-    noise_var : Any
-        Configuration argument consumed during construction of this component.
-    H : Any
-        Configuration argument consumed during construction of this component.
-    weights : Any
-        Configuration argument consumed during construction of this component.
-    indices : Any
-        Configuration argument consumed during construction of this component.
-    psf_fft : Any
-        Configuration argument consumed during construction of this component.
-    image_shape : Any
-        Configuration argument consumed during construction of this component.
-    psf_shape : Any
-        Configuration argument consumed during construction of this component.
-    unmasked_indices : Any
-        Configuration argument consumed during construction of this component.
-    lens_basis : Any
-        Configuration argument consumed during construction of this component.
-    lens_light_ridge : Any
-        Configuration argument consumed during construction of this component.
-    jitter : Any
-        Configuration argument consumed during construction of this component.
-    maxiter : Any
-        Configuration argument consumed during construction of this component.
-    tol : Any
-        Configuration argument consumed during construction of this component.
-    lipschitz_iters : Any
-        Configuration argument consumed during construction of this component.
-    fista_seed : Any
-        Configuration argument consumed during construction of this component.
-    slq_seed : Any
-        Configuration argument consumed during construction of this component.
-    slq_probes : Any
-        Configuration argument consumed during construction of this component.
-    slq_steps : Any
-        Configuration argument consumed during construction of this component.
-    dense_logdet_max_n : Any
-        Configuration argument consumed during construction of this component.
-    reg_operator_mode : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_rows : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_cols : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_values : Any
-        Configuration argument consumed during construction of this component.
-    H_sparse_n_source : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    d : Array
+        Data vector.
+    noise_var : Array
+        Noise variance vector.
+    H : Array
+        Regularization matrix/operator.
+    weights : Array
+        Mapping weights.
+    indices : Array
+        Mapping indices.
+    psf_fft : Array
+        PSF in Fourier domain.
+    image_shape : Tuple[int, int]
+        Image dimensions.
+    psf_shape : Tuple[int, int]
+        PSF dimensions.
+    unmasked_indices : Tuple[Array, Array]
+        Unmasked pixel indices.
+    lens_basis : Array | None, optional
+        Lens light basis.
+    lens_light_ridge : float, optional
+        Lens light regularization strength.
+    jitter : float, optional
+        Diagonal jitter.
+    maxiter : int, optional
+        Maximum FISTA iterations.
+    tol : float, optional
+        Convergence tolerance.
+    lipschitz_iters : int, optional
+        Iterations for Lipschitz constant estimation.
+    fista_seed : int, optional
+        Random seed for Lipschitz estimation.
+    slq_seed : int, optional
+        SLQ seed.
+    slq_probes : int, optional
+        SLQ probes.
+    slq_steps : int, optional
+        SLQ steps.
+    dense_logdet_max_n : int, optional
+        Max dimension for dense logdet.
+    reg_operator_mode : str, optional
+        Regularization mode.
+    H_sparse_rows : Array | None, optional
+        Sparse H rows.
+    H_sparse_cols : Array | None, optional
+        Sparse H cols.
+    H_sparse_values : Array | None, optional
+        Sparse H values.
+    H_sparse_n_source : int | None, optional
+        Sparse H dimension.
+
     """
 
     def __init__(
@@ -1541,93 +1133,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         H_sparse_values: Array | None = None,
         H_sparse_n_source: int | None = None,
     ) -> None:
-        """
-        Initialize a `OperatorNNLSInversion` instance with validated configuration.
-        
-        Parameters
-        ----------
-        d : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        noise_var : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        weights : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        indices : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        psf_fft : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        image_shape : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        psf_shape : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        unmasked_indices : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_basis : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_light_ridge : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        jitter : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        maxiter : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        tol : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lipschitz_iters : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        fista_seed : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_seed : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_probes : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        slq_steps : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dense_logdet_max_n : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_operator_mode : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_rows : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_cols : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_values : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        H_sparse_n_source : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        """
+        """Initialize the OperatorNNLSInversion solver."""
         super().__init__(
             d, noise_var, H, weights, indices, psf_fft, image_shape, psf_shape, unmasked_indices,
             lens_basis=lens_basis,
@@ -1646,20 +1152,8 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     @jit
     def _gradient(self, x: Array) -> Array:
         """
-        Internal helper to gradient.
-        
-        Parameters
-        ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Compute the gradient of the objective function.
+        $\nabla S(x) = A^T N^{-1} (Ax - d) + H x$
         """
         _, n_inv = _safe_noise_inverse(self.noise_var)
         forward, adjoint = self._ops()
@@ -1669,15 +1163,20 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     @jit
     def solve(self) -> Array:
         """
-        Compute solve.
-        
-        
+        Solve the non-negative least squares problem using FISTA.
+
+        Steps:
+        1. Estimate Lipschitz constant L of the gradient.
+        2. Set step size = 1/L.
+        3. Run FISTA loop:
+           - Gradient descent step
+           - Projection (ReLU/maximum(0, x))
+           - Nesterov momentum update
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            The non-negative solution vector x.
         """
         n_dim = self.n_dim
         grad_fn = lambda vec: self._gradient(vec)
@@ -1696,25 +1195,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         obj0 = self.objective_value(x0)
 
         def body(state, _):
-            """
-            Compute body.
-            
-            Parameters
-            ----------
-            state : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Single FISTA iteration."""
             x_prev, y_prev, t_prev, obj_prev, done = state
 
             grad_y = grad_fn(y_prev)
@@ -1728,41 +1209,9 @@ class OperatorNNLSInversion(_OperatorSolverBase):
             done_next = done | (rel <= self.tol)
 
             def keep(_):
-                """
-                Compute keep.
-                
-                Parameters
-                ----------
-                _ : Any
-                    Input argument used by this routine. Shapes/units follow the surrounding
-                    simulation or inference convention in the calling context.
-                
-                Returns
-                -------
-                value : Any
-                    Computed output produced by this routine. For array outputs, shape follows
-                    the input mesh/matrix conventions used by the corresponding pipeline stage.
-                
-                """
                 return x_prev, y_prev, t_prev, obj_prev, done
 
             def update(_):
-                """
-                Compute update.
-                
-                Parameters
-                ----------
-                _ : Any
-                    Input argument used by this routine. Shapes/units follow the surrounding
-                    simulation or inference convention in the calling context.
-                
-                Returns
-                -------
-                value : Any
-                    Computed output produced by this routine. For array outputs, shape follows
-                    the input mesh/matrix conventions used by the corresponding pipeline stage.
-                
-                """
                 return x_next, y_next, t_next, obj_next, done_next
 
             return jax.lax.cond(done, keep, update, operand=None), None
@@ -1778,15 +1227,16 @@ class OperatorNNLSInversion(_OperatorSolverBase):
     @jit
     def log_evidence(self) -> Array:
         """
-        Compute log evidence.
-        
-        
+        Compute the Log-Evidence approximation for NNLS.
+
+        WARNING: This uses the Laplace approximation around the MAP solution, treating
+        the non-negativity constraints as if they were fixed (or effectively unconstrained)
+        at the solution. This is an approximation and may not be fully accurate for boundary solutions.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Log-evidence value.
         """
         n_data = self.d.shape[0]
         n_dim = self.n_dim
@@ -1803,22 +1253,7 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         forward, adjoint = self._ops()
 
         def mvec(v: Array) -> Array:
-            """
-            Compute mvec.
-            
-            Parameters
-            ----------
-            v : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
+            """Compute Hessian-vector product at the solution."""
             return adjoint(forward(v) * n_inv) + self._apply_H(v) + self.jitter * v
 
         n_dim_int = int(n_dim)
@@ -1839,22 +1274,6 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         is_valid = (sign_h > 0) & jnp.isfinite(log_evidence_const) & jnp.isfinite(half_log_det_h) & jnp.isfinite(logdet_m)
 
         def valid(_):
-            """
-            Compute valid.
-            
-            Parameters
-            ----------
-            _ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
-            Returns
-            -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
-            """
             val = log_evidence_const
             val += half_log_det_h
             val -= 0.5 * obj
@@ -1869,42 +1288,14 @@ class OperatorNNLSInversion(_OperatorSolverBase):
         )
 
     def tree_flatten(self):
-        """
-        Compute tree flatten.
-        
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Flatten for JAX pytree registration."""
         children, aux = self._get_common_children_aux()
         aux_final = aux + (self.maxiter, self.tol, self.lipschitz_iters, self.fista_seed)
         return children, aux_final
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        """
-        Compute tree unflatten.
-        
-        Parameters
-        ----------
-        aux_data : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        children : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Unflatten for JAX pytree registration."""
         (
             image_shape, psf_shape, jitter, slq_seed, slq_probes, slq_steps,
             dense_logdet_max_n, reg_operator_mode, H_sparse_n_source, lens_light_ridge,

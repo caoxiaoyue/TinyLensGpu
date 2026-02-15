@@ -108,13 +108,24 @@ def _parse_grid_shapes(text: str) -> List[Tuple[int, int]]:
 
 
 def _parse_reg_types(text: str) -> List[str]:
-    valid = {"zero", "gradient", "curvature"}
-    out = [x.strip().lower() for x in text.split(",") if x.strip()]
+    mapping = {
+        "zero": "rectangular_zero",
+        "gradient": "rectangular_first",
+        "curvature": "rectangular_second",
+    }
+    out = []
+    for x in text.split(","):
+        x = x.strip().lower()
+        if not x:
+            continue
+        if x in mapping:
+            out.append(mapping[x])
+        elif x in mapping.values():
+            out.append(x)
+        else:
+             raise ValueError(f"Invalid rect_reg_type '{x}', choose from {sorted(mapping.keys())}.")
     if not out:
         raise ValueError("No regularization schemes provided.")
-    for scheme in out:
-        if scheme not in valid:
-            raise ValueError(f"Invalid rect_reg_type '{scheme}', choose from {sorted(valid)}.")
     return out
 
 
@@ -140,10 +151,6 @@ def _run_case(
     rect_reg_type: str,
     n_runs: int,
     nonnegative: bool,
-    cg_tol: float,
-    cg_maxiter: int,
-    slq_probes: int,
-    slq_steps: int,
     operator_cache_policy: str,
 ) -> Dict[str, Any]:
     model = setup_rectangular_pixelized_model(
@@ -152,12 +159,8 @@ def _run_case(
         source_grid_nx=source_grid_nx,
         source_grid_ny=source_grid_ny,
         source_grid_margin_frac=source_grid_margin_frac,
-        rect_reg_type=rect_reg_type,
+        scheme=rect_reg_type,
         nonnegative=nonnegative,
-        cg_tol=cg_tol,
-        cg_maxiter=cg_maxiter,
-        slq_probes=slq_probes,
-        slq_steps=slq_steps,
         operator_cache_policy=operator_cache_policy,
     )
 
@@ -202,10 +205,6 @@ def _run_benchmark(
     rect_reg_types: Iterable[str],
     source_grid_margin_frac: float,
     nonnegative: bool,
-    cg_tol: float,
-    cg_maxiter: int,
-    slq_probes: int,
-    slq_steps: int,
     operator_cache_policy: str,
 ) -> Dict[str, Any]:
     np.random.seed(seed)
@@ -226,10 +225,6 @@ def _run_benchmark(
                     rect_reg_type=scheme,
                     n_runs=n_runs,
                     nonnegative=nonnegative,
-                    cg_tol=cg_tol,
-                    cg_maxiter=cg_maxiter,
-                    slq_probes=slq_probes,
-                    slq_steps=slq_steps,
                     operator_cache_policy=operator_cache_policy,
                 )
                 if case["vram_peak_abs_mib"] is not None and baseline_mem is not None:
@@ -248,10 +243,6 @@ def _run_benchmark(
         "source_grid_margin_frac": float(source_grid_margin_frac),
         "nonnegative": bool(nonnegative),
         "operator_cache_policy": operator_cache_policy,
-        "cg_tol": float(cg_tol),
-        "cg_maxiter": int(cg_maxiter),
-        "slq_probes": int(slq_probes),
-        "slq_steps": int(slq_steps),
         "vram_baseline_abs_mib": baseline_mem,
         "cases": cases,
         "best_by_solve_only": {
@@ -277,10 +268,6 @@ def main():
     parser.add_argument("--rect-reg-types", type=str, default="zero,gradient,curvature")
     parser.add_argument("--source-grid-margin-frac", type=float, default=0.10)
     parser.add_argument("--nonnegative", action="store_true")
-    parser.add_argument("--cg_tol", type=float, default=1e-4)
-    parser.add_argument("--cg_maxiter", type=int, default=120)
-    parser.add_argument("--slq_probes", type=int, default=32)
-    parser.add_argument("--slq_steps", type=int, default=60)
     parser.add_argument("--operator-cache-policy", choices=["off", "safe", "unsafe_static"], default="safe")
     parser.add_argument(
         "--output",
@@ -307,10 +294,6 @@ def main():
         rect_reg_types=rect_reg_types,
         source_grid_margin_frac=args.source_grid_margin_frac,
         nonnegative=bool(args.nonnegative),
-        cg_tol=args.cg_tol,
-        cg_maxiter=args.cg_maxiter,
-        slq_probes=args.slq_probes,
-        slq_steps=args.slq_steps,
         operator_cache_policy=args.operator_cache_policy,
     )
 
