@@ -1,0 +1,852 @@
+{
+  "backend": "matrix",
+  "benchmark_name": "rect_matrix_construction",
+  "best_cases": {
+    "blurred_mapping_matrix": {
+      "mean_s": 0.017826439067721366,
+      "metric": "blurred_mapping_matrix",
+      "n_data": 9176,
+      "n_source": 1024,
+      "scheme": "rectangular_second",
+      "source_grid_nx": 32,
+      "source_grid_ny": 32
+    },
+    "log_evidence_total": {
+      "mean_s": 0.027840607427060605,
+      "metric": "log_evidence_total",
+      "n_data": 9176,
+      "n_source": 1024,
+      "scheme": "rectangular_first",
+      "source_grid_nx": 32,
+      "source_grid_ny": 32
+    },
+    "mapping_matrix": {
+      "mean_s": 0.0021059585735201834,
+      "metric": "mapping_matrix",
+      "n_data": 9176,
+      "n_source": 1024,
+      "scheme": "rectangular_first",
+      "source_grid_nx": 32,
+      "source_grid_ny": 32
+    },
+    "regularization_matrix": {
+      "mean_s": 0.001541574113070965,
+      "metric": "regularization_matrix",
+      "n_data": 9176,
+      "n_source": 1024,
+      "scheme": "rectangular_second",
+      "source_grid_nx": 32,
+      "source_grid_ny": 32
+    },
+    "solve_only": {
+      "mean_s": 0.027925609424710274,
+      "metric": "solve_only",
+      "n_data": 9176,
+      "n_source": 1024,
+      "scheme": "rectangular_zero",
+      "source_grid_nx": 32,
+      "source_grid_ny": 32
+    }
+  },
+  "blur_method": "fft",
+  "cases": [
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "n_data": 9176,
+      "n_source": 1024,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        1024,
+        1024
+      ],
+      "scheme": "rectangular_zero",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 32,
+      "source_grid_ny": 32,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.018356362357735634,
+          "mean_s": 0.01794769335538149,
+          "min_s": 0.0178225701674819,
+          "n_runs": 5,
+          "std_s": 0.00022929796142180133,
+          "warmup_s": 0.13212420884519815
+        },
+        "log_evidence_total": {
+          "max_s": 0.029431136325001717,
+          "mean_s": 0.028913135081529616,
+          "min_s": 0.028280104510486126,
+          "n_runs": 5,
+          "std_s": 0.00044680310993475527,
+          "warmup_s": 0.10776466969400644
+        },
+        "mapping_matrix": {
+          "max_s": 0.0025300635024905205,
+          "mean_s": 0.002252792939543724,
+          "min_s": 0.0021332930773496628,
+          "n_runs": 5,
+          "std_s": 0.00015925019658686926,
+          "warmup_s": 0.41092986334115267
+        },
+        "regularization_matrix": {
+          "max_s": 0.0018793623894453049,
+          "mean_s": 0.0016856599599123002,
+          "min_s": 0.001453622244298458,
+          "n_runs": 5,
+          "std_s": 0.00016304246042160995,
+          "warmup_s": 0.2440904714167118
+        },
+        "solve_only": {
+          "max_s": 0.028426753357052803,
+          "mean_s": 0.027925609424710274,
+          "min_s": 0.02762000449001789,
+          "n_runs": 5,
+          "std_s": 0.0003001909548925494,
+          "warmup_s": 0.893827810883522
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "n_data": 9176,
+      "n_source": 1024,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        1024,
+        1024
+      ],
+      "scheme": "rectangular_first",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 32,
+      "source_grid_ny": 32,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.01844628155231476,
+          "mean_s": 0.018030485324561595,
+          "min_s": 0.017732741311192513,
+          "n_runs": 5,
+          "std_s": 0.000300186977503462,
+          "warmup_s": 0.01773258112370968
+        },
+        "log_evidence_total": {
+          "max_s": 0.028094333596527576,
+          "mean_s": 0.027840607427060605,
+          "min_s": 0.027679393999278545,
+          "n_runs": 5,
+          "std_s": 0.000171051420664827,
+          "warmup_s": 0.028698273934423923
+        },
+        "mapping_matrix": {
+          "max_s": 0.002133413217961788,
+          "mean_s": 0.0021059585735201834,
+          "min_s": 0.002090003341436386,
+          "n_runs": 5,
+          "std_s": 1.6808855049242875e-05,
+          "warmup_s": 0.0023523522540926933
+        },
+        "regularization_matrix": {
+          "max_s": 0.00206192210316658,
+          "mean_s": 0.0016025779768824577,
+          "min_s": 0.0013637123629450798,
+          "n_runs": 5,
+          "std_s": 0.00028972728494896393,
+          "warmup_s": 0.26531904749572277
+        },
+        "solve_only": {
+          "max_s": 0.028670034371316433,
+          "mean_s": 0.02811803575605154,
+          "min_s": 0.027425242587924004,
+          "n_runs": 5,
+          "std_s": 0.000507209155889121,
+          "warmup_s": 0.027755224145948887
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        1024
+      ],
+      "n_data": 9176,
+      "n_source": 1024,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        1024,
+        1024
+      ],
+      "scheme": "rectangular_second",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 32,
+      "source_grid_ny": 32,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.0179254412651062,
+          "mean_s": 0.017826439067721366,
+          "min_s": 0.017747030593454838,
+          "n_runs": 5,
+          "std_s": 6.520898319845823e-05,
+          "warmup_s": 0.017887292429804802
+        },
+        "log_evidence_total": {
+          "max_s": 0.028181184083223343,
+          "mean_s": 0.028025479428470133,
+          "min_s": 0.02783286292105913,
+          "n_runs": 5,
+          "std_s": 0.00014770869789071533,
+          "warmup_s": 0.027877903543412685
+        },
+        "mapping_matrix": {
+          "max_s": 0.002286093309521675,
+          "mean_s": 0.0022088605910539627,
+          "min_s": 0.0021763136610388756,
+          "n_runs": 5,
+          "std_s": 4.8563473722158535e-05,
+          "warmup_s": 0.0024180030450224876
+        },
+        "regularization_matrix": {
+          "max_s": 0.0018147025257349014,
+          "mean_s": 0.001541574113070965,
+          "min_s": 0.00143476203083992,
+          "n_runs": 5,
+          "std_s": 0.00015809561810851549,
+          "warmup_s": 0.2513059414923191
+        },
+        "solve_only": {
+          "max_s": 0.028303423896431923,
+          "mean_s": 0.02799558937549591,
+          "min_s": 0.027790282852947712,
+          "n_runs": 5,
+          "std_s": 0.00019695824796454574,
+          "warmup_s": 0.0283240033313632
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "n_data": 9176,
+      "n_source": 2304,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        2304,
+        2304
+      ],
+      "scheme": "rectangular_zero",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 48,
+      "source_grid_ny": 48,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.03834363538771868,
+          "mean_s": 0.038014883548021315,
+          "min_s": 0.03779528569430113,
+          "n_runs": 5,
+          "std_s": 0.00026505564188934733,
+          "warmup_s": 0.1422260608524084
+        },
+        "log_evidence_total": {
+          "max_s": 0.0632900157943368,
+          "mean_s": 0.06294792126864195,
+          "min_s": 0.06258209515362978,
+          "n_runs": 5,
+          "std_s": 0.0002927902693966217,
+          "warmup_s": 0.11457549780607224
+        },
+        "mapping_matrix": {
+          "max_s": 0.0030916742980480194,
+          "mean_s": 0.0027840092778205873,
+          "min_s": 0.0025937622413039207,
+          "n_runs": 5,
+          "std_s": 0.00022640823415108073,
+          "warmup_s": 0.17341818753629923
+        },
+        "regularization_matrix": {
+          "max_s": 0.0019650235772132874,
+          "mean_s": 0.0016908401623368264,
+          "min_s": 0.0015183109790086746,
+          "n_runs": 5,
+          "std_s": 0.00019695418557429898,
+          "warmup_s": 0.24286022037267685
+        },
+        "solve_only": {
+          "max_s": 0.06380603741854429,
+          "mean_s": 0.06300884373486042,
+          "min_s": 0.06250952463597059,
+          "n_runs": 5,
+          "std_s": 0.0005128858809875858,
+          "warmup_s": 1.2069320874288678
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "n_data": 9176,
+      "n_source": 2304,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        2304,
+        2304
+      ],
+      "scheme": "rectangular_first",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 48,
+      "source_grid_ny": 48,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.03799321502447128,
+          "mean_s": 0.037789457477629185,
+          "min_s": 0.037635695189237595,
+          "n_runs": 5,
+          "std_s": 0.00012985037753088856,
+          "warmup_s": 0.03768938593566418
+        },
+        "log_evidence_total": {
+          "max_s": 0.06337785627692938,
+          "mean_s": 0.06279098931699992,
+          "min_s": 0.06242350582033396,
+          "n_runs": 5,
+          "std_s": 0.00038064880733069305,
+          "warmup_s": 0.0629012156277895
+        },
+        "mapping_matrix": {
+          "max_s": 0.002666664309799671,
+          "mean_s": 0.002580064721405506,
+          "min_s": 0.0025011515244841576,
+          "n_runs": 5,
+          "std_s": 7.191887709096454e-05,
+          "warmup_s": 0.00285241287201643
+        },
+        "regularization_matrix": {
+          "max_s": 0.0019148830324411392,
+          "mean_s": 0.0017529863864183426,
+          "min_s": 0.0015836022794246674,
+          "n_runs": 5,
+          "std_s": 0.00014823146057166235,
+          "warmup_s": 0.24361435137689114
+        },
+        "solve_only": {
+          "max_s": 0.06327517610043287,
+          "mean_s": 0.06285149566829204,
+          "min_s": 0.062371645122766495,
+          "n_runs": 5,
+          "std_s": 0.0003911861407487991,
+          "warmup_s": 0.06284198630601168
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        2304
+      ],
+      "n_data": 9176,
+      "n_source": 2304,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        2304,
+        2304
+      ],
+      "scheme": "rectangular_second",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 48,
+      "source_grid_ny": 48,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.0386155154556036,
+          "mean_s": 0.038034363463521,
+          "min_s": 0.03774459473788738,
+          "n_runs": 5,
+          "std_s": 0.00035849304729908884,
+          "warmup_s": 0.03783321473747492
+        },
+        "log_evidence_total": {
+          "max_s": 0.06349298637360334,
+          "mean_s": 0.06286266334354877,
+          "min_s": 0.06247426476329565,
+          "n_runs": 5,
+          "std_s": 0.00039150602494705556,
+          "warmup_s": 0.06257976498454809
+        },
+        "mapping_matrix": {
+          "max_s": 0.0026451125741004944,
+          "mean_s": 0.0025791069492697716,
+          "min_s": 0.00252724252641201,
+          "n_runs": 5,
+          "std_s": 4.87686113531637e-05,
+          "warmup_s": 0.002892814576625824
+        },
+        "regularization_matrix": {
+          "max_s": 0.0019654622301459312,
+          "mean_s": 0.0017284624278545379,
+          "min_s": 0.0015393728390336037,
+          "n_runs": 5,
+          "std_s": 0.00019618830704063836,
+          "warmup_s": 0.2997552091255784
+        },
+        "solve_only": {
+          "max_s": 0.06324067525565624,
+          "mean_s": 0.06272925715893507,
+          "min_s": 0.06245480477809906,
+          "n_runs": 5,
+          "std_s": 0.0003088214019179728,
+          "warmup_s": 0.06400728691369295
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "n_data": 9176,
+      "n_source": 4096,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        4096,
+        4096
+      ],
+      "scheme": "rectangular_zero",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 64,
+      "source_grid_ny": 64,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.06653811037540436,
+          "mean_s": 0.06605124920606613,
+          "min_s": 0.06574258860200644,
+          "n_runs": 5,
+          "std_s": 0.0003385173334838953,
+          "warmup_s": 0.1712761353701353
+        },
+        "log_evidence_total": {
+          "max_s": 0.12778511457145214,
+          "mean_s": 0.12755241319537164,
+          "min_s": 0.12738988269120455,
+          "n_runs": 5,
+          "std_s": 0.0001636554666293326,
+          "warmup_s": 0.1277489634230733
+        },
+        "mapping_matrix": {
+          "max_s": 0.003562665544450283,
+          "mean_s": 0.003177141956984997,
+          "min_s": 0.0030322326347231865,
+          "n_runs": 5,
+          "std_s": 0.00021848433236335346,
+          "warmup_s": 0.18564945366233587
+        },
+        "regularization_matrix": {
+          "max_s": 0.0023980140686035156,
+          "mean_s": 0.002132224850356579,
+          "min_s": 0.001987162046134472,
+          "n_runs": 5,
+          "std_s": 0.0001559413011941327,
+          "warmup_s": 0.34287147130817175
+        },
+        "solve_only": {
+          "max_s": 0.12880235444754362,
+          "mean_s": 0.1276949793100357,
+          "min_s": 0.12713868357241154,
+          "n_runs": 5,
+          "std_s": 0.0006497420513452982,
+          "warmup_s": 1.4038990559056401
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "n_data": 9176,
+      "n_source": 4096,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        4096,
+        4096
+      ],
+      "scheme": "rectangular_first",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 64,
+      "source_grid_ny": 64,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.06722750142216682,
+          "mean_s": 0.06634820960462093,
+          "min_s": 0.06593900918960571,
+          "n_runs": 5,
+          "std_s": 0.0005165177555391911,
+          "warmup_s": 0.06586733926087618
+        },
+        "log_evidence_total": {
+          "max_s": 0.12774949427694082,
+          "mean_s": 0.12756280917674304,
+          "min_s": 0.12735743168741465,
+          "n_runs": 5,
+          "std_s": 0.00015157418806344039,
+          "warmup_s": 0.1279403129592538
+        },
+        "mapping_matrix": {
+          "max_s": 0.0030946237966418266,
+          "mean_s": 0.0030414117500185966,
+          "min_s": 0.0029904330149292946,
+          "n_runs": 5,
+          "std_s": 4.719336782932221e-05,
+          "warmup_s": 0.00339722353965044
+        },
+        "regularization_matrix": {
+          "max_s": 0.0023039421066641808,
+          "mean_s": 0.0020528724417090416,
+          "min_s": 0.001939471811056137,
+          "n_runs": 5,
+          "std_s": 0.00014599634311196626,
+          "warmup_s": 0.24095970951020718
+        },
+        "solve_only": {
+          "max_s": 0.12836713530123234,
+          "mean_s": 0.1279483798891306,
+          "min_s": 0.12774450238794088,
+          "n_runs": 5,
+          "std_s": 0.00028792576949261076,
+          "warmup_s": 0.12742681242525578
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        4096
+      ],
+      "n_data": 9176,
+      "n_source": 4096,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        4096,
+        4096
+      ],
+      "scheme": "rectangular_second",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 64,
+      "source_grid_ny": 64,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.06590547878295183,
+          "mean_s": 0.06581664923578501,
+          "min_s": 0.06571447942405939,
+          "n_runs": 5,
+          "std_s": 7.448581597297815e-05,
+          "warmup_s": 0.0659568291157484
+        },
+        "log_evidence_total": {
+          "max_s": 0.12818980310112238,
+          "mean_s": 0.12248185127973557,
+          "min_s": 0.11293220613151789,
+          "n_runs": 5,
+          "std_s": 0.0075997695373519756,
+          "warmup_s": 0.12803781405091286
+        },
+        "mapping_matrix": {
+          "max_s": 0.003315294161438942,
+          "mean_s": 0.003248642012476921,
+          "min_s": 0.0031829942017793655,
+          "n_runs": 5,
+          "std_s": 4.9081053413003085e-05,
+          "warmup_s": 0.003358714282512665
+        },
+        "regularization_matrix": {
+          "max_s": 0.00231983233243227,
+          "mean_s": 0.0020333042368292807,
+          "min_s": 0.0019417926669120789,
+          "n_runs": 5,
+          "std_s": 0.00016111442259785644,
+          "warmup_s": 0.29374191258102655
+        },
+        "solve_only": {
+          "max_s": 0.12821310386061668,
+          "mean_s": 0.12785128336399793,
+          "min_s": 0.1273604827001691,
+          "n_runs": 5,
+          "std_s": 0.00030797186052354303,
+          "warmup_s": 0.12726351339370012
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "n_data": 9176,
+      "n_source": 6400,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        6400,
+        6400
+      ],
+      "scheme": "rectangular_zero",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 80,
+      "source_grid_ny": 80,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.10225194320082664,
+          "mean_s": 0.10208680238574744,
+          "min_s": 0.10178296267986298,
+          "n_runs": 5,
+          "std_s": 0.00017977391039992425,
+          "warmup_s": 0.20661519840359688
+        },
+        "log_evidence_total": {
+          "max_s": 0.24403970316052437,
+          "mean_s": 0.24375416338443756,
+          "min_s": 0.24324081279337406,
+          "n_runs": 5,
+          "std_s": 0.00032473982451196066,
+          "warmup_s": 0.30527227837592363
+        },
+        "mapping_matrix": {
+          "max_s": 0.004362105391919613,
+          "mean_s": 0.003975080884993076,
+          "min_s": 0.0036905044689774513,
+          "n_runs": 5,
+          "std_s": 0.00027647110833475835,
+          "warmup_s": 0.1810475280508399
+        },
+        "regularization_matrix": {
+          "max_s": 0.0031325537711381912,
+          "mean_s": 0.0028653712943196297,
+          "min_s": 0.0027772635221481323,
+          "n_runs": 5,
+          "std_s": 0.000151041780521698,
+          "warmup_s": 0.2487017596140504
+        },
+        "solve_only": {
+          "max_s": 0.2452751249074936,
+          "mean_s": 0.2442998496815562,
+          "min_s": 0.24328690208494663,
+          "n_runs": 5,
+          "std_s": 0.0007408396435605031,
+          "warmup_s": 3.683670548722148
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "n_data": 9176,
+      "n_source": 6400,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        6400,
+        6400
+      ],
+      "scheme": "rectangular_first",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 80,
+      "source_grid_ny": 80,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.10184741206467152,
+          "mean_s": 0.10178393051028252,
+          "min_s": 0.10173081234097481,
+          "n_runs": 5,
+          "std_s": 5.4084888318110455e-05,
+          "warmup_s": 0.10201842337846756
+        },
+        "log_evidence_total": {
+          "max_s": 0.2447439143434167,
+          "mean_s": 0.24422657154500485,
+          "min_s": 0.24373986292630434,
+          "n_runs": 5,
+          "std_s": 0.00040734306095185116,
+          "warmup_s": 0.24434389360249043
+        },
+        "mapping_matrix": {
+          "max_s": 0.0038990043103694916,
+          "mean_s": 0.0038115164265036584,
+          "min_s": 0.0037099141627550125,
+          "n_runs": 5,
+          "std_s": 6.956753806551674e-05,
+          "warmup_s": 0.003994515165686607
+        },
+        "regularization_matrix": {
+          "max_s": 0.0031916024163365364,
+          "mean_s": 0.0028506392613053323,
+          "min_s": 0.00271583441644907,
+          "n_runs": 5,
+          "std_s": 0.00019278853535596168,
+          "warmup_s": 0.26559075992554426
+        },
+        "solve_only": {
+          "max_s": 0.2446705847978592,
+          "mean_s": 0.24429539404809475,
+          "min_s": 0.24381247349083424,
+          "n_runs": 5,
+          "std_s": 0.0003248748180699102,
+          "warmup_s": 0.24390010349452496
+        }
+      }
+    },
+    {
+      "backend": "matrix",
+      "blurred_mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "mapping_matrix_shape": [
+        9176,
+        6400
+      ],
+      "n_data": 9176,
+      "n_source": 6400,
+      "nonnegative": false,
+      "regularization_matrix_shape": [
+        6400,
+        6400
+      ],
+      "scheme": "rectangular_second",
+      "source_grid_margin_frac": 0.1,
+      "source_grid_nx": 80,
+      "source_grid_ny": 80,
+      "timing": {
+        "blurred_mapping_matrix": {
+          "max_s": 0.10232837405055761,
+          "mean_s": 0.10205593928694726,
+          "min_s": 0.10182514321058989,
+          "n_runs": 5,
+          "std_s": 0.00023122464197301423,
+          "warmup_s": 0.10182829201221466
+        },
+        "log_evidence_total": {
+          "max_s": 0.2445263545960188,
+          "mean_s": 0.23005841113626957,
+          "min_s": 0.20797965116798878,
+          "n_runs": 5,
+          "std_s": 0.019547363891330695,
+          "warmup_s": 0.20842172112315893
+        },
+        "mapping_matrix": {
+          "max_s": 0.0038920845836400986,
+          "mean_s": 0.0038451887667179108,
+          "min_s": 0.0038034655153751373,
+          "n_runs": 5,
+          "std_s": 3.2256407070540244e-05,
+          "warmup_s": 0.004055504687130451
+        },
+        "regularization_matrix": {
+          "max_s": 0.0032715843990445137,
+          "mean_s": 0.002954587712883949,
+          "min_s": 0.0028472039848566055,
+          "n_runs": 5,
+          "std_s": 0.0001791347848695626,
+          "warmup_s": 0.29798341915011406
+        },
+        "solve_only": {
+          "max_s": 0.2445034934207797,
+          "mean_s": 0.24437911231070758,
+          "min_s": 0.244159784168005,
+          "n_runs": 5,
+          "std_s": 0.00013634822726065285,
+          "warmup_s": 0.24534657504409552
+        }
+      }
+    }
+  ],
+  "data_source": "fits",
+  "grid_shapes": [
+    [
+      32,
+      32
+    ],
+    [
+      48,
+      48
+    ],
+    [
+      64,
+      64
+    ],
+    [
+      80,
+      80
+    ]
+  ],
+  "include_log_evidence": true,
+  "include_solve": true,
+  "n_runs": 5,
+  "nonnegative": false,
+  "schemes": [
+    "rectangular_zero",
+    "rectangular_first",
+    "rectangular_second"
+  ],
+  "source_grid_margin_frac": 0.1,
+  "timestamp": "2026-02-15T19:20:06Z"
+}
