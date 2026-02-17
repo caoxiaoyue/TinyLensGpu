@@ -13,36 +13,23 @@ from .multipole import Multipole, EllipticalMultipole
 
 class EPL_MULTIPOLE_M3M4(ck.Module):
     """
-    Represent the `EPL_MULTIPOLE_M3M4` component in the TinyLensGpu pipeline.
-    
+    EPL lens plus circular multipole perturbations (m=3 and m=4).
+
+    This model combines a base elliptical power-law (EPL) mass profile with
+    two angular perturbation terms represented by circular multipoles.
+
     Parameters
     ----------
-    theta_E : Any
-        Configuration argument consumed during construction of this component.
-    gamma : Any
-        Configuration argument consumed during construction of this component.
-    e1 : Any
-        Configuration argument consumed during construction of this component.
-    e2 : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    a3_a : Any
-        Configuration argument consumed during construction of this component.
-    delta_phi_m3 : Any
-        Configuration argument consumed during construction of this component.
-    a4_a : Any
-        Configuration argument consumed during construction of this component.
-    delta_phi_m4 : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    theta_E, gamma : float, optional
+        EPL Einstein radius and logarithmic slope.
+    e1, e2 : float, optional
+        EPL ellipticity components.
+    center_x, center_y : float, optional
+        Lens center coordinates.
+    a3_a, a4_a : float, optional
+        Relative amplitudes of the m=3 and m=4 multipoles.
+    delta_phi_m3, delta_phi_m4 : float, optional
+        Phase offsets (radians) of m=3 and m=4 multipoles relative to EPL angle.
     """
 
     def __init__(self, theta_E: Optional[float] = None, gamma: Optional[float] = None,
@@ -51,46 +38,12 @@ class EPL_MULTIPOLE_M3M4(ck.Module):
                  a3_a: Optional[float] = None, delta_phi_m3: Optional[float] = None,
                  a4_a: Optional[float] = None, delta_phi_m4: Optional[float] = None) -> None:
         """
-        Initialize a `EPL_MULTIPOLE_M3M4` instance with validated configuration.
-        
+        Initialize EPL + multipole (m=3,m=4) composite model.
+
         Parameters
         ----------
-        theta_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        gamma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a3_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a4_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        theta_E, gamma, e1, e2, center_x, center_y, a3_a, delta_phi_m3, a4_a, delta_phi_m4 : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         object.__setattr__(self, "epl", EPL())
@@ -114,55 +67,20 @@ class EPL_MULTIPOLE_M3M4(ck.Module):
               center_y: Optional[Array] = None, a3_a: Optional[Array] = None, 
               delta_phi_m3: Optional[Array] = None, a4_a: Optional[Array] = None, 
               delta_phi_m4: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Compute total deflection from EPL + m3 + m4 components.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        theta_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        gamma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a3_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a4_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        theta_E, gamma, e1, e2, center_x, center_y, a3_a, delta_phi_m3, a4_a, delta_phi_m4 : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         theta_E = jnp.asarray(theta_E)
         e1 = jnp.asarray(e1)
@@ -196,36 +114,23 @@ class EPL_MULTIPOLE_M3M4(ck.Module):
 
 class EPL_MULTIPOLE_M3M4_ELL(ck.Module):
     """
-    Represent the `EPL_MULTIPOLE_M3M4_ELL` component in the TinyLensGpu pipeline.
-    
+    EPL lens plus elliptical multipole perturbations (m=3 and m=4).
+
+    Compared with :class:`EPL_MULTIPOLE_M3M4`, this variant uses multipole
+    operators that depend explicitly on lens ellipticity ``q`` and Einstein radius.
+
     Parameters
     ----------
-    theta_E : Any
-        Configuration argument consumed during construction of this component.
-    gamma : Any
-        Configuration argument consumed during construction of this component.
-    e1 : Any
-        Configuration argument consumed during construction of this component.
-    e2 : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    a3_a : Any
-        Configuration argument consumed during construction of this component.
-    delta_phi_m3 : Any
-        Configuration argument consumed during construction of this component.
-    a4_a : Any
-        Configuration argument consumed during construction of this component.
-    delta_phi_m4 : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    theta_E, gamma : float, optional
+        EPL Einstein radius and logarithmic slope.
+    e1, e2 : float, optional
+        EPL ellipticity components.
+    center_x, center_y : float, optional
+        Lens center coordinates.
+    a3_a, a4_a : float, optional
+        Relative amplitudes of the m=3 and m=4 multipoles.
+    delta_phi_m3, delta_phi_m4 : float, optional
+        Phase offsets (radians) of m=3 and m=4 multipoles.
     """
 
     def __init__(self, theta_E: Optional[float] = None, gamma: Optional[float] = None,
@@ -234,46 +139,12 @@ class EPL_MULTIPOLE_M3M4_ELL(ck.Module):
                  a3_a: Optional[float] = None, delta_phi_m3: Optional[float] = None,
                  a4_a: Optional[float] = None, delta_phi_m4: Optional[float] = None) -> None:
         """
-        Initialize a `EPL_MULTIPOLE_M3M4_ELL` instance with validated configuration.
-        
+        Initialize EPL + elliptical multipole (m=3,m=4) model.
+
         Parameters
         ----------
-        theta_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        gamma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a3_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a4_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        theta_E, gamma, e1, e2, center_x, center_y, a3_a, delta_phi_m3, a4_a, delta_phi_m4 : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         object.__setattr__(self, "epl", EPL())
@@ -297,55 +168,20 @@ class EPL_MULTIPOLE_M3M4_ELL(ck.Module):
               center_y: Optional[Array] = None, a3_a: Optional[Array] = None, 
               delta_phi_m3: Optional[Array] = None, a4_a: Optional[Array] = None, 
               delta_phi_m4: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Compute total deflection from EPL + elliptical m3 + elliptical m4 terms.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        theta_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        gamma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a3_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a4_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        delta_phi_m4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        theta_E, gamma, e1, e2, center_x, center_y, a3_a, delta_phi_m3, a4_a, delta_phi_m4 : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         theta_E = jnp.asarray(theta_E)
         e1 = jnp.asarray(e1)

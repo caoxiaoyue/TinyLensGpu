@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 
-
+#TODO, n_source should be static jit parameters
 def dense_mapping_from_weights_indices(
     weights: jnp.ndarray,
     indices: jnp.ndarray,
@@ -51,25 +51,11 @@ def lens_mapping_operator_bilinear_rectangular_from(
     ny: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
-    Compute sparse bilinear interpolation weights for a rectangular source grid.
+    Build bilinear interpolation weights on a rectangular source grid.
 
-    This function calculates the interpolation weights and indices required to map
-    ray-traced image coordinates (beta) onto a regular Cartesian source grid.
-    For each image pixel ray that hits the source plane at $(u, v)$, it finds the
-    four enclosing source grid points and computes bilinear weights.
-
-    Coordinate Normalization:
-    The source plane coordinates $(u, v)$ are normalized to grid indices $(i, j)$:
-    $i = (u - u_{min}) / \Delta u$
-    $j = (v - v_{min}) / \Delta v$
-
-    Interpolation:
-    For a point $(i+f_x, j+f_y)$ where $i, j$ are integers and $f_x, f_y \in [0, 1)$,
-    the weights for the four corners are:
-    - (i, j)     : $(1-f_x)(1-f_y)$
-    - (i+1, j)   : $f_x(1-f_y)$
-    - (i, j+1)   : $(1-f_x)f_y$
-    - (i+1, j+1) : $f_x f_y$
+    Each source-plane coordinate is converted into fractional grid coordinates.
+    The function returns the four corner indices and corresponding bilinear
+    weights for each data pixel, plus a validity mask for points inside bounds.
 
     Parameters
     ----------

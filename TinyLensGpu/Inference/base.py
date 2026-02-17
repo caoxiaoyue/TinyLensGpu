@@ -8,22 +8,21 @@ from .build_prior import make_prior_transformation
 
 class AbstractInference(ABC): 
     """
-    Represent the `AbstractInference` component in the TinyLensGpu pipeline.
-    
+    Base interface shared by samplers and optimizers.
+
+    The class standardizes three operations used by downstream inference
+    backends: likelihood evaluation, prior transformation, and execution through
+    ``run``.
+
     Parameters
     ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    prior_transform : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    prob_model : Any, optional
+        Callable probability model taking parameter vectors and returning
+        log-likelihood values.
+    ndim : int, optional
+        Number of free parameters. If omitted, inferred from the prior builder.
+    prior_transform : Callable[[Any], Any], optional
+        Unit-cube to physical-parameter transform.
     """
     def __init__(
         self,
@@ -32,25 +31,16 @@ class AbstractInference(ABC):
         prior_transform: Optional[Callable[[Any], Any]] = None,
     ):
         """
-        Initialize a `AbstractInference` instance with validated configuration.
-        
+        Initialize inference wrapper state.
+
         Parameters
         ----------
-        prob_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ndim : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        prior_transform : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        prob_model : Any, optional
+            Probability model callable.
+        ndim : int, optional
+            Number of parameters.
+        prior_transform : Callable[[Any], Any], optional
+            Prior transform callable.
         """
         self.prob_model = prob_model
         self.ndim = ndim
@@ -59,19 +49,12 @@ class AbstractInference(ABC):
 
     def _ensure_prior_transform(self) -> None:
         """
-        Internal helper to ensure prior transform.
-        
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Lazily initialize prior transform and dimensionality.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If ``prob_model`` is unavailable and prior metadata cannot be derived.
         """
         if self.prior_transform is not None and self.ndim is not None:
             return
@@ -87,20 +70,17 @@ class AbstractInference(ABC):
 
     def loglike_jax(self, theta):
         """
-        Compute loglike jax.
-        
+        Evaluate log-likelihood in JAX space.
+
         Parameters
         ----------
-        theta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        theta : array_like
+            Parameter vector in physical space.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        jnp.ndarray | float
+            Log-likelihood value returned by ``prob_model``.
         """
         theta = jnp.asarray(theta, dtype=jnp.float32)
         return self.prob_model(theta)
@@ -126,43 +106,32 @@ class AbstractInference(ABC):
 
     def prior(self, u):
         """
-        Compute prior.
-        
+        Transform unit-cube variables to physical parameters.
+
         Parameters
         ----------
-        u : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        u : array_like
+            Unit-hypercube sample in ``[0, 1]^ndim``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        np.ndarray
+            Parameter vector in model space.
         """
         self._ensure_prior_transform()
         return np.asarray(self.prior_transform(u))
 
 
     @abstractmethod
-    def run(self, nlive=1000, **kwargs):
+    def run(self, *args, **kwargs):
         """
-        Compute run.
-        
+        Execute inference procedure.
+
         Parameters
         ----------
-        nlive : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        **kwargs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        *args
+            Positional arguments consumed by specific backend implementations.
+        **kwargs
+            Backend-specific run options.
         """
         pass

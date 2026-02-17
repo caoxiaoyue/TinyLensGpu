@@ -4,39 +4,11 @@ from TinyLensGpu.Inference.Optimizer.base_optimizer import BaseOptimizer
 
 class DifferentialEvolutionOptimizer(BaseOptimizer):
     """
-    Represent the `DifferentialEvolutionOptimizer` component in the TinyLensGpu pipeline.
-    
-    Parameters
-    ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Global optimizer using SciPy differential evolution.
     """
     def __init__(self, prob_model=None, ndim=None):
         """
-        Initialize a `DifferentialEvolutionOptimizer` instance with validated configuration.
-        
-        Parameters
-        ----------
-        prob_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ndim : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Initialize differential-evolution optimizer wrapper.
         """
         super().__init__(prob_model=prob_model, ndim=ndim)
 
@@ -70,23 +42,19 @@ class DifferentialEvolutionOptimizer(BaseOptimizer):
         # Create a callback that updates both our progress and user's callback if provided
         def combined_callback(xk, convergence=None):
             """
-            Compute combined callback.
-            
+            Track optimization progress and forward user callback.
+
             Parameters
             ----------
-            xk : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            convergence : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            xk : np.ndarray
+                Current candidate parameters.
+            convergence : float, optional
+                Convergence metric reported by SciPy.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            bool
+                ``False`` to keep optimization running.
             """
             self.best_value = self.objective(xk)
             self._progress_callback(xk, convergence)

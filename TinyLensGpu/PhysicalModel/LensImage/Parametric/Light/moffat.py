@@ -43,37 +43,20 @@ class MoffatEllipse(ck.Module):
                  e2: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `MoffatEllipse` instance with validated configuration.
-        
+        Initialize elliptical Moffat profile parameters.
+
         Parameters
         ----------
-        amp : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        alpha : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        beta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        amp : float, optional
+            Central surface-brightness normalization.
+        alpha : float, optional
+            Radial scale parameter.
+        beta : float, optional
+            Wing-slope exponent.
+        e1, e2 : float, optional
+            Ellipticity components.
+        center_x, center_y : float, optional
+            Profile center coordinates in arcseconds.
         """
         super().__init__()
 
@@ -91,7 +74,7 @@ class MoffatEllipse(ck.Module):
               e1: Optional[Array] = None, e2: Optional[Array] = None, 
               center_x: Optional[Array] = None, center_y: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate elliptical Moffat surface brightness on the image plane.
 
         Parameters
         ----------
@@ -117,7 +100,7 @@ class MoffatEllipse(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         amp = jnp.asarray(amp)
         alpha = jnp.asarray(alpha)

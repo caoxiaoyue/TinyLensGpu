@@ -40,34 +40,18 @@ class HernquistEllipse(ck.Module):
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
         """
-        Initialize a `HernquistEllipse` instance with validated configuration.
-        
+        Initialize elliptical Hernquist profile parameters.
+
         Parameters
         ----------
-        amp : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        amp : float, optional
+            Surface-brightness amplitude.
+        Rs : float, optional
+            Scale radius.
+        e1, e2 : float, optional
+            Ellipticity components.
+        center_x, center_y : float, optional
+            Profile center coordinates in arcseconds.
         """
         super().__init__()
 
@@ -84,7 +68,7 @@ class HernquistEllipse(ck.Module):
               e2: Optional[Array] = None, center_x: Optional[Array] = None, 
               center_y: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate projected Hernquist surface brightness on the image plane.
 
         Parameters
         ----------
@@ -108,7 +92,7 @@ class HernquistEllipse(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         amp = jnp.asarray(amp)
         Rs = jnp.asarray(Rs)
@@ -131,20 +115,17 @@ class HernquistEllipse(ck.Module):
         
         def F(X):
             """
-            Compute F.
-            
+            Evaluate the Hernquist projection helper function.
+
             Parameters
             ----------
-            X : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            X : Array
+                Dimensionless radius ``r / Rs``.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            Array
+                Piecewise analytic value used in projected Hernquist intensity.
             """
             cond1 = X < 1
             # For X < 1: 1 / sqrt(1 - X^2) * arctanh(sqrt(1 - X^2))

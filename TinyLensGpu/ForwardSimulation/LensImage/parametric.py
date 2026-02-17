@@ -55,7 +55,11 @@ def bin_image_general(img: Array, nsub: int) -> Array:
 
 class LensSimulator:
     """
-    Represent the `LensSimulator` component in the TinyLensGpu pipeline.
+    Forward simulator for parametric lens/source light models.
+
+    The simulator computes ray tracing, evaluates parametric light profiles,
+    applies PSF convolution, and optionally solves linear intensity coefficients
+    using NNLS or normal-equation solvers.
 
     Parameters
     ----------
@@ -66,11 +70,6 @@ class LensSimulator:
     solver_type : str, optional
         Linear solver type for intensity parameters ('nnls' or 'normal'), by default 'nnls'.
 
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
     """
 
     def __init__(
@@ -113,7 +112,7 @@ class LensSimulator:
 
     def _restore_2d_from_1d(self, img_1d: Array) -> Array:
         """
-        Internal helper to restore 2d from 1d.
+        Restore masked/unmasked flattened arrays to sub-grid image shape.
 
         Parameters
         ----------
@@ -414,7 +413,7 @@ class LensSimulator:
         # Vectorized convolution using vmap
         def convolve_func(x):
             """
-            Internal helper to convolve 2D image with PSF kernel.
+            Convolve one 2D component image with the PSF kernel.
 
             Parameters
             ----------
@@ -456,15 +455,12 @@ class LensSimulator:
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return concise simulator summary for logging/debugging.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            Summary including component counts and selected linear solver.
         """
         return (f"LensSimulator("
                 f"n_mass={len(self.phys_model.lens_mass)}, "

@@ -60,25 +60,16 @@ class PhysicalModel(ck.Module):
         lens_light: Optional[List[ck.Module]] = None,
     ) -> None:
         """
-        Initialize a `PhysicalModel` instance with validated configuration.
-        
+        Initialize composite lensing model container.
+
         Parameters
         ----------
-        lens_mass : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        source_light : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_light : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        lens_mass : list[ck.Module], optional
+            Mass-profile components contributing to deflection.
+        source_light : list[ck.Module], optional
+            Source-plane light components.
+        lens_light : list[ck.Module], optional
+            Lens-plane light components.
         """
         super().__init__()
 
@@ -105,45 +96,36 @@ class PhysicalModel(ck.Module):
     @property
     def lens_mass(self) -> List[ck.Module]:
         """
-        Compute lens mass.
-        
-        
+        Return registered lens-mass components.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        list[ck.Module]
+            Ordered list of mass-profile modules.
         """
         return self._lens_mass_list
 
     @property
     def source_light(self) -> List[ck.Module]:
         """
-        Compute source light.
-        
-        
+        Return registered source-light components.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        list[ck.Module]
+            Ordered list of source-light modules.
         """
         return self._source_light_list
 
     @property
     def lens_light(self) -> List[ck.Module]:
         """
-        Compute lens light.
-        
-        
+        Return registered lens-light components.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        list[ck.Module]
+            Ordered list of lens-light modules.
         """
         return self._lens_light_list
 
@@ -225,15 +207,12 @@ class PhysicalModel(ck.Module):
 
     def get_component_counts(self) -> Dict[str, int]:
         """
-        Compute get component counts.
-        
-        
+        Report the number of components in each model group.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        dict[str, int]
+            Counts for lens mass, source light, and lens light modules.
         """
         return {
             'n_lens_mass': len(self.lens_mass),

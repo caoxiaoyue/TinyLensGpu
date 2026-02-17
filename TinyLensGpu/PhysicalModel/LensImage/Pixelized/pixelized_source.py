@@ -26,22 +26,20 @@ from TinyLensGpu.utils.lensing import (
 
 class PixelizedSourceModel(ck.Module):
     """
-    Represent the `PixelizedSourceModel` component in the TinyLensGpu pipeline.
-    
+    Pixelized source configuration and regularization wrapper.
+
+    This module stores grid/mapping/solver configuration and provides helper
+    builders for dense and sparse regularization operators used by pixelized
+    source inversion.
+
     Parameters
     ----------
-    config : Any
-        Configuration argument consumed during construction of this component.
-    reg_scale : Any
-        Configuration argument consumed during construction of this component.
-    reg_coefficient : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    config : PixelizedSourceConfig, optional
+        Source-grid, mapping, regularization and solver settings.
+    reg_scale : float | ParamU, optional
+        Regularization correlation/length scale.
+    reg_coefficient : float | ParamU, optional
+        Overall regularization strength.
     """
 
     def __init__(

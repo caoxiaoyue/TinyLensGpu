@@ -22,13 +22,13 @@ RayTraceFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
 
 class BaseGridStrategy:
     """
-    Represent the `BaseGridStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Abstract interface for building source-plane grids.
+
+    A grid strategy converts unmasked image-plane samples into a source-plane
+    discretization used by pixelized-source inversion. Implementations differ in
+    how source nodes are placed (adaptive irregular sampling vs. fixed rectangular
+    lattice), but always return a :class:`GridArtifacts` object with a consistent
+    schema.
     """
 
     def build(
@@ -41,36 +41,31 @@ class BaseGridStrategy:
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
         """
-        Compute build.
-        
+        Build source-grid artifacts for one lens configuration.
+
         Parameters
         ----------
-        lensed_source_image : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        mask : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dpix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        data_mesh_beta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ray_trace : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        lensed_source_image : np.ndarray
+            Lensed source light image on the observed image grid, shape
+            ``(npix, npix)``. Used by adaptive strategies to place more source
+            nodes in informative regions.
+        mask : np.ndarray
+            Boolean image-plane mask with shape ``(npix, npix)``. ``True`` means
+            masked (excluded from inversion).
+        dpix : float
+            Image-plane pixel scale in arcsec per pixel.
+        data_mesh_beta : jnp.ndarray
+            Ray-traced coordinates of unmasked image pixels in source-plane units,
+            shape ``(n_data, 2)``.
+        ray_trace : RayTraceFn
+            Callable that maps ``(x, y)`` image-plane coordinates to source-plane
+            coordinates.
+
         Returns
         -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        Raises
-        ------
-        NotImplementedError
-            Raised when input validation fails or required runtime state is missing.
-        
+        GridArtifacts
+            Source-grid geometry and corresponding source-plane coordinates used by
+            downstream mapping and regularization builders.
         """
         raise NotImplementedError
 
@@ -78,13 +73,11 @@ class BaseGridStrategy:
 @dataclass(frozen=True)
 class IrregularGridStrategy(BaseGridStrategy):
     """
-    Represent the `IrregularGridStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Adaptive source-grid construction using weighted point sampling.
+
+    The strategy samples source nodes from the lensed image intensity field,
+    then ray-traces sampled image-plane positions into source-plane coordinates.
+    This concentrates degrees of freedom where source information is strongest.
     """
 
     config: IrregularGridConfig
@@ -99,32 +92,13 @@ class IrregularGridStrategy(BaseGridStrategy):
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
         """
-        Compute build.
-        
-        Parameters
-        ----------
-        lensed_source_image : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        mask : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dpix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        data_mesh_beta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ray_trace : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Build an irregular source mesh and its ray-traced counterpart.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        GridArtifacts
+            Artifacts with ``source_mesh`` sampled in image-plane coordinates and
+            ``source_mesh_beta`` obtained by ray tracing those points.
         """
         source_mesh_px, (height, width), _ = sample_points_weighted(
             img=np.array(lensed_source_image),
@@ -153,13 +127,11 @@ class IrregularGridStrategy(BaseGridStrategy):
 @dataclass(frozen=True)
 class RectangularGridStrategy(BaseGridStrategy):
     """
-    Represent the `RectangularGridStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Fixed rectangular source-grid construction.
+
+    The source plane is discretized by a regular ``ny x nx`` lattice. Bounds are
+    either user supplied or inferred from the ray-traced data extent with a
+    configurable margin.
     """
 
     config: RectangularGridConfig
@@ -174,32 +146,13 @@ class RectangularGridStrategy(BaseGridStrategy):
         ray_trace: RayTraceFn,
     ) -> GridArtifacts:
         """
-        Compute build.
-        
-        Parameters
-        ----------
-        lensed_source_image : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        mask : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dpix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        data_mesh_beta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ray_trace : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Build a rectangular source mesh in source-plane coordinates.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        GridArtifacts
+            Artifacts with ``source_mesh`` equal to ``source_mesh_beta`` and with
+            populated ``source_grid_shape`` / ``source_grid_bounds`` metadata.
         """
         _ = lensed_source_image, mask, dpix, ray_trace
 
@@ -235,4 +188,3 @@ class RectangularGridStrategy(BaseGridStrategy):
             source_grid_shape=(int(self.config.ny), int(self.config.nx)),
             source_grid_bounds=(x_min, x_max, y_min, y_max),
         )
-

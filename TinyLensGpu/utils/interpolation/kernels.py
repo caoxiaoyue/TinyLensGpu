@@ -12,27 +12,26 @@ from functools import partial
 def get_interpolation_weights(points, query_points, k_neighbors=10, kernel='wendland_c4',
                              radius_scale=1.5):
     """
-    Compute interpolation weights between source points and query points.
-    
-    This is a standalone function to get the weights used in kernel interpolation,
-    useful when you want to analyze or reuse weights separately from interpolation.
-    
-    Args:
-        points:       (N, 2) source point coordinates
-        query_points: (M, 2) query point coordinates
-        k_neighbors:  number of nearest neighbors (default: 10)
-        kernel:       'wendland_c2', 'wendland_c4', or 'wendland_c6' (default: 'wendland_c4')
-        radius_scale: multiplier for auto-computed radius (default: 1.5)
-        
-    Returns:
-        weights:   (M, k) normalized weights for each query point
-        indices:   (M, k) indices of K nearest neighbors in points array
-        distances: (M, k) distances to K nearest neighbors
-        
-    Example:
-        >>> weights, indices, distances = get_interpolation_weights(src_pts, query_pts)
-        >>> # Now you can use weights and indices for custom interpolation
-        >>> interpolated = jnp.sum(weights * values[indices], axis=1)
+    Compute k-NN interpolation weights for query points.
+
+    Parameters
+    ----------
+    points : array_like
+        Source-node coordinates with shape ``(n_source, 2)``.
+    query_points : array_like
+        Query coordinates with shape ``(n_query, 2)``.
+    k_neighbors : int, optional
+        Number of nearest source nodes used for each query point.
+    kernel : {'wendland_c2', 'wendland_c4', 'wendland_c6'}, optional
+        Compactly supported kernel family.
+    radius_scale : float, optional
+        Scaling factor applied to the adaptive kernel radius.
+
+    Returns
+    -------
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
+        Normalized weights, neighbor indices, and neighbor distances, each with
+        shape ``(n_query, k_neighbors)``.
     """
     points = jnp.asarray(points)
     query_points = jnp.asarray(query_points)
@@ -51,23 +50,19 @@ def get_interpolation_weights(points, query_points, k_neighbors=10, kernel='wend
 
 def wendland_c2(r, h):
     """
-    Compute wendland c2.
-    
+    Evaluate Wendland C2 kernel.
+
     Parameters
     ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    h : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    r : array_like
+        Pairwise distance(s).
+    h : array_like
+        Support radius (same units as ``r``).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Kernel value(s), zero outside compact support.
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**4 * (4.0 * s + 1.0), 0.0)
@@ -76,23 +71,19 @@ def wendland_c2(r, h):
 
 def wendland_c4(r, h):
     """
-    Compute wendland c4.
-    
+    Evaluate Wendland C4 kernel.
+
     Parameters
     ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    h : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    r : array_like
+        Pairwise distance(s).
+    h : array_like
+        Support radius.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Kernel value(s), zero outside compact support.
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**6 * (35.0 * s**2 + 18.0 * s + 3.0), 0.0)
@@ -101,23 +92,19 @@ def wendland_c4(r, h):
 
 def wendland_c6(r, h):
     """
-    Compute wendland c6.
-    
+    Evaluate Wendland C6 kernel.
+
     Parameters
     ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    h : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    r : array_like
+        Pairwise distance(s).
+    h : array_like
+        Support radius.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Kernel value(s), zero outside compact support.
     """
     s = r / (h + 1e-10)
     w = jnp.where(s < 1.0, (1.0 - s)**8 * (32.0 * s**3 + 25.0 * s**2 + 8.0 * s + 1.0), 0.0)
@@ -126,22 +113,25 @@ def wendland_c6(r, h):
 
 def compute_weights(points, query_points, k_neighbors, radius_scale, kernel_fn):
     """
-    Compute normalized kernel weights for interpolation.
-    
-    This function computes the weights between source points and 
-    query points using K-nearest neighbors and Wendland kernels.
-    
-    Args:
-        points:       (N, 2) source point coordinates
-        query_points: (M, 2) query point coordinates
-        k_neighbors:  number of nearest neighbors
-        radius_scale: multiplier for auto-computed radius
-        kernel_fn:    kernel function (wendland_c2/c4/c6)
-        
-    Returns:
-        weights:      (M, k) normalized weights for each query point
-        indices:      (M, k) indices of K nearest neighbors for each query point
-        distances:    (M, k) distances to K nearest neighbors
+    Compute normalized kernel weights and k-NN indices.
+
+    Parameters
+    ----------
+    points : jnp.ndarray
+        Source-node coordinates with shape ``(n_source, 2)``.
+    query_points : jnp.ndarray
+        Query coordinates with shape ``(n_query, 2)``.
+    k_neighbors : int
+        Number of neighbors per query point.
+    radius_scale : float
+        Support-radius multiplier.
+    kernel_fn : callable
+        Kernel function taking ``(r, h)``.
+
+    Returns
+    -------
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
+        Normalized weights, k-NN indices, and distances.
     """
     diff = query_points[:, None, :] - points[None, :, :]
     dist_sq = jnp.sum(diff * diff, axis=-1)

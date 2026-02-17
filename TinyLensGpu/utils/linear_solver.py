@@ -50,20 +50,17 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
     def body_fun(state):
         """
-        Compute body fun.
-        
+        One outer-loop update of the FNNLS active/passive sets.
+
         Parameters
         ----------
-        state : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        state : tuple
+            Current solver state ``(d, s, P, w, no_update, _)``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple
+            Updated solver state tuple.
         """
         d, s, P, w, no_update, _ = state
         current_P = P
@@ -76,26 +73,21 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         def masked_lstsq(ZTZ, ZTx, P):
             # Masked solve: for inactive variables, set ZTZ to identity and ZTx to zero
             """
-            Compute masked lstsq.
-            
+            Solve least-squares system restricted to passive variables.
+
             Parameters
             ----------
-            ZTZ : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            ZTx : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            P : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            ZTZ : Array
+                Gram matrix ``Z.T @ Z``.
+            ZTx : Array
+                Right-hand side ``Z.T @ x``.
+            P : Array
+                Boolean passive-set mask.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            Array
+                Candidate coefficient vector.
             """
             mask = P.astype(ZTZ.dtype)
             eye = jnp.eye(ZTZ.shape[0], dtype=ZTZ.dtype)
@@ -107,40 +99,34 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         # C1: Loop until all s[P] > tolerance
         def c1_cond_fn(carry):
             """
-            Compute c1 cond fn.
-            
+            Check C1 condition from the classic FNNLS algorithm.
+
             Parameters
             ----------
-            carry : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            carry : tuple
+                Inner-loop state ``(s, d, P)``.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            bool
+                ``True`` when at least one passive coefficient violates tolerance.
             """
             s, d, P = carry
             return jnp.any(P) & (jnp.min(jnp.where(P, s, jnp.inf)) <= tolerance)
 
         def c1_body_fn(carry):
             """
-            Compute c1 body fn.
-            
+            Perform one C-loop correction step in FNNLS.
+
             Parameters
             ----------
-            carry : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            carry : tuple
+                Inner-loop state ``(s, d, P)``.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            tuple
+                Updated inner-loop state ``(s, d, P)``.
             """
             s, d, P = carry
             # C2: Find largest alpha such that d + alpha(s-d) >= 0 for indices where s <= tolerance
@@ -171,20 +157,17 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
     def cond_fun(state):
         """
-        Compute cond fun.
-        
+        Stopping rule for the outer FNNLS loop.
+
         Parameters
         ----------
-        state : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        state : tuple
+            Current solver state ``(d, s, P, w, no_update, _)``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        bool
+            ``True`` while there are improving active-set moves.
         """
         d, s, P, w, no_update, _ = state
         return (~jnp.all(P)) & (jnp.max(jnp.where(~P, w, -jnp.inf)) > tolerance) & (no_update < max_repetitions)
@@ -222,24 +205,17 @@ class LinearSolver:
 
     def __init__(self, solver_type: str = 'nnls') -> None:
         """
-        Initialize a `LinearSolver` instance with validated configuration.
-        
+        Initialize linear solver backend selection.
+
         Parameters
         ----------
-        solver_type : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        solver_type : {'nnls', 'normal'}, optional
+            Solver backend. ``'nnls'`` enforces non-negativity.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If ``solver_type`` is not one of the supported values.
         """
         if solver_type not in ['nnls', 'normal']:
             raise ValueError("solver_type must be either 'nnls' or 'normal'")
@@ -362,20 +338,17 @@ def prepare_linear_system(
     # Vectorized convolution using vmap
     def convolve_func(x):
         """
-        Compute convolve func.
-        
+        Convolve one component image with the PSF kernel.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x : Array
+            One 2D image component.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Convolved 2D image with ``mode='same'``.
         """
         return fftconvolve_func(x, psf_kernel, mode='same')
 

@@ -18,26 +18,21 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 def _L(x: Array, tau: Array, s: float = 0.001) -> Array:
     """
-    Internal helper to L.
-    
+    Evaluate TNFW auxiliary logarithmic term.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    tau : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    s : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        Dimensionless radius ``R/Rs``.
+    tau : Array
+        Dimensionless truncation ratio ``r_trunc/Rs``.
+    s : float, optional
+        Lower clipping threshold for numerical stability.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Auxiliary function ``L(x, tau)`` used in TNFW analytic expressions.
     """
     x = jnp.maximum(x, s)
     return jnp.log(x * (tau + jnp.sqrt(tau**2 + x**2))**-1)
@@ -45,81 +40,32 @@ def _L(x: Array, tau: Array, s: float = 0.001) -> Array:
 
 def _F(x: Array, s: float = 0.001) -> Array:
     """
-    Internal helper to F.
-    
+    Evaluate NFW projection helper function ``F(x)``.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    s : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        Dimensionless radius ``R/Rs``.
+    s : float, optional
+        Lower clipping threshold for stability.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Piecewise analytic value of ``F(x)``.
     """
     x = jnp.maximum(x, s)
     
     def f_less_1(val):
-        """
-        Compute f less 1.
-        
-        Parameters
-        ----------
-        val : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Branch for ``x < 1``."""
         return (1 - val**2)**-0.5 * jnp.arctanh((1 - val**2)**0.5)
     
     def f_more_1(val):
-        """
-        Compute f more 1.
-        
-        Parameters
-        ----------
-        val : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Branch for ``x > 1``."""
         return (val**2 - 1)**-0.5 * jnp.arctan((val**2 - 1)**0.5)
     
     def f_equal_1(val):
-        """
-        Compute f equal 1.
-        
-        Parameters
-        ----------
-        val : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        """
+        """Branch for ``x == 1`` limit value."""
         return jnp.ones_like(val)
 
     # Use where for element-wise conditional logic
@@ -130,26 +76,21 @@ def _F(x: Array, s: float = 0.001) -> Array:
 
 def _tnfw_F_analytic(x: Array, tau: Array, s: float = 0.001) -> Array:
     """
-    Internal helper to tnfw F analytic.
-    
+    Evaluate analytic TNFW surface-density term.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    tau : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    s : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        Dimensionless radius ``R/Rs``.
+    tau : Array
+        Dimensionless truncation ratio.
+    s : float, optional
+        Lower clipping threshold.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Analytic projected term used by TNFW deflection expressions.
     """
     t2 = tau**2
     x = jnp.maximum(x, s)
@@ -171,26 +112,21 @@ def _tnfw_F_analytic(x: Array, tau: Array, s: float = 0.001) -> Array:
 
 def _tnfw_g(x: Array, tau: Array, s: float = 0.001) -> Array:
     """
-    Internal helper to tnfw g.
-    
+    Evaluate TNFW deflection helper function ``g(x, tau)``.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    tau : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    s : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        Dimensionless radius ``R/Rs``.
+    tau : Array
+        Dimensionless truncation ratio.
+    s : float, optional
+        Lower clipping threshold.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Helper function used to compute TNFW deflection amplitude.
     """
     x = jnp.maximum(x, s)
     F_x = _F(x, s)
@@ -206,23 +142,19 @@ def _tnfw_g(x: Array, tau: Array, s: float = 0.001) -> Array:
 
 def alpha2rho0(alpha_Rs: Array, Rs: Array) -> Array:
     """
-    Compute alpha2rho0.
-    
+    Convert deflection normalization to TNFW density normalization.
+
     Parameters
     ----------
-    alpha_Rs : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    Rs : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    alpha_Rs : Array
+        Deflection at scale radius ``Rs``.
+    Rs : Array
+        TNFW scale radius.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Characteristic density normalization ``rho0``.
     """
     return alpha_Rs / (4.0 * Rs**2 * (1.0 + jnp.log(0.5)))
 
@@ -249,31 +181,14 @@ class TNFWSpherical(ck.Module):
                  r_trunc: Optional[float] = None, center_x: Optional[float] = None,
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `TNFWSpherical` instance with validated configuration.
-        
+        Initialize spherical TNFW mass profile.
+
         Parameters
         ----------
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        alpha_Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_trunc : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Rs, alpha_Rs, r_trunc : float, optional
+            Scale radius, deflection normalization, and truncation radius.
+        center_x, center_y : float, optional
+            Lens center coordinates.
         """
         super().__init__()
         
@@ -360,37 +275,16 @@ class TNFWEllipsePotential(ck.Module):
                  e2: Optional[float] = None, center_x: Optional[float] = None,
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `TNFWEllipsePotential` instance with validated configuration.
-        
+        Initialize TNFW profile with elliptical potential approximation.
+
         Parameters
         ----------
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        alpha_Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_trunc : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Rs, alpha_Rs, r_trunc : float, optional
+            Scale radius, deflection normalization, and truncation radius.
+        e1, e2 : float, optional
+            Ellipticity components of the potential.
+        center_x, center_y : float, optional
+            Lens center coordinates.
         """
         super().__init__()
         
@@ -474,4 +368,3 @@ class TNFWEllipsePotential(ck.Module):
         f_y = sin_phi * f_x_prim + cos_phi * f_y_prim
         
         return f_x, f_y
-

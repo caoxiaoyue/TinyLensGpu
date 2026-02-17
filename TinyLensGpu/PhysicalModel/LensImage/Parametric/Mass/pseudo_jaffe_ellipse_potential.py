@@ -12,30 +12,23 @@ from .pseudo_jaffe import PseudoJaffe
 
 class PseudoJaffeEllipsePotential(ck.Module):
     """
-    Represent the `PseudoJaffeEllipsePotential` component in the TinyLensGpu pipeline.
-    
+    Pseudo-Jaffe profile with elliptical potential approximation.
+
+    The deflection is computed by transforming coordinates into a circularized
+    frame, evaluating the spherical Pseudo-Jaffe model, and rotating/scaling back.
+
     Parameters
     ----------
-    sigma0 : Any
-        Configuration argument consumed during construction of this component.
-    Ra : Any
-        Configuration argument consumed during construction of this component.
-    Rs : Any
-        Configuration argument consumed during construction of this component.
-    e1 : Any
-        Configuration argument consumed during construction of this component.
-    e2 : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    sigma0 : float, optional
+        Central surface-density normalization.
+    Ra : float, optional
+        Core radius.
+    Rs : float, optional
+        Scale or truncation radius.
+    e1, e2 : float, optional
+        Ellipticity components.
+    center_x, center_y : float, optional
+        Lens center coordinates.
     """
 
     def __init__(self, sigma0: Optional[float] = None, Ra: Optional[float] = None, 
@@ -43,37 +36,12 @@ class PseudoJaffeEllipsePotential(ck.Module):
                  e2: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `PseudoJaffeEllipsePotential` instance with validated configuration.
-        
+        Initialize elliptical-potential Pseudo-Jaffe model.
+
         Parameters
         ----------
-        sigma0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        sigma0, Ra, Rs, e1, e2, center_x, center_y : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         # self.spherical = PseudoJaffe()
@@ -91,46 +59,20 @@ class PseudoJaffeEllipsePotential(ck.Module):
               Ra: Optional[Array] = None, Rs: Optional[Array] = None, 
               e1: Optional[Array] = None, e2: Optional[Array] = None, 
               center_x: Optional[Array] = None, center_y: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate deflection field of elliptical-potential Pseudo-Jaffe profile.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        sigma0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        sigma0, Ra, Rs, e1, e2, center_x, center_y : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         sigma0 = jnp.asarray(sigma0)
         Ra = jnp.asarray(Ra)

@@ -15,25 +15,7 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 
 def _phi_ell(phi, q):
-    """
-    Internal helper to phi ell.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Convert polar angle to elliptical-angle convention for axis ratio ``q``."""
     return (
         phi
         - jnp.arctan2(jnp.sin(phi), jnp.cos(phi))
@@ -43,25 +25,7 @@ def _phi_ell(phi, q):
 
 def _F_m1_1_hat(phi, q):
     # Prevent division by zero or log of zero/negative
-    """
-    Internal helper to F m1 1 hat.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Angular helper for the elliptical ``m=1`` multipole solution."""
     q_safe = jnp.where(q > 0.99999, 0.99999, q) # Avoid q=1 exactly
     
     term1 = jnp.cos(phi) * (
@@ -73,25 +37,7 @@ def _F_m1_1_hat(phi, q):
 
 
 def _F_m1_1_hat_derivative(phi, q):
-    """
-    Internal helper to F m1 1 hat derivative.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Derivative of :func:`_F_m1_1_hat` with respect to ``phi``."""
     term1 = -jnp.cos(phi) * q * 2 * (q**2 - 1) * jnp.sin(2 * phi) / (
         1 + q**2 + (q**2 - 1) * jnp.cos(2 * phi)
     ) + jnp.sin(phi) * (
@@ -106,61 +52,13 @@ def _F_m1_1_hat_derivative(phi, q):
 
 
 def _potential_m1_1(r, phi, q, r_E):
-    """
-    Internal helper to potential m1 1.
-    
-    Parameters
-    ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    r_E : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Potential term for the elliptical ``m=1`` multipole model."""
     lambda_m1 = 2 / (1 + q)
     return r * _F_m1_1_hat(phi, q) + lambda_m1 / 2 * r * jnp.log(r / r_E) * jnp.cos(phi)
 
 
 def _alpha_m1_1(r, phi, q, r_E):
-    """
-    Internal helper to alpha m1 1.
-    
-    Parameters
-    ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    r_E : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Deflection components for the elliptical ``m=1`` multipole model."""
     lambda_m1 = 2 / (1 + q)
     f_phi = _F_m1_1_hat(phi, q)
     df_dphi = _F_m1_1_hat_derivative(phi, q)
@@ -178,22 +76,7 @@ def _alpha_m1_1(r, phi, q, r_E):
 
 
 def _A_3_1(q):
-    """
-    Internal helper to A 3 1.
-    
-    Parameters
-    ----------
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Normalization constant used by the ``m=3`` elliptical multipole."""
     return (
         jnp.log(2) * (1 + q) ** 2
         - 2 * (1 - q) * (1 + q) ** 2 * (1 + jnp.log(2) / 4)
@@ -202,25 +85,7 @@ def _A_3_1(q):
 
 
 def _F_m3_1_hat(phi, q):
-    """
-    Internal helper to F m3 1 hat.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Angular helper for the elliptical ``m=3`` multipole solution."""
     term1 = jnp.cos(phi) * (
         q * (3 + q**2) * jnp.log(1 + q**2 + (q**2 - 1) * jnp.cos(2 * phi)) - _A_3_1(q)
     )
@@ -229,25 +94,7 @@ def _F_m3_1_hat(phi, q):
 
 
 def _F_m3_1_hat_derivative(phi, q):
-    """
-    Internal helper to F m3 1 hat derivative.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Derivative of :func:`_F_m3_1_hat` with respect to ``phi``."""
     term1 = -jnp.cos(phi) * q * (3 + q**2) * 2 * (q**2 - 1) * jnp.sin(2 * phi) / (
         1 + q**2 + (q**2 - 1) * jnp.cos(2 * phi)
     ) + jnp.sin(phi) * (
@@ -260,61 +107,13 @@ def _F_m3_1_hat_derivative(phi, q):
 
 
 def _potential_m3_1(r, phi, q, r_E):
-    """
-    Internal helper to potential m3 1.
-    
-    Parameters
-    ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    r_E : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Potential term for the elliptical ``m=3`` multipole model."""
     lambda_m3 = -2 * (1 - q) / (1 + q) ** 2
     return r * _F_m3_1_hat(phi, q) + lambda_m3 / 2 * r * jnp.log(r / r_E) * jnp.cos(phi)
 
 
 def _alpha_m3_1(r, phi, q, r_E):
-    """
-    Internal helper to alpha m3 1.
-    
-    Parameters
-    ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    r_E : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Deflection components for the elliptical ``m=3`` multipole model."""
     lambda_m3 = -2 * (1 - q) / (1 + q) ** 2
     f_phi = _F_m3_1_hat(phi, q)
     df_dphi = _F_m3_1_hat_derivative(phi, q)
@@ -332,25 +131,7 @@ def _alpha_m3_1(r, phi, q, r_E):
 
 
 def _F_m4_1(phi, q):
-    """
-    Internal helper to F m4 1.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """First angular basis function for elliptical ``m=4`` multipole."""
     term1 = (
         -4
         * jnp.sqrt(2)
@@ -386,25 +167,7 @@ def _F_m4_1(phi, q):
 
 
 def _F_m4_1_derivative(phi, q):
-    """
-    Internal helper to F m4 1 derivative.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Derivative of :func:`_F_m4_1` with respect to ``phi``."""
     term1 = (
         -4
         * jnp.sqrt(2)
@@ -453,25 +216,7 @@ def _F_m4_1_derivative(phi, q):
 
 
 def _F_m4_2(phi, q):
-    """
-    Internal helper to F m4 2.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Second angular basis function for elliptical ``m=4`` multipole."""
     sqrt_term = jnp.sqrt(1 + q**2 + (q**2 - 1) * jnp.cos(2 * phi))
     
     term1 = (
@@ -513,25 +258,7 @@ def _F_m4_2(phi, q):
 
 
 def _F_m4_2_derivative(phi, q):
-    """
-    Internal helper to F m4 2 derivative.
-    
-    Parameters
-    ----------
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
-    Returns
-    -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
-    """
+    """Derivative of :func:`_F_m4_2` with respect to ``phi``."""
     sqrt_term = jnp.sqrt(1 + q**2 + (q**2 - 1) * jnp.cos(2 * phi))
     
     term1 = (
@@ -590,62 +317,27 @@ def _F_m4_2_derivative(phi, q):
 
 class Multipole(ck.Module):
     """
-    Represent the `Multipole` component in the TinyLensGpu pipeline.
-    
+    Circular multipole perturbation model.
+
     Parameters
     ----------
-    m : Any
-        Configuration argument consumed during construction of this component.
-    a_m : Any
-        Configuration argument consumed during construction of this component.
-    phi_m : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    r_E : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    m : int, optional
+        Multipole order.
+    a_m : float, optional
+        Multipole amplitude.
+    phi_m : float, optional
+        Multipole phase angle.
+    center_x, center_y : float, optional
+        Lens center coordinates.
+    r_E : float, optional
+        Einstein-radius scaling used by ``m=1`` formulas.
     """
 
-    def __init__(self, m: int = None, a_m: Optional[float] = None, 
+    def __init__(self, m: Optional[int] = None, a_m: Optional[float] = None, 
                  phi_m: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None, r_E: Optional[float] = None) -> None:
         """
-        Initialize a `Multipole` instance with validated configuration.
-        
-        Parameters
-        ----------
-        m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        phi_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Initialize circular multipole model parameters.
         """
         super().__init__()
         self.m_init = m
@@ -660,48 +352,27 @@ class Multipole(ck.Module):
               a_m: Optional[Array] = None, phi_m: Optional[Array] = None, 
               center_x: Optional[Array] = None, center_y: Optional[Array] = None, 
               r_E: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate circular multipole deflection field.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        phi_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        m : int, optional
+            Multipole order; falls back to constructor value.
+        a_m, phi_m, center_x, center_y, r_E : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If multipole order ``m`` is not provided.
         """
         m_val = m if m is not None else self.m_init
         if m_val is None:
@@ -748,68 +419,30 @@ class Multipole(ck.Module):
 
 class EllipticalMultipole(ck.Module):
     """
-    Represent the `EllipticalMultipole` component in the TinyLensGpu pipeline.
-    
+    Elliptical multipole perturbation model for ``m in {1, 3, 4}``.
+
     Parameters
     ----------
-    m : Any
-        Configuration argument consumed during construction of this component.
-    a_m : Any
-        Configuration argument consumed during construction of this component.
-    phi_m : Any
-        Configuration argument consumed during construction of this component.
-    q : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    r_E : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    m : int, optional
+        Multipole order (typically 1, 3, or 4).
+    a_m : float, optional
+        Multipole amplitude.
+    phi_m : float, optional
+        Multipole phase angle.
+    q : float, optional
+        Axis ratio used in elliptical formulas.
+    center_x, center_y : float, optional
+        Lens center coordinates.
+    r_E : float, optional
+        Einstein-radius scaling.
     """
 
-    def __init__(self, m: int = None, a_m: Optional[float] = None, 
+    def __init__(self, m: Optional[int] = None, a_m: Optional[float] = None, 
                  phi_m: Optional[float] = None, q: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None, 
                  r_E: Optional[float] = None) -> None:
         """
-        Initialize a `EllipticalMultipole` instance with validated configuration.
-        
-        Parameters
-        ----------
-        m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        phi_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        q : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Initialize elliptical multipole model parameters.
         """
         super().__init__()
         self.m_init = m
@@ -825,51 +458,27 @@ class EllipticalMultipole(ck.Module):
               a_m: Optional[Array] = None, phi_m: Optional[Array] = None, 
               q: Optional[Array] = None, center_x: Optional[Array] = None, 
               center_y: Optional[Array] = None, r_E: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate elliptical multipole deflection field.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        a_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        phi_m : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        q : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_E : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        m : int, optional
+            Multipole order; falls back to constructor value.
+        a_m, phi_m, q, center_x, center_y, r_E : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If multipole order ``m`` is not provided.
         """
         m_val = m if m is not None else self.m_init
         if m_val is None:

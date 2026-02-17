@@ -4,39 +4,25 @@ from abc import abstractmethod
 
 class BaseOptimizer(AbstractInference):
     """
-    Represent the `BaseOptimizer` component in the TinyLensGpu pipeline.
-    
+    Base class for optimization-based inference backends.
+
     Parameters
     ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    prob_model : Any, optional
+        Probability model callable.
+    ndim : int, optional
+        Number of free parameters.
     """
     def __init__(self, prob_model=None, ndim=None):
         """
-        Initialize a `BaseOptimizer` instance with validated configuration.
-        
+        Initialize optimizer bookkeeping state.
+
         Parameters
         ----------
-        prob_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ndim : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        prob_model : Any, optional
+            Probability model callable.
+        ndim : int, optional
+            Number of parameters.
         """
         super().__init__(prob_model=prob_model, ndim=ndim)
         self.best_params = None
@@ -47,23 +33,19 @@ class BaseOptimizer(AbstractInference):
 
     def _progress_callback(self, xk=None, convergence=None):
         """
-        Internal helper to progress callback.
-        
+        Generic progress callback used by SciPy optimizers.
+
         Parameters
         ----------
-        xk : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        convergence : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        xk : array_like, optional
+            Current optimizer iterate.
+        convergence : float, optional
+            Convergence metric provided by optimizer backends.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        bool
+            ``True`` to continue optimization.
         """
         self.iteration += 1
         if self.best_value is not None:
@@ -73,20 +55,17 @@ class BaseOptimizer(AbstractInference):
 
     def objective(self, x):
         """
-        Compute objective.
-        
+        Objective function minimized by deterministic optimizers.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x : array_like
+            Model parameters in physical space.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        float
+            Negative log-likelihood.
         """
         log_like = float(self.likelihood(x))
         return -log_like  # negative because we want to minimize
@@ -94,18 +73,11 @@ class BaseOptimizer(AbstractInference):
     @abstractmethod
     def run(self, **kwargs):
         """
-        Compute run.
-        
+        Run optimizer backend.
+
         Parameters
         ----------
-        **kwargs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        **kwargs
+            Backend-specific optimizer options.
         """
         pass 

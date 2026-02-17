@@ -65,34 +65,23 @@ class ParamU(ck.Param):
         **kwargs: Any,
     ) -> None:
         """
-        Initialize a `ParamU` instance with validated configuration.
-        
+        Initialize parameter with prior metadata.
+
         Parameters
         ----------
-        name : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        value : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        prior_type : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        prior_settings : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        limits : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        **kwargs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        name : str
+            Parameter name.
+        value : float, optional
+            Initial parameter value.
+        prior_type : {'uniform', 'gaussian', 'log_uniform'}, optional
+            Prior family used during unit-cube transformation.
+        prior_settings : sequence of float, optional
+            Prior parameters (``[min, max]`` or ``[mean, std]`` depending on
+            ``prior_type``).
+        limits : sequence of float, optional
+            Hard clipping limits ``[min, max]`` in physical parameter space.
+        **kwargs
+            Forwarded to ``ck.Param``.
         """
         super().__init__(name, value, **kwargs)
         self.prior_type = prior_type
@@ -101,15 +90,12 @@ class ParamU(ck.Param):
     
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return debug-friendly parameter summary.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            String containing name, value, prior configuration, and hard limits.
         """
         return (f"ParamU(name={self.name}, value={self.value}, "
                 f"prior_type={self.prior_type}, "

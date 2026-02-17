@@ -29,22 +29,14 @@ class Shear(ck.Module):
 
     def __init__(self, gamma1: Optional[float] = None, gamma2: Optional[float] = None) -> None:
         """
-        Initialize a `Shear` instance with validated configuration.
-        
+        Initialize external shear component.
+
         Parameters
         ----------
-        gamma1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        gamma2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        gamma1 : float, optional
+            Cartesian shear component aligned with x/y axes.
+        gamma2 : float, optional
+            Cartesian shear component at 45 degrees.
         """
         super().__init__()
 

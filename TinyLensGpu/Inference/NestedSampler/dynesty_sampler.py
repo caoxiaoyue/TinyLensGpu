@@ -5,20 +5,14 @@ import numpy as np
 
 class DynestySampler(AbstractInference):
     """
-    Represent the `DynestySampler` component in the TinyLensGpu pipeline.
-    
+    Dynesty nested-sampling adapter.
+
     Parameters
     ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    prob_model : Any, optional
+        Probability model callable.
+    ndim : int, optional
+        Number of free parameters.
     """
     def __init__(self, prob_model=None, ndim=None):
         """
@@ -58,20 +52,17 @@ class DynestySampler(AbstractInference):
 
     def _wrap_prior(self, x):
         """
-        Internal helper to wrap prior.
-        
+        Wrap prior transform for Dynesty API.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x : np.ndarray
+            Unit-cube sample with shape ``(ndim,)``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        np.ndarray
+            Physical-space parameter vector with shape ``(ndim,)``.
         """
         # print("hahaha", x.shape)
         # if x.ndim == 1:

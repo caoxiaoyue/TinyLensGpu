@@ -18,28 +18,26 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 class PixelizedImageProbModel(ck.Module):
     """
-    Represent the `PixelizedImageProbModel` component in the TinyLensGpu pipeline.
-    
+    Image-plane probability model for pixelized source reconstruction.
+
+    The model wraps :class:`PixelizedLensSimulator`, performs linear inversion
+    of source coefficients, and returns the marginalized log evidence with an
+    optional point-source position penalty.
+
     Parameters
     ----------
-    image_data : Any
-        Configuration argument consumed during construction of this component.
-    noise_map : Any
-        Configuration argument consumed during construction of this component.
-    sim_config : Any
-        Configuration argument consumed during construction of this component.
-    phys_model : Any
-        Configuration argument consumed during construction of this component.
-    lensed_source_image : Any
-        Configuration argument consumed during construction of this component.
-    position_likelihood : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    image_data : array_like
+        Observed image with shape ``(npix, npix)``.
+    noise_map : array_like
+        Per-pixel 1-sigma noise map with same shape as ``image_data``.
+    sim_config : SimulatorConfig
+        Geometry, mask, and PSF settings.
+    phys_model : PhysicalModel
+        Physical model containing a pixelized source component.
+    lensed_source_image : array_like, optional
+        Optional adaptive-grid guide image.
+    position_likelihood : dict, optional
+        Configuration of optional multi-image position penalty.
     """
 
     def __init__(
@@ -165,23 +163,19 @@ class PixelizedImageProbModel(ck.Module):
 
         def get_val(keys, default):
             """
-            Compute get val.
-            
+            Return first available value among alias keys.
+
             Parameters
             ----------
-            keys : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
+            keys : Sequence[str]
+                Candidate key names searched in ``config``.
             default : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+                Value returned when no key is found.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            Any
+                Retrieved value or ``default``.
             """
             for key in keys:
                 if key in config:
@@ -240,22 +234,19 @@ class PixelizedImageProbModel(ck.Module):
 
     def log_evidence(self) -> float:
         """
-        Compute log evidence.
-        
-        
+        Evaluate scalar Bayesian evidence for current parameters.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        float
+            Marginal log evidence value.
         """
         return float(np.asarray(self.__call__()))
 
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         """
-        Compute the position likelihood penalty using JAX.
+        Evaluate position-likelihood penalty using JAX.
 
         Calculates the ray-traced source positions for the observed image positions.
         If the spread of these source positions exceeds `_pos_thr`, a penalty is applied.

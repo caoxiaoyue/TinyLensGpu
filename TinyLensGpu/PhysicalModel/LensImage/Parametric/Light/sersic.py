@@ -80,7 +80,7 @@ class SersicEllipse(ck.Module):
               e2: Optional[Array] = None, center_x: Optional[Array] = None, 
               center_y: Optional[Array] = None, Ie: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate elliptical Sersic surface brightness on the image plane.
 
         Parameters
         ----------
@@ -106,7 +106,7 @@ class SersicEllipse(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         # Ensure parameters are JAX arrays
         R_sersic = jnp.asarray(R_sersic)

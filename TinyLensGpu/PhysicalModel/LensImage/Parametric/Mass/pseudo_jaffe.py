@@ -10,57 +10,33 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 class PseudoJaffe(ck.Module):
     """
-    Represent the `PseudoJaffe` component in the TinyLensGpu pipeline.
-    
+    Spherical Pseudo-Jaffe mass profile.
+
+    This profile is controlled by a normalization ``sigma0`` and two scale radii
+    ``Ra`` and ``Rs`` with ``Ra < Rs``.
+
     Parameters
     ----------
-    sigma0 : Any
-        Configuration argument consumed during construction of this component.
-    Ra : Any
-        Configuration argument consumed during construction of this component.
-    Rs : Any
-        Configuration argument consumed during construction of this component.
-    center_x : Any
-        Configuration argument consumed during construction of this component.
-    center_y : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    sigma0 : float, optional
+        Surface-density normalization.
+    Ra : float, optional
+        Inner/core scale radius.
+    Rs : float, optional
+        Outer/truncation scale radius.
+    center_x, center_y : float, optional
+        Lens center coordinates.
     """
 
     def __init__(self, sigma0: Optional[float] = None, Ra: Optional[float] = None, 
                  Rs: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `PseudoJaffe` instance with validated configuration.
-        
+        Initialize spherical Pseudo-Jaffe profile.
+
         Parameters
         ----------
-        sigma0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        sigma0, Ra, Rs, center_x, center_y : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         self.sigma0 = sigma0 if isinstance(sigma0, ParamU) else ParamU("sigma0", sigma0)
@@ -71,25 +47,20 @@ class PseudoJaffe(ck.Module):
 
     @staticmethod
     def _sort_ra_rs(Ra, Rs):
-        # Ra < Rs
         """
-        Internal helper to sort ra rs.
-        
+        Enforce ordered radii and minimum separation.
+
         Parameters
         ----------
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Ra : array_like
+            Candidate inner radius.
+        Rs : array_like
+            Candidate outer radius.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[array_like, array_like]
+            Ordered radii ``(Ra_new, Rs_new)`` with ``Ra_new < Rs_new``.
         """
         Ra_new = jnp.minimum(Ra, Rs)
         Rs_new = jnp.maximum(Ra, Rs)
@@ -104,23 +75,19 @@ class PseudoJaffe(ck.Module):
     @staticmethod
     def _f_A20(r_a, r_s):
         """
-        Internal helper to f A20.
-        
+        Evaluate Pseudo-Jaffe radial helper term.
+
         Parameters
         ----------
-        r_a : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        r_s : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        r_a : array_like
+            Radius normalized by ``Ra``.
+        r_s : array_like
+            Radius normalized by ``Rs``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        array_like
+            Auxiliary term entering the deflection amplitude.
         """
         return r_a / (1 + jnp.sqrt(1 + r_a**2)) - r_s / (1 + jnp.sqrt(1 + r_s**2))
 
@@ -128,40 +95,20 @@ class PseudoJaffe(ck.Module):
     def deriv(self, x: Array, y: Array, sigma0: Optional[Array] = None, 
               Ra: Optional[Array] = None, Rs: Optional[Array] = None, 
               center_x: Optional[Array] = None, center_y: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate spherical Pseudo-Jaffe deflection field.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        sigma0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        sigma0, Ra, Rs, center_x, center_y : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         sigma0 = jnp.asarray(sigma0)
         Ra = jnp.asarray(Ra)

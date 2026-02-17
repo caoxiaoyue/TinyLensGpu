@@ -74,15 +74,12 @@ class PriorSpec:
     
     def describe(self) -> str:
         """
-        Compute describe.
-        
-        
+        Format prior settings for logs and summaries.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            Human-readable prior description including optional hard limits.
         """
         a, b = self.settings
         desc = f"N({a:.2f}, {b:.2f})" if self.prior_type == "gaussian" else f"[{a:.2f}, {b:.2f}]"
@@ -177,25 +174,22 @@ def make_prior_transformation(
     
     def transform(u):
         """
-        Compute transform.
-        
+        Transform unit-cube parameters into physical parameter values.
+
         Parameters
         ----------
-        u : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        u : Array
+            Unit-cube sample whose last dimension equals ``len(specs)``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Array
+            Transformed parameters with same leading dimensions as ``u``.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If the last dimension of ``u`` does not match the number of priors.
         """
         u = jnp.asarray(u, dtype=dtype) if dtype is not None else jnp.asarray(u)
         if u.shape[-1] != len(specs):

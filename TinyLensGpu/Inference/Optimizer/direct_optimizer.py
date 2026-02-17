@@ -4,39 +4,11 @@ from TinyLensGpu.Inference.Optimizer.base_optimizer import BaseOptimizer
 
 class DirectOptimizer(BaseOptimizer):
     """
-    Represent the `DirectOptimizer` component in the TinyLensGpu pipeline.
-    
-    Parameters
-    ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Global optimizer using SciPy DIRECT.
     """
     def __init__(self, prob_model=None, ndim=None):
         """
-        Initialize a `DirectOptimizer` instance with validated configuration.
-        
-        Parameters
-        ----------
-        prob_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ndim : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Initialize DIRECT optimizer wrapper.
         """
         super().__init__(prob_model=prob_model, ndim=ndim)
 
@@ -85,20 +57,17 @@ class DirectOptimizer(BaseOptimizer):
         # Create a wrapper function that includes bounds and tracks progress
         def objective_with_tracking(x):
             """
-            Compute objective with tracking.
-            
+            Evaluate objective while recording progress information.
+
             Parameters
             ----------
-            x : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            x : np.ndarray
+                Current optimizer parameter vector.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            float
+                Objective value (negative log-likelihood).
             """
             f = self.objective(x)
             self.best_value = f

@@ -20,81 +20,69 @@ from .artifacts import GridArtifacts, MappingArtifacts, OperatorCacheKey
 
 class BaseMappingStrategy:
     """
-    Represent the `BaseMappingStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Abstract base class for source-to-image mapping strategies.
+
+    Defines the interface for constructing the linear mapping operator :math:`F`
+    where :math:`d = F s`. The operator maps the source surface brightness vector
+    to the image plane flux.
+
+    This strategy pattern allows for different interpolation schemes (e.g.,
+    adaptive k-NN, rectangular bilinear) to be swapped interchangeably.
     """
 
     def build_dense(self, grid: GridArtifacts) -> jnp.ndarray:
         """
-        Compute build dense.
-        
+        Build the full dense mapping matrix.
+
         Parameters
         ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        grid : GridArtifacts
+            The grid geometry artifacts containing source and data plane coordinates.
+
         Returns
         -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        Raises
-        ------
-        NotImplementedError
-            Raised when input validation fails or required runtime state is missing.
-        
+        jnp.ndarray
+            The dense mapping matrix of shape ``(n_data, n_source)``.
         """
         raise NotImplementedError
 
     def build_operator(self, grid: GridArtifacts) -> tuple[jnp.ndarray, jnp.ndarray]:
         """
-        Compute build operator.
-        
+        Build the sparse mapping operator components (weights and indices).
+
+        This is used for matrix-free operations to save memory. The result represents
+        a sparse matrix where each row (image pixel) has a fixed number of non-zero
+        entries (interpolation weights) corresponding to source nodes.
+
         Parameters
         ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        grid : GridArtifacts
+            The grid geometry artifacts containing source and data plane coordinates.
+
         Returns
         -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        Raises
-        ------
-        NotImplementedError
-            Raised when input validation fails or required runtime state is missing.
-        
+        tuple[jnp.ndarray, jnp.ndarray]
+            - **weights**: Interpolation weights of shape ``(n_data, k_nn)``.
+            - **indices**: Source node indices of shape ``(n_data, k_nn)``.
         """
         raise NotImplementedError
 
     def operator_cache_key(self, grid: GridArtifacts) -> OperatorCacheKey:
         """
-        Compute operator cache key.
-        
+        Generate a cache key for the mapping operator.
+
+        The key uniquely identifies the geometric configuration. If the key's signature
+        matches a cached version, the expensive operator construction can be skipped.
+
         Parameters
         ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        grid : GridArtifacts
+            The grid geometry artifacts.
+
         Returns
         -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        Raises
-        ------
-        NotImplementedError
-            Raised when input validation fails or required runtime state is missing.
-        
+        OperatorCacheKey
+            A hashable key representing the current mapping configuration.
         """
         raise NotImplementedError
 
@@ -102,33 +90,19 @@ class BaseMappingStrategy:
 @dataclass(frozen=True)
 class KnnKernelMappingStrategy(BaseMappingStrategy):
     """
-    Represent the `KnnKernelMappingStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Mapping strategy using k-Nearest Neighbors (k-NN) interpolation.
+
+    Suitable for irregular (adaptive) grids. It computes the mapping weights based on
+    the distance between ray-traced image pixels and their nearest source nodes,
+    using a specified kernel function (e.g., Gaussian, linear).
     """
 
     config: MappingConfig
 
     def build_dense(self, grid: GridArtifacts) -> jnp.ndarray:
         """
-        Compute build dense.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Build dense matrix via sparse operator expansion.
+        See :meth:`BaseMappingStrategy.build_dense`.
         """
         weights, indices = self.build_operator(grid)
         n_source = grid.source_mesh_beta.shape[0]
@@ -136,20 +110,8 @@ class KnnKernelMappingStrategy(BaseMappingStrategy):
 
     def build_operator(self, grid: GridArtifacts) -> tuple[jnp.ndarray, jnp.ndarray]:
         """
-        Compute build operator.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Build k-NN sparse operator.
+        See :meth:`BaseMappingStrategy.build_operator`.
         """
         weights, indices, _ = get_interpolation_weights(
             points=grid.source_mesh_beta,
@@ -162,20 +124,8 @@ class KnnKernelMappingStrategy(BaseMappingStrategy):
 
     def operator_cache_key(self, grid: GridArtifacts) -> OperatorCacheKey:
         """
-        Compute operator cache key.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Generate cache key based on data/source point statistics and config.
+        See :meth:`BaseMappingStrategy.operator_cache_key`.
         """
         source_np = np.asarray(grid.source_mesh_beta, dtype=np.float32)
         data_np = np.asarray(grid.data_mesh_beta, dtype=np.float32)
@@ -198,37 +148,14 @@ class KnnKernelMappingStrategy(BaseMappingStrategy):
 @dataclass(frozen=True)
 class RectBilinearMappingStrategy(BaseMappingStrategy):
     """
-    Represent the `RectBilinearMappingStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Mapping strategy using bilinear interpolation on a rectangular grid.
+
+    Efficient for structured grids. It computes weights for the 4 surrounding
+    grid points for each ray-traced image pixel.
     """
 
     def _grid_meta(self, grid: GridArtifacts) -> Tuple[int, int, Tuple[float, float, float, float]]:
-        """
-        Internal helper to grid meta.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
-        Raises
-        ------
-        RuntimeError
-            Raised when input validation fails or required runtime state is missing.
-        
-        """
+        """Extract rectangular grid metadata (nx, ny, bounds)."""
         if grid.source_grid_shape is None or grid.source_grid_bounds is None:
             raise RuntimeError("Rectangular grid metadata missing for bilinear mapping.")
         ny, nx = grid.source_grid_shape
@@ -236,20 +163,8 @@ class RectBilinearMappingStrategy(BaseMappingStrategy):
 
     def build_dense(self, grid: GridArtifacts) -> jnp.ndarray:
         """
-        Compute build dense.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Build dense matrix via sparse operator expansion.
+        See :meth:`BaseMappingStrategy.build_dense`.
         """
         nx, ny, _ = self._grid_meta(grid)
         weights, indices = self.build_operator(grid)
@@ -257,20 +172,8 @@ class RectBilinearMappingStrategy(BaseMappingStrategy):
 
     def build_operator(self, grid: GridArtifacts) -> tuple[jnp.ndarray, jnp.ndarray]:
         """
-        Compute build operator.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Build bilinear sparse operator (4 neighbors).
+        See :meth:`BaseMappingStrategy.build_operator`.
         """
         nx, ny, bounds = self._grid_meta(grid)
         x_min, x_max, y_min, y_max = bounds
@@ -287,20 +190,8 @@ class RectBilinearMappingStrategy(BaseMappingStrategy):
 
     def operator_cache_key(self, grid: GridArtifacts) -> OperatorCacheKey:
         """
-        Compute operator cache key.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Generate cache key based on grid geometry and data point statistics.
+        See :meth:`BaseMappingStrategy.operator_cache_key`.
         """
         data_np = np.asarray(grid.data_mesh_beta, dtype=np.float32)
         return OperatorCacheKey(
@@ -322,29 +213,26 @@ def build_mapping_artifacts(
     need_operator: bool,
 ) -> MappingArtifacts:
     """
-    Compute build mapping artifacts.
-    
+    Construct the mapping artifacts using the provided strategy.
+
+    Helper function to orchestrate the creation of dense matrices or sparse operators
+    based on the requirements.
+
     Parameters
     ----------
-    strategy : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    grid : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    need_dense : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    need_operator : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    strategy : BaseMappingStrategy
+        The mapping strategy to use (e.g., KNN or Bilinear).
+    grid : GridArtifacts
+        The grid geometry data.
+    need_dense : bool
+        Whether to build and return the dense mapping matrix.
+    need_operator : bool
+        Whether to build and return the sparse operator (weights/indices).
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    MappingArtifacts
+        Container holding the constructed mapping components.
     """
     dense_matrix: Optional[jnp.ndarray] = None
     operator_weights: Optional[jnp.ndarray] = None
@@ -361,4 +249,3 @@ def build_mapping_artifacts(
         operator_weights=operator_weights,
         operator_indices=operator_indices,
     )
-

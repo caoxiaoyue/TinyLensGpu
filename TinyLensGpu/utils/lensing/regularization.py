@@ -13,26 +13,21 @@ from functools import partial
 
 def _kernel_weight_jax(distance: jnp.ndarray, scale: float, reg_type: str) -> jnp.ndarray:
     """
-    Internal helper to kernel weight jax.
-    
+    Evaluate pairwise kernel weights for regularization graphs.
+
     Parameters
     ----------
-    distance : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    scale : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    reg_type : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    distance : jnp.ndarray
+        Pairwise distances.
+    scale : float
+        Correlation-length parameter.
+    reg_type : str
+        Kernel family: ``'exp'``, ``'gauss'``, ``'matern32'`` or ``'matern52'``.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Non-negative kernel weights.
     """
     scale = jnp.maximum(scale, 1e-6)
     
@@ -195,29 +190,23 @@ def sparse_regularization_dense_from(
     n_source: int,
 ) -> jnp.ndarray:
     """
-    Compute sparse regularization dense from.
-    
+    Convert sparse COO regularization entries to dense matrix form.
+
     Parameters
     ----------
-    rows : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    cols : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    values : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_source : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    rows : jnp.ndarray
+        Row indices of COO entries.
+    cols : jnp.ndarray
+        Column indices of COO entries.
+    values : jnp.ndarray
+        COO entry values.
+    n_source : int
+        Matrix size along each axis.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Dense matrix of shape ``(n_source, n_source)``.
     """
     dense = jnp.zeros((int(n_source), int(n_source)), dtype=jnp.asarray(values).dtype)
     return dense.at[(rows, cols)].add(values)
@@ -225,20 +214,17 @@ def sparse_regularization_dense_from(
 
 def _ridge_from_coefficient(coefficient: float) -> jnp.ndarray:
     """
-    Internal helper to ridge from coefficient.
-    
+    Return stabilizing diagonal ridge term from regularization strength.
+
     Parameters
     ----------
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    coefficient : float
+        User-provided regularization amplitude.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Positive ridge value used to avoid singular operators.
     """
     return jnp.maximum(1e-8, 1e-6 * jnp.maximum(1.0, jnp.asarray(coefficient, dtype=jnp.float32)))
 
@@ -250,26 +236,21 @@ def _regularization_rect_zero_sparse(
     ny: int,
 ):
     """
-    Internal helper to regularization rect zero sparse.
-    
+    Build sparse zero-order rectangular regularization (diagonal only).
+
     Parameters
     ----------
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    coefficient : float
+        Regularization amplitude.
+    nx : int
+        Source-grid width.
+    ny : int
+        Source-grid height.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+        COO rows, cols, values, and source size.
     """
     n_source = int(nx) * int(ny)
     rows = jnp.arange(n_source, dtype=jnp.int32)
@@ -286,26 +267,21 @@ def _regularization_rect_gradient_sparse(
     ny: int,
 ):
     """
-    Internal helper to regularization rect gradient sparse.
-    
+    Build sparse first-order (gradient) rectangular regularization.
+
     Parameters
     ----------
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    coefficient : float
+        Regularization amplitude.
+    nx : int
+        Source-grid width.
+    ny : int
+        Source-grid height.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+        COO rows, cols, values, and source size.
     """
     nx_i = int(nx)
     ny_i = int(ny)
@@ -357,26 +333,21 @@ def _regularization_rect_curvature_sparse(
     ny: int,
 ):
     """
-    Internal helper to regularization rect curvature sparse.
-    
+    Build sparse second-order (curvature) rectangular regularization.
+
     Parameters
     ----------
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    coefficient : float
+        Regularization amplitude.
+    nx : int
+        Source-grid width.
+    ny : int
+        Source-grid height.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+        COO rows, cols, values, and source size.
     """
     nx_i = int(nx)
     ny_i = int(ny)
@@ -419,34 +390,28 @@ def regularization_sparse_rectangular_from(
     reg_scheme: str = 'gradient',
 ):
     """
-    Compute regularization sparse rectangular from.
-    
+    Build sparse rectangular-grid regularization in COO form.
+
     Parameters
     ----------
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    nx : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    ny : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    reg_scheme : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    coefficient : float
+        Regularization amplitude.
+    nx : int
+        Source-grid width.
+    ny : int
+        Source-grid height.
+    reg_scheme : str, optional
+        One of ``'zero'``, ``'gradient'``, or ``'curvature'``.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]
+        COO rows, cols, values, and source size.
+
     Raises
     ------
     ValueError
-        Raised when input validation fails or required runtime state is missing.
-    
+        If regularization scheme or grid shape is invalid.
     """
     scheme = str(reg_scheme).strip().lower()
     valid = {'zero', 'gradient', 'curvature'}
@@ -648,29 +613,23 @@ def _regularization_matrix_gp_from_jitted(
     reg_type: str,
 ) -> jnp.ndarray:
     """
-    Internal helper to regularization matrix gp from jitted.
-    
+    Build dense GP regularization matrix from covariance kernel.
+
     Parameters
     ----------
-    scale : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    coefficient : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    points : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    reg_type : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    scale : float
+        Kernel length scale.
+    coefficient : float
+        Regularization amplitude.
+    points : jnp.ndarray
+        Source-point coordinates with shape ``(n_source, 2)``.
+    reg_type : str
+        Covariance kernel type.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    jnp.ndarray
+        Dense regularization matrix with shape ``(n_source, n_source)``.
     """
     if reg_type == 'exp':
         covariance_matrix = exp_cov_matrix_from(scale, points)

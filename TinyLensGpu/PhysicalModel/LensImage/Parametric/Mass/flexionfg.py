@@ -11,62 +11,31 @@ from .flexion import Flexion
 
 class Flexionfg(ck.Module):
     """
-    Represent the `Flexionfg` component in the TinyLensGpu pipeline.
-    
+    Flexion profile parameterized by first- and second-flexion components.
+
+    This wrapper exposes ``(F1, F2, G1, G2)`` parameters and converts them into
+    the Cartesian coefficients required by :class:`Flexion`.
+
     Parameters
     ----------
-    F1 : Any
-        Configuration argument consumed during construction of this component.
-    F2 : Any
-        Configuration argument consumed during construction of this component.
-    G1 : Any
-        Configuration argument consumed during construction of this component.
-    G2 : Any
-        Configuration argument consumed during construction of this component.
-    ra_0 : Any
-        Configuration argument consumed during construction of this component.
-    dec_0 : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    F1, F2 : float, optional
+        First-flexion components.
+    G1, G2 : float, optional
+        Second-flexion components.
+    ra_0, dec_0 : float, optional
+        Flexion center coordinates.
     """
 
     def __init__(self, F1: Optional[float] = None, F2: Optional[float] = None, 
                  G1: Optional[float] = None, G2: Optional[float] = None, 
                  ra_0: Optional[float] = None, dec_0: Optional[float] = None) -> None:
         """
-        Initialize a `Flexionfg` instance with validated configuration.
-        
+        Initialize flexion model in F/G parameterization.
+
         Parameters
         ----------
-        F1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        F2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ra_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dec_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        F1, F2, G1, G2, ra_0, dec_0 : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         # self.flexion_cart = Flexion()
@@ -81,29 +50,17 @@ class Flexionfg(ck.Module):
     @staticmethod
     def transform_fg(F1, F2, G1, G2):
         """
-        Compute transform fg.
-        
+        Transform ``(F, G)`` flexion parameters into Cartesian coefficients.
+
         Parameters
         ----------
-        F1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        F2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        F1, F2, G1, G2 : array_like
+            First- and second-flexion components.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[array_like, array_like, array_like, array_like]
+            Cartesian coefficients ``(g1, g2, g3, g4)``.
         """
         g1 = (3 * F1 + G1) * 0.5
         g2 = (3 * F2 + G2) * 0.5
@@ -116,43 +73,20 @@ class Flexionfg(ck.Module):
               F2: Optional[Array] = None, G1: Optional[Array] = None, 
               G2: Optional[Array] = None, ra_0: Optional[Array] = None, 
               dec_0: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate deflection field induced by flexion terms.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        F1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        F2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        G2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ra_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dec_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        F1, F2, G1, G2, ra_0, dec_0 : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         F1 = jnp.asarray(F1)
         F2 = jnp.asarray(F2)

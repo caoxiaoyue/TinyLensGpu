@@ -37,34 +37,18 @@ class Ellipsoid(ck.Module):
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
         """
-        Initialize a `Ellipsoid` instance with validated configuration.
-        
+        Initialize uniform ellipsoid profile parameters.
+
         Parameters
         ----------
-        amp : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        radius : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        amp : float, optional
+            Total integrated flux inside the ellipsoid.
+        radius : float, optional
+            Effective radius of the elliptical aperture.
+        e1, e2 : float, optional
+            Ellipticity components.
+        center_x, center_y : float, optional
+            Profile center coordinates in arcseconds.
         """
         super().__init__()
 
@@ -81,7 +65,7 @@ class Ellipsoid(ck.Module):
               e2: Optional[Array] = None, center_x: Optional[Array] = None, 
               center_y: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate uniform elliptical-aperture surface brightness.
 
         Parameters
         ----------
@@ -105,7 +89,7 @@ class Ellipsoid(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         amp = jnp.asarray(amp)
         radius = jnp.asarray(radius)

@@ -34,22 +34,21 @@ from .pixelized_core import (
 
 class PixelizedLensSimulator:
     """
-    Represent the `PixelizedLensSimulator` component in the TinyLensGpu pipeline.
-    
+    Pixelized-source forward simulator and inversion builder.
+
+    The simulator assembles source grids, lensing operators, PSF convolution, and
+    regularization terms, then dispatches to matrix- or operator-based inversion
+    backends for source (and optional lens-light) reconstruction.
+
     Parameters
     ----------
-    phys_model : Any
-        Configuration argument consumed during construction of this component.
-    sim_config : Any
-        Configuration argument consumed during construction of this component.
-    lensed_source_image : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    phys_model : PhysicalModel
+        Physical model containing lens mass, source light, and optional lens-light
+        components.
+    sim_config : SimulatorConfig
+        Simulation geometry, PSF, mask, and coordinate grids.
+    lensed_source_image : Optional[np.ndarray], optional
+        Image used by adaptive grid builders to place source nodes.
     """
     def __init__(
         self,
@@ -347,17 +346,14 @@ class PixelizedLensSimulator:
         if self._grid_artifacts is None:
             raise RuntimeError("Grid artifacts are not initialized.")
 
-        need_dense = backend == "matrix"
-        need_operator = backend == "operator"
-
         dense_matrix = None
         op_weights = None
         op_indices = None
 
-        if need_dense:
+        if backend == "matrix":
             dense_matrix = self._mapping_strategy.build_dense(self._grid_artifacts)
 
-        if need_operator:
+        if backend == "operator":
             policy = str(cache_policy).strip().lower()
             if policy == "unsafe_static" and self._cached_operator_weights is not None and self._cached_operator_indices is not None:
                 # Fast path: always reuse previous operator entries, regardless of geometry change.
@@ -721,15 +717,13 @@ class PixelizedLensSimulator:
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return compact simulator summary string.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            Human-readable descriptor with image size, source-node count, and
+            number of lens-mass components.
         """
         if isinstance(self.pix_src_model.grid, IrregularGridConfig):
             n_source_points = int(self.pix_src_model.grid.n_source_points)

@@ -22,35 +22,27 @@ def _plot_irregular_source_interpolate(
     cmap="inferno",
 ):
     """
-    Internal helper to plot irregular source interpolate.
-    
+    Render irregular source samples on a regular grid via interpolation.
+
     Parameters
     ----------
-    ax : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    points_xy : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    values : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    enlarge_factor : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    npixels : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    cmap : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    ax : matplotlib.axes.Axes
+        Target axis used for drawing the interpolated source image.
+    points_xy : array_like
+        Source-node coordinates with shape ``(n_points, 2)`` in source-plane units.
+    values : array_like
+        Source intensities at ``points_xy`` with shape ``(n_points,)``.
+    enlarge_factor : float, optional
+        Multiplicative padding applied to the plotting extent.
+    npixels : int, optional
+        Resolution of the interpolation grid along each axis.
+    cmap : str, optional
+        Matplotlib colormap name.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    matplotlib.image.AxesImage
+        Image artist returned by ``ax.imshow``.
     """
     points_xy = np.asarray(points_xy)
     values = np.asarray(values)
@@ -79,37 +71,29 @@ def _plot_irregular_source_voronoi(
     maxima=None,
 ):
     """
-    Internal helper to plot irregular source voronoi.
-    
+    Render irregular source samples using Voronoi cells.
+
     Parameters
     ----------
-    ax : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    points_xy : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    values : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    enlarge_factor : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    cmap : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    minima : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    maxima : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    ax : matplotlib.axes.Axes
+        Target axis used for drawing Voronoi polygons.
+    points_xy : array_like
+        Source-node coordinates with shape ``(n_points, 2)``.
+    values : array_like
+        Source intensities at ``points_xy``.
+    enlarge_factor : float, optional
+        Multiplicative padding applied to the displayed extent.
+    cmap : str, optional
+        Matplotlib colormap name.
+    minima : float, optional
+        Lower bound for colormap normalization. If ``None``, uses ``values.min()``.
+    maxima : float, optional
+        Upper bound for colormap normalization. If ``None``, uses ``values.max()``.
+
     Returns
     -------
     None
-        This routine updates object state or performs side-effect-free setup only.
-    
+        The function draws directly on ``ax`` and adds a colorbar.
     """
     points_xy = np.asarray(points_xy)
     values = np.asarray(values)

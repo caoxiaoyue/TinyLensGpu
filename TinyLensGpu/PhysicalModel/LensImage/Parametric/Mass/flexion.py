@@ -10,62 +10,29 @@ from TinyLensGpu.Inference.param_u import ParamU
 
 class Flexion(ck.Module):
     """
-    Represent the `Flexion` component in the TinyLensGpu pipeline.
-    
+    Cartesian flexion deflection model.
+
+    The model parameterizes the local second-order lensing distortion with four
+    coefficients ``(g1, g2, g3, g4)`` around a reference center.
+
     Parameters
     ----------
-    g1 : Any
-        Configuration argument consumed during construction of this component.
-    g2 : Any
-        Configuration argument consumed during construction of this component.
-    g3 : Any
-        Configuration argument consumed during construction of this component.
-    g4 : Any
-        Configuration argument consumed during construction of this component.
-    ra_0 : Any
-        Configuration argument consumed during construction of this component.
-    dec_0 : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    g1, g2, g3, g4 : float, optional
+        Cartesian flexion coefficients.
+    ra_0, dec_0 : float, optional
+        Expansion center coordinates.
     """
 
     def __init__(self, g1: Optional[float] = None, g2: Optional[float] = None, 
                  g3: Optional[float] = None, g4: Optional[float] = None, 
                  ra_0: Optional[float] = None, dec_0: Optional[float] = None) -> None:
         """
-        Initialize a `Flexion` instance with validated configuration.
-        
+        Initialize Cartesian flexion model.
+
         Parameters
         ----------
-        g1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ra_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dec_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        g1, g2, g3, g4, ra_0, dec_0 : float, optional
+            Model parameters converted to :class:`ParamU` when provided as scalars.
         """
         super().__init__()
         self.g1 = g1 if isinstance(g1, ParamU) else ParamU("g1", g1)
@@ -80,43 +47,20 @@ class Flexion(ck.Module):
               g2: Optional[Array] = None, g3: Optional[Array] = None, 
               g4: Optional[Array] = None, ra_0: Optional[Array] = None, 
               dec_0: Optional[Array] = None) -> Tuple[Array, Array]:
-        
         """
-        Compute deriv.
-        
+        Evaluate flexion-induced deflection field.
+
         Parameters
         ----------
-        x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g3 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        g4 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ra_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dec_0 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        x, y : Array
+            Image-plane coordinates.
+        g1, g2, g3, g4, ra_0, dec_0 : Array, optional
+            Runtime parameter values injected by caskade.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array]
+            Deflection components ``(alpha_x, alpha_y)``.
         """
         g1 = jnp.asarray(g1)
         g2 = jnp.asarray(g2)

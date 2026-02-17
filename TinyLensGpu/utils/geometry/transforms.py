@@ -12,13 +12,19 @@ from jax import Array
 
 def phi_q2_ellipticity(phi: Array, q: Array) -> Tuple[Array, Array]:
     """
-    Convert phi and q to ellipticity e1, e2.
-    Args:
-        phi: rotation angle, in radians
-        q: axis ratio
-    Returns:
-        e1: ellipticity in x direction
-        e2: ellipticity in y direction
+    Convert orientation and axis ratio to ellipticity components.
+
+    Parameters
+    ----------
+    phi : Array
+        Position angle in radians.
+    q : Array
+        Minor-to-major axis ratio.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        Ellipticity components ``(e1, e2)``.
     """
     e = (1. - q) / (1. + q)
     e1 = e * jnp.cos(2 * phi)
@@ -28,13 +34,19 @@ def phi_q2_ellipticity(phi: Array, q: Array) -> Tuple[Array, Array]:
 
 def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
     """
-    Convert ellipticity to phi and q.
-    Args:
-        e1: ellipticity in x direction
-        e2: ellipticity in y direction
-    Returns:
-        phi: rotation angle, in radians
-        q: axis ratio
+    Convert ellipticity components to orientation and axis ratio.
+
+    Parameters
+    ----------
+    e1 : Array
+        Ellipticity component along x-axis.
+    e2 : Array
+        Ellipticity component at 45 degrees.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        Position angle ``phi`` (radians) and axis ratio ``q``.
     """
     e1 = jnp.where(e1 == 0., 1e-12, e1)
     e2 = jnp.where(e2 == 0., 1e-12, e2)
@@ -47,13 +59,21 @@ def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
 
 def xy_transform(x: Array, y: Array, xc: Array, yc: Array, phi: Array) -> Tuple[Array, Array]:
     """
-    Transform coordinates to the lens frame.
-    Args:
-        x: x coordinate, in arcsec
-        y: y coordinate, in arcsec
-        xc: center x coordinate, in arcsec
-        yc: center y coordinate, in arcsec
-        phi: rotation angle, in radians
+    Shift and rotate coordinates into a local lens frame.
+
+    Parameters
+    ----------
+    x, y : Array
+        Input coordinates in arcsec.
+    xc, yc : Array
+        Lens center in arcsec.
+    phi : Array
+        Clockwise rotation angle in radians.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        Rotated coordinates ``(x_rot, y_rot)``.
     """
     cos_phi = jnp.cos(phi)
     sin_phi = jnp.sin(phi)
@@ -69,23 +89,19 @@ def xy_transform(x: Array, y: Array, xc: Array, yc: Array, phi: Array) -> Tuple[
 
 def cart2polar(x: Array, y: Array) -> Tuple[Array, Array]:
     """
-    Compute cart2polar.
-    
+    Convert Cartesian coordinates to polar coordinates.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        x-coordinate.
+    y : Array
+        y-coordinate.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[Array, Array]
+        Radius ``r`` and angle ``phi`` (radians).
     """
     r = jnp.sqrt(x**2+y**2)
     phi = jnp.arctan2(y, x)
@@ -94,23 +110,19 @@ def cart2polar(x: Array, y: Array) -> Tuple[Array, Array]:
 
 def polar2cart(r: Array, phi: Array) -> Tuple[Array, Array]:
     """
-    Compute polar2cart.
-    
+    Convert polar coordinates to Cartesian coordinates.
+
     Parameters
     ----------
-    r : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    phi : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    r : Array
+        Radius.
+    phi : Array
+        Polar angle in radians.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[Array, Array]
+        Cartesian coordinates ``(x, y)``.
     """
     x = r*jnp.cos(phi)
     y = r*jnp.sin(phi)
@@ -119,23 +131,20 @@ def polar2cart(r: Array, phi: Array) -> Tuple[Array, Array]:
 
 def relocate_radii(x: Array, y: Array) -> Tuple[Array, Array, Array]:
     """
-    Compute relocate radii.
-    
+    Enforce a minimum radius to avoid singular behavior at the origin.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x : Array
+        x-coordinate.
+    y : Array
+        y-coordinate.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[Array, Array, Array]
+        Stabilized coordinates ``(x_new, y_new)`` and radius ``r`` with
+        ``r >= 1e-5``.
     """
     r, theta = cart2polar(x, y)
     r = jnp.where(r < 1e-5, 1e-5, r)
@@ -146,35 +155,21 @@ def relocate_radii(x: Array, y: Array) -> Tuple[Array, Array, Array]:
 def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array, 
                             center_x: Array, center_y: Array) -> Tuple[Array, Array]:
     """
-    Compute ellipse2circle transform.
-    
+    Transform elliptical isophotes into circularized coordinates.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    e1 : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    e2 : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    center_x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    center_y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x, y : Array
+        Coordinates to transform.
+    e1, e2 : Array
+        Ellipticity components.
+    center_x, center_y : Array
+        Coordinate origin.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[Array, Array]
+        Circularized coordinates ``(x_circ, y_circ)``.
     """
     phi_G, q = ellipticity2phi_q(e1, e2)
     xt1, xt2 = xy_transform(x, y, center_x, center_y, phi_G)
@@ -183,20 +178,17 @@ def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array,
 
 def q2e(q: Array) -> Array:
     """
-    Compute q2e.
-    
+    Convert axis ratio to ellipticity magnitude.
+
     Parameters
     ----------
-    q : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    q : Array
+        Axis ratio.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    Array
+        Ellipticity magnitude ``e = |1-q^2|/(1+q^2)``.
     """
     e = jnp.abs(1 - q**2) / (1 + q**2)
     return e
@@ -205,35 +197,21 @@ def q2e(q: Array) -> Array:
 def transform_e1e2_square_average(x: Array, y: Array, e1: Array, e2: Array, 
                                  center_x: Array, center_y: Array) -> Tuple[Array, Array]:
     """
-    Compute transform e1e2 square average.
-    
+    Apply square-averaged ellipticity coordinate transform.
+
     Parameters
     ----------
-    x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    e1 : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    e2 : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    center_x : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    center_y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    x, y : Array
+        Input coordinates.
+    e1, e2 : Array
+        Ellipticity components.
+    center_x, center_y : Array
+        Coordinate origin.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[Array, Array]
+        Transformed coordinates in the square-averaged convention.
     """
     phi_g, q = ellipticity2phi_q(e1, e2)
     x_shift = x - center_x

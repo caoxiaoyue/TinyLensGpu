@@ -4,39 +4,14 @@ from TinyLensGpu.Inference.Optimizer.base_optimizer import BaseOptimizer
 
 class BasinHoppingOptimizer(BaseOptimizer):
     """
-    Represent the `BasinHoppingOptimizer` component in the TinyLensGpu pipeline.
-    
-    Parameters
-    ----------
-    prob_model : Any
-        Configuration argument consumed during construction of this component.
-    ndim : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Global optimizer using SciPy basin hopping.
+
+    This method alternates random perturbations with local minimization to
+    explore multimodal objective surfaces.
     """
     def __init__(self, prob_model=None, ndim=None):
         """
-        Initialize a `BasinHoppingOptimizer` instance with validated configuration.
-        
-        Parameters
-        ----------
-        prob_model : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        ndim : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Initialize basin-hopping optimizer wrapper.
         """
         super().__init__(prob_model=prob_model, ndim=ndim)
 
@@ -77,26 +52,21 @@ class BasinHoppingOptimizer(BaseOptimizer):
         # Create a callback that updates both our progress and user's callback if provided
         def combined_callback(x, f, accept):
             """
-            Compute combined callback.
-            
+            Track basin-hopping progress and forward user callback.
+
             Parameters
             ----------
-            x : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            f : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            accept : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            x : np.ndarray
+                Current local-minimum parameters.
+            f : float
+                Objective value at ``x``.
+            accept : bool
+                Whether the basin-hopping step is accepted.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            bool
+                ``False`` to continue optimization.
             """
             self.best_value = f
             self._progress_callback(x)

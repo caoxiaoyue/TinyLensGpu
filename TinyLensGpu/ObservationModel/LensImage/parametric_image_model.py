@@ -145,19 +145,13 @@ class ImageProbModel(ck.Module):
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         """
-        Internal helper to init position likelihood.
-        
+        Initialize optional point-source position penalty settings.
+
         Parameters
         ----------
-        config : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        config : Optional[Dict]
+            Configuration dictionary containing observed image positions,
+            separation threshold, and penalty amplitude.
         """
         self._pos_px = None
         self._pos_py = None
@@ -182,15 +176,12 @@ class ImageProbModel(ck.Module):
 
     def get_dynamic_params(self):
         """
-        Compute get dynamic params.
-        
-        
+        Return dynamic parameters exposed by the physical model.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        Any
+            Dynamic parameter container managed by caskade.
         """
         return self.phys_model.dynamic_params
 
@@ -320,7 +311,7 @@ class ImageProbModel(ck.Module):
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         """
-        Compute penalty for multiply imaged point source positions.
+        Evaluate soft penalty for inconsistent multiply imaged positions.
 
         Penalizes the model if ray-traced image positions do not map to the same source position.
         The penalty function is a smooth approximation of a step function (soft truncation).
@@ -415,15 +406,12 @@ class ImageProbModel(ck.Module):
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return compact likelihood-model summary string.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            Text summary with image size, linear mode flag, and solver backend.
         """
         return (f"ImageProbModel("
                 f"npix={self.image_data.shape[0]}, "

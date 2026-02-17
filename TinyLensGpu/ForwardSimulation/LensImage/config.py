@@ -15,13 +15,17 @@ def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
     """
     Generate 2D coordinate grids for image plane.
 
-    Args:
-        npix: Number of pixels per side
-        dpix: Pixel scale in arcsec/pixel
-        nsub: Subsampling factor
+    Parameters
+    ----------
+    npix : int
+        Number of pixels per side in the native image grid.
+    dpix : float
+        Pixel scale in arcsec per pixel.
+    nsub : int, optional
+        Subsampling factor used to construct a finer grid.
 
     Returns:
-        xgrid, ygrid: 2D coordinate grids
+        xgrid, ygrid: 2D coordinate grids with shape ``(npix * nsub, npix * nsub)``.
     """
     npix_sub = npix * nsub
     dpix_sub = dpix / nsub
@@ -123,14 +127,10 @@ class SimulatorConfig:
 
     def _prepare_1d_subgrid(self):
         """
-        Internal helper to prepare 1d subgrid.
-        
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        Precompute flattened unmasked sub-grid coordinates.
+
+        The method caches index/coordinate arrays frequently reused by forward
+        simulation and inversion routines.
         """
         if self.nsub > 1:
             self.mask_sub = jnp.repeat(jnp.repeat(self.mask, self.nsub, axis=0), self.nsub, axis=1)
@@ -151,26 +151,23 @@ class SimulatorConfig:
     @staticmethod
     def get_coords(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array, Array, Array]:
         """
-        Compute get coords.
-        
+        Build native and subsampled image-plane coordinate grids.
+
         Parameters
         ----------
-        npix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        dpix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        nsub : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        npix : int
+            Number of pixels per side in the native image grid.
+        dpix : float
+            Pixel scale in arcsec per pixel.
+        nsub : int, optional
+            Subsampling factor for high-resolution grids.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        tuple[Array, Array, Array, Array]
+            ``(xgrid, ygrid, xgrid_sub, ygrid_sub)`` where ``xgrid/ygrid`` have
+            shape ``(npix, npix)`` and ``xgrid_sub/ygrid_sub`` have shape
+            ``(npix * nsub, npix * nsub)``.
         """
         xgrid, ygrid = make_grid_2d(npix, dpix, 1)
         xgrid_sub, ygrid_sub = make_grid_2d(npix, dpix, nsub)
@@ -178,15 +175,13 @@ class SimulatorConfig:
 
     def __repr__(self) -> str:
         """
-        Internal helper to repr.
-        
-        
+        Return compact string representation for logging/debugging.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        str
+            Human-readable summary including image size, pixel scale, subsampling,
+            and PSF shape.
         """
         return (f"SimulatorConfig(npix={self.npix}, dpix={self.dpix}, "
                 f"nsub={self.nsub}, psf_shape={self.psf_kernel.shape})")

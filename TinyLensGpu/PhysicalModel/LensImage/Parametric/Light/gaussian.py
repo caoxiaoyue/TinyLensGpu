@@ -41,34 +41,18 @@ class GaussianEllipse(ck.Module):
                  e1: Optional[float] = None, e2: Optional[float] = None,
                  center_x: Optional[float] = None, center_y: Optional[float] = None) -> None:
         """
-        Initialize a `GaussianEllipse` instance with validated configuration.
-        
+        Initialize elliptical Gaussian profile parameters.
+
         Parameters
         ----------
-        flux : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        sigma : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        flux : float, optional
+            Total flux normalization.
+        sigma : float, optional
+            Gaussian width (standard deviation) in arcseconds.
+        e1, e2 : float, optional
+            Ellipticity components.
+        center_x, center_y : float, optional
+            Profile center coordinates in arcseconds.
         """
         super().__init__()
 
@@ -86,7 +70,7 @@ class GaussianEllipse(ck.Module):
               e2: Optional[Array] = None, center_x: Optional[Array] = None, 
               center_y: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate elliptical Gaussian surface brightness on the image plane.
 
         Parameters
         ----------
@@ -110,7 +94,7 @@ class GaussianEllipse(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         # Ensure parameters are JAX arrays
         flux = jnp.asarray(flux)

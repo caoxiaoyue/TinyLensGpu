@@ -54,20 +54,17 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     @jit
     def loglike_fn(theta):
         """
-        Compute loglike fn.
-        
+        Evaluate likelihood object on one parameter vector.
+
         Parameters
         ----------
-        theta : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        theta : array_like
+            Parameter vector in physical space.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        jnp.ndarray | float
+            Log-likelihood returned by ``likelihood_obj``.
         """
         return likelihood_obj(theta)
     
@@ -77,20 +74,17 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
         
         def loglike(params):
             """
-            Compute loglike.
-            
+            Evaluate likelihood for one sample or a batch.
+
             Parameters
             ----------
-            params : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            params : array_like
+                Single sample ``(ndim,)`` or batch ``(batch, ndim)``.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            float | jnp.ndarray
+                Scalar for single input, vector of log-likelihoods for batched input.
             """
             theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             if theta.ndim > 1:
@@ -106,20 +100,17 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
         # Non-vectorized version
         def loglike(params):
             """
-            Compute loglike.
-            
+            Evaluate likelihood for one sample.
+
             Parameters
             ----------
-            params : Any
-                Input argument used by this routine. Shapes/units follow the surrounding
-                simulation or inference convention in the calling context.
-            
+            params : array_like
+                Parameter vector with shape ``(ndim,)``.
+
             Returns
             -------
-            value : Any
-                Computed output produced by this routine. For array outputs, shape follows
-                the input mesh/matrix conventions used by the corresponding pipeline stage.
-            
+            float
+                Scalar log-likelihood value.
             """
             theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
             res = loglike_fn(theta)

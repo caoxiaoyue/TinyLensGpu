@@ -6,13 +6,9 @@ import jax
 
 class NautilusSampler(AbstractInference): 
     """
-    Represent the `NautilusSampler` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Nautilus nested-sampling adapter.
+
+    Supports scalar or vectorized likelihood execution using JAX ``vmap``.
     """
     def run(self, nlive=1000, vectorized=False, n_batch=None, **kwargs):
         """

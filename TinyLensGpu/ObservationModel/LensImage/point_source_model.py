@@ -31,36 +31,32 @@ from TinyLensGpu.utils.lensing.point_source_solver import (
 
 class PointSourceProbModel(ck.Module):
     """
-    Represent the `PointSourceProbModel` component in the TinyLensGpu pipeline.
-    
+    Likelihood model for multiply imaged point-source positions.
+
+    Given observed image positions and astrometric uncertainties, this model
+    solves the lens equation for a trial source position and evaluates a
+    permutation-invariant Gaussian position likelihood.
+
     Parameters
     ----------
-    phys_model : Any
-        Configuration argument consumed during construction of this component.
-    observed_positions : Any
-        Configuration argument consumed during construction of this component.
-    position_sigma : Any
-        Configuration argument consumed during construction of this component.
-    source_x : Any
-        Configuration argument consumed during construction of this component.
-    source_y : Any
-        Configuration argument consumed during construction of this component.
-    source_position_fixed : Any
-        Configuration argument consumed during construction of this component.
-    solver : Any
-        Configuration argument consumed during construction of this component.
-    solver_config : Any
-        Configuration argument consumed during construction of this component.
-    matching : Any
-        Configuration argument consumed during construction of this component.
-    min_log_like : Any
-        Configuration argument consumed during construction of this component.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    phys_model : PhysicalModel
+        Lens mass model used for ray tracing.
+    observed_positions : array_like
+        Observed image positions with shape ``(n_images, 2)``.
+    position_sigma : array_like or float
+        Per-image 1-sigma astrometric uncertainty.
+    source_x, source_y : ParamU or float, optional
+        Source-plane coordinates.
+    source_position_fixed : bool, optional
+        If ``True``, keep source coordinates static in the caskade graph.
+    solver : {'optimization', 'amr'}, optional
+        Lens-equation solver backend.
+    solver_config : dict, optional
+        Numerical settings for the selected solver.
+    matching : {'global_min_cost'}, optional
+        Predicted/observed image matching strategy.
+    min_log_like : float, optional
+        Likelihood floor used for invalid solutions.
     """
 
     def __init__(
@@ -407,4 +403,3 @@ class PointSourceProbModel(ck.Module):
             f"PointSourceProbModel(n_observed={self.n_observed}, solver='{self.solver}', "
             f"matching='{self.matching}')"
         )
-

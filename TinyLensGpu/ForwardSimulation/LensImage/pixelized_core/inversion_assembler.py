@@ -25,13 +25,10 @@ InversionType = Union[LinearInversion, OperatorInversion, NNLSInversion, Operato
 @dataclass(frozen=True)
 class InversionAssembler:
     """
-    Represent the `InversionAssembler` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Build concrete inversion objects from prepared artifacts.
+
+    This class centralizes backend-specific assembly logic so that simulator code
+    can remain agnostic to matrix/operator and linear/nonnegative solver choices.
     """
 
     psf_fft: jnp.ndarray
@@ -41,25 +38,22 @@ class InversionAssembler:
 
     def _regularization_dense_from(self, reg: RegularizationArtifacts) -> jnp.ndarray:
         """
-        Internal helper to regularization dense from.
-        
+        Convert regularization artifacts to a dense matrix.
+
         Parameters
         ----------
-        reg : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        reg : RegularizationArtifacts
+            Dense or sparse regularization representation.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        jnp.ndarray
+            Dense regularization matrix of shape ``(n_source, n_source)``.
+
         Raises
         ------
         RuntimeError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If the provided artifacts are incomplete.
         """
         if reg.is_sparse:
             if reg.sparse_rows is None or reg.sparse_cols is None or reg.sparse_values is None or reg.sparse_n_source is None:
@@ -76,28 +70,28 @@ class InversionAssembler:
 
     def _regularization_for_operator(self, reg: RegularizationArtifacts, n_source: int) -> jnp.ndarray:
         """
-        Internal helper to regularization for operator.
-        
+        Prepare regularization term for operator backend inversion.
+
+        Sparse operator-mode regularization is passed separately via COO fields, so
+        this helper returns a placeholder vector in that case.
+
         Parameters
         ----------
-        reg : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        n_source : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        reg : RegularizationArtifacts
+            Dense or sparse regularization representation.
+        n_source : int
+            Number of source coefficients.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        jnp.ndarray
+            Dense matrix for dense mode, or a zero vector of length ``n_source`` for
+            sparse operator mode.
+
         Raises
         ------
         RuntimeError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If dense regularization is requested but missing.
         """
         if reg.is_sparse:
             return jnp.zeros((int(n_source),), dtype=jnp.float32)
@@ -116,40 +110,33 @@ class InversionAssembler:
         lens_basis_matrix: Optional[jnp.ndarray] = None,
     ) -> InversionType:
         """
-        Compute build.
-        
+        Assemble inversion object for the configured backend and solver type.
+
         Parameters
         ----------
-        data_vector : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        noise_variance : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        mapping : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        regularization : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        solver_config : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        lens_basis_matrix : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        data_vector : jnp.ndarray
+            Flattened unmasked image data, shape ``(n_data,)``.
+        noise_variance : jnp.ndarray
+            Per-pixel noise variance aligned with ``data_vector``.
+        mapping : MappingArtifacts
+            Dense matrix or sparse operator mapping artifacts.
+        regularization : RegularizationArtifacts
+            Dense matrix or sparse COO regularization artifacts.
+        solver_config : SolverConfig
+            Solver/backend configuration.
+        lens_basis_matrix : Optional[jnp.ndarray], optional
+            Blurred lens-light design matrix, shape ``(n_data, n_lens_light)``.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        InversionType
+            One of ``LinearInversion``, ``NNLSInversion``, ``OperatorInversion`` or
+            ``OperatorNNLSInversion``.
+
         Raises
         ------
         RuntimeError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If required mapping artifacts for the selected backend are missing.
         """
         backend = solver_config.canonical_backend
         d = jnp.asarray(data_vector)

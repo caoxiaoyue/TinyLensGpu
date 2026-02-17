@@ -12,23 +12,20 @@ from scipy.stats import qmc
 
 def apply_gaussian_blur(img, sigma):
     """
-    Compute apply gaussian blur.
-    
+    Apply separable Gaussian smoothing to a 2D image.
+
     Parameters
     ----------
-    img : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    sigma : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    img : np.ndarray
+        Input grayscale image with shape ``(H, W)``.
+    sigma : float
+        Gaussian standard deviation in pixels. Non-positive values return
+        the input unchanged.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    np.ndarray
+        Blurred image with the same shape as ``img``.
     """
     if sigma <= 0:
         return img
@@ -47,30 +44,37 @@ def sample_points_weighted(img, mask, n_points=1500, alpha=1.5, blur_sigma_px=0.
                            replace=False, normalize_xy=False, pixel_jitter=False,
                            method='random', seed=None):
     """
-    Sample points from image based on brightness weighting.
-    Supports both random and quasi-Monte Carlo (Sobol) sampling.
-    Only supports grayscale images, with sampling restricted to mask regions.
-    
-    Parameters:
-    - img: Input grayscale image array (2D numpy array)
-    - mask: Boolean array, same size as img, True for valid sampling regions
-    - n_points: Number of points to sample
-    - alpha: Density bias exponent, >1 favors bright areas, =1 linear, <1 more uniform
-    - blur_sigma_px: Optional Gaussian smoothing std dev (pixels); 0 for no smoothing
-    - replace: Whether to allow same pixel to be sampled multiple times
-    - normalize_xy: Normalize coordinates to [0,1]x[0,1]
-    - pixel_jitter: Add random jitter within pixels for continuous coordinates
-    - method: Sampling method, 'random' or 'sobol' (quasi-Monte Carlo)
-    - seed: Random seed
-    
-    Returns:
-    - pts: (N,2) array with x,y coordinates (image coordinates, origin at top-left)
-    - (H, W): Image dimensions
-    - Y: Processed brightness distribution (only for method='random')
-    
-    Note:
-    - Only supports grayscale images
-    - Pixels outside mask regions have zero weight and won't be sampled
+    Sample source-plane seed points using brightness-weighted probabilities.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Input grayscale image with shape ``(H, W)``.
+    mask : np.ndarray
+        Boolean validity mask of shape ``(H, W)`` where ``True`` denotes
+        regions eligible for sampling.
+    n_points : int, optional
+        Number of samples to draw.
+    alpha : float, optional
+        Exponent applied to normalized brightness before sampling.
+    blur_sigma_px : float, optional
+        Gaussian blur sigma (pixels) applied before weighting.
+    replace : bool, optional
+        Whether pixel indices can be sampled multiple times.
+    normalize_xy : bool, optional
+        If ``True``, return coordinates normalized to ``[0, 1]``.
+    pixel_jitter : bool, optional
+        If ``True``, add sub-pixel random offsets.
+    method : {'random', 'sobol'}, optional
+        Sampling strategy.
+    seed : int, optional
+        Random seed used by random or Sobol samplers.
+
+    Returns
+    -------
+    tuple[np.ndarray, tuple[int, int], np.ndarray]
+        Sampled points ``(N, 2)``, image shape ``(H, W)``, and processed
+        brightness map used for weighting.
     """
     if not isinstance(mask, np.ndarray):
         raise TypeError("mask must be a numpy array")
@@ -107,49 +111,37 @@ def sample_points_weighted(img, mask, n_points=1500, alpha=1.5, blur_sigma_px=0.
 
 def _sample_random(probabilities, n_points, W, H, replace, normalize_xy, pixel_jitter, seed, Y):
     """
-    Internal helper to sample random.
-    
+    Draw weighted samples using NumPy's discrete random choice.
+
     Parameters
     ----------
-    probabilities : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_points : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    W : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    H : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    replace : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    normalize_xy : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    pixel_jitter : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    seed : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    Y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    probabilities : np.ndarray
+        Flattened categorical probabilities over all pixels.
+    n_points : int
+        Number of requested samples.
+    W, H : int
+        Image width and height.
+    replace : bool
+        Sampling with/without replacement.
+    normalize_xy : bool
+        Whether to normalize output coordinates.
+    pixel_jitter : bool
+        Whether to add random sub-pixel offsets.
+    seed : int, optional
+        Random seed for reproducibility.
+    Y : np.ndarray
+        Processed weighting image returned to the caller.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[np.ndarray, tuple[int, int], np.ndarray]
+        Sampled points, image shape, and processed brightness map.
+
     Raises
     ------
     ValueError
-        Raised when input validation fails or required runtime state is missing.
-    
+        If sampling without replacement requests more points than nonzero
+        probability pixels.
     """
     if not replace:
         positive_pixels = int(np.count_nonzero(probabilities > 0))
@@ -178,41 +170,29 @@ def _sample_random(probabilities, n_points, W, H, replace, normalize_xy, pixel_j
 
 def _sample_sobol(probabilities, n_points, W, H, normalize_xy, pixel_jitter, seed, Y):
     """
-    Internal helper to sample sobol.
-    
+    Draw weighted samples using Sobol quasi-random numbers.
+
     Parameters
     ----------
-    probabilities : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    n_points : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    W : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    H : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    normalize_xy : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    pixel_jitter : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    seed : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    Y : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    probabilities : np.ndarray
+        Flattened categorical probabilities over all pixels.
+    n_points : int
+        Number of requested samples.
+    W, H : int
+        Image width and height.
+    normalize_xy : bool
+        Whether to normalize output coordinates.
+    pixel_jitter : bool
+        Whether to add Sobol-derived sub-pixel offsets.
+    seed : int, optional
+        Sobol scrambler seed.
+    Y : np.ndarray
+        Processed weighting image returned to the caller.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    tuple[np.ndarray, tuple[int, int], np.ndarray]
+        Sampled points, image shape, and processed brightness map.
     """
     sampler = qmc.Sobol(d=3, scramble=True, seed=seed)
     m = int(np.ceil(np.log2(n_points)))

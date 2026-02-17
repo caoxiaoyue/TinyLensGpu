@@ -43,37 +43,20 @@ class PseudoJaffeEllipse(ck.Module):
                  e2: Optional[float] = None, center_x: Optional[float] = None, 
                  center_y: Optional[float] = None) -> None:
         """
-        Initialize a `PseudoJaffeEllipse` instance with validated configuration.
-        
+        Initialize elliptical Pseudo-Jaffe profile parameters.
+
         Parameters
         ----------
-        amp : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Ra : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        Rs : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e1 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        e2 : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_x : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        center_y : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
-        Returns
-        -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
+        amp : float, optional
+            Surface-brightness amplitude.
+        Ra : float, optional
+            Core radius.
+        Rs : float, optional
+            Outer scale radius.
+        e1, e2 : float, optional
+            Ellipticity components.
+        center_x, center_y : float, optional
+            Profile center coordinates in arcseconds.
         """
         super().__init__()
 
@@ -91,7 +74,7 @@ class PseudoJaffeEllipse(ck.Module):
               e1: Optional[Array] = None, e2: Optional[Array] = None, 
               center_x: Optional[Array] = None, center_y: Optional[Array] = None) -> Array:
         """
-        Compute surface brightness at given positions.
+        Evaluate projected elliptical Pseudo-Jaffe surface brightness.
 
         Parameters
         ----------
@@ -117,7 +100,7 @@ class PseudoJaffeEllipse(ck.Module):
         Returns
         -------
         surface_brightness : array_like
-            Surface brightness at the given positions
+            Surface-brightness values at the requested coordinates.
         """
         amp = jnp.asarray(amp)
         Ra = jnp.asarray(Ra)

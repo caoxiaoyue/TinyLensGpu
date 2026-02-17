@@ -18,13 +18,11 @@ from .artifacts import GridArtifacts, RegularizationArtifacts
 
 class BaseRegularizationStrategy:
     """
-    Represent the `BaseRegularizationStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Abstract interface for source regularization construction.
+
+    Implementations produce the regularization operator used by inversion, either
+    as a dense matrix or as sparse COO components depending on the configured
+    backend and grid type.
     """
 
     mode: str
@@ -37,30 +35,22 @@ class BaseRegularizationStrategy:
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
         """
-        Compute build.
-        
+        Build regularization artifacts for current grid geometry.
+
         Parameters
         ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_scale : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_coefficient : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        grid : GridArtifacts
+            Grid geometry and source-node coordinates.
+        reg_scale : float
+            Correlation length or smoothing scale. Interpretation depends on the
+            specific regularization implementation.
+        reg_coefficient : float
+            Global regularization strength multiplying the penalty term.
+
         Returns
         -------
-        None
-            This routine updates object state or performs side-effect-free setup only.
-        
-        Raises
-        ------
-        NotImplementedError
-            Raised when input validation fails or required runtime state is missing.
-        
+        RegularizationArtifacts
+            Dense or sparse representation of the regularization operator.
         """
         raise NotImplementedError
 
@@ -68,13 +58,10 @@ class BaseRegularizationStrategy:
 @dataclass(frozen=True)
 class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
     """
-    Represent the `DenseGpRegularizationStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Dense Gaussian-process-style regularization on source nodes.
+
+    The resulting matrix is typically used with matrix-based inversion backends
+    where explicit ``(n_source, n_source)`` storage is acceptable.
     """
 
     config: RegularizationConfig
@@ -88,31 +75,18 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
         """
-        Compute build.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_scale : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_coefficient : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Build dense GP regularization matrix.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        RegularizationArtifacts
+            Artifacts with ``dense_matrix`` populated and sparse fields set to
+            ``None``.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If GP kernel metadata is missing from the configuration.
         """
         kernel = self.config.gp_kernel
         if kernel is None:
@@ -136,13 +110,10 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
 @dataclass(frozen=True)
 class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
     """
-    Represent the `SparseKnnRegularizationStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Sparse k-NN graph regularization for irregular source grids.
+
+    Produces COO triplets representing a sparse precision-like operator and is
+    intended for operator-based inversion backends.
     """
 
     config: RegularizationConfig
@@ -156,31 +127,17 @@ class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
         """
-        Compute build.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_scale : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_coefficient : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Build sparse k-NN regularization operator.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        RegularizationArtifacts
+            Artifacts with sparse COO arrays and ``sparse_n_source`` populated.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If k-NN regularization kernel metadata is missing from configuration.
         """
         kernel = self.config.gp_kernel
         if kernel is None:
@@ -205,13 +162,10 @@ class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
 @dataclass(frozen=True)
 class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
     """
-    Represent the `SparseRectangularRegularizationStrategy` component in the TinyLensGpu pipeline.
-    
-    Notes
-    -----
-    Instances of this class participate in TinyLensGpu forward modeling and/or
-    inference workflows. Keep parameter semantics consistent with neighboring
-    modules to ensure predictable numerical behavior.
+    Sparse finite-difference regularization for rectangular source grids.
+
+    The operator encodes zero/first/second-order smoothness on a structured
+    lattice and is emitted in COO form.
     """
 
     config: RegularizationConfig
@@ -225,33 +179,20 @@ class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
         reg_coefficient: float,
     ) -> RegularizationArtifacts:
         """
-        Compute build.
-        
-        Parameters
-        ----------
-        grid : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_scale : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        reg_coefficient : Any
-            Input argument used by this routine. Shapes/units follow the surrounding
-            simulation or inference convention in the calling context.
-        
+        Build sparse rectangular-grid regularization operator.
+
         Returns
         -------
-        value : Any
-            Computed output produced by this routine. For array outputs, shape follows
-            the input mesh/matrix conventions used by the corresponding pipeline stage.
-        
+        RegularizationArtifacts
+            Artifacts with sparse COO arrays for rectangular finite-difference
+            regularization.
+
         Raises
         ------
         ValueError
-            Raised when input validation fails or required runtime state is missing.
+            If regularization scheme metadata is not set.
         RuntimeError
-            Raised when input validation fails or required runtime state is missing.
-        
+            If rectangular grid shape metadata is unavailable.
         """
         _ = reg_scale
         rect_scheme = self.config.rect_scheme
@@ -285,28 +226,24 @@ def select_regularization_strategy(
     resolved_mode: str,
 ) -> BaseRegularizationStrategy:
     """
-    Compute select regularization strategy.
-    
+    Select a regularization strategy from resolved mode.
+
     Parameters
     ----------
-    regularization_config : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    resolved_mode : Any
-        Input argument used by this routine. Shapes/units follow the surrounding
-        simulation or inference convention in the calling context.
-    
+    regularization_config : RegularizationConfig
+        User configuration object containing kernel/sparsity settings.
+    resolved_mode : str
+        Canonical regularization mode string.
+
     Returns
     -------
-    value : Any
-        Computed output produced by this routine. For array outputs, shape follows
-        the input mesh/matrix conventions used by the corresponding pipeline stage.
-    
+    BaseRegularizationStrategy
+        Instantiated strategy matching ``resolved_mode``.
+
     Raises
     ------
     ValueError
-        Raised when input validation fails or required runtime state is missing.
-    
+        If ``resolved_mode`` is not recognized.
     """
     mode = str(resolved_mode).strip().lower()
     if mode == "dense_gp":
