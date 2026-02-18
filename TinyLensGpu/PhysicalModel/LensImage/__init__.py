@@ -1,7 +1,7 @@
 """Lens Image physical models."""
 
 from .Parametric.Mass import SIE, Shear
-from .Parametric.Light import SersicEllipse, GaussianEllipse
+from .Parametric.Light import SersicEllipse, GaussianEllipse, ShapeletBasisFunction, build_shapelet_set, build_shapelet_basis_matrix
 from .Pixelized import (
     PixelizedSourceModel,
     PixelizedSourceConfig,
@@ -18,6 +18,9 @@ __all__ = [
     'Shear',
     'SersicEllipse',
     'GaussianEllipse',
+    'ShapeletBasisFunction',
+    'build_shapelet_set',
+    'build_shapelet_basis_matrix',
     'PixelizedSourceModel',
     'PixelizedSourceConfig',
     'IrregularGridConfig',
