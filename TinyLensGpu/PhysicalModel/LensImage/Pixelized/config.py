@@ -384,8 +384,10 @@ class SolverConfig:
             Default is False.
         lens_light_ridge (float): Ridge regularization strength (Tikhonov) 
             specifically for lens light components. Default is 1e-8.
-        cg_tol (float): Convergence tolerance for the Conjugate Gradient (CG) 
-            iterative solver. Default is 1e-5.
+        cg_tol (float): Convergence tolerance for the Conjugate Gradient (CG)
+            iterative solver, interpreted as an absolute residual threshold
+            in the operator backend (``jax.scipy.sparse.linalg.cg`` with
+            ``tol=0`` and ``atol=cg_tol``). Default is 1e-5.
         cg_maxiter (int): Maximum number of iterations for the CG solver. 
             Default is 300.
         slq_seed (int): Random seed for Stochastic Lanczos Quadrature (SLQ) 
@@ -409,7 +411,7 @@ class SolverConfig:
     nonnegative: bool = False
     lens_light_ridge: float = 1e-8
 
-    # Iterative solver parameters (CG)
+    # Iterative solver parameters (CG, absolute residual tolerance in operator backend)
     cg_tol: float = 1e-5
     cg_maxiter: int = 300
     

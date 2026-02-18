@@ -7,6 +7,7 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 from jax import Array, jit
+from jax.scipy.sparse.linalg import cg
 from jax.tree_util import register_pytree_node_class
 
 
@@ -272,11 +273,12 @@ def _apply_sparse_matrix(rows: Array, cols: Array, values: Array, n: int, x: Arr
 
 def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Array]:
     """
-    Solve a linear system Ax = b using the Conjugate Gradient (CG) method.
+    Solve a linear system ``Ax = b`` using the official JAX CG implementation.
 
-    This function implements the standard Conjugate Gradient algorithm for solving
-    symmetric positive-definite (SPD) linear systems without explicitly forming the matrix A.
-    It uses a matrix-vector product function `matvec` to represent A.
+    This helper delegates to :func:`jax.scipy.sparse.linalg.cg` and keeps the
+    project-level solver API stable. The tolerance is interpreted as an
+    *absolute residual tolerance* by fixing the relative term to zero:
+    ``tol=0`` and ``atol=tol`` in the JAX CG call.
 
     Parameters
     ----------
@@ -285,8 +287,7 @@ def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Arr
     b : Array
         The right-hand side vector of the linear system.
     tol : float
-        Relative tolerance for convergence based on the residual norm.
-        Stopping criterion: ||r_k||^2 <= tol^2 * ||b||^2 (conceptually, though here checked against absolute tol^2).
+        Absolute residual tolerance target for CG convergence.
     maxiter : int
         Maximum number of iterations allowed.
 
@@ -298,46 +299,9 @@ def _cg_solve(matvec, b: Array, *, tol: float, maxiter: int) -> Tuple[Array, Arr
         The squared Euclidean norm of the final residual vector (r^T r).
 
     """
-    x = jnp.zeros_like(b)
-    r = b
-    p = r
-    rs_old = jnp.dot(r, r)
-    tol2 = jnp.array(float(tol) ** 2, dtype=rs_old.dtype)
-
-    def body(state, _):
-        """
-        Single iteration of the Conjugate Gradient loop.
-
-        Updates position x, residual r, and search direction p.
-        """
-        x_k, r_k, p_k, rs_k, done = state
-
-        # Standard CG step on SPD system A x = b, where matvec(p_k) computes A p_k.
-        ap = matvec(p_k)
-        denom = jnp.dot(p_k, ap)
-        alpha = rs_k / (denom + 1e-12)
-
-        x_new = x_k + alpha * p_k
-        r_new = r_k - alpha * ap
-        rs_new = jnp.dot(r_new, r_new)
-        beta = rs_new / (rs_k + 1e-12)
-        p_new = r_new + beta * p_k
-        done_new = done | (rs_new <= tol2)
-
-        def keep(_):
-            return x_k, r_k, p_k, rs_k, done
-
-        def update(_):
-            return x_new, r_new, p_new, rs_new, done_new
-
-        return jax.lax.cond(done, keep, update, operand=None), None
-
-    (x, _, _, rs_final, _), _ = jax.lax.scan(
-        body,
-        (x, r, p, rs_old, jnp.array(False)),
-        xs=None,
-        length=maxiter,
-    )
+    x, _ = cg(matvec, b, tol=0.0, atol=float(tol), maxiter=int(maxiter))
+    residual = b - matvec(x)
+    rs_final = jnp.dot(residual, residual)
     return x, rs_final
 
 
@@ -845,7 +809,7 @@ class OperatorInversion(_OperatorSolverBase):
     jitter : float, optional
         Diagonal jitter.
     cg_tol : float, optional
-        CG convergence tolerance (relative).
+        Absolute residual tolerance used by JAX CG.
     cg_maxiter : int, optional
         Maximum CG iterations.
     slq_seed : int, optional
