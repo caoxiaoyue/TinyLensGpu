@@ -1,0 +1,30 @@
+{
+  "backend": "matrix",
+  "chi2": 3481.919189453125,
+  "figure_path": "joint_rect_reconstruction.png",
+  "lens_light_coefficients": [
+    427.0677795410156,
+    -208.44967651367188,
+    48.633365631103516,
+    -3.717989921569824,
+    2.397531032562256,
+    1.9026418924331665,
+    3.39477276802063,
+    7.566120147705078,
+    -27.267505645751953,
+    175.15908813476562
+  ],
+  "lens_light_ridge": 1e-08,
+  "lens_sigma_max": 3.0,
+  "lens_sigma_min": 0.01,
+  "log_evidence": -Infinity,
+  "n_data": 4160,
+  "n_lens_gaussians": 10,
+  "n_source": 4096,
+  "nonnegative": false,
+  "operator_cache_policy": "safe",
+  "scheme": "rectangular_first",
+  "source_grid_margin_frac": 0.1,
+  "source_grid_nx": 64,
+  "source_grid_ny": 64
+}
