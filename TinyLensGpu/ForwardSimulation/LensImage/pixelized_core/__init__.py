@@ -20,7 +20,6 @@ from .mapping_strategies import (
 from .regularization_strategies import (
     BaseRegularizationStrategy,
     DenseGpRegularizationStrategy,
-    SparseKnnRegularizationStrategy,
     SparseRectangularRegularizationStrategy,
     select_regularization_strategy,
 )
@@ -40,9 +39,7 @@ __all__ = [
     "build_mapping_artifacts",
     "BaseRegularizationStrategy",
     "DenseGpRegularizationStrategy",
-    "SparseKnnRegularizationStrategy",
     "SparseRectangularRegularizationStrategy",
     "select_regularization_strategy",
     "InversionAssembler",
 ]
-

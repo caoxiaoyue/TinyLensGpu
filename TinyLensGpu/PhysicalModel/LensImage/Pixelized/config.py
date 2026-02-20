@@ -39,15 +39,10 @@ RECTANGULAR_SCHEME_TO_OPERATOR = {
 # Format: 'irregular_gp_<kernel_type>' (e.g., 'irregular_gp_exp').
 IRREGULAR_GP_SCHEME_TO_KERNEL = {f"irregular_gp_{kernel}": kernel for kernel in sorted(REG_KERNEL_TYPES)}
 
-# Dynamically generate KNN-based irregular regularization schemes.
-# Format: 'irregular_knn_<kernel_type>' (e.g., 'irregular_knn_gauss').
-IRREGULAR_KNN_SCHEME_TO_KERNEL = {f"irregular_knn_{kernel}": kernel for kernel in sorted(REG_KERNEL_TYPES)}
-
 # Combined set of all valid regularization scheme identifiers used for validation.
 REGULARIZATION_SCHEMES = (
     set(RECTANGULAR_SCHEME_TO_OPERATOR)
     | set(IRREGULAR_GP_SCHEME_TO_KERNEL)
-    | set(IRREGULAR_KNN_SCHEME_TO_KERNEL)
 )
 
 @dataclass(frozen=True)
@@ -219,15 +214,11 @@ class RegularizationConfig:
     Attributes:
         scheme (str): String identifier for the regularization scheme.
             Must be one of the keys in RECTANGULAR_SCHEME_TO_OPERATOR, 
-            IRREGULAR_GP_SCHEME_TO_KERNEL, or IRREGULAR_KNN_SCHEME_TO_KERNEL.
+            or IRREGULAR_GP_SCHEME_TO_KERNEL.
             Default is 'irregular_gp_exp'.
-        sparse_k_neighbors (int): Number of neighbors used for sparse approximations 
-            in GP or KNN based schemes. Helps in reducing the computational cost 
-            of the regularization operator. Default is 16.
     """
 
     scheme: str = "irregular_gp_exp"
-    sparse_k_neighbors: int = 16
 
     def __post_init__(self) -> None:
         """
@@ -236,17 +227,21 @@ class RegularizationConfig:
         Raises
         ------
         ValueError
-            If scheme name is unknown or sparse neighbor count is invalid.
+            If scheme name is unknown.
         """
+        normalized_scheme = str(self.scheme).strip().lower()
+        if normalized_scheme.startswith("irregular_knn_"):
+            suggested_scheme = normalized_scheme.replace("irregular_knn_", "irregular_gp_", 1)
+            raise ValueError(
+                "The irregular_knn_* regularization schemes were removed from TinyLensGpu. "
+                f"Use '{suggested_scheme}' or another irregular_gp_* scheme instead."
+            )
+
         # Validate that the scheme exists in our supported list
-        if str(self.scheme).strip().lower() not in REGULARIZATION_SCHEMES:
+        if normalized_scheme not in REGULARIZATION_SCHEMES:
             raise ValueError(
                 f"Unknown regularization scheme: '{self.scheme}'. Must be one of {sorted(REGULARIZATION_SCHEMES)}."
             )
-        
-        # sparse_k_neighbors must be a positive integer
-        if int(self.sparse_k_neighbors) <= 0:
-            raise ValueError(f"sparse_k_neighbors must be positive, got {self.sparse_k_neighbors}.")
 
     @property
     def normalized_scheme(self) -> str:
@@ -285,13 +280,13 @@ class RegularizationConfig:
         return self.normalized_scheme.startswith("irregular_")
 
     @property
-    def mode(self) -> Literal["dense_gp", "sparse_knn", "sparse_rectangular"]:
+    def mode(self) -> Literal["dense_gp", "sparse_rectangular"]:
         """
         Resolve regularization backend mode from scheme name.
 
         Returns
         -------
-        Literal["dense_gp", "sparse_knn", "sparse_rectangular"]
+        Literal["dense_gp", "sparse_rectangular"]
             Canonical mode consumed by forward-simulation backends.
 
         Raises
@@ -304,8 +299,6 @@ class RegularizationConfig:
             return "sparse_rectangular"
         if scheme in IRREGULAR_GP_SCHEME_TO_KERNEL:
             return "dense_gp"
-        if scheme in IRREGULAR_KNN_SCHEME_TO_KERNEL:
-            return "sparse_knn"
         
         # This should theoretically not be reached due to __post_init__ validation
         raise ValueError(
@@ -315,7 +308,7 @@ class RegularizationConfig:
     @property
     def gp_kernel(self) -> Optional[Literal["exp", "gauss", "matern32", "matern52"]]:
         """
-        Return kernel identifier for GP/KNN irregular schemes.
+        Return kernel identifier for GP irregular schemes.
 
         Returns
         -------
@@ -329,11 +322,6 @@ class RegularizationConfig:
         if kernel is not None:
             return kernel  # type: ignore[return-value]
         
-        # Check KNN schemes which also use GP kernels for weights
-        kernel = IRREGULAR_KNN_SCHEME_TO_KERNEL.get(scheme)
-        if kernel is not None:
-            return kernel  # type: ignore[return-value]
-            
         return None
 
     @property
@@ -352,13 +340,13 @@ class RegularizationConfig:
             return rect  # type: ignore[return-value]
         return None
 
-    def resolved_mode(self) -> Literal["dense_gp", "sparse_knn", "sparse_rectangular"]:
+    def resolved_mode(self) -> Literal["dense_gp", "sparse_rectangular"]:
         """
         Convenience alias returning :attr:`mode`.
 
         Returns
         -------
-        Literal["dense_gp", "sparse_knn", "sparse_rectangular"]
+        Literal["dense_gp", "sparse_rectangular"]
             Regularization backend mode.
         """
         return self.mode
@@ -534,7 +522,7 @@ class PixelizedSourceConfig:
         if isinstance(self.grid, IrregularGridConfig) and not self.regularization.is_irregular_scheme:
             raise ValueError(
                 "IrregularGridConfig requires an irregular regularization scheme "
-                "('irregular_gp_*' or 'irregular_knn_*')."
+                "('irregular_gp_*')."
             )
 
     @property

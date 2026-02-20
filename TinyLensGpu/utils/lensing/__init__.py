@@ -11,7 +11,6 @@ from .regularization import (
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
     regularization_matrix_gp_from,
-    regularization_sparse_knn_from,
     regularization_sparse_rectangular_from,
     sparse_regularization_dense_from,
 )
@@ -37,7 +36,6 @@ __all__ = [
     'matern32_cov_matrix_from',
     'matern52_cov_matrix_from',
     'regularization_matrix_gp_from',
-    'regularization_sparse_knn_from',
     'regularization_sparse_rectangular_from',
     'sparse_regularization_dense_from',
     'solve_lens_equation_optimization_core',

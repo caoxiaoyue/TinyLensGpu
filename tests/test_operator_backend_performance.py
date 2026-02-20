@@ -104,7 +104,6 @@ def setup_pixelized_model(
     slq_steps: int = 60,
     operator_cache_policy: str = "safe",
     scheme: str = "irregular_gp_exp",
-    reg_sparse_k_neighbors: int = 16,
 ):
     """Setup the pixelized source model."""
     e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
@@ -125,7 +124,6 @@ def setup_pixelized_model(
         ),
         regularization=RegularizationConfig(
             scheme=scheme,
-            sparse_k_neighbors=reg_sparse_k_neighbors,
         ),
         solver=SolverConfig(
             inversion_backend=backend,

@@ -110,7 +110,6 @@ def build_model(data_dict, backend="matrix"):
         ),
         regularization=RegularizationConfig(
             scheme="irregular_gp_exp",
-            sparse_k_neighbors=16,
         ),
         solver=solver_config,
     )

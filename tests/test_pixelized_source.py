@@ -27,7 +27,6 @@ from TinyLensGpu.utils.lensing import (
     matern32_cov_matrix_from,
     matern52_cov_matrix_from,
     regularization_matrix_gp_from,
-    regularization_sparse_knn_from,
     regularization_sparse_rectangular_from,
     sparse_regularization_dense_from,
     dense_mapping_from_weights_indices,
@@ -372,55 +371,6 @@ class TestRegularizationMatrices:
         assert_allclose(diagonal - 1e-6, expected * jnp.ones_like(diagonal), atol=1e-4,
                        err_msg="Diagonal should be ~1 (self-covariance)")
 
-
-    def test_sparse_knn_no_self_neighbor_offdiag_under_duplicates(self):
-        """Sparse KNN regularization should not include self-edges in off-diagonal terms."""
-        points = np.array([
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [0.0, 0.0],
-            [0.0, 0.0],
-        ], dtype=np.float32)
-        rows, cols, values, n_source = regularization_sparse_knn_from(
-            scale=0.1,
-            coefficient=1.0,
-            points=jnp.array(points),
-            reg_type='exp',
-            k_neighbors=2,
-        )
-
-        rows = np.asarray(rows)
-        cols = np.asarray(cols)
-        n_diag = int(n_source)
-
-        diag_mask = rows == cols
-        # Exactly n_source diagonal terms should come from the explicit diagonal block.
-        # Any additional diagonal entry would indicate a leaked self-neighbor edge.
-        assert int(diag_mask.sum()) == n_diag
-
-        dense = sparse_regularization_dense_from(rows, cols, values, n_source)
-        dense_np = np.asarray(dense)
-        assert_allclose(dense_np, dense_np.T, rtol=1e-6, atol=1e-6)
-
-    def test_sparse_knn_is_differentiable_wrt_points(self, source_points):
-        """Sparse KNN regularization path should support autodiff through points."""
-
-        def loss_fn(points):
-            rows, cols, values, n_source = regularization_sparse_knn_from(
-                scale=0.1,
-                coefficient=1.2,
-                points=points,
-                reg_type='exp',
-                k_neighbors=8,
-            )
-            dense = sparse_regularization_dense_from(rows, cols, values, n_source)
-            return jnp.sum(dense * dense)
-
-        grad = jax.grad(loss_fn)(source_points)
-        assert grad.shape == source_points.shape
-        assert jnp.all(jnp.isfinite(grad))
 
     @pytest.mark.parametrize('scheme', ['zero', 'gradient', 'curvature'])
     def test_rectangular_sparse_regularization_symmetric(self, scheme):
@@ -786,10 +736,6 @@ class TestPixelizedSourceModel:
             ("irregular_gp_gauss", "dense_gp", "gauss", None),
             ("irregular_gp_matern32", "dense_gp", "matern32", None),
             ("irregular_gp_matern52", "dense_gp", "matern52", None),
-            ("irregular_knn_exp", "sparse_knn", "exp", None),
-            ("irregular_knn_gauss", "sparse_knn", "gauss", None),
-            ("irregular_knn_matern32", "sparse_knn", "matern32", None),
-            ("irregular_knn_matern52", "sparse_knn", "matern52", None),
         ],
     )
     def test_regularization_scheme_resolution(self, scheme, expected_mode, expected_kernel, expected_rect):
@@ -819,7 +765,6 @@ class TestPixelizedSourceModel:
                 mapping=MappingConfig(k_neighbors=7, interp_kernel='wendland_c2', radius_scale=2.0),
                 regularization=RegularizationConfig(
                     scheme='rectangular_second',
-                    sparse_k_neighbors=16,
                 ),
             ),
             reg_scale=0.1,
@@ -861,6 +806,11 @@ class TestPixelizedSourceModel:
                 regularization=RegularizationConfig(scheme='irregular_gp_exp'),
             )
 
+    def test_model_removed_irregular_knn_schemes(self):
+        """Irregular KNN regularization schemes are removed and must raise explicit errors."""
+        with pytest.raises(ValueError, match="irregular_knn_\\* regularization schemes were removed"):
+            RegularizationConfig(scheme='irregular_knn_exp')
+
     def test_model_rectangular_sparse_regularization_builder(self):
         model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
@@ -892,7 +842,6 @@ class TestPixelizedSourceModel:
         for attr_name in (
             'reg_type',
             'reg_operator_mode',
-            'reg_sparse_k_neighbors',
             'rect_reg_type',
             'k_neighbors',
             'interp_kernel',

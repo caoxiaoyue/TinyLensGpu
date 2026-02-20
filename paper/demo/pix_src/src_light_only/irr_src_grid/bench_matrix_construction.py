@@ -138,7 +138,6 @@ def _build_prob_model(
     *,
     n_source_points: int,
     scheme: str,
-    sparse_k_neighbors: int,
     mesh_seed: int,
     nonnegative: bool,
 ) -> PixelizedImageProbModel:
@@ -161,7 +160,6 @@ def _build_prob_model(
         ),
         regularization=RegularizationConfig(
             scheme=str(scheme),
-            sparse_k_neighbors=int(sparse_k_neighbors),
         ),
         solver=SolverConfig(
             inversion_backend="matrix",
@@ -229,7 +227,6 @@ def _best_by_metric(cases: List[Dict[str, Any]], metric_name: str) -> Optional[D
         "mean_s": float(best["timing"][metric_name]["mean_s"]),
         "n_source_points": int(best["n_source_points"]),
         "scheme": str(best["scheme"]),
-        "sparse_k_neighbors": best["sparse_k_neighbors"],
         "n_source": int(best["n_source"]),
         "n_data": int(best["n_data"]),
     }
@@ -238,19 +235,11 @@ def _best_by_metric(cases: List[Dict[str, Any]], metric_name: str) -> Optional[D
 def _iter_cases(
     n_source_points: Iterable[int],
     schemes: Iterable[str],
-    sparse_k_neighbors: Iterable[int],
-) -> Iterable[Tuple[int, str, Optional[int]]]:
-    """Generate irregular-grid benchmark cases with sparse-k sweep only for KNN schemes."""
-    sparse_k_list = [int(v) for v in sparse_k_neighbors]
-    default_sparse_k = int(sparse_k_list[0])
-
+ ) -> Iterable[Tuple[int, str]]:
+    """Generate irregular-grid benchmark cases."""
     for n_src in n_source_points:
         for scheme in schemes:
-            if str(scheme).startswith("irregular_knn_"):
-                for sparse_k in sparse_k_list:
-                    yield int(n_src), str(scheme), int(sparse_k)
-            else:
-                yield int(n_src), str(scheme), int(default_sparse_k)
+            yield int(n_src), str(scheme)
 
 
 def _run_benchmark(
@@ -258,7 +247,6 @@ def _run_benchmark(
     n_runs: int,
     n_source_points: List[int],
     schemes: List[str],
-    sparse_k_neighbors: List[int],
     mesh_seed: int,
     blur_method: str,
     include_solve: bool,
@@ -269,16 +257,12 @@ def _run_benchmark(
     data_dict = _load_data_from_fits(default_dpix=0.074)
     cases: List[Dict[str, Any]] = []
 
-    for n_src, scheme, sparse_k in _iter_cases(n_source_points, schemes, sparse_k_neighbors):
-        print(
-            f"[Case] n_source_points={n_src}, scheme={scheme}, "
-            f"sparse_k_neighbors={sparse_k}, backend=matrix"
-        )
+    for n_src, scheme in _iter_cases(n_source_points, schemes):
+        print(f"[Case] n_source_points={n_src}, scheme={scheme}, backend=matrix")
         prob_model = _build_prob_model(
             data_dict=data_dict,
             n_source_points=n_src,
             scheme=scheme,
-            sparse_k_neighbors=int(sparse_k),
             mesh_seed=mesh_seed,
             nonnegative=nonnegative,
         )
@@ -321,7 +305,6 @@ def _run_benchmark(
                 "backend": "matrix",
                 "n_source_points": int(n_src),
                 "scheme": str(scheme),
-                "sparse_k_neighbors": int(sparse_k),
                 "nonnegative": bool(nonnegative),
                 "n_source": int(n_source),
                 "n_data": int(n_data),
@@ -357,7 +340,6 @@ def _run_benchmark(
         "nonnegative": bool(nonnegative),
         "n_source_points": [int(v) for v in n_source_points],
         "schemes": [str(v) for v in schemes],
-        "sparse_k_neighbors": [int(v) for v in sparse_k_neighbors],
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cases": cases,
         "best_cases": best_cases,
@@ -374,9 +356,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--schemes",
         type=str,
-        default="irregular_gp_exp,irregular_gp_matern32,irregular_knn_exp,irregular_knn_matern32",
+        default="irregular_gp_exp,irregular_gp_matern32",
     )
-    parser.add_argument("--sparse-k-neighbors", type=str, default="8,16,24")
     parser.add_argument("--mesh-seed", type=int, default=42)
     parser.add_argument("--blur-method", choices=["fft", "matmul"], default="fft")
     parser.add_argument("--nonnegative", action="store_true")
@@ -400,13 +381,11 @@ def main() -> None:
 
     n_source_points = _parse_int_list(args.n_source_points, name="n_source_points")
     schemes = _parse_scheme_list(args.schemes)
-    sparse_k_neighbors = _parse_int_list(args.sparse_k_neighbors, name="sparse_k_neighbors")
 
     payload = _run_benchmark(
         n_runs=int(args.n_runs),
         n_source_points=n_source_points,
         schemes=schemes,
-        sparse_k_neighbors=sparse_k_neighbors,
         mesh_seed=int(args.mesh_seed),
         blur_method=str(args.blur_method),
         include_solve=bool(args.include_solve),

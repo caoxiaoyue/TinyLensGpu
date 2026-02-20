@@ -9,7 +9,6 @@ import jax.numpy as jnp
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import RegularizationConfig
 from TinyLensGpu.utils.lensing import (
     regularization_matrix_gp_from,
-    regularization_sparse_knn_from,
     regularization_sparse_rectangular_from,
 )
 
@@ -108,58 +107,6 @@ class DenseGpRegularizationStrategy(BaseRegularizationStrategy):
 
 
 @dataclass(frozen=True)
-class SparseKnnRegularizationStrategy(BaseRegularizationStrategy):
-    """
-    Sparse k-NN graph regularization for irregular source grids.
-
-    Produces COO triplets representing a sparse precision-like operator and is
-    intended for operator-based inversion backends.
-    """
-
-    config: RegularizationConfig
-    mode: str = "sparse_knn"
-
-    def build(
-        self,
-        *,
-        grid: GridArtifacts,
-        reg_scale: float,
-        reg_coefficient: float,
-    ) -> RegularizationArtifacts:
-        """
-        Build sparse k-NN regularization operator.
-
-        Returns
-        -------
-        RegularizationArtifacts
-            Artifacts with sparse COO arrays and ``sparse_n_source`` populated.
-
-        Raises
-        ------
-        ValueError
-            If k-NN regularization kernel metadata is missing from configuration.
-        """
-        kernel = self.config.gp_kernel
-        if kernel is None:
-            raise ValueError("sparse_knn regularization requires an irregular_knn_* scheme.")
-        rows, cols, values, n_source = regularization_sparse_knn_from(
-            scale=float(reg_scale),
-            coefficient=float(reg_coefficient),
-            points=grid.source_mesh_beta,
-            reg_type=kernel,
-            k_neighbors=int(self.config.sparse_k_neighbors),
-        )
-        return RegularizationArtifacts(
-            mode=self.mode,
-            dense_matrix=None,
-            sparse_rows=rows,
-            sparse_cols=cols,
-            sparse_values=values,
-            sparse_n_source=int(n_source),
-        )
-
-
-@dataclass(frozen=True)
 class SparseRectangularRegularizationStrategy(BaseRegularizationStrategy):
     """
     Sparse finite-difference regularization for rectangular source grids.
@@ -248,8 +195,6 @@ def select_regularization_strategy(
     mode = str(resolved_mode).strip().lower()
     if mode == "dense_gp":
         return DenseGpRegularizationStrategy(config=regularization_config)
-    if mode == "sparse_knn":
-        return SparseKnnRegularizationStrategy(config=regularization_config)
     if mode == "sparse_rectangular":
         return SparseRectangularRegularizationStrategy(config=regularization_config)
     raise ValueError(f"Unknown regularization mode: '{mode}'.")

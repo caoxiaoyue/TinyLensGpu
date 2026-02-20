@@ -36,7 +36,6 @@ def setup_pixelized_model(
     nonnegative: bool = False,
     operator_cache_policy: str = "safe",
     scheme: str = "irregular_gp_exp",
-    reg_sparse_k_neighbors: int = 16,
 ):
     """Setup the pixelized source model."""
     e1_l, e2_l = phi_q2_ellipticity(90 * np.pi / 180, 0.9)
@@ -57,7 +56,6 @@ def setup_pixelized_model(
         ),
         regularization=RegularizationConfig(
             scheme=scheme,
-            sparse_k_neighbors=reg_sparse_k_neighbors,
         ),
         solver=SolverConfig(
             inversion_backend=backend,
@@ -176,14 +174,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
             "irregular_gp_gauss",
             "irregular_gp_matern32",
             "irregular_gp_matern52",
-            "irregular_knn_exp",
-            "irregular_knn_gauss",
-            "irregular_knn_matern32",
-            "irregular_knn_matern52",
         ],
         default="irregular_gp_exp",
     )
-    parser.add_argument("--reg-sparse-k-neighbors", type=int, default=16)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-json", type=Path, default=Path("demo_pix_src_results.json"))
     parser.add_argument(
@@ -225,7 +218,6 @@ def main():
         nonnegative=args.nonnegative,
         operator_cache_policy=args.operator_cache_policy,
         scheme=args.scheme,
-        reg_sparse_k_neighbors=args.reg_sparse_k_neighbors,
     )
 
     # --- Step 4: Perform source reconstruction (Inversion) ---
@@ -245,7 +237,6 @@ def main():
         "figure_path": str(args.save_figure),
         "operator_cache_policy": args.operator_cache_policy,
         "scheme": args.scheme,
-        "reg_sparse_k_neighbors": int(args.reg_sparse_k_neighbors),
     }
     args.save_json.write_text(json.dumps(payload, indent=2, sort_keys=True))
     print("\nSummary results:")

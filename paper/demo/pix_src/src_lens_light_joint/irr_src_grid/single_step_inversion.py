@@ -78,7 +78,6 @@ def setup_joint_model(
     nonnegative: bool,
     operator_cache_policy: str,
     scheme: str,
-    reg_sparse_k_neighbors: int,
     n_source_points: int,
     n_lens_gaussians: int,
     lens_sigma_min: float,
@@ -101,7 +100,6 @@ def setup_joint_model(
         ),
         regularization=RegularizationConfig(
             scheme=scheme,
-            sparse_k_neighbors=int(reg_sparse_k_neighbors),
         ),
         solver=SolverConfig(
             inversion_backend=backend,
@@ -276,14 +274,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
             "irregular_gp_gauss",
             "irregular_gp_matern32",
             "irregular_gp_matern52",
-            "irregular_knn_exp",
-            "irregular_knn_gauss",
-            "irregular_knn_matern32",
-            "irregular_knn_matern52",
         ],
         default="irregular_gp_exp",
     )
-    parser.add_argument("--reg-sparse-k-neighbors", type=int, default=16)
     parser.add_argument("--n-source-points", type=int, default=1500)
     parser.add_argument("--n-lens-gaussians", type=int, default=10)
     parser.add_argument("--lens-sigma-min", type=float, default=1.0e-2)
@@ -321,7 +314,6 @@ def main() -> None:
         nonnegative=args.nonnegative,
         operator_cache_policy=args.operator_cache_policy,
         scheme=args.scheme,
-        reg_sparse_k_neighbors=args.reg_sparse_k_neighbors,
         n_source_points=args.n_source_points,
         n_lens_gaussians=args.n_lens_gaussians,
         lens_sigma_min=args.lens_sigma_min,
@@ -340,7 +332,6 @@ def main() -> None:
         "nonnegative": bool(args.nonnegative),
         "operator_cache_policy": args.operator_cache_policy,
         "scheme": args.scheme,
-        "reg_sparse_k_neighbors": int(args.reg_sparse_k_neighbors),
         "n_source_points": int(args.n_source_points),
         "n_lens_gaussians": int(args.n_lens_gaussians),
         "lens_sigma_min": float(args.lens_sigma_min),

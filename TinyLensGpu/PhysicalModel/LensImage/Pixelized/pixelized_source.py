@@ -18,9 +18,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
 )
 from TinyLensGpu.utils.lensing import (
     regularization_matrix_gp_from,
-    regularization_sparse_knn_from,
     regularization_sparse_rectangular_from,
-    sparse_regularization_dense_from,
 )
 
 
@@ -53,7 +51,7 @@ class PixelizedSourceModel(ck.Module):
 
         This component manages the configuration and regularization parameters for a pixelized source.
         It supports both rectangular grids (with finite difference regularization) and irregular grids
-        (with Gaussian Process or KNN regularization).
+        (with Gaussian Process regularization).
 
         Parameters
         ----------
@@ -61,7 +59,7 @@ class PixelizedSourceModel(ck.Module):
             The configuration object defining the grid type, mapping strategy, and regularization mode.
             Defaults to a default `PixelizedSourceConfig` if None.
         reg_scale : float | ParamU, optional
-            The correlation length scale (for GP/KNN) or characteristic scale of the regularization.
+            The correlation length scale (for GP) or characteristic scale of the regularization.
             Can be a fixed float or a `ParamU` parameter. Defaults to 0.05.
         reg_coefficient : float | ParamU, optional
             The overall strength of the regularization (log-amplitude).
@@ -207,8 +205,7 @@ class PixelizedSourceModel(ck.Module):
         """
         Compute the dense regularization matrix for irregular grids.
 
-        Supports 'dense_gp' (Gaussian Process) and 'sparse_knn' (K-Nearest Neighbors) modes.
-        For 'sparse_knn', it computes the sparse components and densifies them (as this method implies a dense return).
+        Supports only 'dense_gp' (Gaussian Process) mode.
 
         Parameters
         ----------
@@ -242,24 +239,11 @@ class PixelizedSourceModel(ck.Module):
         coefficient = reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
         kernel_type = self.config.regularization.gp_kernel
         operator_mode = self.config.regularization.mode
-        sparse_k = int(self.config.regularization.sparse_k_neighbors)
-
-        if operator_mode == "sparse_knn":
-            if kernel_type is None:
-                raise ValueError("sparse_knn regularization requires an irregular_knn_* scheme.")
-            rows, cols, values, n_source = regularization_sparse_knn_from(
-                scale=scale,
-                coefficient=coefficient,
-                points=points,
-                reg_type=kernel_type,
-                k_neighbors=sparse_k,
-            )
-            return sparse_regularization_dense_from(rows, cols, values, n_source)
 
         if operator_mode != "dense_gp":
             raise ValueError(
                 f"Unknown reg_operator_mode: '{operator_mode}'. "
-                "Must be one of {'dense_gp', 'sparse_knn'}."
+                "Must be one of {'dense_gp'}."
             )
         if kernel_type is None:
             raise ValueError("dense_gp regularization requires an irregular_gp_* scheme.")

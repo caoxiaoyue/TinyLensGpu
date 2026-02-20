@@ -493,7 +493,7 @@ class _OperatorSolverBase:
     dense_logdet_max_n : int
         Threshold for switching from dense to SLQ log-determinant computation.
     reg_operator_mode : str
-        Mode for regularization operator ('dense_gp', 'sparse_knn', etc.).
+        Mode for regularization operator ('dense_gp' or 'sparse_rectangular').
     H_sparse_rows : Array | None
         Row indices for sparse regularization matrix.
     H_sparse_cols : Array | None
@@ -563,9 +563,9 @@ class _OperatorSolverBase:
         self.dense_logdet_max_n = int(dense_logdet_max_n)
         self.reg_operator_mode = str(reg_operator_mode).strip().lower()
 
-        if self.reg_operator_mode not in {"dense_gp", "sparse_knn", "sparse_rectangular"}:
+        if self.reg_operator_mode not in {"dense_gp", "sparse_rectangular"}:
             raise ValueError(
-                f"Unknown reg_operator_mode: '{reg_operator_mode}'. Must be one of {'dense_gp', 'sparse_knn', 'sparse_rectangular'}."
+                f"Unknown reg_operator_mode: '{reg_operator_mode}'. Must be one of {'dense_gp', 'sparse_rectangular'}."
             )
 
         if H_sparse_rows is None:
@@ -579,7 +579,7 @@ class _OperatorSolverBase:
         self.H_sparse_values = jnp.asarray(H_sparse_values, dtype=jnp.float32)
         self.H_sparse_n_source = int(H_sparse_n_source) if H_sparse_n_source is not None else int(self.H.shape[0])
 
-        if self.reg_operator_mode in {"sparse_knn", "sparse_rectangular"}:
+        if self.reg_operator_mode == "sparse_rectangular":
             if self.H_sparse_values.shape[0] == 0:
                 raise ValueError(
                     "sparse reg_operator_mode requires non-empty sparse regularization entries."
@@ -637,7 +637,7 @@ class _OperatorSolverBase:
 
     def _apply_H_source(self, x: Array) -> Array:
         """Apply the regularization matrix H to a source vector."""
-        if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
+        if self.reg_operator_mode != "sparse_rectangular" or self.H_sparse_values.shape[0] == 0:
             return self.H @ x
         return _apply_sparse_matrix(self.H_sparse_rows, self.H_sparse_cols, self.H_sparse_values, self.H_sparse_n_source, x)
 
@@ -666,7 +666,7 @@ class _OperatorSolverBase:
             Half of the log-determinant.
         """
         n_source = self.n_source
-        if self.reg_operator_mode not in {"sparse_knn", "sparse_rectangular"} or self.H_sparse_values.shape[0] == 0:
+        if self.reg_operator_mode != "sparse_rectangular" or self.H_sparse_values.shape[0] == 0:
             h_stab = self.H + self.jitter * jnp.eye(n_source, dtype=self.H.dtype)
             sign_h, logdet_h = jnp.linalg.slogdet(h_stab)
             return sign_h, 0.5 * logdet_h

@@ -44,7 +44,6 @@ Main parameters:
 - `RegularizationConfig(scheme)`: unified grid+regularization selector.
   - Rectangular: `rectangular_zero`, `rectangular_first`, `rectangular_second`
   - Irregular GP: `irregular_gp_exp`, `irregular_gp_gauss`, `irregular_gp_matern32`, `irregular_gp_matern52`
-  - Irregular KNN: `irregular_knn_exp`, `irregular_knn_gauss`, `irregular_knn_matern32`, `irregular_knn_matern52`
 
 ## Modules
 

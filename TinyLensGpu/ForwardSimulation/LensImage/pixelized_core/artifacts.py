@@ -91,7 +91,7 @@ class RegularizationArtifacts:
     Attributes
     ----------
     mode : str
-        The regularization mode identifier (e.g., 'dense_gp', 'sparse_knn', 'sparse_rectangular').
+        The regularization mode identifier (e.g., 'dense_gp', 'sparse_rectangular').
     dense_matrix : Optional[jnp.ndarray]
         The dense regularization matrix.
         Shape: ``(n_source, n_source)``.
@@ -115,7 +115,7 @@ class RegularizationArtifacts:
     @property
     def is_sparse(self) -> bool:
         """Check if the regularization artifacts use a sparse representation."""
-        return self.mode in {"sparse_knn", "sparse_rectangular"}
+        return self.mode == "sparse_rectangular"
 
     @property
     def n_source(self) -> int:

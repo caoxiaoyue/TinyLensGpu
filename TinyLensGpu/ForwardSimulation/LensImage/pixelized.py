@@ -28,7 +28,6 @@ from .pixelized_core import (
     RectBilinearMappingStrategy,
     RectangularGridStrategy,
     RegularizationArtifacts,
-    SparseKnnRegularizationStrategy,
     SparseRectangularRegularizationStrategy,
 )
 
@@ -159,7 +158,6 @@ class PixelizedLensSimulator:
 
         The regularization strategy defines the prior on the source light distribution ($x^T H x$).
         - **DenseGpRegularizationStrategy**: Gaussian Process prior with dense covariance matrix.
-        - **SparseKnnRegularizationStrategy**: Graph Laplacian regularization on irregular grids.
         - **SparseRectangularRegularizationStrategy**: Finite difference gradient/curvature regularization on rectangular grids.
 
         Returns
@@ -176,8 +174,6 @@ class PixelizedLensSimulator:
         mode = self.pix_src_model.regularization.resolved_mode()
         if mode == "dense_gp":
             return DenseGpRegularizationStrategy(config=self.pix_src_model.regularization)
-        if mode == "sparse_knn":
-            return SparseKnnRegularizationStrategy(config=self.pix_src_model.regularization)
         if mode == "sparse_rectangular":
             return SparseRectangularRegularizationStrategy(config=self.pix_src_model.regularization)
         raise ValueError(f"Unknown regularization mode: '{mode}'.")

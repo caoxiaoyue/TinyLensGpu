@@ -134,7 +134,6 @@ def build_model(data_dict):
         ),
         regularization=RegularizationConfig(
             scheme="irregular_gp_exp",
-            sparse_k_neighbors=16,
         ),
     )
     pix_src_model = PixelizedSourceModel(

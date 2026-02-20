@@ -94,7 +94,6 @@ def _run_backend_inproc(
     nonnegative: bool,
     operator_cache_policy: str,
     reg_operator_mode: str,
-    reg_sparse_k_neighbors: int,
 ) -> Dict[str, Any]:
     from sim_data import simulate_lensing_data
     from single_step_inversion import reconstruct_source, setup_pixelized_model
@@ -105,8 +104,6 @@ def _run_backend_inproc(
     # Map reg_operator_mode to scheme
     if reg_operator_mode == "dense_gp":
         scheme = "irregular_gp_exp"
-    elif reg_operator_mode == "sparse_knn":
-        scheme = "irregular_knn_exp"
     else:
         scheme = "irregular_gp_exp"
 
@@ -116,7 +113,6 @@ def _run_backend_inproc(
         nonnegative=nonnegative,
         operator_cache_policy=operator_cache_policy,
         scheme=scheme,
-        reg_sparse_k_neighbors=reg_sparse_k_neighbors,
     )
 
     # Warmup
@@ -172,7 +168,6 @@ def _run_backend_subprocess(
     nonnegative: bool,
     operator_cache_policy: str,
     reg_operator_mode: str,
-    reg_sparse_k_neighbors: int,
 ) -> Dict[str, Any]:
     cmd = [
         os.environ.get("PYTHON", "python"),
@@ -189,8 +184,6 @@ def _run_backend_subprocess(
         operator_cache_policy,
         "--reg-operator-mode",
         reg_operator_mode,
-        "--reg-sparse-k-neighbors",
-        str(int(reg_sparse_k_neighbors)),
     ]
     if nonnegative:
         cmd.append("--nonnegative")
@@ -221,7 +214,6 @@ def _run_parent(
     nonnegative: bool,
     operator_cache_policy: str,
     reg_operator_mode: str,
-    reg_sparse_k_neighbors: int,
 ) -> Dict[str, Any]:
     base_mem = _current_peak_mem()
 
@@ -234,7 +226,6 @@ def _run_parent(
         nonnegative=nonnegative,
         operator_cache_policy=operator_cache_policy,
         reg_operator_mode=reg_operator_mode,
-        reg_sparse_k_neighbors=reg_sparse_k_neighbors,
     )
     matrix_peak_abs = sampler_matrix.stop_and_peak() if has_matrix_sampler else _current_peak_mem()
 
@@ -247,7 +238,6 @@ def _run_parent(
         nonnegative=nonnegative,
         operator_cache_policy=operator_cache_policy,
         reg_operator_mode=reg_operator_mode,
-        reg_sparse_k_neighbors=reg_sparse_k_neighbors,
     )
     operator_peak_abs = sampler_operator.stop_and_peak() if has_operator_sampler else _current_peak_mem()
 
@@ -274,7 +264,6 @@ def _run_parent(
         "nonnegative": bool(nonnegative),
         "operator_cache_policy": operator_cache_policy,
         "reg_operator_mode": reg_operator_mode,
-        "reg_sparse_k_neighbors": int(reg_sparse_k_neighbors),
         "n_data": int(matrix["n_data"]),
         "matrix": {
             "log_evidence": float(matrix["log_evidence"]),
@@ -325,8 +314,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--nonnegative", action="store_true")
     parser.add_argument("--operator-cache-policy", choices=["off", "safe", "unsafe_static"], default="safe")
-    parser.add_argument("--reg-operator-mode", choices=["dense_gp", "sparse_knn"], default="dense_gp")
-    parser.add_argument("--reg-sparse-k-neighbors", type=int, default=16)
+    parser.add_argument("--reg-operator-mode", choices=["dense_gp"], default="dense_gp")
     args = parser.parse_args()
 
     if args.mode == "worker":
@@ -337,7 +325,6 @@ def main():
             nonnegative=bool(args.nonnegative),
             operator_cache_policy=args.operator_cache_policy,
             reg_operator_mode=args.reg_operator_mode,
-            reg_sparse_k_neighbors=args.reg_sparse_k_neighbors,
         )
         print(json.dumps(payload, sort_keys=True))
         return
@@ -348,7 +335,6 @@ def main():
         nonnegative=bool(args.nonnegative),
         operator_cache_policy=args.operator_cache_policy,
         reg_operator_mode=args.reg_operator_mode,
-        reg_sparse_k_neighbors=args.reg_sparse_k_neighbors,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
 
