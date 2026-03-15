@@ -1,8 +1,11 @@
 """
-Programmatic lens model inference example (no YAML).
+This script performs a standard parametric lens-only model fitting using the TinyLensGpu framework.
 
-This example demonstrates how to build and run lens model inference
-programmatically, following the example_v4.py style.
+Key Features:
+- Model: Single Sersic profile for lens light.
+- Optimization: Uses a linear solver (NNLS) to determine the light amplitude (Ie) at each sampling step.
+- Inference: Utilizes the Nautilus nested sampler with vectorized likelihood evaluations for improved performance.
+- Output: Generates posterior samples, parameter summaries, and visualization of the best-fit model.
 """
 
 import os
@@ -19,13 +22,13 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
+import numpy as np
 from TinyLensGpu.visualizer import plot_model_results
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 
 
 if __name__ == "__main__":
     print("="*60)
-    print("Programmatic Lens Model Inference (No YAML)")
     print("="*60)
 
     # 1. Load data

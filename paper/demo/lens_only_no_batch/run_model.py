@@ -1,8 +1,13 @@
 """
-Programmatic lens model inference example (no YAML).
+This script performs a lens-only model fitting using non-vectorized likelihood evaluations.
 
-This example demonstrates how to build and run lens model inference
-programmatically, following the example_v4.py style.
+Purpose:
+- Comparative Study: Evaluates performance and results when likelihoods are computed individually rather than in batches.
+- Debugging: Useful for detailed inspection of individual likelihood calculations.
+
+Key Features:
+- Model: Single Sersic profile for lens light with linear solver (NNLS) for the amplitude (Ie).
+- Vectorization: The sampler is configured with `vectorized=False`, meaning each sample is processed sequentially.
 """
 
 import os
@@ -19,13 +24,13 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
 import jax.numpy as jnp
+import numpy as np 
 from TinyLensGpu.visualizer import plot_model_results
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
 
 
 if __name__ == "__main__":
     print("="*60)
-    print("Programmatic Lens Model Inference (No YAML)")
     print("="*60)
 
     # 1. Load data
@@ -97,7 +102,7 @@ if __name__ == "__main__":
         print(f"  {spec.name}: {spec.describe()}")
     
     print("\nCreating likelihood function...")
-    loglike = make_likelihood(likelihood, vectorized=True)
+    loglike = make_likelihood(likelihood, vectorized=False)
 
     # 4. Run sampling
     print("\n[Stage 4] Running Nautilus sampler (vectorized=False)...")

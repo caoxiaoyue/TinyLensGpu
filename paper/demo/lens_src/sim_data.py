@@ -1,6 +1,6 @@
 #%%
 from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
+from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 import numpy as np
 
 # %%

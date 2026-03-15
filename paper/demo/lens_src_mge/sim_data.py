@@ -1,6 +1,6 @@
 #%%
 from TinyLensGpu.PhysicalModel import PhysicalModel, SersicEllipse, SIE, Shear
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.utils import phi_q2_ellipticity
+from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 import numpy as np
 
 # %%
@@ -12,7 +12,7 @@ phy_model = PhysicalModel(
         Shear(gamma1=0.05, gamma2=0.05)
     ],
     source_light=[
-        SersicEllipse(R_sersic=0.3, n_sersic=1.0, e1=0.05, e2=0.05, center_x=0.0, center_y=0.5, Ie=1.0)
+        SersicEllipse(R_sersic=0.3, n_sersic=1.0, e1=0.05, e2=0.05, center_x=0.0, center_y=0.3, Ie=1.0)
     ],
     lens_light=[
         SersicEllipse(R_sersic=1.0, n_sersic=4.0, e1=e1_l, e2=e2_l, center_x=0.0, center_y=0.0, Ie=1.0)

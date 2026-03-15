@@ -169,13 +169,20 @@ def plot_model_results(
     is_pixelized = hasattr(likelihood_obj, "reconstruct_source")
 
     if is_parametric:
-        lensed_image_model, lens_light_model = likelihood_obj.forward_model(
+        fwd_result = likelihood_obj.forward_model(
             use_linear=likelihood_obj.use_linear,
-            return_intensity=False,
+            return_intensity=True,
             ret_each_plane=True,
             image_map=likelihood_obj.image_data,
             noise_map=likelihood_obj.noise_map,
         )
+        
+        linear_intensities = None
+        if len(fwd_result) == 3:
+            lensed_image_model, lens_light_model, linear_intensities = fwd_result
+        else:
+            lensed_image_model, lens_light_model = fwd_result
+
         sim_config = likelihood_obj.sim_obj.sim_config
         lensed_image_model = np.asarray(lensed_image_model)
         lens_light_model = np.asarray(lens_light_model)
@@ -190,7 +197,18 @@ def plot_model_results(
 
         source_light = getattr(likelihood_obj.sim_obj.phys_model, "source_light", [])
         if len(source_light) > 0:
-            source_plane_image = jnp.stack([m.light(x=sx, y=sy) for m in source_light], axis=-1)
+            source_planes = []
+            for i, m in enumerate(source_light):
+                kwargs = {}
+                if linear_intensities is not None:
+                    # Find linear parameter name
+                    for name in ['flux', 'Ie', 'amp', 'intensity', 'I0']:
+                        if hasattr(m, name):
+                            kwargs[name] = linear_intensities[i]
+                            break
+                source_planes.append(m.light(x=sx, y=sy, **kwargs))
+            
+            source_plane_image = jnp.stack(source_planes, axis=-1)
             source_plane_image = np.asarray(source_plane_image)
         else:
             source_plane_image = np.asarray(jnp.zeros_like(sx))

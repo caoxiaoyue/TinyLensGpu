@@ -171,7 +171,7 @@ if __name__ == "__main__":
     print("\nPosterior median with linear-solved light amplitude:")
     print(model_median)
 
-    print(f"\nLog evidence: {sampler.evidence:.4f}")
+    print(f"\nLog evidence: {sampler.log_z:.4f}")
 
     print("\n" + "="*60)
     print("Inference Complete!")
