@@ -138,7 +138,7 @@ class InversionAssembler:
         RuntimeError
             If required mapping artifacts for the selected backend are missing.
         """
-        backend = solver_config.canonical_backend
+        backend = solver_config.normalized_backend
         d = jnp.asarray(data_vector)
         noise_var = jnp.asarray(noise_variance)
 

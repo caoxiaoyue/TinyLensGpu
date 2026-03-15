@@ -71,49 +71,29 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     if vectorized:
         # Vectorize using JAX vmap for efficient batch processing
         batch_loglike = jit(jax.vmap(loglike_fn))
+    
+    def loglike(params):
+        """
+        Evaluate likelihood for one sample or a batch.
+
+        Parameters
+        ----------
+        params : array_like
+            Single sample ``(ndim,)`` or batch ``(batch, ndim)``.
+
+        Returns
+        -------
+        float | jnp.ndarray
+            Scalar for single input, vector of log-likelihoods for batched input.
+        """
+        theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
         
-        def loglike(params):
-            """
-            Evaluate likelihood for one sample or a batch.
-
-            Parameters
-            ----------
-            params : array_like
-                Single sample ``(ndim,)`` or batch ``(batch, ndim)``.
-
-            Returns
-            -------
-            float | jnp.ndarray
-                Scalar for single input, vector of log-likelihoods for batched input.
-            """
-            theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
-            if theta.ndim > 1:
-                # Batch evaluation using vmap
-                return batch_loglike(theta)
-            else:
-                # Single evaluation
-                res = loglike_fn(theta)
-                return float(res)
+        # Batch evaluation using vmap if requested and input is 2D
+        if vectorized and theta.ndim > 1:
+            return batch_loglike(theta)
         
-        return loglike
-    else:
-        # Non-vectorized version
-        def loglike(params):
-            """
-            Evaluate likelihood for one sample.
-
-            Parameters
-            ----------
-            params : array_like
-                Parameter vector with shape ``(ndim,)``.
-
-            Returns
-            -------
-            float
-                Scalar log-likelihood value.
-            """
-            theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
-            res = loglike_fn(theta)
-            return float(res)
-        
-        return loglike
+        # Single evaluation (fallback for 1D or non-vectorized)
+        res = loglike_fn(theta)
+        return float(res)
+    
+    return loglike

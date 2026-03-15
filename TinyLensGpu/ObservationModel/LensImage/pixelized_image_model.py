@@ -18,10 +18,10 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
 class PixelizedImageProbModel(ck.Module):
     """
-    Image-plane probability model for pixelized source reconstruction.
+    Image probability model for pixelized source reconstruction.
 
     The model wraps :class:`PixelizedLensSimulator`, performs linear inversion
-    of source coefficients, and returns the marginalized log evidence with an
+    of source intensities, and returns the marginalized log evidence with an
     optional point-source position penalty.
 
     Parameters
@@ -31,7 +31,7 @@ class PixelizedImageProbModel(ck.Module):
     noise_map : array_like
         Per-pixel 1-sigma noise map with same shape as ``image_data``.
     sim_config : SimulatorConfig
-        Geometry, mask, and PSF settings.
+        Image size and pixel scale, mask, and PSF settings.
     phys_model : PhysicalModel
         Physical model containing a pixelized source component.
     lensed_source_image : array_like, optional
@@ -87,7 +87,7 @@ class PixelizedImageProbModel(ck.Module):
         self.sim_config = sim_config
         self.phys_model = phys_model
         extracted_pix_src_model = self.phys_model.get_pixelized_source_model()
-        object.__setattr__(self, "pix_src_model", extracted_pix_src_model)
+        object.__setattr__(self, "pix_src_model", extracted_pix_src_model) #avoid it to be registered as a caskade submodule
 
         self.npix = int(self.sim_config.npix)
         expected_shape = (self.npix, self.npix)

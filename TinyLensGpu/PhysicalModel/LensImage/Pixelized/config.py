@@ -229,13 +229,7 @@ class RegularizationConfig:
         ValueError
             If scheme name is unknown.
         """
-        normalized_scheme = str(self.scheme).strip().lower()
-        if normalized_scheme.startswith("irregular_knn_"):
-            suggested_scheme = normalized_scheme.replace("irregular_knn_", "irregular_gp_", 1)
-            raise ValueError(
-                "The irregular_knn_* regularization schemes were removed from TinyLensGpu. "
-                f"Use '{suggested_scheme}' or another irregular_gp_* scheme instead."
-            )
+        normalized_scheme = self.normalized_scheme
 
         # Validate that the scheme exists in our supported list
         if normalized_scheme not in REGULARIZATION_SCHEMES:
@@ -452,28 +446,16 @@ class SolverConfig:
             raise ValueError(f"nnls_lipschitz_iters must be positive, got {self.nnls_lipschitz_iters}.")
 
     @property
-    def canonical_backend(self) -> Literal["matrix", "operator"]:
+    def normalized_backend(self) -> str:
         """
-        Return normalized inversion backend label.
+        Return normalized lower-case inversion backend label.
 
         Returns
         -------
-        Literal["matrix", "operator"]
-            Canonical backend string.
-
-        Raises
-        ------
-        ValueError
-            If backend value is invalid.
+        str
+            Normalized backend string ('matrix' or 'operator').
         """
-        backend = str(self.inversion_backend).strip().lower()
-        if backend == "matrix":
-            return "matrix"
-        if backend == "operator":
-            return "operator"
-        
-        # This should theoretically not be reached due to __post_init__ validation
-        raise ValueError(f"Unknown inversion_backend: '{self.inversion_backend}'.")
+        return str(self.inversion_backend).strip().lower()
 
 
 @dataclass(frozen=True)

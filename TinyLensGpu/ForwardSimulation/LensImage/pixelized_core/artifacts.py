@@ -19,16 +19,16 @@ class GridArtifacts:
 
     Attributes
     ----------
-    source_mesh : jnp.ndarray
-        Coordinates of the points defining the source grid structure.
+    source_mesh : Optional[jnp.ndarray]
+        Coordinates of the points defining the source grid structure in the **image plane**.
         - For **irregular grids** (e.g., adaptive), these are typically points in the
-          **image plane** (e.g., k-means centers) that generate the grid.
-        - For **rectangular grids**, these are the pixel centers in the **source plane**.
-        Shape: ``(n_source, 2)``.
+          **image plane** that generate the source mesh.
+        - For **rectangular grids**, this is ``None`` to avoid redundancy with ``source_mesh_beta``.
+        Shape: ``(n_source, 2)`` or ``None``.
     source_mesh_beta : jnp.ndarray
-        The coordinates of ``source_mesh`` mapped to the **source plane**.
+        The coordinates of the source grid points in the **source plane**.
         - For irregular grids, this is ``ray_trace(source_mesh)``.
-        - For rectangular grids, this is identical to ``source_mesh``.
+        - For rectangular grids, this is the regular lattice in the source plane.
         These points serve as the nodes/centers for the source surface brightness model.
         Shape: ``(n_source, 2)``.
     data_mesh_beta : jnp.ndarray
@@ -42,7 +42,7 @@ class GridArtifacts:
         The physical bounds ``(x_min, x_max, y_min, y_max)`` of the source grid.
     """
 
-    source_mesh: jnp.ndarray
+    source_mesh: Optional[jnp.ndarray]
     source_mesh_beta: jnp.ndarray
     data_mesh_beta: jnp.ndarray
     source_grid_shape: Optional[Tuple[int, int]]

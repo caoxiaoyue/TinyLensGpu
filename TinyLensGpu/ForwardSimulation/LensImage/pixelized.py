@@ -201,14 +201,17 @@ class PixelizedLensSimulator:
         return jnp.stack([beta_x, beta_y], axis=1)
 
     @property
-    def source_mesh(self) -> jnp.ndarray:
+    def source_mesh(self) -> Optional[jnp.ndarray]:
         """
-        Get the source plane mesh coordinates (un-lensed grid centers).
+        Get the source plane mesh coordinates in the image plane (if irregular).
+
+        For irregular grids, this returns the image-plane coordinates that generate
+        the adaptive grid. For rectangular grids, this returns None.
 
         Returns
         -------
-        jnp.ndarray
-            Array of shape [n_source, 2] containing (x, y) coordinates of source pixels.
+        jnp.ndarray | None
+            Array of shape [n_source, 2] containing (x, y) coordinates, or None.
         
         Raises
         ------
@@ -558,7 +561,7 @@ class PixelizedLensSimulator:
             An initialized solver instance ready to call .solve().
         """
         solver_cfg = self.pix_src_model.solver
-        backend = solver_cfg.canonical_backend
+        backend = solver_cfg.normalized_backend
 
         reg = self._build_regularization_artifacts(reg_scale=reg_scale, reg_coefficient=reg_coefficient)
         mapping = self._build_mapping_artifacts(backend=backend, cache_policy=solver_cfg.operator_cache_policy)

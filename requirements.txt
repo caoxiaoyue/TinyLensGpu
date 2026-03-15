@@ -5,7 +5,7 @@
 jax[cuda12]>=0.4.20
 
 # Caskade - Modular framework for composable models
-caskade[jax]>=0.1.0
+caskade[jax]>=1.0.0
 
 # Core scientific computing
 numpy>=1.24.0,<2.0.0

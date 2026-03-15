@@ -9,7 +9,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 # Core dependencies
 install_requires = [
     "jax[cuda12]>=0.4.20",
-    "caskade[jax]>=0.1.0",
+    "caskade[jax]>=1.0.0",
     "numpy>=1.24.0,<2.0.0",
     "scipy>=1.10.0",
     "astropy>=5.0.0",

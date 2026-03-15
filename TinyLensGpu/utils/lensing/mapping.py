@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 from TinyLensGpu.utils.interpolation.kernels import get_interpolation_weights
 
-#TODO, n_source should be static jit parameters
+@partial(jax.jit, static_argnames=("n_source",))
 def dense_mapping_from_weights_indices(
     weights: jnp.ndarray,
     indices: jnp.ndarray,

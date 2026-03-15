@@ -151,8 +151,9 @@ class RectangularGridStrategy(BaseGridStrategy):
         Returns
         -------
         GridArtifacts
-            Artifacts with ``source_mesh`` equal to ``source_mesh_beta`` and with
-            populated ``source_grid_shape`` / ``source_grid_bounds`` metadata.
+            Artifacts with ``source_mesh`` set to ``None`` (not used for rectangular)
+            and populated ``source_mesh_beta``, ``source_grid_shape``, and 
+            ``source_grid_bounds`` metadata.
         """
         _ = lensed_source_image, mask, dpix, ray_trace
 
@@ -179,11 +180,11 @@ class RectangularGridStrategy(BaseGridStrategy):
         x_lin = jnp.linspace(x_min, x_max, int(self.config.nx), dtype=jnp.float32)
         y_lin = jnp.linspace(y_min, y_max, int(self.config.ny), dtype=jnp.float32)
         xx, yy = jnp.meshgrid(x_lin, y_lin, indexing="xy")
-        source_mesh = jnp.stack([xx.reshape(-1), yy.reshape(-1)], axis=1)
+        source_mesh_beta = jnp.stack([xx.reshape(-1), yy.reshape(-1)], axis=1)
 
         return GridArtifacts(
-            source_mesh=source_mesh,
-            source_mesh_beta=source_mesh,
+            source_mesh=None,
+            source_mesh_beta=source_mesh_beta,
             data_mesh_beta=jnp.asarray(data_mesh_beta, dtype=jnp.float32),
             source_grid_shape=(int(self.config.ny), int(self.config.nx)),
             source_grid_bounds=(x_min, x_max, y_min, y_max),

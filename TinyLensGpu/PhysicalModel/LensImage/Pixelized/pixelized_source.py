@@ -146,8 +146,8 @@ class PixelizedSourceModel(ck.Module):
 
     def regularization_sparse_rectangular(
         self,
-        nx: int,
-        ny: int,
+        nx: Optional[int] = None,
+        ny: Optional[int] = None,
         reg_coefficient: Optional[float] = None,
         rect_reg_type: Optional[str] = None,
     ):
@@ -156,10 +156,10 @@ class PixelizedSourceModel(ck.Module):
 
         Parameters
         ----------
-        nx : int
-            Number of pixels in x-direction.
-        ny : int
-            Number of pixels in y-direction.
+        nx : Optional[int], optional
+            Number of pixels in x-direction. If None, derived from `self.config.grid.nx`.
+        ny : Optional[int], optional
+            Number of pixels in y-direction. If None, derived from `self.config.grid.ny`.
         reg_coefficient : Optional[float], optional
             Regularization strength. If None, uses `self.reg_coefficient.value`.
         rect_reg_type : Optional[str], optional
@@ -168,15 +168,25 @@ class PixelizedSourceModel(ck.Module):
 
         Returns
         -------
-        rows, cols, values : Tuple[Array, Array, Array]
+        rows, cols, values, n_source : Tuple[Array, Array, Array, int]
             The sparse matrix indices and values representing the regularization operator R.
             These can be used to construct a sparse matrix or perform sparse matrix-vector products.
 
         Raises
         ------
         ValueError
-            If the regularization scheme is not specified or invalid.
+            If the regularization scheme is not specified or invalid, or if grid is not rectangular.
         """
+        # Resolve nx and ny from config if not provided
+        if nx is None or ny is None:
+            if not isinstance(self.config.grid, RectangularGridConfig):
+                raise ValueError(
+                    "regularization_sparse_rectangular() requires nx and ny to be provided "
+                    "explicitly if the configured grid is not rectangular."
+                )
+            nx = nx if nx is not None else self.config.grid.nx
+            ny = ny if ny is not None else self.config.grid.ny
+
         coefficient = reg_coefficient if reg_coefficient is not None else self.reg_coefficient.value
         if rect_reg_type is not None:
             scheme = rect_reg_type
@@ -188,6 +198,7 @@ class PixelizedSourceModel(ck.Module):
                     "('rectangular_zero', 'rectangular_first', or 'rectangular_second')."
                 )
             scheme = rect_scheme
+
         return regularization_sparse_rectangular_from(
             coefficient=coefficient,
             nx=int(nx),

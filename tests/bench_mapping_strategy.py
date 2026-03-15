@@ -68,7 +68,7 @@ def bench_rect():
     @jax.jit
     def run_build_dense(data_mesh_beta):
         g = GridArtifacts(
-            source_mesh=jnp.zeros((nx*ny, 2)),
+            source_mesh=None,
             source_mesh_beta=jnp.zeros((nx*ny, 2)),
             data_mesh_beta=data_mesh_beta,
             source_grid_shape=(ny, nx),

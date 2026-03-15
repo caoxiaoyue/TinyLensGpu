@@ -806,11 +806,6 @@ class TestPixelizedSourceModel:
                 regularization=RegularizationConfig(scheme='irregular_gp_exp'),
             )
 
-    def test_model_removed_irregular_knn_schemes(self):
-        """Irregular KNN regularization schemes are removed and must raise explicit errors."""
-        with pytest.raises(ValueError, match="irregular_knn_\\* regularization schemes were removed"):
-            RegularizationConfig(scheme='irregular_knn_exp')
-
     def test_model_rectangular_sparse_regularization_builder(self):
         model = build_pixelized_source_model(
             config=PixelizedSourceConfig(
@@ -819,7 +814,7 @@ class TestPixelizedSourceModel:
             ),
             reg_coefficient=2.0,
         )
-        rows, cols, values, n_source = model.regularization_sparse_rectangular(nx=10, ny=7)
+        rows, cols, values, n_source = model.regularization_sparse_rectangular()
         assert n_source == 70
         dense = sparse_regularization_dense_from(rows, cols, values, n_source)
         assert dense.shape == (70, 70)
