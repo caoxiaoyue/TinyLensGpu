@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
+from TinyLensGpu.utils.misc import get_mask_bounding_box
 from scipy.interpolate import griddata
 from scipy.spatial import Voronoi, voronoi_plot_2d
 import matplotlib as mpl
@@ -162,8 +163,8 @@ def plot_model_results(
         theta = theta.tolist()
     likelihood_obj.set_values(theta) 
 
-    data = np.asarray(likelihood_obj.image_data)
-    noise = np.asarray(likelihood_obj.noise_map)
+    data = np.array(likelihood_obj.image_data)
+    noise = np.array(likelihood_obj.noise_map)
 
     is_parametric = hasattr(likelihood_obj, "forward_model") and hasattr(likelihood_obj, "sim_obj")
     is_pixelized = hasattr(likelihood_obj, "reconstruct_source")
@@ -184,8 +185,8 @@ def plot_model_results(
             lensed_image_model, lens_light_model = fwd_result
 
         sim_config = likelihood_obj.sim_obj.sim_config
-        lensed_image_model = np.asarray(lensed_image_model)
-        lens_light_model = np.asarray(lens_light_model)
+        lensed_image_model = np.array(lensed_image_model)
+        lens_light_model = np.array(lens_light_model)
         total_model = lensed_image_model + lens_light_model
 
         cx, cy = 0.0, 0.0
@@ -214,19 +215,48 @@ def plot_model_results(
             source_plane_image = np.asarray(jnp.zeros_like(sx))
     elif is_pixelized:
         source_intensities, source_mesh_beta, model_image = likelihood_obj.reconstruct_source(return_2d=True)
-        lensed_image_model = np.asarray(model_image)
+        lensed_image_model = np.array(model_image)
         lens_light_model = np.zeros_like(lensed_image_model)
         total_model = lensed_image_model
-        sim_config = type("SimConfig", (), {"npix": int(lensed_image_model.shape[0]), "dpix": float(likelihood_obj.dpix)})()
+        sim_config = likelihood_obj.sim_config
         source_intensities = np.asarray(source_intensities)
         source_mesh_beta = np.asarray(source_mesh_beta)
     else:
         raise TypeError("likelihood_obj must provide forward_model(...) or reconstruct_source().")
 
+    # Apply mask if available
+    mask = None
+    if hasattr(sim_config, "mask") and sim_config.mask is not None:
+        mask = np.asarray(sim_config.mask)
+        
+    if mask is not None:
+        # Create masked arrays for visualization
+        data = np.ma.masked_array(data, mask=mask)
+        lens_light_model = np.ma.masked_array(lens_light_model, mask=mask)
+        lensed_image_model = np.ma.masked_array(lensed_image_model, mask=mask)
+        total_model = lensed_image_model + lens_light_model
+        # Recompute residuals and mask them
+        res = (data - total_model) / noise
+        res = np.ma.masked_array(res, mask=mask)
+    else:
+        # If no mask, still compute residuals normally
+        res = (data - total_model) / noise
+
+    # Calculate bounding box for unmasked pixels
+    xlim, ylim = None, None
+    if mask is not None:
+        xlim, ylim = get_mask_bounding_box(mask, sim_config.npix, sim_config.dpix)
+
     # Plotting
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     if title:
         fig.suptitle(title, fontsize=16)
+
+    # Configure colormaps to show masked areas as white
+    cmap_main = plt.get_cmap('inferno').copy()
+    cmap_main.set_bad(color='white')
+    cmap_res = plt.get_cmap('RdBu_r').copy()
+    cmap_res.set_bad(color='white')
 
     extent = [
         -sim_config.npix * sim_config.dpix / 2, sim_config.npix * sim_config.dpix / 2,
@@ -234,31 +264,42 @@ def plot_model_results(
     ]
     
     # (0,0): Data
-    im0 = axes[0, 0].imshow(data, origin='lower', extent=extent, cmap='inferno')
+    im0 = axes[0, 0].imshow(data, origin='lower', extent=extent, cmap=cmap_main)
     axes[0, 0].set_title("Observed Data")
     plt.colorbar(im0, ax=axes[0, 0], fraction=0.046, pad=0.04)
     
     # (0,1): Lens Light Model
-    im1 = axes[0, 1].imshow(lens_light_model, origin='lower', extent=extent, cmap='inferno')
+    im1 = axes[0, 1].imshow(lens_light_model, origin='lower', extent=extent, cmap=cmap_main)
     axes[0, 1].set_title("Lens Light Model")
     plt.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
     
     # (0,2): Data - Lens Light
-    im2 = axes[0, 2].imshow(data - lens_light_model, origin='lower', extent=extent, cmap='inferno')
+    diff = data - lens_light_model
+    if mask is not None:
+        diff = np.ma.masked_array(diff, mask=mask)
+    im2 = axes[0, 2].imshow(diff, origin='lower', extent=extent, cmap=cmap_main)
     axes[0, 2].set_title("Data - Lens Light")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
     
     # (1,0): Lensed Image Model
-    im3 = axes[1, 0].imshow(lensed_image_model, origin='lower', extent=extent, cmap='inferno')
+    im3 = axes[1, 0].imshow(lensed_image_model, origin='lower', extent=extent, cmap=cmap_main)
     axes[1, 0].set_title("Lensed Image Model")
     plt.colorbar(im3, ax=axes[1, 0], fraction=0.046, pad=0.04)
     
     # (1,1): Normalized Residuals
-    # Residuals = (Data - (Lens + Source)) / Noise
-    res = (data - total_model) / noise
-    im4 = axes[1, 1].imshow(res, origin='lower', extent=extent, cmap='RdBu_r', vmin=-5, vmax=5)
+    im4 = axes[1, 1].imshow(res, origin='lower', extent=extent, cmap=cmap_res, vmin=-5, vmax=5)
     axes[1, 1].set_title("Normalized Residuals")
     plt.colorbar(im4, ax=axes[1, 1], fraction=0.046, pad=0.04)
+    
+    # Apply square bounding box to image plane subplots
+    if xlim is not None and ylim is not None:
+        for i in range(2):
+            for j in range(3):
+                # Skip the source plane plot (bottom right) as it uses different coordinates
+                if i == 1 and j == 2:
+                    continue
+                axes[i, j].set_xlim(*xlim)
+                axes[i, j].set_ylim(*ylim)
     
     # (1,2): Source Plane
     if is_parametric:
@@ -269,19 +310,19 @@ def plot_model_results(
             cy + s_npix * s_dpix / 2,
         ]
         src_img = source_plane_image.sum(axis=-1) if source_plane_image.ndim == 3 else source_plane_image
-        im5 = axes[1, 2].imshow(src_img, origin="lower", extent=s_extent, cmap="inferno")
+        im5 = axes[1, 2].imshow(src_img, origin="lower", extent=s_extent, cmap=cmap_main)
         axes[1, 2].set_title("Source (Source Plane)")
         plt.colorbar(im5, ax=axes[1, 2], fraction=0.046, pad=0.04)
     else:
         axes[1, 2].set_title("Source (Source Plane)")
         if str(pix_src_render).lower() == "voronoi":
-            _plot_irregular_source_voronoi(axes[1, 2], source_mesh_beta, source_intensities, cmap="inferno")
+            _plot_irregular_source_voronoi(axes[1, 2], source_mesh_beta, source_intensities, cmap=cmap_main)
         else:
             _plot_irregular_source_interpolate(
                 axes[1, 2],
                 source_mesh_beta,
                 source_intensities,
-                cmap="inferno",
+                cmap=cmap_main,
                 npixels=pix_src_npixels,
             )
         if pix_src_show_grid:
