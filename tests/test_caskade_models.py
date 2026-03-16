@@ -162,6 +162,40 @@ class TestGaussian:
         assert jnp.min(brightness) >= 0, "Gaussian brightness should be non-negative"
 
 
+class TestConstantBackground:
+    """Test ConstantBackground light profile."""
+
+    def test_constant_background_public_import(self):
+        """Test that ConstantBackground is re-exported from the public package API."""
+        from TinyLensGpu.PhysicalModel import ConstantBackground
+
+        background = ConstantBackground(intensity=1.0)
+        background.intensity.to_static()
+
+        brightness = background.light(jnp.ones((2, 3)), jnp.zeros((2, 3)))
+
+        assert brightness.shape == (2, 3)
+        assert jnp.allclose(brightness, 1.0)
+
+    def test_constant_background_light(self):
+        """Test that ConstantBackground returns a uniform intensity field."""
+        from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground
+
+        intensity = 2.5
+
+        x = jnp.linspace(-2, 2, 12)
+        y = jnp.linspace(-1, 1, 8)
+        X, Y = jnp.meshgrid(x, y)
+
+        background = ConstantBackground(intensity=intensity)
+        background.intensity.to_static()
+
+        brightness = background.light(X, Y)
+
+        assert brightness.shape == X.shape, "ConstantBackground brightness shape mismatch"
+        assert jnp.allclose(brightness, intensity), "ConstantBackground should be spatially uniform"
+
+
 class TestPhysicalModel:
     """Test PhysicalModel composite class"""
 

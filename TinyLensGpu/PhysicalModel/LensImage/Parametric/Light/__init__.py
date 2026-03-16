@@ -2,6 +2,7 @@
 
 from .sersic import SersicEllipse
 from .gaussian import GaussianEllipse
+from .constant import ConstantBackground
 from .hernquist import HernquistEllipse
 from .moffat import MoffatEllipse
 from .pseudo_jaffe import PseudoJaffeEllipse
@@ -11,6 +12,7 @@ from .shapelet import ShapeletBasisFunction, build_shapelet_set, build_shapelet_
 __all__ = [
     'SersicEllipse',
     'GaussianEllipse',
+    'ConstantBackground',
     'HernquistEllipse',
     'MoffatEllipse',
     'PseudoJaffeEllipse',

@@ -208,6 +208,105 @@ class TestProbModelIntegration:
         assert not np.isinf(log_like)
         assert log_like < 0  # Log-likelihood should be negative
 
+    def test_linear_solver_recovers_sersic_and_constant_background(self):
+        """Test that linear solving recovers both Sersic and sky amplitudes."""
+        from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground
+
+        true_ie = 3.5
+        true_intensity = 0.4
+        noise_sigma = 0.1
+        npix = 35
+        psf_kernel = np.array([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ])
+
+        reference_sersic = SersicEllipse(
+            R_sersic=0.6,
+            n_sersic=2.0,
+            e1=0.05,
+            e2=-0.02,
+            center_x=0.03,
+            center_y=-0.04,
+            Ie=true_ie,
+        )
+        reference_background = ConstantBackground(intensity=true_intensity)
+
+        for param in [
+            reference_sersic.R_sersic,
+            reference_sersic.n_sersic,
+            reference_sersic.e1,
+            reference_sersic.e2,
+            reference_sersic.center_x,
+            reference_sersic.center_y,
+            reference_sersic.Ie,
+            reference_background.intensity,
+        ]:
+            param.to_static()
+
+        reference_model = PhysicalModel(
+            lens_mass=[],
+            source_light=[],
+            lens_light=[reference_sersic, reference_background],
+        )
+
+        simulator = LensSimulator(
+            phys_model=reference_model,
+            sim_config=SimulatorConfig(dpix=0.05, npix=npix, nsub=1, psf_kernel=psf_kernel),
+            solver_type="normal",
+        )
+        image_data = np.array(simulator.simulate(use_linear=False))
+        noise_map = np.ones_like(image_data) * noise_sigma
+
+        fitted_sersic = SersicEllipse(
+            R_sersic=0.6,
+            n_sersic=2.0,
+            e1=0.05,
+            e2=-0.02,
+            center_x=0.03,
+            center_y=-0.04,
+            Ie=1.0,
+        )
+        fitted_background = ConstantBackground(intensity=1.0)
+
+        for param in [
+            fitted_sersic.R_sersic,
+            fitted_sersic.n_sersic,
+            fitted_sersic.e1,
+            fitted_sersic.e2,
+            fitted_sersic.center_x,
+            fitted_sersic.center_y,
+        ]:
+            param.to_static()
+
+        fit_model = PhysicalModel(
+            lens_mass=[],
+            source_light=[],
+            lens_light=[fitted_sersic, fitted_background],
+        )
+
+        prob_model = ImageProbModel(
+            image_data=image_data,
+            noise_map=noise_map,
+            psf_kernel=psf_kernel,
+            dpix=0.05,
+            nsub=1,
+            phys_model=fit_model,
+            use_linear=True,
+            solver_type="normal",
+        )
+
+        solved_params = prob_model.get_linear_solved_params({})
+
+        assert np.isclose(solved_params[fitted_sersic.Ie.name], true_ie, rtol=1e-4, atol=5e-4)
+        assert np.isclose(
+            solved_params[fitted_background.intensity.name],
+            true_intensity,
+            rtol=1e-4,
+            atol=5e-4,
+        )
+
     def test_position_likelihood_penalty_inactive_returns_zero(self):
         sie = SIE(theta_E=1.5, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
         source = GaussianEllipse(

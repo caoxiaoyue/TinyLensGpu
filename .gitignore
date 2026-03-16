@@ -6,6 +6,7 @@ workspace/
 **/csst_mocks.pklz
 paper/mock_csst/dataset/
 /.*/
+.worktrees/
 CLAUDE.md
 tmp/
 AGENTS.md
