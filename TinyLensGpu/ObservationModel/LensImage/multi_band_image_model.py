@@ -244,3 +244,17 @@ class MultiBandImageProbModel(ck.Module):
             solved_by_band[band_name] = normalized_band_params
 
         return solved_by_band
+
+    def get_dynamic_params(self) -> list:
+        unique_dynamic_params = []
+        seen_param_ids = set()
+
+        for band_model in self.band_models:
+            for param in band_model.get_dynamic_params():
+                param_id = id(param)
+                if param_id in seen_param_ids:
+                    continue
+                seen_param_ids.add(param_id)
+                unique_dynamic_params.append(param)
+
+        return unique_dynamic_params

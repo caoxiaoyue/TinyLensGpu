@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 
 from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
+from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
@@ -258,3 +260,49 @@ def test_shared_param_object_reuse_survives_across_band_local_models() -> None:
     assert "center_x" in solved["g"]
     assert "center_x" in solved["r"]
     assert np.isclose(solved["g"]["center_x"], solved["r"]["center_x"])
+
+
+def test_shared_params_appear_once_in_prior_specs() -> None:
+    shared_center_x = ParamU(
+        "shared_center_x_src",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    model, shared_center_x = _make_two_band_linear_model(shared_center_x=shared_center_x)
+
+    _, prior_specs = make_prior_transformation(model)
+
+    assert len(prior_specs) == 1
+    assert prior_specs[0].name == shared_center_x.name
+
+
+def test_make_likelihood_matches_direct_wrapper_call() -> None:
+    model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+
+    loglike_fn = make_likelihood(model, vectorized=False)
+
+    like_via_helper = float(loglike_fn(theta))
+    model.set_values(theta.tolist())
+    like_via_direct_call = float(np.asarray(model()))
+
+    assert np.isclose(like_via_helper, like_via_direct_call)
+
+
+def test_make_likelihood_vectorized_batch_matches_manual_loop() -> None:
+    model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    batch = np.stack([theta, theta + 0.01, theta - 0.01], axis=0)
+
+    loglike_fn = make_likelihood(model, vectorized=True)
+
+    batched = np.asarray(loglike_fn(batch), dtype=float)
+    manual_vals = []
+    for row in batch:
+        model.set_values(row.tolist())
+        manual_vals.append(float(np.asarray(model())))
+    manual = np.asarray(manual_vals, dtype=float)
+
+    assert np.allclose(batched, manual)
