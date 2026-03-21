@@ -8,7 +8,7 @@ per-band image metadata and physical models with constructor-time validation.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import caskade as ck
 import jax.numpy as jnp
@@ -184,6 +184,39 @@ class MultiBandImageProbModel(ck.Module):
 
         return tuple(band_models)
 
+    @staticmethod
+    def _normalize_param_value(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            if value.shape == ():
+                scalar_value = value.item()
+                if isinstance(scalar_value, dict):
+                    return {
+                        key: MultiBandImageProbModel._normalize_param_value(inner_value)
+                        for key, inner_value in scalar_value.items()
+                    }
+                return MultiBandImageProbModel._normalize_param_value(scalar_value)
+            return value
+        if isinstance(value, dict):
+            return {
+                key: MultiBandImageProbModel._normalize_param_value(inner_value)
+                for key, inner_value in value.items()
+            }
+        if hasattr(value, "shape"):
+            value_array = np.asarray(value)
+            if value_array.shape == ():
+                return value_array.item()
+        return value
+
+    @staticmethod
+    def _flatten_named_params(container: Any, out: Dict[str, Any]) -> None:
+        if not isinstance(container, dict):
+            return
+        for key, value in container.items():
+            if isinstance(value, dict):
+                MultiBandImageProbModel._flatten_named_params(value, out)
+            else:
+                out[key] = MultiBandImageProbModel._normalize_param_value(value)
+
     @ck.forward
     def __call__(self) -> Array:
         band_loglikes = [band_model() for band_model in self.band_models]
@@ -192,3 +225,22 @@ class MultiBandImageProbModel(ck.Module):
     def likelihood(self, debug: bool = True) -> float:
         _ = debug
         return float(np.asarray(self.__call__()))
+
+    def get_linear_solved_params(self, theta: Union[Sequence, Dict]) -> Dict[str, Dict[str, Any]]:
+        self.set_values(theta)
+
+        solved_by_band: Dict[str, Dict[str, Any]] = {}
+        for band_name, band_model in zip(self.band_names, self.band_models):
+            raw_band_params = band_model.get_linear_solved_params({})
+            normalized_band_params: Dict[str, Any] = {}
+
+            for param_name, param_value in raw_band_params.items():
+                if param_name == "phys_model":
+                    nested_params = self._normalize_param_value(param_value)
+                    self._flatten_named_params(nested_params, normalized_band_params)
+                else:
+                    normalized_band_params[param_name] = self._normalize_param_value(param_value)
+
+            solved_by_band[band_name] = normalized_band_params
+
+        return solved_by_band

@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
+from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
     BandImageData,
     MultiBandImageProbModel,
@@ -25,6 +27,37 @@ def _make_band(name: str) -> BandImageData:
 
 def _make_phys_model_stub() -> PhysicalModel:
     return PhysicalModel(lens_mass=[], source_light=[], lens_light=[])
+
+
+def _make_two_band_linear_model(shared_center_x: ParamU | None = None) -> tuple[MultiBandImageProbModel, ParamU]:
+    if shared_center_x is None:
+        shared_center_x = ParamU("shared_center_x_src", 0.0)
+    shared_center_x.to_dynamic()
+
+    phys_models = []
+    for band_name in ("g", "r"):
+        source = SersicEllipse(
+            R_sersic=ParamU(f"{band_name}_R_sersic_src", 0.5),
+            n_sersic=ParamU(f"{band_name}_n_sersic_src", 2.0),
+            e1=ParamU(f"{band_name}_e1_src", 0.0),
+            e2=ParamU(f"{band_name}_e2_src", 0.0),
+            center_x=shared_center_x,
+            center_y=ParamU(f"{band_name}_center_y_src", 0.0),
+            Ie=ParamU(f"{band_name}_Ie_src", 1.0),
+        )
+        source.center_x.to_dynamic()
+        for param in [source.R_sersic, source.n_sersic, source.e1, source.e2, source.center_y]:
+            param.to_static()
+
+        phys_models.append(PhysicalModel(lens_mass=[], source_light=[source], lens_light=[]))
+
+    model = MultiBandImageProbModel(
+        bands=[_make_band("g"), _make_band("r")],
+        phys_models=phys_models,
+        use_linear=True,
+        solver_type="normal",
+    )
+    return model, shared_center_x
 
 
 def _make_band_with_shape(name: str, shape: tuple[int, int]) -> BandImageData:
@@ -191,3 +224,37 @@ def test_multiband_import_surface() -> None:
     # Both levels must return the same classes
     assert BandImageData is B2, "BandImageData must be identical from both import paths"
     assert MultiBandImageProbModel is MB2, "MultiBandImageProbModel must be identical from both import paths"
+
+
+def test_per_band_linear_params_are_band_scoped() -> None:
+    model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+
+    solved = model.get_linear_solved_params(theta.tolist())
+
+    assert "g_Ie_src" in solved["g"]
+    assert "r_Ie_src" in solved["r"]
+    assert "g_Ie_src" not in solved["r"]
+    assert "r_Ie_src" not in solved["g"]
+
+
+def test_get_linear_solved_params_returns_nested_band_mapping() -> None:
+    model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+
+    solved = model.get_linear_solved_params(theta.tolist())
+
+    assert set(solved.keys()) == {"g", "r"}
+    assert isinstance(solved["g"], dict)
+    assert isinstance(solved["r"], dict)
+
+
+def test_shared_param_object_reuse_survives_across_band_local_models() -> None:
+    shared_center_x = ParamU("shared_center_x_src", 0.0)
+    model, _ = _make_two_band_linear_model(shared_center_x=shared_center_x)
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    solved = model.get_linear_solved_params(theta.tolist())
+
+    assert "center_x" in solved["g"]
+    assert "center_x" in solved["r"]
+    assert np.isclose(solved["g"]["center_x"], solved["r"]["center_x"])
