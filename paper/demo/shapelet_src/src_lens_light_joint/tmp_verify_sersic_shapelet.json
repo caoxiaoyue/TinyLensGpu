@@ -1,0 +1,22 @@
+{
+  "R_sersic": 0.5,
+  "beta": 0.2,
+  "center_x": 0.0,
+  "center_y": 0.5,
+  "figure_path": "tmp_verify_sersic_shapelet.png",
+  "lens_mge_amps": [
+    17160.052734375,
+    5.578955173492432,
+    37.82803726196289
+  ],
+  "log_like": -31110.8203125,
+  "n_data": 4160,
+  "n_max": 2,
+  "n_mge_lens": 3,
+  "n_sersic": 1.0,
+  "n_shapelet_basis": 6,
+  "n_total_basis": 7,
+  "sersic_Ie": 0.0,
+  "sigma_max": 3.0,
+  "sigma_min": 0.01
+}
