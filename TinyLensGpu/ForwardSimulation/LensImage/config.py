@@ -8,7 +8,7 @@ simulations, including coordinate grids, PSF kernels, and masks.
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 
 def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
@@ -36,6 +36,52 @@ def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
     xgrid, ygrid = jnp.meshgrid(x_1d, y_1d)
 
     return xgrid, ygrid
+
+
+def make_grid_2d_transformed(
+    npix: int,
+    dpix: float,
+    nsub: int = 1,
+    shift_x: float = 0.0,
+    shift_y: float = 0.0,
+    rotation: float = 0.0,
+) -> Tuple[Array, Array]:
+    """
+    Generate transformed 2D coordinate grids for a square image plane.
+
+    The base grid follows the same zero-centered convention as ``make_grid_2d``.
+    A clockwise rotation around the origin is applied first, followed by
+    translation by ``(shift_x, shift_y)``.
+
+    Parameters
+    ----------
+    npix : int
+        Number of pixels per side in the native image grid.
+    dpix : float
+        Pixel scale in arcsec per pixel.
+    nsub : int, optional
+        Subsampling factor used to construct a finer grid.
+    shift_x : float, optional
+        Translation along x in arcsec after rotation.
+    shift_y : float, optional
+        Translation along y in arcsec after rotation.
+    rotation : float, optional
+        Clockwise rotation angle in radians.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        Transformed ``(xgrid, ygrid)`` with shape
+        ``(npix * nsub, npix * nsub)``.
+    """
+    xgrid, ygrid = make_grid_2d(npix=npix, dpix=dpix, nsub=nsub)
+
+    cos_phi = jnp.cos(rotation)
+    sin_phi = jnp.sin(rotation)
+    x_rot = xgrid * cos_phi + ygrid * sin_phi
+    y_rot = -xgrid * sin_phi + ygrid * cos_phi
+
+    return x_rot + shift_x, y_rot + shift_y
 
 
 class SimulatorConfig:
@@ -111,7 +157,7 @@ class SimulatorConfig:
             psf_kernel = jnp.array([[0.0, 0.0, 0.0],
                                    [0.0, 1.0, 0.0],
                                    [0.0, 0.0, 0.0]])
-        self.psf_kernel = psf_kernel
+        self.psf_kernel = cast(Array, jnp.array(psf_kernel))
 
         self.nsub = nsub
 
@@ -183,5 +229,6 @@ class SimulatorConfig:
             Human-readable summary including image size, pixel scale, subsampling,
             and PSF shape.
         """
+        psf_shape = np.shape(self.psf_kernel)
         return (f"SimulatorConfig(npix={self.npix}, dpix={self.dpix}, "
-                f"nsub={self.nsub}, psf_shape={self.psf_kernel.shape})")
+                f"nsub={self.nsub}, psf_shape={psf_shape})")

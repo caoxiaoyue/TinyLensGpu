@@ -5,13 +5,15 @@ This module provides the probability model using PhysicalModel
 and LensSimulator for computing image likelihoods.
 """
 
+# pyright: reportMissingImports=false
+
 import functools
 import caskade as ck
 import jax.numpy as jnp
 import jax
 from jax import jit, Array
 import numpy as np
-from typing import Optional, Dict, Tuple, Union, Sequence, Any
+from typing import Optional, Dict, Tuple, Union, Sequence, Any, cast
 
 from TinyLensGpu.ForwardSimulation.LensImage.parametric import LensSimulator
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
@@ -106,7 +108,10 @@ class ImageProbModel(ck.Module):
         super().__init__("image_prob_model")
 
         self.image_data = jnp.array(image_data)
-        self.noise_map = jnp.array(noise_map)
+        noise_map_array = jnp.array(noise_map)
+        if jnp.any(noise_map_array <= 0):
+            raise ValueError("noise_map must contain only positive values (noise_map > 0)")
+        self.noise_map = noise_map_array
 
         # Keep phys_model in the caskade module tree so @ck.forward can inject theta
         self.phys_model = phys_model
@@ -235,40 +240,39 @@ class ImageProbModel(ck.Module):
         """
         linear_flag = self.use_linear if use_linear is None else use_linear
 
-        sim_kwargs = dict(
-            use_linear=linear_flag,
-            return_intensity=return_intensity,
-            ret_each_plane=ret_each_plane,
-            xgrid_sub=xgrid_sub,
-            ygrid_sub=ygrid_sub,
-            psf_kernel=psf_kernel,
-        )
-
         if linear_flag:
-            sim_kwargs["image_map"] = image_map if image_map is not None else self.image_data
-            sim_kwargs["noise_map"] = noise_map if noise_map is not None else self.noise_map
+            return self.sim_obj.simulate(  # type: ignore[reportArgumentType]
+                use_linear=True,
+                return_intensity=return_intensity,
+                ret_each_plane=ret_each_plane,
+                xgrid_sub=xgrid_sub,
+                ygrid_sub=ygrid_sub,
+                psf_kernel=psf_kernel,
+                image_map=image_map if image_map is not None else self.image_data,
+                noise_map=noise_map if noise_map is not None else self.noise_map,
+            )
+        else:
+            return self.sim_obj.simulate(  # type: ignore[reportArgumentType]
+                use_linear=False,
+                return_intensity=return_intensity,
+                ret_each_plane=ret_each_plane,
+                xgrid_sub=xgrid_sub,
+                ygrid_sub=ygrid_sub,
+                psf_kernel=psf_kernel,
+            )
 
-        return self.sim_obj.simulate(**sim_kwargs)  # theta injected by caskade into phys_model
-
-    @ck.forward
-    @functools.partial(jit, static_argnums=(0,))
-    def __call__(self):
+    def _evaluate_loglike_from_forward_model(
+        self,
+        image_model: Array,
+        intensity_list: Array,
+    ) -> Array:
         """
-        Evaluate the log-likelihood of the model given the data.
+        Evaluate log-likelihood from forward-model outputs.
 
-        Computes $\ln P(d|\theta) = -\frac{1}{2} \chi^2 + C$.
-        If `use_linear=True`, this includes the implicit marginalization or maximization over linear parameters.
-
-        If `solver_type='nnls'`, a hard constraint is applied: if any linear parameter is negative,
-        the likelihood is set to $-\infty$.
-
-        Returns
-        -------
-        Array
-            Scalar log-likelihood value.
+        This internal helper centralizes the post-simulation likelihood math
+        used by ``__call__`` while preserving masking, constant terms, solver
+        validity checks, optional position penalties, and finite-value guards.
         """
-        image_model, intensity_list = self.forward_model()
-
         chi2_image = (image_model - self.image_data) ** 2 / self.noise_map ** 2
         chi2_image = chi2_image * self.unmask
         log_like = -0.5 * jnp.sum(chi2_image) + self.log_like_const
@@ -285,6 +289,27 @@ class ImageProbModel(ck.Module):
         # Guard against NaN/Inf
         log_like = jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
         return log_like
+
+    @ck.forward
+    @functools.partial(jit, static_argnums=(0,))
+    def __call__(self):
+        r"""
+        Evaluate the log-likelihood of the model given the data.
+
+        Computes $\ln P(d|\theta) = -\frac{1}{2} \chi^2 + C$.
+        If `use_linear=True`, this includes the implicit marginalization or maximization over linear parameters.
+
+        If `solver_type='nnls'`, a hard constraint is applied: if any linear parameter is negative,
+        the likelihood is set to $-\infty$.
+
+        Returns
+        -------
+        Array
+            Scalar log-likelihood value.
+        """
+        forward_result = cast(Tuple[Array, Array], self.forward_model())
+        image_model, intensity_list = forward_result
+        return self._evaluate_loglike_from_forward_model(image_model, intensity_list)
 
     def likelihood(self, debug: bool = True) -> float:
         """
@@ -310,7 +335,7 @@ class ImageProbModel(ck.Module):
 
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
-        """
+        r"""
         Evaluate soft penalty for inconsistent multiply imaged positions.
 
         Penalizes the model if ray-traced image positions do not map to the same source position.
@@ -362,7 +387,11 @@ class ImageProbModel(ck.Module):
         # forward_model returns (image, intensity_list) when return_intensity=True
         # Note: if ret_each_plane is True, it returns more values. 
         # But default is False.
-        _, intensity_list = self.forward_model(use_linear=True, return_intensity=True)
+        forward_result = cast(
+            Tuple[Array, Array],
+            self.forward_model(use_linear=True, return_intensity=True),
+        )
+        _, intensity_list = forward_result
 
         # Get all dynamic parameters as a dictionary
         # This converts JAX arrays to numpy/scalars if needed by get_values implementation

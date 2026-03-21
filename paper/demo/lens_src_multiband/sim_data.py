@@ -4,6 +4,7 @@ import numpy as np
 from astropy.io import fits
 
 from TinyLensGpu.ForwardSimulation import LensSimulator, SimulatorConfig, make_grid_2d
+from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d_transformed
 from TinyLensGpu.PhysicalModel import GaussianEllipse, PhysicalModel, SersicEllipse, SIE
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
@@ -60,9 +61,14 @@ def make_psf_kernel(dpix: float, sigma: float) -> np.ndarray:
 
 
 def main() -> None:
-    dpix = 0.074
-    npix = 200
-    nsub = 16
+    # Heterogeneous geometry: different square sizes and pixel scales per band
+    # g band is the reference (default alignment)
+    band_configs = {
+        "g": {"npix": 200, "dpix": 0.074, "nsub": 16, "shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
+        "r": {"npix": 180, "dpix": 0.08, "nsub": 16, "shift_x": 0.02, "shift_y": -0.015, "rotation": 0.01},
+        "i": {"npix": 160, "dpix": 0.09, "nsub": 16, "shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
+    }
+
     back_rms = 0.1
     exp_time = 300.0
 
@@ -78,6 +84,11 @@ def main() -> None:
     phy_model = build_physical_model()
 
     for idx, (band, sigma) in enumerate(band_psf_sigma.items()):
+        config = band_configs[band]
+        npix = config["npix"]
+        dpix = config["dpix"]
+        nsub = config["nsub"]
+
         psf_kernel = make_psf_kernel(dpix=dpix, sigma=sigma)
         sim_config = SimulatorConfig(
             dpix=dpix,
@@ -86,7 +97,17 @@ def main() -> None:
             nsub=nsub,
         )
         simulator = LensSimulator(phy_model, sim_config)
-        ideal_image = np.asarray(simulator.simulate())
+        shift_x = config["shift_x"]
+        shift_y = config["shift_y"]
+        rotation = config["rotation"]
+        if shift_x != 0.0 or shift_y != 0.0 or rotation != 0.0:
+            xgrid_sub, ygrid_sub = make_grid_2d_transformed(
+                npix=npix, dpix=dpix, nsub=nsub,
+                shift_x=shift_x, shift_y=shift_y, rotation=rotation
+            )
+            ideal_image = np.asarray(simulator.simulate(xgrid_sub=xgrid_sub, ygrid_sub=ygrid_sub))
+        else:
+            ideal_image = np.asarray(simulator.simulate())
 
         rng = np.random.default_rng(2026 + idx)
         noisy_image, noise_map = mock_lens(ideal_image, back_rms=back_rms, exp_time=exp_time, rng=rng)
@@ -94,6 +115,12 @@ def main() -> None:
         fits.writeto(output_dir / f"{band}_image.fits", np.asarray(noisy_image), overwrite=True)
         fits.writeto(output_dir / f"{band}_noise.fits", np.asarray(noise_map), overwrite=True)
         fits.writeto(output_dir / f"{band}_psf.fits", np.asarray(psf_kernel), overwrite=True)
+
+    # Save the alignment configuration for reference
+    print("Generated multiband data with heterogeneous geometry:")
+    for band, config in band_configs.items():
+        print(f"  {band}: npix={config['npix']}, dpix={config['dpix']}, "
+              f"shift=({config['shift_x']}, {config['shift_y']}), rotation={config['rotation']}")
 
 
 if __name__ == "__main__":

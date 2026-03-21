@@ -8,6 +8,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
     BandImageData,
+    BandObservationGeometry,
     MultiBandImageProbModel,
 )
 
@@ -62,7 +63,7 @@ def _make_two_band_linear_model(shared_center_x: ParamU | None = None) -> tuple[
     return model, shared_center_x
 
 
-def _make_band_with_shape(name: str, shape: tuple[int, int]) -> BandImageData:
+def _make_band_with_shape(name: str, shape: tuple[int, int], dpix: float = 0.05) -> BandImageData:
     image = np.ones(shape, dtype=float)
     noise = np.ones(shape, dtype=float)
     psf = np.ones((3, 3), dtype=float) / 9.0
@@ -71,10 +72,71 @@ def _make_band_with_shape(name: str, shape: tuple[int, int]) -> BandImageData:
         image_data=image,
         noise_map=noise,
         psf_kernel=psf,
-        dpix=0.05,
+        dpix=dpix,
         nsub=2,
         mask=None,
     )
+
+
+def _make_two_band_mixed_geometry_linear_model(
+    shared_center_x: ParamU | None = None,
+    shared_shift_x: ParamU | None = None,
+) -> tuple[MultiBandImageProbModel, ParamU, ParamU]:
+    if shared_center_x is None:
+        shared_center_x = ParamU("shared_center_x_src", 0.0)
+    if shared_shift_x is None:
+        shared_shift_x = ParamU("shared_shift_x_alignment", 0.015)
+    shared_center_x.to_dynamic()
+    shared_shift_x.to_dynamic()
+
+    phys_models = []
+    for band_name in ("g", "r"):
+        source = SersicEllipse(
+            R_sersic=ParamU(f"{band_name}_R_sersic_src", 0.5),
+            n_sersic=ParamU(f"{band_name}_n_sersic_src", 2.0),
+            e1=ParamU(f"{band_name}_e1_src", 0.0),
+            e2=ParamU(f"{band_name}_e2_src", 0.0),
+            center_x=shared_center_x,
+            center_y=ParamU(f"{band_name}_center_y_src", 0.0),
+            Ie=ParamU(f"{band_name}_Ie_src", 1.0),
+        )
+        source.center_x.to_dynamic()
+        for param in [source.R_sersic, source.n_sersic, source.e1, source.e2, source.center_y]:
+            param.to_static()
+        phys_models.append(PhysicalModel(lens_mass=[], source_light=[source], lens_light=[]))
+
+    mask_r = np.zeros((5, 5), dtype=bool)
+    mask_r[0, :] = True
+    mask_r[-1, :] = True
+    mask_r[:, 0] = True
+    mask_r[:, -1] = True
+
+    bands = [
+        _make_band_with_shape("g", (3, 3), dpix=0.05),
+        BandImageData(
+            name="r",
+            image_data=np.ones((5, 5), dtype=float),
+            noise_map=np.ones((5, 5), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.08,
+            nsub=2,
+            mask=mask_r,
+            geometry=BandObservationGeometry(
+                shift_x=shared_shift_x,
+                shift_y=-0.02,
+                rotation=0.12,
+                is_reference=False,
+            ),
+        ),
+    ]
+
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=phys_models,
+        use_linear=True,
+        solver_type="normal",
+    )
+    return model, shared_center_x, shared_shift_x
 
 
 def test_empty_band_list_raises_value_error() -> None:
@@ -102,6 +164,222 @@ def test_duplicate_band_names_raise_value_error() -> None:
             phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
             use_linear=False,
         )
+
+
+def test_empty_band_name_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="empty"):
+        MultiBandImageProbModel(
+            bands=[_make_band(""), _make_band("r")],
+            phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+            use_linear=False,
+        )
+
+
+def test_multiband_geometry_defaults_to_first_band_reference() -> None:
+    bands = [
+        _make_band("g"),
+        BandImageData(
+            name="r",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(shift_x=0.1, shift_y=-0.2, rotation=0.3, is_reference=False),
+        ),
+    ]
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    assert model.bands[0].geometry is not None
+    assert model.bands[0].geometry.is_reference is True
+    assert np.isclose(model.bands[0].geometry.shift_x, 0.0)
+    assert np.isclose(model.bands[0].geometry.shift_y, 0.0)
+    assert np.isclose(model.bands[0].geometry.rotation, 0.0)
+    assert model.bands[1].geometry is not None
+    assert model.bands[1].geometry.is_reference is False
+
+
+def test_multiband_rejects_multiple_reference_bands() -> None:
+    bands = [
+        BandImageData(
+            name="g",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(is_reference=True),
+        ),
+        BandImageData(
+            name="r",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(is_reference=True),
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="at most one"):
+        MultiBandImageProbModel(
+            bands=bands,
+            phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+            use_linear=False,
+        )
+
+
+def test_multiband_alignment_anchors_reference_band() -> None:
+    bands = [
+        BandImageData(
+            name="g",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(
+                shift_x=0.7,
+                shift_y=-0.4,
+                rotation=0.2,
+                is_reference=True,
+            ),
+        ),
+        BandImageData(
+            name="r",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(shift_x=0.1, shift_y=-0.2, rotation=0.3, is_reference=False),
+        ),
+    ]
+
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    assert model.bands[0].geometry is not None
+    assert model.bands[0].geometry.is_reference is True
+    assert np.isclose(model.bands[0].geometry.shift_x, 0.0)
+    assert np.isclose(model.bands[0].geometry.shift_y, 0.0)
+    assert np.isclose(model.bands[0].geometry.rotation, 0.0)
+
+
+def test_shared_alignment_params_appear_once_in_prior_specs() -> None:
+    shared_shift_x = ParamU(
+        "shared_shift_x_alignment",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    shared_shift_x.to_dynamic()
+
+    bands = [
+        _make_band("g"),
+        BandImageData(
+            name="r",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(shift_x=shared_shift_x, shift_y=0.0, rotation=0.0, is_reference=False),
+        ),
+        BandImageData(
+            name="i",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(shift_x=shared_shift_x, shift_y=0.0, rotation=0.0, is_reference=False),
+        ),
+    ]
+
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    _, prior_specs = make_prior_transformation(model)
+
+    assert len(prior_specs) == 1
+    assert prior_specs[0].name == shared_shift_x.name
+
+
+def test_reference_band_alignment_params_are_not_exposed() -> None:
+    ref_shift_x = ParamU(
+        "ref_shift_x_alignment",
+        0.5,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    ref_shift_y = ParamU(
+        "ref_shift_y_alignment",
+        -0.3,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    ref_rotation = ParamU(
+        "ref_rotation_alignment",
+        0.1,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    ref_shift_x.to_dynamic()
+    ref_shift_y.to_dynamic()
+    ref_rotation.to_dynamic()
+
+    bands = [
+        BandImageData(
+            name="g",
+            image_data=np.ones((3, 3), dtype=float),
+            noise_map=np.ones((3, 3), dtype=float),
+            psf_kernel=np.ones((3, 3), dtype=float) / 9.0,
+            dpix=0.05,
+            nsub=2,
+            mask=None,
+            geometry=BandObservationGeometry(
+                shift_x=ref_shift_x,
+                shift_y=ref_shift_y,
+                rotation=ref_rotation,
+                is_reference=True,
+            ),
+        ),
+        _make_band("r"),
+    ]
+
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    dynamic_names = {param.name for param in model.get_dynamic_params()}
+
+    assert ref_shift_x.name not in dynamic_names
+    assert ref_shift_y.name not in dynamic_names
+    assert ref_rotation.name not in dynamic_names
 
 
 def test_invalid_band_geometry_raises_value_error() -> None:
@@ -149,6 +427,39 @@ def test_band_payload_shapes_validate_before_jax() -> None:
         )
 
 
+def test_multiband_allows_mixed_npix_and_dpix() -> None:
+    bands = [
+        _make_band_with_shape("g", (3, 3), dpix=0.05),
+        _make_band_with_shape("r", (5, 5), dpix=0.08),
+    ]
+
+    model = MultiBandImageProbModel(
+        bands=bands,
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    assert model.band_names == ("g", "r")
+    assert model.band_models[0].sim_obj.sim_config.npix == 3
+    assert model.band_models[1].sim_obj.sim_config.npix == 5
+    assert np.isclose(model.band_models[0].sim_obj.sim_config.dpix, 0.05)
+    assert np.isclose(model.band_models[1].sim_obj.sim_config.dpix, 0.08)
+
+
+def test_multiband_rejects_rectangular_band_images_for_now() -> None:
+    bands = [
+        _make_band_with_shape("g", (3, 3), dpix=0.05),
+        _make_band_with_shape("r", (3, 4), dpix=0.08),
+    ]
+
+    with pytest.raises(ValueError, match="must be square"):
+        MultiBandImageProbModel(
+            bands=bands,
+            phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+            use_linear=False,
+        )
+
+
 def test_band_names_preserve_input_order() -> None:
     bands = [
         _make_band_with_shape("i", (3, 3)),
@@ -181,6 +492,36 @@ def test_joint_loglike_equals_sum_of_single_band_models() -> None:
     assert np.isclose(joint_loglike, summed_loglike)
 
 
+def test_masked_transformed_grid_matches_single_band_custom_grid_path() -> None:
+    model, _, _ = _make_two_band_mixed_geometry_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    model.set_values(theta.tolist())
+
+    non_identity_idx = 1
+    non_identity_band_model = model.band_models[non_identity_idx]
+    xgrid_sub, ygrid_sub = model._build_transformed_subgrid_1d(non_identity_idx, non_identity_band_model)
+
+    wrapper_like = float(
+        np.asarray(model._evaluate_non_identity_band_loglike(non_identity_idx, non_identity_band_model))
+    )
+
+    image_model, intensity_list = non_identity_band_model.forward_model(
+        xgrid_sub=xgrid_sub,
+        ygrid_sub=ygrid_sub,
+    )
+    direct_like = float(
+        np.asarray(non_identity_band_model._evaluate_loglike_from_forward_model(image_model, intensity_list))
+    )
+
+    reference_like = float(np.asarray(model.band_models[0]()))
+    joint_like = float(np.asarray(model()))
+
+    assert xgrid_sub.shape[0] == non_identity_band_model.sim_obj.sim_config.flat_indices.shape[0]
+    assert ygrid_sub.shape[0] == non_identity_band_model.sim_obj.sim_config.flat_indices.shape[0]
+    assert np.isclose(wrapper_like, direct_like, rtol=1e-10, atol=1e-10)
+    assert np.isclose(joint_like, reference_like + direct_like, rtol=1e-10, atol=1e-10)
+
+
 def test_multiband_likelihood_returns_python_float() -> None:
     model = MultiBandImageProbModel(
         bands=[_make_band("g"), _make_band("r")],
@@ -193,6 +534,32 @@ def test_multiband_likelihood_returns_python_float() -> None:
 
     assert isinstance(like, float)
     assert np.isclose(like, call_like)
+
+
+def test_multiband_nonfinite_joint_loglike_maps_to_negative_infinity() -> None:
+    class _FakeBandModel:
+        def __init__(self, value) -> None:
+            self._value = value
+
+        def __call__(self):
+            return self._value
+
+    model = MultiBandImageProbModel(
+        bands=[_make_band("g"), _make_band("r")],
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    object.__setattr__(
+        model,
+        "band_models",
+        (_FakeBandModel(np.nan), _FakeBandModel(1.0)),
+    )
+    object.__setattr__(model, "_band_identity_geometry", (True, True))
+
+    joint_loglike = float(np.asarray(model()))
+    assert joint_loglike == float("-inf")
+    assert model.likelihood() == float("-inf")
 
 
 def test_identical_bands_contribute_twice_to_joint_loglike() -> None:
@@ -278,6 +645,35 @@ def test_shared_params_appear_once_in_prior_specs() -> None:
     assert prior_specs[0].name == shared_center_x.name
 
 
+def test_mixed_geometry_prior_specs_include_shared_alignment_and_physics_once() -> None:
+    shared_center_x = ParamU(
+        "shared_center_x_src",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    shared_shift_x = ParamU(
+        "shared_shift_x_alignment",
+        0.015,
+        prior_type="uniform",
+        prior_settings=[-0.2, 0.2],
+        limits=[-1.0, 1.0],
+    )
+
+    model, _, _ = _make_two_band_mixed_geometry_linear_model(
+        shared_center_x=shared_center_x,
+        shared_shift_x=shared_shift_x,
+    )
+
+    _, prior_specs = make_prior_transformation(model)
+    prior_names = [spec.name for spec in prior_specs]
+
+    assert prior_names.count(shared_center_x.name) == 1
+    assert prior_names.count(shared_shift_x.name) == 1
+    assert set(prior_names) == {shared_center_x.name, shared_shift_x.name}
+
+
 def test_make_likelihood_matches_direct_wrapper_call() -> None:
     model, _ = _make_two_band_linear_model()
     theta = np.asarray(model.get_values("flat"), dtype=float)
@@ -293,6 +689,23 @@ def test_make_likelihood_matches_direct_wrapper_call() -> None:
 
 def test_make_likelihood_vectorized_batch_matches_manual_loop() -> None:
     model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    batch = np.stack([theta, theta + 0.01, theta - 0.01], axis=0)
+
+    loglike_fn = make_likelihood(model, vectorized=True)
+
+    batched = np.asarray(loglike_fn(batch), dtype=float)
+    manual_vals = []
+    for row in batch:
+        model.set_values(row.tolist())
+        manual_vals.append(float(np.asarray(model())))
+    manual = np.asarray(manual_vals, dtype=float)
+
+    assert np.allclose(batched, manual)
+
+
+def test_make_likelihood_vectorized_batch_matches_manual_loop_for_mixed_geometry() -> None:
+    model, _, _ = _make_two_band_mixed_geometry_linear_model()
     theta = np.asarray(model.get_values("flat"), dtype=float)
     batch = np.stack([theta, theta + 0.01, theta - 0.01], axis=0)
 

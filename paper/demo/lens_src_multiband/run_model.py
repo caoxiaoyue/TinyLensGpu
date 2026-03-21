@@ -21,6 +21,7 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import BandImageData, MultiBandImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import BandObservationGeometry
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -28,6 +29,16 @@ from TinyLensGpu.utils import load_lens_data
 
 
 BANDS = ("g", "r", "i")
+
+# Toggle to fit alignment parameters for non-reference bands
+FIT_ALIGNMENT_PARAMS = True
+
+# Known misalignment injected in sim_data.py (arcsec for shifts, radians for rotation)
+BAND_ALIGNMENTS = {
+    "g": {"shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},  # Reference band
+    "r": {"shift_x": 0.02, "shift_y": -0.015, "rotation": 0.01},
+    "i": {"shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
+}
 
 
 def build_shared_params() -> dict[str, ParamU]:
@@ -176,16 +187,68 @@ def plot_multiband_overview(model: MultiBandImageProbModel, theta: list[float], 
     print(f"Saved 9-panel overview: {save_path}")
 
 
+def create_band_geometry(band: str) -> BandObservationGeometry:
+    """Create BandObservationGeometry for a given band.
+
+    g band is the reference band (is_reference=True).
+    For other bands, optionally promote alignment params to dynamic ParamUs
+    when FIT_ALIGNMENT_PARAMS is True.
+    """
+    alignment = BAND_ALIGNMENTS[band]
+    is_reference = band == "g"
+
+    if FIT_ALIGNMENT_PARAMS and not is_reference:
+        # Promote alignment params to dynamic ParamUs with explicit priors
+        shift_x = ParamU(
+            f"{band}_shift_x",
+            alignment["shift_x"],
+            prior_type="gaussian",
+            prior_settings=[alignment["shift_x"], 0.02],
+            limits=[-0.1, 0.1],
+        )
+        shift_y = ParamU(
+            f"{band}_shift_y",
+            alignment["shift_y"],
+            prior_type="gaussian",
+            prior_settings=[alignment["shift_y"], 0.02],
+            limits=[-0.1, 0.1],
+        )
+        rotation = ParamU(
+            f"{band}_rotation",
+            alignment["rotation"],
+            prior_type="gaussian",
+            prior_settings=[alignment["rotation"], 0.02],
+            limits=[-0.1, 0.1],
+        )
+        # Mark as dynamic
+        shift_x.to_dynamic()
+        shift_y.to_dynamic()
+        rotation.to_dynamic()
+    else:
+        # Use static values (reference band always uses static)
+        shift_x = alignment["shift_x"]
+        shift_y = alignment["shift_y"]
+        rotation = alignment["rotation"]
+
+    return BandObservationGeometry(
+        shift_x=shift_x,
+        shift_y=shift_y,
+        rotation=rotation,
+        is_reference=is_reference,
+    )
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Multi-band Lens + Source Model Inference")
+    print(f"FIT_ALIGNMENT_PARAMS = {FIT_ALIGNMENT_PARAMS}")
     print("=" * 60)
 
     base_dir = Path(__file__).resolve().parent
     data_dir = base_dir / "data"
     output_dir = base_dir / "output"
 
-    print("\n[Stage 1] Loading g/r/i band data...")
+    print("\n[Stage 1] Loading g/r/i band data with heterogeneous geometry...")
     band_data_list: list[BandImageData] = []
     for band in BANDS:
         image_data, noise_map, psf_kernel, mask = load_lens_data(
@@ -193,15 +256,28 @@ if __name__ == "__main__":
             noise_path=str(data_dir / f"{band}_noise.fits"),
             psf_path=str(data_dir / f"{band}_psf.fits"),
         )
+
+        # Get per-band geometry configuration
+        geometry = create_band_geometry(band)
+
+        # Determine dpix and nsub based on the heterogeneous setup from sim_data.py
+        if band == "g":
+            dpix, nsub = 0.074, 4
+        elif band == "r":
+            dpix, nsub = 0.08, 4
+        else:  # i band
+            dpix, nsub = 0.09, 4
+
         band_data_list.append(
             BandImageData(
                 name=band,
                 image_data=image_data,
                 noise_map=noise_map,
                 psf_kernel=psf_kernel,
-                dpix=0.074,
-                nsub=4,
+                dpix=dpix,
+                nsub=nsub,
                 mask=mask,
+                geometry=geometry,
             )
         )
     print(f"Loaded {len(band_data_list)} bands: {', '.join(BANDS)}")

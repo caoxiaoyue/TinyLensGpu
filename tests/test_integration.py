@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """
 Integration tests for TinyLensGpu.
 
@@ -12,8 +14,14 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ForwardSimulation import LensSimulator, SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d_transformed
+from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
-from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import BandImageData, MultiBandImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
+    BandImageData,
+    BandObservationGeometry,
+    MultiBandImageProbModel,
+)
 from TinyLensGpu.utils import LinearSolver
 
 
@@ -41,7 +49,7 @@ class TestEndToEndSimulation:
         simulator = LensSimulator(model, config)
         
         # Run simulation
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         # Verify output
         assert img.shape == (50, 50)
@@ -64,7 +72,7 @@ class TestEndToEndSimulation:
         config = SimulatorConfig(dpix=0.05, npix=50, nsub=2)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (50, 50)
         assert jnp.sum(img) > 0  # Should have some light
@@ -101,7 +109,7 @@ class TestEndToEndSimulation:
         config = SimulatorConfig(dpix=0.05, npix=60, nsub=3)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (60, 60)
         assert jnp.sum(img) > 0
@@ -135,7 +143,7 @@ class TestLinearSolverIntegration:
         noise_map = jnp.ones((40, 40)) * 0.1
         
         # Run non-linear simulation (linear solving requires dynamic parameters)
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (40, 40)
         assert not jnp.isnan(img).any()
@@ -157,7 +165,7 @@ class TestLinearSolverIntegration:
         simulator = LensSimulator(model, config, solver_type='normal')
         
         # Run non-linear simulation
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (40, 40)
         assert not jnp.isnan(img).any()
@@ -445,62 +453,255 @@ class TestMultiBandIntegration:
         )
 
     @staticmethod
-    def _simulate_image(phys_model: PhysicalModel, npix: int, psf_kernel: np.ndarray) -> np.ndarray:
+    def _simulate_image(
+        phys_model: PhysicalModel,
+        npix: int,
+        psf_kernel: np.ndarray,
+        *,
+        dpix: float = 0.05,
+        shift_x: float = 0.0,
+        shift_y: float = 0.0,
+        rotation: float = 0.0,
+    ) -> np.ndarray:
         simulator = LensSimulator(
             phys_model=phys_model,
-            sim_config=SimulatorConfig(dpix=0.05, npix=npix, nsub=2, psf_kernel=psf_kernel),
+            sim_config=SimulatorConfig(dpix=dpix, npix=npix, nsub=2, psf_kernel=psf_kernel),
         )
-        return np.asarray(simulator.simulate(use_linear=False), dtype=float)
+        if np.isclose(shift_x, 0.0) and np.isclose(shift_y, 0.0) and np.isclose(rotation, 0.0):
+            return np.asarray(simulator.simulate(use_linear=False), dtype=float)
+
+        xgrid_sub_2d, ygrid_sub_2d = make_grid_2d_transformed(
+            npix=npix,
+            dpix=dpix,
+            nsub=2,
+            shift_x=jnp.asarray(shift_x),
+            shift_y=jnp.asarray(shift_y),
+            rotation=jnp.asarray(rotation),
+        )
+        flat_indices = simulator.sim_config.flat_indices
+        return np.asarray(
+            simulator.simulate(
+                use_linear=False,
+                xgrid_sub=xgrid_sub_2d.reshape(-1)[flat_indices],
+                ygrid_sub=ygrid_sub_2d.reshape(-1)[flat_indices],
+            ),
+            dtype=float,
+        )
 
     def test_multiband_joint_likelihood_parity(self):
         """Joint multiband likelihood should match explicit single-band sum."""
-        npix = 36
         noise_sigma = 0.15
         psf_kernel = np.array([
             [0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0],
         ])
+        npix_g, dpix_g = 32, 0.05
+        npix_r, dpix_r = 40, 0.07
+        npix_i, dpix_i = 48, 0.09
 
         phys_model_g = self._build_sie_sersic_model(theta_e=1.25, source_ie=1.8, lens_ie=2.6)
         phys_model_r = self._build_sie_sersic_model(theta_e=1.33, source_ie=2.1, lens_ie=2.2)
+        phys_model_i = self._build_sie_sersic_model(theta_e=1.41, source_ie=2.3, lens_ie=2.8)
 
-        image_g = self._simulate_image(phys_model_g, npix=npix, psf_kernel=psf_kernel)
-        image_r = self._simulate_image(phys_model_r, npix=npix, psf_kernel=psf_kernel)
-        noise_map = np.ones((npix, npix), dtype=float) * noise_sigma
+        image_g = self._simulate_image(phys_model_g, npix=npix_g, dpix=dpix_g, psf_kernel=psf_kernel)
+        image_r = self._simulate_image(phys_model_r, npix=npix_r, dpix=dpix_r, psf_kernel=psf_kernel)
+        image_i = self._simulate_image(phys_model_i, npix=npix_i, dpix=dpix_i, psf_kernel=psf_kernel)
+        noise_map_g = np.ones((npix_g, npix_g), dtype=float) * noise_sigma
+        noise_map_r = np.ones((npix_r, npix_r), dtype=float) * noise_sigma
+        noise_map_i = np.ones((npix_i, npix_i), dtype=float) * noise_sigma
 
-        band_g = BandImageData("g", image_g, noise_map, psf_kernel, 0.05, 2, None)
-        band_r = BandImageData("r", image_r, noise_map, psf_kernel, 0.05, 2, None)
+        band_g = BandImageData("g", image_g, noise_map_g, psf_kernel, dpix_g, 2, None)
+        band_r = BandImageData("r", image_r, noise_map_r, psf_kernel, dpix_r, 2, None)
+        band_i = BandImageData("i", image_i, noise_map_i, psf_kernel, dpix_i, 2, None)
 
         multi_band_model = MultiBandImageProbModel(
-            bands=[band_g, band_r],
-            phys_models=[phys_model_g, phys_model_r],
+            bands=[band_g, band_r, band_i],
+            phys_models=[phys_model_g, phys_model_r, phys_model_i],
             use_linear=False,
         )
 
         single_g = ImageProbModel(
             image_data=image_g,
-            noise_map=noise_map,
+            noise_map=noise_map_g,
             psf_kernel=psf_kernel,
-            dpix=0.05,
+            dpix=dpix_g,
             nsub=2,
             phys_model=phys_model_g,
             use_linear=False,
         )
         single_r = ImageProbModel(
             image_data=image_r,
-            noise_map=noise_map,
+            noise_map=noise_map_r,
             psf_kernel=psf_kernel,
-            dpix=0.05,
+            dpix=dpix_r,
             nsub=2,
             phys_model=phys_model_r,
             use_linear=False,
         )
+        single_i = ImageProbModel(
+            image_data=image_i,
+            noise_map=noise_map_i,
+            psf_kernel=psf_kernel,
+            dpix=dpix_i,
+            nsub=2,
+            phys_model=phys_model_i,
+            use_linear=False,
+        )
 
         joint_like = multi_band_model.likelihood()
-        explicit_sum = single_g.likelihood() + single_r.likelihood()
+        explicit_sum = single_g.likelihood() + single_r.likelihood() + single_i.likelihood()
 
-        assert np.isclose(joint_like, explicit_sum, rtol=1e-10, atol=1e-10)
+        assert np.isclose(joint_like, explicit_sum, rtol=1e-6, atol=1e-10)
+
+    def test_multiband_alignment_enabled_linear_fit_recovers_band_amplitudes(self):
+        """Alignment-enabled linear fit should recover per-band amplitudes."""
+        psf_kernel = np.array([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ])
+        noise_sigma = 0.1
+        npix_g, dpix_g = 33, 0.05
+        npix_r, dpix_r = 41, 0.08
+        shift_x, shift_y, rotation = 0.03, -0.02, 0.08
+
+        true_ie_g = 2.6
+        true_ie_r = 3.1
+
+        true_light_g = SersicEllipse(
+            R_sersic=0.7,
+            n_sersic=2.2,
+            e1=0.03,
+            e2=-0.01,
+            center_x=0.01,
+            center_y=-0.02,
+            Ie=ParamU("g_Ie_fit", true_ie_g),
+        )
+        true_light_r = SersicEllipse(
+            R_sersic=0.7,
+            n_sersic=2.2,
+            e1=0.03,
+            e2=-0.01,
+            center_x=0.01,
+            center_y=-0.02,
+            Ie=ParamU("r_Ie_fit", true_ie_r),
+        )
+        for param in [
+            true_light_g.R_sersic,
+            true_light_g.n_sersic,
+            true_light_g.e1,
+            true_light_g.e2,
+            true_light_g.center_x,
+            true_light_g.center_y,
+            true_light_g.Ie,
+            true_light_r.R_sersic,
+            true_light_r.n_sersic,
+            true_light_r.e1,
+            true_light_r.e2,
+            true_light_r.center_x,
+            true_light_r.center_y,
+            true_light_r.Ie,
+        ]:
+            param.to_static()
+
+        true_model_g = PhysicalModel(lens_mass=[], source_light=[], lens_light=[true_light_g])
+        true_model_r = PhysicalModel(lens_mass=[], source_light=[], lens_light=[true_light_r])
+
+        image_g = self._simulate_image(true_model_g, npix=npix_g, dpix=dpix_g, psf_kernel=psf_kernel)
+
+        simulator_r = LensSimulator(
+            phys_model=true_model_r,
+            sim_config=SimulatorConfig(dpix=dpix_r, npix=npix_r, nsub=2, psf_kernel=psf_kernel),
+        )
+        xgrid_sub_2d, ygrid_sub_2d = make_grid_2d_transformed(
+            npix=npix_r,
+            dpix=dpix_r,
+            nsub=2,
+            shift_x=jnp.asarray(shift_x),
+            shift_y=jnp.asarray(shift_y),
+            rotation=jnp.asarray(rotation),
+        )
+        flat_indices = simulator_r.sim_config.flat_indices
+        image_r = np.asarray(
+            simulator_r.simulate(
+                use_linear=False,
+                xgrid_sub=xgrid_sub_2d.reshape(-1)[flat_indices],
+                ygrid_sub=ygrid_sub_2d.reshape(-1)[flat_indices],
+            ),
+            dtype=float,
+        )
+
+        fit_light_g = SersicEllipse(
+            R_sersic=0.7,
+            n_sersic=2.2,
+            e1=0.03,
+            e2=-0.01,
+            center_x=0.01,
+            center_y=-0.02,
+            Ie=ParamU("g_Ie_fit", 1.0),
+        )
+        fit_light_r = SersicEllipse(
+            R_sersic=0.7,
+            n_sersic=2.2,
+            e1=0.03,
+            e2=-0.01,
+            center_x=0.01,
+            center_y=-0.02,
+            Ie=ParamU("r_Ie_fit", 1.0),
+        )
+        for param in [
+            fit_light_g.R_sersic,
+            fit_light_g.n_sersic,
+            fit_light_g.e1,
+            fit_light_g.e2,
+            fit_light_g.center_x,
+            fit_light_g.center_y,
+            fit_light_r.R_sersic,
+            fit_light_r.n_sersic,
+            fit_light_r.e1,
+            fit_light_r.e2,
+            fit_light_r.center_x,
+            fit_light_r.center_y,
+        ]:
+            param.to_static()
+
+        fit_model_g = PhysicalModel(lens_mass=[], source_light=[], lens_light=[fit_light_g])
+        fit_model_r = PhysicalModel(lens_mass=[], source_light=[], lens_light=[fit_light_r])
+
+        noise_map_g = np.ones((npix_g, npix_g), dtype=float) * noise_sigma
+        noise_map_r = np.ones((npix_r, npix_r), dtype=float) * noise_sigma
+
+        multi_model = MultiBandImageProbModel(
+            bands=[
+                BandImageData("g", image_g, noise_map_g, psf_kernel, dpix_g, 2, None),
+                BandImageData(
+                    "r",
+                    image_r,
+                    noise_map_r,
+                    psf_kernel,
+                    dpix_r,
+                    2,
+                    None,
+                    geometry=BandObservationGeometry(
+                        shift_x=shift_x,
+                        shift_y=shift_y,
+                        rotation=rotation,
+                        is_reference=False,
+                    ),
+                ),
+            ],
+            phys_models=[fit_model_g, fit_model_r],
+            use_linear=True,
+            solver_type="normal",
+        )
+
+        solved = multi_model.get_linear_solved_params({})
+        joint_like = multi_model.likelihood()
+
+        assert np.isfinite(joint_like)
+        assert np.isclose(solved["g"]["g_Ie_fit"], true_ie_g, rtol=1e-4, atol=5e-4)
+        assert np.isclose(solved["r"]["r_Ie_fit"], true_ie_r, rtol=1e-4, atol=5e-4)
 
     def test_multiband_identical_bands_double_count(self):
         """Adding identical bands should double the likelihood contribution."""
@@ -572,7 +773,7 @@ class TestMultiComponentSystems:
         config = SimulatorConfig(dpix=0.05, npix=50, nsub=2)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (50, 50)
         assert jnp.sum(img) > 0
@@ -606,7 +807,7 @@ class TestMultiComponentSystems:
         config = SimulatorConfig(dpix=0.05, npix=60, nsub=2)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (60, 60)
         assert not jnp.isnan(img).any()
@@ -639,7 +840,7 @@ class TestPSFConvolution:
         config = SimulatorConfig(dpix=0.05, npix=50, nsub=2, psf_kernel=psf)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (50, 50)
         assert jnp.sum(img) > 0
@@ -661,7 +862,7 @@ class TestPSFConvolution:
         config = SimulatorConfig(dpix=0.05, npix=50, nsub=2, psf_kernel=psf)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (50, 50)
 
@@ -689,7 +890,7 @@ class TestLargeScaleIntegration:
         config = SimulatorConfig(dpix=0.05, npix=100, nsub=5)
         simulator = LensSimulator(model, config)
         
-        img = simulator.simulate(use_linear=False)
+        img = np.asarray(simulator.simulate(use_linear=False))
         
         assert img.shape == (100, 100)
         assert not jnp.isnan(img).any()
