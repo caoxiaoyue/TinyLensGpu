@@ -20,7 +20,7 @@ TinyLensGpu now ships with a fully programmatic modeling API (see `paper/demo/*/
 - **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
 - **Type hints & IDE support** – All builders expose precise signatures for faster iteration.
 
-See [CASKADE_GUIDE.md](CASKADE_GUIDE.md) and the demos in `paper/demo` for detailed usage patterns and migration notes.
+See [doc/GUIDE.md](doc/GUIDE.md) and the demos in `paper/demo` for detailed usage patterns and migration notes.
 
 ## Installation
 

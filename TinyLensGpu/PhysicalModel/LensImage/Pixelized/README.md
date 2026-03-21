@@ -62,7 +62,7 @@ s = (F^T N^{-1} F + H)^{-1} F^T N^{-1} d
 
 **Usage**:
 ```python
-from TinyLensGpu.PixelizedSource import LinearInversion
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import LinearInversion
 
 inverter = LinearInversion(
     d=data_vector,              # Observed data
@@ -92,7 +92,7 @@ Gaussian Process regularization matrix construction.
 
 **Usage**:
 ```python
-from TinyLensGpu.PixelizedSource import regularization_matrix_gp_from
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import regularization_matrix_gp_from
 
 reg_matrix = regularization_matrix_gp_from(
     scale=0.05,              # Length scale
@@ -107,23 +107,30 @@ reg_matrix = regularization_matrix_gp_from(
 Lens mapping matrix and PSF convolution operations.
 
 **Key Functions**:
-- `lens_mapping_matrix_from()`: Compute lens mapping via interpolation
+- `get_interpolation_weights()`: Compute interpolation weights and neighbor indices
+- `dense_mapping_from_weights_indices()`: Materialize a dense mapping matrix from sparse interpolation data
 - `build_psf_matrix_dense()`: Dense PSF convolution matrix
 - `build_psf_matrix_sparse()`: Sparse PSF convolution matrix
 
 **Usage**:
 ```python
-from TinyLensGpu.PixelizedSource import (
-    lens_mapping_matrix_from,
-    build_psf_matrix_dense
-)
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import build_psf_matrix_dense
+from TinyLensGpu.utils.interpolation import get_interpolation_weights
+from TinyLensGpu.utils.lensing import dense_mapping_from_weights_indices
 
-# Lens mapping matrix
-lens_map = lens_mapping_matrix_from(
-    source_mesh_beta=source_coords,  # Source plane coords
-    data_mesh_beta=data_coords,      # Image plane coords
+# Sparse interpolation data
+weights, indices, _ = get_interpolation_weights(
+    points=source_coords,            # Source plane coords
+    query_points=data_coords,        # Image plane coords
     k_neighbors=5,                   # Interpolation neighbors
     kernel='wendland_c4',            # Interpolation kernel
+)
+
+# Dense lens mapping matrix
+lens_map = dense_mapping_from_weights_indices(
+    weights=weights,
+    indices=indices,
+    n_source=source_coords.shape[0],
 )
 
 # PSF convolution matrix
@@ -147,7 +154,7 @@ Adaptive source mesh generation based on image brightness.
 
 **Usage**:
 ```python
-from TinyLensGpu.PixelizedSource import sample_points_weighted
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized import sample_points_weighted
 
 source_mesh, (H, W), _ = sample_points_weighted(
     img=image,              # Input image
@@ -172,7 +179,7 @@ Wendland kernel interpolation for smooth, accurate reconstruction.
 
 **Usage**:
 ```python
-from TinyLensGpu.PixelizedSource.interp_kernel import get_interpolation_weights
+from TinyLensGpu.utils.interpolation import get_interpolation_weights
 
 weights, indices, distances = get_interpolation_weights(
     points=source_points,
