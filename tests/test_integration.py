@@ -13,6 +13,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse, 
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ForwardSimulation import LensSimulator, SimulatorConfig
 from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import BandImageData, MultiBandImageProbModel
 from TinyLensGpu.utils import LinearSolver
 
 
@@ -383,9 +384,162 @@ class TestProbModelIntegration:
         )
         
         log_like = prob_model.likelihood(debug=True)
-        
+
         assert isinstance(log_like, float)
         assert not np.isnan(log_like)
+
+
+@pytest.mark.integration
+class TestMultiBandIntegration:
+    """Test multiband wrapper integration against single-band models."""
+
+    @staticmethod
+    def _build_sie_sersic_model(theta_e: float, source_ie: float, lens_ie: float) -> PhysicalModel:
+        sie = SIE(theta_E=theta_e, e1=0.08, e2=-0.03, center_x=0.01, center_y=-0.02)
+        source = SersicEllipse(
+            R_sersic=0.55,
+            n_sersic=2.1,
+            e1=0.04,
+            e2=-0.02,
+            center_x=-0.03,
+            center_y=0.02,
+            Ie=source_ie,
+        )
+        lens_light = SersicEllipse(
+            R_sersic=0.9,
+            n_sersic=3.2,
+            e1=-0.05,
+            e2=0.03,
+            center_x=0.0,
+            center_y=0.0,
+            Ie=lens_ie,
+        )
+
+        for param in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            param.to_static()
+        for param in [
+            source.R_sersic,
+            source.n_sersic,
+            source.e1,
+            source.e2,
+            source.center_x,
+            source.center_y,
+            source.Ie,
+        ]:
+            param.to_static()
+        for param in [
+            lens_light.R_sersic,
+            lens_light.n_sersic,
+            lens_light.e1,
+            lens_light.e2,
+            lens_light.center_x,
+            lens_light.center_y,
+            lens_light.Ie,
+        ]:
+            param.to_static()
+
+        return PhysicalModel(
+            lens_mass=[sie],
+            source_light=[source],
+            lens_light=[lens_light],
+        )
+
+    @staticmethod
+    def _simulate_image(phys_model: PhysicalModel, npix: int, psf_kernel: np.ndarray) -> np.ndarray:
+        simulator = LensSimulator(
+            phys_model=phys_model,
+            sim_config=SimulatorConfig(dpix=0.05, npix=npix, nsub=2, psf_kernel=psf_kernel),
+        )
+        return np.asarray(simulator.simulate(use_linear=False), dtype=float)
+
+    def test_multiband_joint_likelihood_parity(self):
+        """Joint multiband likelihood should match explicit single-band sum."""
+        npix = 36
+        noise_sigma = 0.15
+        psf_kernel = np.array([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ])
+
+        phys_model_g = self._build_sie_sersic_model(theta_e=1.25, source_ie=1.8, lens_ie=2.6)
+        phys_model_r = self._build_sie_sersic_model(theta_e=1.33, source_ie=2.1, lens_ie=2.2)
+
+        image_g = self._simulate_image(phys_model_g, npix=npix, psf_kernel=psf_kernel)
+        image_r = self._simulate_image(phys_model_r, npix=npix, psf_kernel=psf_kernel)
+        noise_map = np.ones((npix, npix), dtype=float) * noise_sigma
+
+        band_g = BandImageData("g", image_g, noise_map, psf_kernel, 0.05, 2, None)
+        band_r = BandImageData("r", image_r, noise_map, psf_kernel, 0.05, 2, None)
+
+        multi_band_model = MultiBandImageProbModel(
+            bands=[band_g, band_r],
+            phys_models=[phys_model_g, phys_model_r],
+            use_linear=False,
+        )
+
+        single_g = ImageProbModel(
+            image_data=image_g,
+            noise_map=noise_map,
+            psf_kernel=psf_kernel,
+            dpix=0.05,
+            nsub=2,
+            phys_model=phys_model_g,
+            use_linear=False,
+        )
+        single_r = ImageProbModel(
+            image_data=image_r,
+            noise_map=noise_map,
+            psf_kernel=psf_kernel,
+            dpix=0.05,
+            nsub=2,
+            phys_model=phys_model_r,
+            use_linear=False,
+        )
+
+        joint_like = multi_band_model.likelihood()
+        explicit_sum = single_g.likelihood() + single_r.likelihood()
+
+        assert np.isclose(joint_like, explicit_sum, rtol=1e-10, atol=1e-10)
+
+    def test_multiband_identical_bands_double_count(self):
+        """Adding identical bands should double the likelihood contribution."""
+        npix = 34
+        noise_sigma = 0.12
+        psf_kernel = np.array([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ])
+
+        phys_model_single = self._build_sie_sersic_model(theta_e=1.28, source_ie=1.9, lens_ie=2.4)
+        image_data = self._simulate_image(phys_model_single, npix=npix, psf_kernel=psf_kernel)
+        noise_map = np.ones((npix, npix), dtype=float) * noise_sigma
+
+        single_band_model = ImageProbModel(
+            image_data=image_data,
+            noise_map=noise_map,
+            psf_kernel=psf_kernel,
+            dpix=0.05,
+            nsub=2,
+            phys_model=phys_model_single,
+            use_linear=False,
+        )
+
+        band_g = BandImageData("g", image_data, noise_map, psf_kernel, 0.05, 2, None)
+        band_r = BandImageData("r", image_data, noise_map, psf_kernel, 0.05, 2, None)
+        phys_model_dup = self._build_sie_sersic_model(theta_e=1.28, source_ie=1.9, lens_ie=2.4)
+
+        multi_band_model = MultiBandImageProbModel(
+            bands=[band_g, band_r],
+            phys_models=[phys_model_single, phys_model_dup],
+            use_linear=False,
+        )
+
+        single_like = single_band_model.likelihood()
+        joint_like = multi_band_model.likelihood()
+
+        assert np.isclose(joint_like, 2.0 * single_like, rtol=1e-10, atol=1e-10)
 
 
 @pytest.mark.integration
