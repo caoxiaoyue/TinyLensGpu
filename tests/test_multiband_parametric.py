@@ -306,3 +306,58 @@ def test_make_likelihood_vectorized_batch_matches_manual_loop() -> None:
     manual = np.asarray(manual_vals, dtype=float)
 
     assert np.allclose(batched, manual)
+
+
+def test_demo_parameter_names_are_band_scoped_for_linear_terms() -> None:
+    """Verify that linear amplitude parameter names carry band prefixes across 3 bands."""
+    # Build 3-band model: g, r, i with SersicEllipse per band
+    phys_models = []
+    for band_name in ("g", "r", "i"):
+        source = SersicEllipse(
+            R_sersic=ParamU(f"{band_name}_R_sersic_src", 0.5),
+            n_sersic=ParamU(f"{band_name}_n_sersic_src", 2.0),
+            e1=ParamU(f"{band_name}_e1_src", 0.0),
+            e2=ParamU(f"{band_name}_e2_src", 0.0),
+            center_x=ParamU(f"{band_name}_center_x_src", 0.0),
+            center_y=ParamU(f"{band_name}_center_y_src", 0.0),
+            Ie=ParamU(f"{band_name}_Ie_src", 1.0),
+        )
+        # Only Ie is linear; all others static
+        source.center_x.to_dynamic()
+        for param in [source.R_sersic, source.n_sersic, source.e1, source.e2, source.center_y]:
+            param.to_static()
+
+        phys_models.append(PhysicalModel(lens_mass=[], source_light=[source], lens_light=[]))
+
+    model = MultiBandImageProbModel(
+        bands=[_make_band("g"), _make_band("r"), _make_band("i")],
+        phys_models=phys_models,
+        use_linear=True,
+        solver_type="normal",
+    )
+
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    solved = model.get_linear_solved_params(theta.tolist())
+
+    # Each band has its own band-prefixed linear param
+    assert "g_Ie_src" in solved["g"]
+    assert "r_Ie_src" in solved["r"]
+    assert "i_Ie_src" in solved["i"]
+
+    # No cross-band leakage
+    assert "g_Ie_src" not in solved["r"]
+    assert "g_Ie_src" not in solved["i"]
+    assert "r_Ie_src" not in solved["g"]
+    assert "r_Ie_src" not in solved["i"]
+    assert "i_Ie_src" not in solved["g"]
+    assert "i_Ie_src" not in solved["r"]
+
+    # Non-linear params (like center_x) may legitimately appear across bands;
+    # only band-prefixed linear terms must not collide
+    g_linear = {k for k in solved["g"] if k.startswith("g_")}
+    r_linear = {k for k in solved["r"] if k.startswith("r_")}
+    i_linear = {k for k in solved["i"] if k.startswith("i_")}
+
+    assert g_linear.isdisjoint(r_linear), "g-band and r-band linear params must not collide"
+    assert g_linear.isdisjoint(i_linear), "g-band and i-band linear params must not collide"
+    assert r_linear.isdisjoint(i_linear), "r-band and i-band linear params must not collide"
