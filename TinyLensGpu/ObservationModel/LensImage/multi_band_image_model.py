@@ -183,3 +183,12 @@ class MultiBandImageProbModel(ck.Module):
             band_models.append(band_model)
 
         return tuple(band_models)
+
+    @ck.forward
+    def __call__(self) -> Array:
+        band_loglikes = [band_model() for band_model in self.band_models]
+        return jnp.sum(jnp.stack(band_loglikes))
+
+    def likelihood(self, debug: bool = True) -> float:
+        _ = debug
+        return float(np.asarray(self.__call__()))

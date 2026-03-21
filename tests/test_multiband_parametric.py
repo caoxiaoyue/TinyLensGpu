@@ -131,3 +131,50 @@ def test_band_names_preserve_input_order() -> None:
     assert hasattr(model, "band_model_0")
     assert hasattr(model, "band_model_1")
     assert hasattr(model, "band_model_2")
+
+
+def test_joint_loglike_equals_sum_of_single_band_models() -> None:
+    model = MultiBandImageProbModel(
+        bands=[_make_band("g"), _make_band("r")],
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    joint_loglike = float(np.asarray(model()))
+    summed_loglike = sum(float(np.asarray(band_model())) for band_model in model.band_models)
+
+    assert np.isclose(joint_loglike, summed_loglike)
+
+
+def test_multiband_likelihood_returns_python_float() -> None:
+    model = MultiBandImageProbModel(
+        bands=[_make_band("g"), _make_band("r")],
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    like = model.likelihood()
+    call_like = float(np.asarray(model()))
+
+    assert isinstance(like, float)
+    assert np.isclose(like, call_like)
+
+
+def test_identical_bands_contribute_twice_to_joint_loglike() -> None:
+    image = np.ones((3, 3), dtype=float)
+    noise = np.ones((3, 3), dtype=float)
+    psf = np.ones((3, 3), dtype=float) / 9.0
+    band_g = BandImageData("g", image, noise, psf, 0.05, 2, None)
+    band_r = BandImageData("r", image, noise, psf, 0.05, 2, None)
+
+    model = MultiBandImageProbModel(
+        bands=[band_g, band_r],
+        phys_models=[_make_phys_model_stub(), _make_phys_model_stub()],
+        use_linear=False,
+    )
+
+    band_like = float(np.asarray(model.band_models[0]()))
+    joint_like = float(np.asarray(model()))
+
+    assert np.isclose(float(np.asarray(model.band_models[1]())), band_like)
+    assert np.isclose(joint_like, 2.0 * band_like)
