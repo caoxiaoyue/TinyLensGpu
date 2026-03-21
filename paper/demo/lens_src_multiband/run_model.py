@@ -143,12 +143,20 @@ def plot_multiband_overview(model: MultiBandImageProbModel, theta: list[float], 
     fig.suptitle("Multi-band Lens+Source Fit (g/r/i)", fontsize=16)
 
     for row, (band_name, band_model) in enumerate(zip(model.band_names, model.band_models)):
+        forward_kwargs = {
+            "use_linear": band_model.use_linear,
+            "return_intensity": True,
+            "ret_each_plane": True,
+            "image_map": band_model.image_data,
+            "noise_map": band_model.noise_map,
+        }
+        if not model._band_identity_geometry[row]:
+            xgrid_sub, ygrid_sub = model._build_transformed_subgrid_1d(row, band_model)
+            forward_kwargs["xgrid_sub"] = xgrid_sub
+            forward_kwargs["ygrid_sub"] = ygrid_sub
+
         fwd_result = band_model.forward_model(
-            use_linear=band_model.use_linear,
-            return_intensity=True,
-            ret_each_plane=True,
-            image_map=band_model.image_data,
-            noise_map=band_model.noise_map,
+            **forward_kwargs,
         )
         if len(fwd_result) == 3:
             lensed_image_model, lens_light_model, _ = fwd_result

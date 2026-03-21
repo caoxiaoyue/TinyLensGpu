@@ -389,10 +389,6 @@ class MultiBandImageProbModel(ck.Module):
             band_loglikes.append(self._evaluate_non_identity_band_loglike(band_idx, band_model))
 
         joint_loglike = jnp.sum(jnp.stack(band_loglikes))
-        #for debuging purpose
-        for band_idx, loglike in enumerate(band_loglikes):
-            if not jnp.isfinite(loglike):
-                raise ValueError(f"band {band_idx} loglike is not finite: {loglike}")
         return self._sanitize_joint_loglike(joint_loglike)
 
     def _evaluate_non_identity_band_loglike(self, band_idx: int, band_model: ImageProbModel) -> Array:
@@ -506,16 +502,11 @@ class MultiBandImageProbModel(ck.Module):
         unique_dynamic_params = []
         seen_param_ids = set()
 
-        dynamic_param_sources = [
-            *(band_model.get_dynamic_params() for band_model in self.band_models),
-            *(alignment_module.dynamic_params for alignment_module in self._band_alignment_modules),
-        ]
-        for dynamic_params in dynamic_param_sources:
-            for param in dynamic_params:
-                param_id = id(param)
-                if param_id in seen_param_ids:
-                    continue
-                seen_param_ids.add(param_id)
-                unique_dynamic_params.append(param)
+        for param in self.dynamic_params:
+            param_id = id(param)
+            if param_id in seen_param_ids:
+                continue
+            seen_param_ids.add(param_id)
+            unique_dynamic_params.append(param)
 
         return unique_dynamic_params

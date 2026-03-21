@@ -324,6 +324,22 @@ def test_shared_alignment_params_appear_once_in_prior_specs() -> None:
     assert prior_specs[0].name == shared_shift_x.name
 
 
+def test_multiband_dynamic_param_order_matches_caskade_order() -> None:
+    model, _, _ = _make_two_band_mixed_geometry_linear_model()
+
+    custom_names = [param.name for param in model.get_dynamic_params()]
+    caskade_names = []
+    seen_param_ids = set()
+    for param in model.dynamic_params:
+        param_id = id(param)
+        if param_id in seen_param_ids:
+            continue
+        seen_param_ids.add(param_id)
+        caskade_names.append(param.name)
+
+    assert custom_names == caskade_names
+
+
 def test_reference_band_alignment_params_are_not_exposed() -> None:
     ref_shift_x = ParamU(
         "ref_shift_x_alignment",
@@ -719,6 +735,34 @@ def test_make_likelihood_vectorized_batch_matches_manual_loop_for_mixed_geometry
     manual = np.asarray(manual_vals, dtype=float)
 
     assert np.allclose(batched, manual)
+
+
+def test_make_likelihood_vectorized_accepts_prior_order_for_mixed_geometry() -> None:
+    shared_center_x = ParamU(
+        "shared_center_x_src",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-1.0, 1.0],
+        limits=[-5.0, 5.0],
+    )
+    shared_shift_x = ParamU(
+        "shared_shift_x_alignment",
+        0.015,
+        prior_type="uniform",
+        prior_settings=[-0.2, 0.2],
+        limits=[-1.0, 1.0],
+    )
+    model, _, _ = _make_two_band_mixed_geometry_linear_model(
+        shared_center_x=shared_center_x,
+        shared_shift_x=shared_shift_x,
+    )
+    prior_transform, prior_specs = make_prior_transformation(model)
+    theta = np.asarray(prior_transform(np.full(len(prior_specs), 0.5)), dtype=float)
+
+    loglike_fn = make_likelihood(model, vectorized=True)
+    loglike = float(np.asarray(loglike_fn(theta)))
+
+    assert np.isfinite(loglike)
 
 
 def test_demo_parameter_names_are_band_scoped_for_linear_terms() -> None:
