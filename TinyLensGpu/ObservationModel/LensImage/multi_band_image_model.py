@@ -16,6 +16,7 @@ import numpy as np
 from jax import Array
 
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 
 
 @dataclass(frozen=True)
@@ -94,11 +95,91 @@ class MultiBandImageProbModel(ck.Module):
         if len(set(band_names)) != len(band_names):
             raise ValueError("band names must be unique")
 
-        self.bands = tuple(bands)
-        self.phys_models = tuple(phys_models)
+        self._validate_band_geometry(bands)
+        self._validate_cross_band_geometry(bands)
+
+        object.__setattr__(self, "bands", tuple(bands))
+        object.__setattr__(self, "phys_models", tuple(phys_models))
         self.use_linear = bool(use_linear)
         self.solver_type = solver_type
         self.band_names = tuple(band_names)
+        band_models = self._build_band_models()
+        object.__setattr__(self, "band_models", band_models)
+        object.__setattr__(
+            self,
+            "band_model_by_name",
+            {band_name: band_model for band_name, band_model in zip(self.band_names, band_models)},
+        )
 
         # Keep jnp imported and ready for subsequent multi-band likelihood work.
         self._num_bands = jnp.array(len(self.bands), dtype=jnp.int32)
+
+    @staticmethod
+    def _validate_band_geometry(bands: Sequence[BandImageData]) -> None:
+        for band in bands:
+            image_shape = np.shape(band.image_data)
+            noise_shape = np.shape(band.noise_map)
+
+            if len(image_shape) != 2:
+                raise ValueError(f"band '{band.name}' image_data must be 2D, got shape {image_shape}")
+
+            if len(noise_shape) != 2:
+                raise ValueError(f"band '{band.name}' noise_map must be 2D, got shape {noise_shape}")
+
+            if noise_shape != image_shape:
+                raise ValueError(
+                    f"band '{band.name}' image_data shape {image_shape} and noise_map shape "
+                    f"{noise_shape} must match"
+                )
+
+            if band.mask is not None:
+                mask_shape = np.shape(band.mask)
+                if len(mask_shape) != 2:
+                    raise ValueError(f"band '{band.name}' mask must be 2D, got shape {mask_shape}")
+                if mask_shape != image_shape:
+                    raise ValueError(
+                        f"band '{band.name}' image_data shape {image_shape} and mask shape "
+                        f"{mask_shape} must match"
+                    )
+
+    @staticmethod
+    def _validate_cross_band_geometry(bands: Sequence[BandImageData]) -> None:
+        reference_band = bands[0]
+        reference_shape = np.shape(reference_band.image_data)
+        reference_dpix = float(reference_band.dpix)
+
+        for band in bands[1:]:
+            band_shape = np.shape(band.image_data)
+            if band_shape != reference_shape:
+                raise ValueError(
+                    "all bands must share the same image_data shape; "
+                    f"expected {reference_shape}, got {band_shape} for band '{band.name}'"
+                )
+
+            band_dpix = float(band.dpix)
+            if not np.isclose(band_dpix, reference_dpix, rtol=0.0, atol=0.0):
+                raise ValueError(
+                    "all bands must share the same dpix; "
+                    f"expected {reference_dpix}, got {band_dpix} for band '{band.name}'"
+                )
+
+    def _build_band_models(self) -> tuple[ImageProbModel, ...]:
+        band_models = []
+
+        for idx, (band, phys_model) in enumerate(zip(self.bands, self.phys_models)):
+            band_model = ImageProbModel(
+                image_data=band.image_data,
+                noise_map=band.noise_map,
+                psf_kernel=band.psf_kernel,
+                dpix=band.dpix,
+                nsub=band.nsub,
+                phys_model=phys_model,
+                use_linear=self.use_linear,
+                mask=band.mask,
+                solver_type=self.solver_type,
+            )
+            attr_name = f"band_model_{idx}"
+            setattr(self, attr_name, band_model)
+            band_models.append(band_model)
+
+        return tuple(band_models)
