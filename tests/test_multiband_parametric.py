@@ -178,3 +178,16 @@ def test_identical_bands_contribute_twice_to_joint_loglike() -> None:
 
     assert np.isclose(float(np.asarray(model.band_models[1]())), band_like)
     assert np.isclose(joint_like, 2.0 * band_like)
+
+
+def test_multiband_import_surface() -> None:
+    """Verify BandImageData and MultiBandImageProbModel are accessible from both package levels."""
+    # Import from ObservationModel (public API surface)
+    from TinyLensGpu.ObservationModel import BandImageData, MultiBandImageProbModel
+
+    # Import from LensImage subpackage (deeper surface)
+    from TinyLensGpu.ObservationModel.LensImage import BandImageData as B2, MultiBandImageProbModel as MB2
+
+    # Both levels must return the same classes
+    assert BandImageData is B2, "BandImageData must be identical from both import paths"
+    assert MultiBandImageProbModel is MB2, "MultiBandImageProbModel must be identical from both import paths"
