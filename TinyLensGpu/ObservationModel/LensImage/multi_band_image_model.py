@@ -18,6 +18,7 @@ from jax import Array
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d_transformed
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
+from TinyLensGpu.Inference.param_u import ParamU
 
 
 @dataclass(frozen=True)
@@ -27,19 +28,19 @@ class BandObservationGeometry:
 
     Parameters
     ----------
-    shift_x : float or ck.Param, optional
+    shift_x : float or ParamU, optional
         Band offset along x in arcsec relative to the common sky frame.
-    shift_y : float or ck.Param, optional
+    shift_y : float or ParamU, optional
         Band offset along y in arcsec relative to the common sky frame.
-    rotation : float or ck.Param, optional
+    rotation : float or ParamU, optional
         Band rotation in radians using a clockwise-positive convention.
     is_reference : bool, optional
         Whether this band defines the common sky-frame reference geometry.
     """
 
-    shift_x: Union[float, ck.Param] = 0.0
-    shift_y: Union[float, ck.Param] = 0.0
-    rotation: Union[float, ck.Param] = 0.0
+    shift_x: Union[float, ParamU] = 0.0
+    shift_y: Union[float, ParamU] = 0.0
+    rotation: Union[float, ParamU] = 0.0
     is_reference: bool = False
 
 
@@ -78,24 +79,14 @@ class BandImageData:
     geometry: BandObservationGeometry | None = None
 
 
-@dataclass(frozen=True)
-class _BandSquareGridMetadata:
-    npix: int
-    dpix: float
-    nsub: int
-    shift_x: float
-    shift_y: float
-    rotation: float
-
-
 class _BandAlignmentModule(ck.Module):
     def __init__(
         self,
         name: str,
         *,
-        shift_x: Union[float, ck.Param],
-        shift_y: Union[float, ck.Param],
-        rotation: Union[float, ck.Param],
+        shift_x: Union[float, ParamU],
+        shift_y: Union[float, ParamU],
+        rotation: Union[float, ParamU],
     ) -> None:
         super().__init__(name)
         self.shift_x = self._as_param(f"{name}_shift_x", shift_x)
@@ -103,10 +94,10 @@ class _BandAlignmentModule(ck.Module):
         self.rotation = self._as_param(f"{name}_rotation", rotation)
 
     @staticmethod
-    def _as_param(param_name: str, value: Union[float, ck.Param]) -> ck.Param:
-        if isinstance(value, ck.Param):
+    def _as_param(param_name: str, value: Union[float, ParamU]) -> ParamU:
+        if isinstance(value, ParamU):
             return value
-        return ck.Param(param_name, float(value))
+        return ParamU(param_name, float(value))
 
 
 class MultiBandImageProbModel(ck.Module):
@@ -163,11 +154,10 @@ class MultiBandImageProbModel(ck.Module):
             raise ValueError("band names must be unique")
 
         self._validate_band_geometry(normalized_bands)
-        self._validate_cross_band_geometry(normalized_bands)
 
         object.__setattr__(self, "bands", tuple(normalized_bands))
         object.__setattr__(self, "phys_models", tuple(phys_models))
-        self.use_linear = bool(use_linear)
+        self.use_linear = use_linear
         self.solver_type = solver_type
         self.band_names = tuple(band_names)
         band_alignment_modules = self._build_band_alignment_modules()
@@ -183,11 +173,6 @@ class MultiBandImageProbModel(ck.Module):
             self._is_identity_geometry(band.geometry) for band in self.bands
         )
         object.__setattr__(self, "_band_identity_geometry", band_identity_geometry)
-        object.__setattr__(
-            self,
-            "_band_square_grid_metadata",
-            self._build_non_identity_square_grid_metadata(),
-        )
 
         # Keep jnp imported and ready for subsequent multi-band likelihood work.
         self._num_bands = jnp.array(len(self.bands), dtype=jnp.int32)
@@ -196,49 +181,13 @@ class MultiBandImageProbModel(ck.Module):
     def _is_identity_geometry(geometry: BandObservationGeometry | None) -> bool:
         if geometry is None:
             return True
-        if any(isinstance(value, ck.Param) for value in (geometry.shift_x, geometry.shift_y, geometry.rotation)):
+        if any(isinstance(value, ParamU) for value in (geometry.shift_x, geometry.shift_y, geometry.rotation)):
             return False
         return bool(
             np.isclose(geometry.shift_x, 0.0)
             and np.isclose(geometry.shift_y, 0.0)
             and np.isclose(geometry.rotation, 0.0)
         )
-
-    @staticmethod
-    def _alignment_value_to_float(value: Union[float, ck.Param]) -> float:
-        raw_value: Any
-        if isinstance(value, ck.Param):
-            raw_value = cast(ck.Param, value).value
-        else:
-            raw_value = value
-        if raw_value is None:
-            raise ValueError("alignment parameters must have concrete numeric values")
-        return float(np.asarray(raw_value))
-
-    def _build_non_identity_square_grid_metadata(self) -> tuple[Optional[_BandSquareGridMetadata], ...]:
-        metadata_by_band = []
-        for is_identity_geometry, band, alignment_module in zip(
-            self._band_identity_geometry,
-            self.bands,
-            self._band_alignment_modules,
-        ):
-            if is_identity_geometry:
-                metadata_by_band.append(None)
-                continue
-
-            image_shape = np.shape(band.image_data)
-            metadata_by_band.append(
-                _BandSquareGridMetadata(
-                    npix=int(image_shape[0]),
-                    dpix=float(band.dpix),
-                    nsub=int(band.nsub),
-                    shift_x=self._alignment_value_to_float(alignment_module.shift_x),
-                    shift_y=self._alignment_value_to_float(alignment_module.shift_y),
-                    rotation=self._alignment_value_to_float(alignment_module.rotation),
-                )
-            )
-
-        return tuple(metadata_by_band)
 
     @staticmethod
     def _normalize_band_references(bands: Sequence[BandImageData]) -> tuple[BandImageData, ...]:
@@ -292,6 +241,11 @@ class MultiBandImageProbModel(ck.Module):
             if len(image_shape) != 2:
                 raise ValueError(f"band '{band.name}' image_data must be 2D, got shape {image_shape}")
 
+            if image_shape[0] != image_shape[1]:
+                raise ValueError(
+                    f"band '{band.name}' image_data must be square; got shape {image_shape}"
+                )
+
             if len(noise_shape) != 2:
                 raise ValueError(f"band '{band.name}' noise_map must be 2D, got shape {noise_shape}")
 
@@ -310,15 +264,6 @@ class MultiBandImageProbModel(ck.Module):
                         f"band '{band.name}' image_data shape {image_shape} and mask shape "
                         f"{mask_shape} must match"
                     )
-
-    @staticmethod
-    def _validate_cross_band_geometry(bands: Sequence[BandImageData]) -> None:
-        for band in bands:
-            image_shape = np.shape(band.image_data)
-            if image_shape[0] != image_shape[1]:
-                raise ValueError(
-                    f"band '{band.name}' image_data must be square; got shape {image_shape}"
-                )
 
     def _build_band_models(self) -> tuple[ImageProbModel, ...]:
         band_models = []
@@ -343,25 +288,14 @@ class MultiBandImageProbModel(ck.Module):
 
     @staticmethod
     def _normalize_param_value(value: Any) -> Any:
-        if isinstance(value, np.ndarray):
-            if value.shape == ():
-                scalar_value = value.item()
-                if isinstance(scalar_value, dict):
-                    return {
-                        key: MultiBandImageProbModel._normalize_param_value(inner_value)
-                        for key, inner_value in scalar_value.items()
-                    }
-                return MultiBandImageProbModel._normalize_param_value(scalar_value)
-            return value
         if isinstance(value, dict):
-            return {
-                key: MultiBandImageProbModel._normalize_param_value(inner_value)
-                for key, inner_value in value.items()
-            }
-        if hasattr(value, "shape"):
-            value_array = np.asarray(value)
-            if value_array.shape == ():
-                return value_array.item()
+            return {k: MultiBandImageProbModel._normalize_param_value(v) for k, v in value.items()}
+        arr = np.asarray(value)
+        if arr.shape == ():
+            scalar = arr.item()
+            if isinstance(scalar, dict):
+                return {k: MultiBandImageProbModel._normalize_param_value(v) for k, v in scalar.items()}
+            return scalar
         return value
 
     @staticmethod
@@ -405,10 +339,10 @@ class MultiBandImageProbModel(ck.Module):
         band_idx: int,
         band_model: ImageProbModel,
     ) -> tuple[Array, Array]:
-        metadata = self._band_square_grid_metadata[band_idx]
-        if metadata is None:
+        if self._band_identity_geometry[band_idx]:
             return band_model.sim_obj.xgrid_sub, band_model.sim_obj.ygrid_sub
 
+        band = self.bands[band_idx]
         alignment_module = self._band_alignment_modules[band_idx]
         shift_x = alignment_module.shift_x.value
         shift_y = alignment_module.shift_y.value
@@ -418,9 +352,9 @@ class MultiBandImageProbModel(ck.Module):
             raise ValueError("alignment parameters must have concrete numeric values")
 
         xgrid_sub_2d, ygrid_sub_2d = make_grid_2d_transformed(
-            npix=metadata.npix,
-            dpix=metadata.dpix,
-            nsub=metadata.nsub,
+            npix=int(band.image_data.shape[0]),
+            dpix=float(band.dpix),
+            nsub=int(band.nsub),
             shift_x=jnp.asarray(shift_x),
             shift_y=jnp.asarray(shift_y),
             rotation=jnp.asarray(rotation),
@@ -472,8 +406,7 @@ class MultiBandImageProbModel(ck.Module):
         _, intensity_list = forward_result
         return self._get_band_linear_solved_params(band_model, intensity_list)
 
-    def likelihood(self, debug: bool = True) -> float:
-        _ = debug
+    def likelihood(self) -> float:
         return float(np.asarray(self.__call__()))
 
     def get_linear_solved_params(self, theta: Union[Sequence, Dict]) -> Dict[str, Dict[str, Any]]:
@@ -499,14 +432,4 @@ class MultiBandImageProbModel(ck.Module):
         return solved_by_band
 
     def get_dynamic_params(self) -> list:
-        unique_dynamic_params = []
-        seen_param_ids = set()
-
-        for param in self.dynamic_params:
-            param_id = id(param)
-            if param_id in seen_param_ids:
-                continue
-            seen_param_ids.add(param_id)
-            unique_dynamic_params.append(param)
-
-        return unique_dynamic_params
+        return list(self.dynamic_params)

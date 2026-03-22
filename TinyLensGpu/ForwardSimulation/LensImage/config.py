@@ -8,7 +8,7 @@ simulations, including coordinate grids, PSF kernels, and masks.
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from typing import Optional, Tuple, cast
+from typing import Optional, Tuple, Union, cast
 
 
 def make_grid_2d(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array]:
@@ -42,9 +42,9 @@ def make_grid_2d_transformed(
     npix: int,
     dpix: float,
     nsub: int = 1,
-    shift_x: float = 0.0,
-    shift_y: float = 0.0,
-    rotation: float = 0.0,
+    shift_x: Union[float, Array] = 0.0,
+    shift_y: Union[float, Array] = 0.0,
+    rotation: Union[float, Array] = 0.0,
 ) -> Tuple[Array, Array]:
     """
     Generate transformed 2D coordinate grids for a square image plane.

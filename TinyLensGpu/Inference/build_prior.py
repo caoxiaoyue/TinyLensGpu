@@ -1,6 +1,4 @@
 """
-Prior specification and transformation following example_v4.py style.
-
 This module provides PriorSpec for transforming unit-cube samples to parameter space,
 and utilities for extracting prior specs from caskade modules with ParamU parameters.
 """
@@ -120,15 +118,19 @@ def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
     """
     specs = []
     
-    # Check if module has get_dynamic_params method (for LensLikelihood)
+    # Check if module has get_dynamic_params method for my own lens likelihood class
     if hasattr(module, 'get_dynamic_params'):
         dynamic_params = module.get_dynamic_params()
     else:
-        dynamic_params = module.dynamic_params
+        dynamic_params = module.dynamic_params #the generic dynamic params exposed by caskade
     
     for param in dynamic_params:
         if not hasattr(param, "prior_type") or not hasattr(param, "prior_settings"):
             raise ValueError(f"Dynamic param '{param.name}' missing prior metadata")
+        if param.prior_settings is None or len(param.prior_settings) != 2:
+            raise ValueError(f"Dynamic param '{param.name}' prior_settings must be a tuple of length 2")
+        if param.limits is None or len(param.limits) != 2:
+            raise ValueError(f"Dynamic param '{param.name}' limits must be a tuple of length 2")
         
         specs.append(
             PriorSpec(

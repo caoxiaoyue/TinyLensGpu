@@ -1,6 +1,4 @@
 """
-Likelihood interface following example_v4.py style.
-
 This module provides a simplified likelihood interface using JAX vmap
 for efficient batch processing.
 """
