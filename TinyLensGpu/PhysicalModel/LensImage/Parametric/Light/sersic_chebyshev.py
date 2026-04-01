@@ -194,4 +194,8 @@ class SersicEllipseChebyshev(ck.Module):
         )
 
         # Sersic profile
-        return Ie * jnp.exp(-bn * ((R / R_sersic) ** (1 / n_sersic) - 1.0))
+        light_profile = Ie * jnp.exp(-bn * ((R / R_sersic) ** (1 / n_sersic) - 1.0))
+        
+        # Guard against unphysical parameters (R_sersic <= 0 or n_sersic <= 0)
+        is_valid = (R_sersic > 0.0) & (n_sersic > 0.0)
+        return jnp.where(is_valid, light_profile, jnp.nan)

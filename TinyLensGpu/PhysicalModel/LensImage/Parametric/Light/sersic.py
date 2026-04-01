@@ -130,4 +130,8 @@ class SersicEllipse(ck.Module):
               2194697.0 / 30690717750.0 * inv_n**4)
 
         # Sersic profile
-        return Ie * jnp.exp(-bn * ((R / R_sersic) ** (1 / n_sersic) - 1.0))
+        light_profile = Ie * jnp.exp(-bn * ((R / R_sersic) ** (1 / n_sersic) - 1.0))
+        
+        # Guard against unphysical parameters (R_sersic <= 0 or n_sersic <= 0)
+        is_valid = (R_sersic > 0.0) & (n_sersic > 0.0)
+        return jnp.where(is_valid, light_profile, jnp.nan)

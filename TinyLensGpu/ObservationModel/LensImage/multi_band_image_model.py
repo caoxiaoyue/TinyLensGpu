@@ -313,7 +313,9 @@ class MultiBandImageProbModel(ck.Module):
 
     @staticmethod
     def _sanitize_joint_loglike(log_like: Array) -> Array:
-        return jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
+        # Return a very small likelihood (-1e10) if unphysical parameters (e.g. negative Sersic parameters)
+        # cause the forward model to produce NaN/Inf.
+        return jnp.where(jnp.isfinite(log_like), log_like, -1e10)
 
     @ck.forward
     def __call__(self) -> Array:

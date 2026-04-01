@@ -286,8 +286,8 @@ class ImageProbModel(ck.Module):
         if self._has_pos_penalty:
             log_like = log_like + self._position_likelihood_penalty_jax()
 
-        # Guard against NaN/Inf
-        log_like = jnp.where(jnp.isfinite(log_like), log_like, -jnp.inf)
+        # Guard against NaN/Inf by returning a very small loglikelihood
+        log_like = jnp.where(jnp.isfinite(log_like), log_like, -1e10)
         return log_like
 
     @ck.forward
