@@ -18,6 +18,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
+import TinyLensGpu
 import caskade as ck
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -443,19 +444,17 @@ if __name__ == "__main__":
     print(f"Model has {len(param_names)} dynamic parameters")
     for spec in prior_specs:
         print(f"  {spec.name}: {spec.describe()}")
-    # Custom likelihood wrapper that doesn't use JAX jit (to support caskade linked parameters)
-    def loglike(params):
-        # Convert to list for caskade compatibility
-        theta = np.asarray(params).tolist()
-        return float(likelihood(theta))
+        
+    # Use JAX jit and vmap via make_likelihood for efficient batch processing
+    jitted_loglike = make_likelihood(likelihood, vectorized=True)
 
     print("\n[Stage 5] Running Nautilus sampler...")
     sampler = Sampler(
         prior,
-        loglike,
+        jitted_loglike,
         n_dim=len(param_names),
         n_live=200,
-        vectorized=False,
+        vectorized=True,
     )
     start = time.time()
     sampler.run(verbose=True, n_eff=800)
