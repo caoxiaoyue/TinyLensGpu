@@ -564,7 +564,7 @@ class TestMultiBandIntegration:
         noise_sigma = 0.1
         npix_g, dpix_g = 33, 0.05
         npix_r, dpix_r = 41, 0.08
-        shift_x, shift_y, rotation = 0.03, -0.02, 0.08
+        shift_x, shift_y, rotation = 0.03, -0.02, float(np.degrees(0.08))
 
         true_ie_g = 2.6
         true_ie_r = 3.1

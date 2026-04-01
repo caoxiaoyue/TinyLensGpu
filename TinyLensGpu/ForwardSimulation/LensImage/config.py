@@ -50,8 +50,10 @@ def make_grid_2d_transformed(
     Generate transformed 2D coordinate grids for a square image plane.
 
     The base grid follows the same zero-centered convention as ``make_grid_2d``.
-    A clockwise rotation around the origin is applied first, followed by
-    translation by ``(shift_x, shift_y)``.
+    A clockwise rotation around the origin is applied first. The shift terms
+    follow apparent image-plane semantics: positive ``shift_x`` and ``shift_y``
+    correspond to positive image-plane offsets, and are therefore applied with
+    opposite sign in the sampling grid transform.
 
     Parameters
     ----------
@@ -62,11 +64,11 @@ def make_grid_2d_transformed(
     nsub : int, optional
         Subsampling factor used to construct a finer grid.
     shift_x : float, optional
-        Translation along x in arcsec after rotation.
+        Apparent image-plane offset along +x in arcsec.
     shift_y : float, optional
-        Translation along y in arcsec after rotation.
+        Apparent image-plane offset along +y in arcsec.
     rotation : float, optional
-        Clockwise rotation angle in radians.
+        Clockwise rotation angle in degrees.
 
     Returns
     -------
@@ -76,12 +78,13 @@ def make_grid_2d_transformed(
     """
     xgrid, ygrid = make_grid_2d(npix=npix, dpix=dpix, nsub=nsub)
 
-    cos_phi = jnp.cos(rotation)
-    sin_phi = jnp.sin(rotation)
+    rotation_rad = jnp.deg2rad(rotation)
+    cos_phi = jnp.cos(rotation_rad)
+    sin_phi = jnp.sin(rotation_rad)
     x_rot = xgrid * cos_phi + ygrid * sin_phi
     y_rot = -xgrid * sin_phi + ygrid * cos_phi
 
-    return x_rot + shift_x, y_rot + shift_y
+    return x_rot - shift_x, y_rot - shift_y
 
 
 class SimulatorConfig:

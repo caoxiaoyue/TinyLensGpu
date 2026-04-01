@@ -29,11 +29,14 @@ class BandObservationGeometry:
     Parameters
     ----------
     shift_x : float or ParamU, optional
-        Band offset along x in arcsec relative to the common sky frame.
+        Apparent image-plane offset along +x in arcsec relative to the
+        reference band.
     shift_y : float or ParamU, optional
-        Band offset along y in arcsec relative to the common sky frame.
+        Apparent image-plane offset along +y in arcsec relative to the
+        reference band.
     rotation : float or ParamU, optional
-        Band rotation in radians using a clockwise-positive convention.
+        Apparent image-plane rotation in degrees with positive values
+        corresponding to counterclockwise rotation.
     is_reference : bool, optional
         Whether this band defines the common sky-frame reference geometry.
     """

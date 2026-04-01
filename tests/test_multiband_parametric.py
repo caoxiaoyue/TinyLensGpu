@@ -124,7 +124,7 @@ def _make_two_band_mixed_geometry_linear_model(
             geometry=BandObservationGeometry(
                 shift_x=shared_shift_x,
                 shift_y=-0.02,
-                rotation=0.12,
+                rotation=float(np.degrees(0.12)),
                 is_reference=False,
             ),
         ),
@@ -186,7 +186,12 @@ def test_multiband_geometry_defaults_to_first_band_reference() -> None:
             dpix=0.05,
             nsub=2,
             mask=None,
-            geometry=BandObservationGeometry(shift_x=0.1, shift_y=-0.2, rotation=0.3, is_reference=False),
+            geometry=BandObservationGeometry(
+                shift_x=0.1,
+                shift_y=-0.2,
+                rotation=float(np.degrees(0.3)),
+                is_reference=False,
+            ),
         ),
     ]
     model = MultiBandImageProbModel(
@@ -249,7 +254,7 @@ def test_multiband_alignment_anchors_reference_band() -> None:
             geometry=BandObservationGeometry(
                 shift_x=0.7,
                 shift_y=-0.4,
-                rotation=0.2,
+                rotation=float(np.degrees(0.2)),
                 is_reference=True,
             ),
         ),
@@ -261,7 +266,12 @@ def test_multiband_alignment_anchors_reference_band() -> None:
             dpix=0.05,
             nsub=2,
             mask=None,
-            geometry=BandObservationGeometry(shift_x=0.1, shift_y=-0.2, rotation=0.3, is_reference=False),
+            geometry=BandObservationGeometry(
+                shift_x=0.1,
+                shift_y=-0.2,
+                rotation=float(np.degrees(0.3)),
+                is_reference=False,
+            ),
         ),
     ]
 
@@ -357,7 +367,7 @@ def test_reference_band_alignment_params_are_not_exposed() -> None:
     )
     ref_rotation = ParamU(
         "ref_rotation_alignment",
-        0.1,
+        float(np.degrees(0.1)),
         prior_type="uniform",
         prior_settings=[-1.0, 1.0],
         limits=[-5.0, 5.0],

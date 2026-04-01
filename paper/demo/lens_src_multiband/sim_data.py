@@ -65,7 +65,7 @@ def main() -> None:
     # g band is the reference (default alignment)
     band_configs = {
         "g": {"npix": 200, "dpix": 0.074, "nsub": 16, "shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
-        "r": {"npix": 180, "dpix": 0.08, "nsub": 16, "shift_x": 0.02, "shift_y": -0.015, "rotation": 0.01},
+        "r": {"npix": 180, "dpix": 0.08, "nsub": 16, "shift_x": 0.02, "shift_y": -0.015, "rotation": 0.573},
         "i": {"npix": 160, "dpix": 0.09, "nsub": 16, "shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
     }
 

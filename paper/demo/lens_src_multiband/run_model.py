@@ -33,12 +33,14 @@ BANDS = ("g", "r", "i")
 # Toggle to fit alignment parameters for non-reference bands
 FIT_ALIGNMENT_PARAMS = True
 
-# Known misalignment injected in sim_data.py (arcsec for shifts, radians for rotation)
+# Known apparent image misalignment injected in sim_data.py (arcsec for shifts, degrees for rotation)
 BAND_ALIGNMENTS = {
     "g": {"shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},  # Reference band
-    "r": {"shift_x": 0.02, "shift_y": -0.015, "rotation": 0.01},
+    "r": {"shift_x": 0.02, "shift_y": -0.015, "rotation": 0.573},
     "i": {"shift_x": 0.0, "shift_y": 0.0, "rotation": 0.0},
 }
+ROTATION_PRIOR_SIGMA_DEG = float(np.degrees(0.02))
+ROTATION_LIMIT_DEG = float(np.degrees(0.1))
 
 
 def build_shared_params() -> dict[str, ParamU]:
@@ -225,8 +227,8 @@ def create_band_geometry(band: str) -> BandObservationGeometry:
             f"{band}_rotation",
             alignment["rotation"],
             prior_type="gaussian",
-            prior_settings=[alignment["rotation"], 0.02],
-            limits=[-0.1, 0.1],
+            prior_settings=[alignment["rotation"], ROTATION_PRIOR_SIGMA_DEG],
+            limits=[-ROTATION_LIMIT_DEG, ROTATION_LIMIT_DEG],
         )
         # Mark as dynamic
         shift_x.to_dynamic()
@@ -318,7 +320,7 @@ if __name__ == "__main__":
         n_dim=len(param_names),
         n_live=200,
         vectorized=True,
-        n_batch=800,
+        n_batch=100,
     )
     start = time.time()
     sampler.run(verbose=True, n_eff=800)
