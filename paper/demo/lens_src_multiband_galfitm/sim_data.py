@@ -10,7 +10,6 @@ from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 from TinyLensGpu.utils.chebyshev import (
     chebyshev_node,
     evaluate_chebyshev_series,
-    get_band_wavelengths,
     compute_wavelength_range,
 )
 
@@ -151,7 +150,7 @@ def main() -> None:
 
     # Get band wavelengths and compute wavelength range for Chebyshev normalization
     bands = list(band_configs.keys())
-    band_wavelengths = get_band_wavelengths(bands)
+    band_wavelengths = {"g": 4770.0, "r": 6231.0, "i": 7625.0}
     lambda_min, lambda_max = compute_wavelength_range(list(band_wavelengths.values()))
     
     print("Chebyshev polynomial wavelength evolution:")

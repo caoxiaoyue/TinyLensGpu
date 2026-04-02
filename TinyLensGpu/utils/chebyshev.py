@@ -159,50 +159,6 @@ def create_chebyshev_parameter_function(
     return param_func
 
 
-def get_band_wavelengths(band_names: Sequence[str]) -> dict[str, float]:
-    """
-    Get effective wavelengths for common photometric bands.
-    
-    Values are in Angstroms, following the GALFITM paper conventions:
-    u=3543, g=4770, r=6231, i=7625, z=9134, Y=10305, J=12483, H=16313, K=22010
-    
-    Parameters
-    ----------
-    band_names : sequence of str
-        Band identifiers (e.g., 'g', 'r', 'i')
-        
-    Returns
-    -------
-    wavelengths : dict
-        Dictionary mapping band names to effective wavelengths in Angstroms
-    """
-    # Standard SDSS/2MASS effective wavelengths in Angstroms
-    standard_wavelengths = {
-        'u': 3543.0,
-        'g': 4770.0,
-        'r': 6231.0,
-        'i': 7625.0,
-        'z': 9134.0,
-        'Y': 10305.0,
-        'J': 12483.0,
-        'H': 16313.0,
-        'K': 22010.0,
-        # HST/WFC3 common bands
-        'F606W': 5770.0,
-        'F814W': 8050.0,
-        'F125W': 12486.0,
-        'F140W': 13930.0,
-        'F160W': 15420.0,
-        # Generic optical
-        'B': 4450.0,
-        'V': 5510.0,
-        'R': 6580.0,
-        'I': 8060.0,
-    }
-    
-    return {band: standard_wavelengths.get(band, 5500.0) for band in band_names}
-
-
 def compute_wavelength_range(
     band_wavelengths: Sequence[float],
     padding: float = 0.1

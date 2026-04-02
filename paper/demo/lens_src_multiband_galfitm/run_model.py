@@ -32,7 +32,6 @@ from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.chebyshev import (
     chebyshev_node,
     chebyshev_polynomial,
-    get_band_wavelengths,
     compute_wavelength_range,
 )
 
@@ -374,7 +373,7 @@ if __name__ == "__main__":
     output_dir = base_dir / "output"
 
     print("\n[Stage 0] Setting up Chebyshev polynomial wavelength evolution...")
-    band_wavelengths = get_band_wavelengths(BANDS)
+    band_wavelengths = {"g": 4770.0, "r": 6231.0, "i": 7625.0}
     lambda_min, lambda_max = compute_wavelength_range(list(band_wavelengths.values()))
     print(f"  Wavelength range: [{lambda_min:.0f}, {lambda_max:.0f}] Angstroms")
     for band in BANDS:
