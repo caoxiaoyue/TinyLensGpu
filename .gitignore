@@ -9,3 +9,5 @@ paper/mock_csst/dataset/
 .worktrees/
 CLAUDE.md
 tmp/
+**/output/
+**/data/
