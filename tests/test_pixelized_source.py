@@ -50,11 +50,60 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
 )
 from tests.pixelized_test_factory import build_pixelized_source_model
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
+
+
+def _build_mock_lensing_setup(simple_image, simple_noise_map, simple_psf, simple_mask):
+    """Create a complete mock lensing setup for integration testing."""
+    sie = SIE(
+        theta_E=1.0, e1=0.05, e2=-0.03,
+        center_x=0.0, center_y=0.0
+    )
+    sie.theta_E.to_static()
+    sie.e1.to_static()
+    sie.e2.to_static()
+    sie.center_x.to_static()
+    sie.center_y.to_static()
+
+    pix_src_model = build_pixelized_source_model(
+        config=PixelizedSourceConfig(
+            grid=IrregularGridConfig(n_source_points=200, mesh_seed=42),
+        ),
+        reg_scale=0.05,
+        reg_coefficient=1.0,
+    )
+
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
+
+    # Convert mask format: our fixture has True=valid, model expects True=masked
+    mask_out = ~simple_mask
+    sim_config = SimulatorConfig(
+        dpix=0.05,
+        npix=simple_image.shape[0],
+        psf_kernel=simple_psf,
+        mask=mask_out,
+    )
+
+    return {
+        'image': simple_image,
+        'noise': simple_noise_map,
+        'psf': simple_psf,
+        'mask': mask_out,
+        'sim_config': sim_config,
+        'phys_model': phys_model,
+        'pix_src_model': pix_src_model,
+        'dpix': 0.05,
+    }
+
+
+@pytest.fixture
+def mock_lensing_setup(simple_image, simple_noise_map, simple_psf, simple_mask):
+    return _build_mock_lensing_setup(simple_image, simple_noise_map, simple_psf, simple_mask)
 
 
 # =============================================================================
@@ -876,48 +925,7 @@ class TestPixelizedImageProbModel:
     
     @pytest.fixture
     def mock_lensing_setup(self, simple_image, simple_noise_map, simple_psf, simple_mask):
-        """Create a complete mock lensing setup for integration testing."""
-        # Create SIE mass model
-        sie = SIE(
-            theta_E=1.0, e1=0.05, e2=-0.03,
-            center_x=0.0, center_y=0.0
-        )
-        sie.theta_E.to_static()
-        sie.e1.to_static()
-        sie.e2.to_static()
-        sie.center_x.to_static()
-        sie.center_y.to_static()
-
-        # Create pixelized source model with fewer points for faster testing
-        pix_src_model = build_pixelized_source_model(
-            config=PixelizedSourceConfig(
-                grid=IrregularGridConfig(n_source_points=200, mesh_seed=42),
-            ),
-            reg_scale=0.05,
-            reg_coefficient=1.0,
-        )
-
-        phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src_model])
-        
-        # Convert mask format: our fixture has True=valid, model expects True=masked
-        mask_out = ~simple_mask
-        sim_config = SimulatorConfig(
-            dpix=0.05,
-            npix=simple_image.shape[0],
-            psf_kernel=simple_psf,
-            mask=mask_out,
-        )
-        
-        return {
-            'image': simple_image,
-            'noise': simple_noise_map,
-            'psf': simple_psf,
-            'mask': mask_out,
-            'sim_config': sim_config,
-            'phys_model': phys_model,
-            'pix_src_model': pix_src_model,
-            'dpix': 0.05
-        }
+        return _build_mock_lensing_setup(simple_image, simple_noise_map, simple_psf, simple_mask)
     
     def test_prob_model_construction(self, mock_lensing_setup):
         """Test that PixelizedImageProbModel can be constructed."""
@@ -1033,7 +1041,7 @@ class TestPixelizedImageProbModel:
 
         # Verify that the unmasked pixels match
         assert jnp.allclose(model_image_1d, model_image_2d[~setup['mask']]), "1D and 2D results should match at unmasked pixels"
-    
+
     def test_prob_model_repr(self, mock_lensing_setup):
         """Test model string representation."""
         setup = mock_lensing_setup
@@ -1290,6 +1298,253 @@ class TestEdgeCases:
         )
         
         assert not jnp.any(jnp.isnan(reg_matrix)), "Should handle large coefficient"
+
+
+def test_pixelized_simulator_forward_matches_reconstruct_source(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    data_vector = prob_model.image_data[~prob_model.mask]
+    noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
+    reg_scale = prob_model.pix_src_model.reg_scale.value
+    reg_coefficient = prob_model.pix_src_model.reg_coefficient.value
+
+    old_source, old_beta, old_model, old_inverter = prob_model.simulator.reconstruct_source(
+        data_vector=data_vector,
+        noise_variance=noise_variance,
+        reg_scale=reg_scale,
+        reg_coefficient=reg_coefficient,
+        return_2d=True,
+    )
+    result = prob_model.simulator.forward(
+        data=prob_model.image_data,
+        noise_map=prob_model.noise_map,
+        return_solver=True,
+        return_image_2d=True,
+    )
+
+    assert jnp.allclose(result.source_intensities, old_source)
+    assert jnp.allclose(result.source_mesh_beta, old_beta)
+    assert jnp.allclose(result.model_image, old_model)
+    assert result.inverter is not None
+    assert type(result.inverter) is type(old_inverter)
+
+
+def test_pixelized_image_prob_model_call_matches_forward_solver_path(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    result = prob_model.simulator.forward(
+        data=prob_model.image_data,
+        noise_map=prob_model.noise_map,
+        return_solver=True,
+    )
+    direct_log_ev = float(np.asarray(result.inverter.log_evidence()))
+    model_log_ev = float(np.asarray(prob_model()))
+
+    assert np.isfinite(direct_log_ev)
+    assert np.isclose(model_log_ev, direct_log_ev)
+
+
+def test_pixelized_image_prob_model_build_inverter_remains_compatible(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    inverter = prob_model._build_inverter()
+
+    assert inverter is not None
+    assert np.isfinite(float(np.asarray(inverter.log_evidence())))
+
+
+def test_pixelized_simulator_forward_return_solver_keeps_public_reconstruction_payload(
+    mock_lensing_setup,
+):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    result = prob_model.simulator.forward(
+        data=prob_model.image_data,
+        noise_map=prob_model.noise_map,
+        return_solver=True,
+        return_image_2d=False,
+    )
+
+    assert result.inverter is not None
+    assert result.model_image is not None
+    assert result.model_image.ndim == 1
+    assert result.model_image.shape[0] == int(jnp.sum(~prob_model.mask))
+    assert result.source_intensities is not None
+    assert result.source_mesh_beta is not None
+
+
+def test_pixelized_simulator_forward_private_solver_only_skips_reconstruct_source(
+    mock_lensing_setup, monkeypatch
+):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    def fail_reconstruct_source(*args, **kwargs):
+        raise AssertionError("solver-only forward path should not call reconstruct_source")
+
+    monkeypatch.setattr(prob_model.simulator, "reconstruct_source", fail_reconstruct_source)
+
+    result = prob_model.simulator.forward(
+        data=prob_model.image_data,
+        noise_map=prob_model.noise_map,
+        return_solver=True,
+        return_image_2d=False,
+        _solver_only=True,
+    )
+
+    assert result.inverter is not None
+    assert result.model_image is None
+    assert result.source_intensities is None
+    assert result.source_mesh_beta is None
+
+
+def test_pixelized_image_prob_model_build_inverter_remains_compatible_with_lens_light(
+    mock_lensing_setup, monkeypatch
+):
+    setup = mock_lensing_setup
+    pix_src_model = build_pixelized_source_model(
+        config=PixelizedSourceConfig(
+            grid=RectangularGridConfig(nx=12, ny=9),
+            regularization=RegularizationConfig(scheme='rectangular_first'),
+            solver=SolverConfig(
+                inversion_backend='matrix',
+                include_lens_light=True,
+                nonnegative=False,
+                lens_light_ridge=1e-6,
+            ),
+        ),
+        reg_scale=0.05,
+        reg_coefficient=1.0,
+    )
+    lens_light = SersicEllipse(
+        R_sersic=0.8,
+        n_sersic=2.0,
+        e1=0.02,
+        e2=-0.01,
+        center_x=0.03,
+        center_y=-0.02,
+        Ie=0.5,
+    )
+    lens_light.R_sersic.to_static()
+    lens_light.n_sersic.to_static()
+    lens_light.e1.to_static()
+    lens_light.e2.to_static()
+    lens_light.center_x.to_static()
+    lens_light.center_y.to_static()
+    lens_light.Ie.to_static()
+
+    phys_model = PhysicalModel(
+        lens_mass=setup['phys_model'].lens_mass,
+        source_light=[pix_src_model],
+        lens_light=[lens_light],
+    )
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=phys_model,
+    )
+
+    def fail_reconstruct_joint(*args, **kwargs):
+        raise AssertionError(
+            "solver-only forward path should not call reconstruct_source_and_lens_light"
+        )
+
+    monkeypatch.setattr(
+        prob_model.simulator,
+        "reconstruct_source_and_lens_light",
+        fail_reconstruct_joint,
+    )
+
+    inverter = prob_model._build_inverter()
+
+    assert inverter is not None
+    assert np.isfinite(float(np.asarray(inverter.log_evidence())))
+
+
+def test_pixelized_simulator_forward_accepts_unmasked_vectors(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    result = prob_model.simulator.forward(
+        data=prob_model.image_data[~prob_model.mask],
+        noise_map=prob_model.noise_map[~prob_model.mask],
+        return_image_2d=False,
+    )
+
+    assert result.model_image.ndim == 1
+    assert result.model_image.shape[0] == int(jnp.sum(~prob_model.mask))
+    assert result.source_intensities is not None
+
+
+def test_pixelized_simulator_forward_rejects_bad_vector_length(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    with pytest.raises(ValueError, match="data must be a 2D image or a 1D unmasked vector"):
+        prob_model.simulator.forward(
+            data=jnp.ones((7,)),
+            noise_map=prob_model.noise_map,
+        )
+
+
+def test_pixelized_simulator_forward_rejects_return_components(mock_lensing_setup):
+    setup = mock_lensing_setup
+    prob_model = PixelizedImageProbModel(
+        image_data=setup['image'],
+        noise_map=setup['noise'],
+        sim_config=setup['sim_config'],
+        phys_model=setup['phys_model'],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"PixelizedLensSimulator.forward\(\) does not support image-plane components",
+    ):
+        prob_model.simulator.forward(
+            data=prob_model.image_data,
+            noise_map=prob_model.noise_map,
+            return_components=True,
+        )
 
 
 if __name__ == "__main__":

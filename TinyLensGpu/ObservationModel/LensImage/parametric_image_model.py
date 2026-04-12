@@ -239,27 +239,23 @@ class ImageProbModel(ck.Module):
             The simulated image and optionally other components depending on flags.
         """
         linear_flag = self.use_linear if use_linear is None else use_linear
+        result = self.sim_obj.forward(
+            data=(image_map if image_map is not None else self.image_data) if linear_flag else None,
+            noise_map=(noise_map if noise_map is not None else self.noise_map) if linear_flag else None,
+            return_components=ret_each_plane,
+            xgrid_sub=xgrid_sub,
+            ygrid_sub=ygrid_sub,
+            psf_kernel=psf_kernel,
+        )
 
-        if linear_flag:
-            return self.sim_obj.simulate(  # type: ignore[reportArgumentType]
-                use_linear=True,
-                return_intensity=return_intensity,
-                ret_each_plane=ret_each_plane,
-                xgrid_sub=xgrid_sub,
-                ygrid_sub=ygrid_sub,
-                psf_kernel=psf_kernel,
-                image_map=image_map if image_map is not None else self.image_data,
-                noise_map=noise_map if noise_map is not None else self.noise_map,
-            )
-        else:
-            return self.sim_obj.simulate(  # type: ignore[reportArgumentType]
-                use_linear=False,
-                return_intensity=return_intensity,
-                ret_each_plane=ret_each_plane,
-                xgrid_sub=xgrid_sub,
-                ygrid_sub=ygrid_sub,
-                psf_kernel=psf_kernel,
-            )
+        if ret_each_plane:
+            if return_intensity:
+                return result.source_image, result.lens_image, result.linear_params
+            return result.source_image, result.lens_image
+
+        if return_intensity:
+            return result.model_image, result.linear_params
+        return result.model_image
 
     def _evaluate_loglike_from_forward_model(
         self,

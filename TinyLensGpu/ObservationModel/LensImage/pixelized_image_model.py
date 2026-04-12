@@ -203,14 +203,16 @@ class PixelizedImageProbModel(ck.Module):
             An initialized inverter object capable of computing the Bayesian evidence
             and reconstructing the source.
         """
-        model = self.pix_src_model
-
-        inverter = self.simulator.build_inverter(
-            data_vector=self._data_vector,
-            noise_variance=self._noise_variance,
-            reg_scale=model.reg_scale.value,
-            reg_coefficient=model.reg_coefficient.value,
+        result = self.simulator.forward(
+            data=self.image_data,
+            noise_map=self.noise_map,
+            return_solver=True,
+            return_image_2d=False,
+            _solver_only=True,
         )
+        inverter = result.inverter
+        if inverter is None:
+            raise RuntimeError("PixelizedLensSimulator.forward() did not return an inverter.")
         return inverter
 
     @ck.forward
