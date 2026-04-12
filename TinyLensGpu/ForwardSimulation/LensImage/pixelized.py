@@ -10,6 +10,7 @@ import numpy as np
 from jax import Array, jit
 
 from .config import SimulatorConfig
+from .results import SimulationResult
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.config import (
     IrregularGridConfig,
     RectangularGridConfig,
@@ -592,6 +593,100 @@ class PixelizedLensSimulator:
             regularization=reg,
             solver_config=solver_cfg,
             lens_basis_matrix=lens_basis_matrix,
+        )
+
+    def _normalize_forward_inputs(
+        self,
+        data: Union[jnp.ndarray, np.ndarray],
+        noise_map: Union[jnp.ndarray, np.ndarray],
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Normalize full-image or unmasked-vector inputs for reconstruction."""
+        data = jnp.asarray(data)
+        noise_map = jnp.asarray(noise_map)
+
+        n_unmasked = int(jnp.sum(~self.mask))
+
+        if data.ndim == 2:
+            if data.shape != self.image_shape:
+                raise ValueError("data must be a 2D image or a 1D unmasked vector")
+            data_vector = data[~self.mask]
+        elif data.ndim == 1:
+            if data.shape[0] != n_unmasked:
+                raise ValueError("data must be a 2D image or a 1D unmasked vector")
+            data_vector = data
+        else:
+            raise ValueError("data must be a 2D image or a 1D unmasked vector")
+
+        if noise_map.ndim == 2:
+            if noise_map.shape != self.image_shape:
+                raise ValueError("noise_map must be a 2D image or a 1D unmasked vector")
+            noise_variance = noise_map[~self.mask] ** 2
+        elif noise_map.ndim == 1:
+            if noise_map.shape[0] != n_unmasked:
+                raise ValueError("noise_map must be a 2D image or a 1D unmasked vector")
+            noise_variance = noise_map ** 2
+        else:
+            raise ValueError("noise_map must be a 2D image or a 1D unmasked vector")
+
+        return data_vector, noise_variance
+
+    def forward(
+        self,
+        data: Union[jnp.ndarray, np.ndarray],
+        noise_map: Union[jnp.ndarray, np.ndarray],
+        return_components: bool = False,
+        return_solver: bool = False,
+        return_image_2d: bool = True,
+        *,
+        _solver_only: bool = False,
+    ) -> SimulationResult:
+        """Run the pixelized simulator through the shared top-level API."""
+        if return_components:
+            raise ValueError("PixelizedLensSimulator.forward() does not support image-plane components")
+
+        data_vector, noise_variance = self._normalize_forward_inputs(data=data, noise_map=noise_map)
+        reg_scale = self.pix_src_model.reg_scale.value
+        reg_coefficient = self.pix_src_model.reg_coefficient.value
+
+        if _solver_only:
+            inverter = self.build_inverter(
+                data_vector=data_vector,
+                noise_variance=noise_variance,
+                reg_scale=reg_scale,
+                reg_coefficient=reg_coefficient,
+            )
+            return SimulationResult(model_image=None, inverter=inverter)
+
+        if self.pix_src_model.solver.include_lens_light:
+            source_intensities, lens_light_intensities, source_mesh_beta, model_image, inverter = (
+                self.reconstruct_source_and_lens_light(
+                    data_vector=data_vector,
+                    noise_variance=noise_variance,
+                    reg_scale=reg_scale,
+                    reg_coefficient=reg_coefficient,
+                    return_2d=return_image_2d,
+                )
+            )
+            return SimulationResult(
+                model_image=model_image,
+                source_intensities=source_intensities,
+                lens_light_intensities=lens_light_intensities,
+                source_mesh_beta=source_mesh_beta,
+                inverter=inverter if return_solver else None,
+            )
+
+        source_intensities, source_mesh_beta, model_image, inverter = self.reconstruct_source(
+            data_vector=data_vector,
+            noise_variance=noise_variance,
+            reg_scale=reg_scale,
+            reg_coefficient=reg_coefficient,
+            return_2d=return_image_2d,
+        )
+        return SimulationResult(
+            model_image=model_image,
+            source_intensities=source_intensities,
+            source_mesh_beta=source_mesh_beta,
+            inverter=inverter if return_solver else None,
         )
 
     def reconstruct_source_and_lens_light(

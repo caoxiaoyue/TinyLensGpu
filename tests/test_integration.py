@@ -25,6 +25,264 @@ from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
 from TinyLensGpu.utils import LinearSolver
 
 
+def test_forward_simulation_exports_simulation_result():
+    from TinyLensGpu.ForwardSimulation import SimulationResult
+    from TinyLensGpu.ForwardSimulation.LensImage import SimulationResult as LensImageSimulationResult
+
+    assert LensImageSimulationResult is SimulationResult
+
+    result = SimulationResult(model_image=np.zeros((2, 2)))
+
+    assert result.model_image.shape == (2, 2)
+    assert result.source_image is None
+    assert result.inverter is None
+
+
+def test_lens_simulator_forward_matches_simulate_output():
+    source = GaussianEllipse(flux=4.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    model = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    config = SimulatorConfig(
+        dpix=0.05,
+        npix=24,
+        nsub=1,
+        psf_kernel=np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    simulator = LensSimulator(model, config)
+
+    old_image = np.asarray(simulator.simulate(use_linear=False))
+    result = simulator.forward()
+
+    assert np.allclose(np.asarray(result.model_image), old_image)
+    assert result.linear_params is None
+    assert result.source_image is None
+    assert result.lens_image is None
+
+
+def test_lens_simulator_forward_returns_components_and_linear_params():
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground
+
+    source = SersicEllipse(
+        R_sersic=0.5,
+        n_sersic=1.5,
+        e1=0.0,
+        e2=0.0,
+        center_x=0.0,
+        center_y=0.0,
+        Ie=2.0,
+    )
+    background = ConstantBackground(intensity=0.3)
+    for param in [source.R_sersic, source.n_sersic, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    model = PhysicalModel(lens_mass=[], source_light=[], lens_light=[source, background])
+    config = SimulatorConfig(
+        dpix=0.05,
+        npix=20,
+        nsub=1,
+        psf_kernel=np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    simulator = LensSimulator(model, config, solver_type="normal")
+    data = np.asarray(simulator.simulate(use_linear=False))
+    noise = np.ones_like(data) * 0.1
+
+    old_source, old_lens, old_linear = simulator.simulate(
+        use_linear=True,
+        return_intensity=True,
+        ret_each_plane=True,
+        image_map=data,
+        noise_map=noise,
+    )
+    result = simulator.forward(
+        data=data,
+        noise_map=noise,
+        return_components=True,
+    )
+
+    assert np.allclose(np.asarray(result.source_image), np.asarray(old_source))
+    assert np.allclose(np.asarray(result.lens_image), np.asarray(old_lens))
+    assert np.allclose(np.asarray(result.linear_params), np.asarray(old_linear))
+    assert result.model_image.shape == data.shape
+
+
+def test_lens_simulator_forward_rejects_return_solver():
+    source = GaussianEllipse(flux=4.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    model = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    config = SimulatorConfig(dpix=0.05, npix=24, nsub=1)
+    simulator = LensSimulator(model, config)
+
+    with pytest.raises(ValueError, match="does not return solver objects"):
+        simulator.forward(return_solver=True)
+
+
+def test_lens_simulator_forward_rejects_non_2d_images():
+    source = GaussianEllipse(flux=4.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    model = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    config = SimulatorConfig(dpix=0.05, npix=24, nsub=1)
+    simulator = LensSimulator(model, config)
+
+    with pytest.raises(ValueError, match="always returns 2D images"):
+        simulator.forward(return_image_2d=False)
+
+
+def test_image_prob_model_forward_model_matches_simulator_forward():
+    sie = SIE(theta_E=1.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    source = GaussianEllipse(flux=8.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    image_data = np.ones((18, 18), dtype=float)
+    noise_map = np.ones((18, 18), dtype=float) * 0.2
+    psf_kernel = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+    model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+    prob_model = ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=0.05,
+        nsub=1,
+        phys_model=model,
+        use_linear=False,
+    )
+
+    image_model, intensity_list = prob_model.forward_model()
+    sim_result = prob_model.sim_obj.forward()
+
+    assert np.allclose(np.asarray(image_model), np.asarray(sim_result.model_image))
+    assert intensity_list is None
+
+
+def test_image_prob_model_forward_model_uses_simulator_forward(monkeypatch):
+    from TinyLensGpu.ForwardSimulation import SimulationResult
+
+    source = GaussianEllipse(flux=8.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    image_data = np.ones((18, 18), dtype=float)
+    noise_map = np.ones((18, 18), dtype=float) * 0.2
+    model = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    prob_model = ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+        dpix=0.05,
+        nsub=1,
+        phys_model=model,
+        use_linear=False,
+    )
+
+    sentinel = np.full((18, 18), 7.0)
+
+    def fake_forward(**kwargs):
+        assert kwargs["data"] is None
+        assert kwargs["noise_map"] is None
+        assert kwargs["return_components"] is False
+        return SimulationResult(model_image=sentinel)
+
+    def fail_simulate(*args, **kwargs):
+        raise AssertionError("forward_model should call sim_obj.forward")
+
+    monkeypatch.setattr(prob_model.sim_obj, "forward", fake_forward)
+    monkeypatch.setattr(prob_model.sim_obj, "simulate", fail_simulate)
+
+    image_model, intensity_list = prob_model.forward_model()
+
+    assert np.allclose(np.asarray(image_model), sentinel)
+    assert intensity_list is None
+
+
+def test_image_prob_model_forward_model_ignores_linear_inputs_when_forced_nonlinear(monkeypatch):
+    from TinyLensGpu.ForwardSimulation import SimulationResult
+
+    source = GaussianEllipse(flux=8.0, sigma=0.3, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in [source.flux, source.sigma, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    image_data = np.ones((18, 18), dtype=float)
+    noise_map = np.ones((18, 18), dtype=float) * 0.2
+    model = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    prob_model = ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+        dpix=0.05,
+        nsub=1,
+        phys_model=model,
+        use_linear=True,
+    )
+
+    sentinel = np.full((18, 18), 3.0)
+
+    def fake_forward(**kwargs):
+        assert kwargs["data"] is None
+        assert kwargs["noise_map"] is None
+        return SimulationResult(model_image=sentinel)
+
+    monkeypatch.setattr(prob_model.sim_obj, "forward", fake_forward)
+
+    image_model, intensity_list = prob_model.forward_model(
+        use_linear=False,
+        image_map=np.full((18, 18), 9.0),
+        noise_map=np.full((18, 18), 4.0),
+    )
+
+    assert np.allclose(np.asarray(image_model), sentinel)
+    assert intensity_list is None
+
+
+def test_image_prob_model_forward_model_linear_matches_simulator_forward():
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground
+
+    source = SersicEllipse(
+        R_sersic=0.5,
+        n_sersic=1.5,
+        e1=0.0,
+        e2=0.0,
+        center_x=0.0,
+        center_y=0.0,
+        Ie=2.0,
+    )
+    background = ConstantBackground(intensity=0.3)
+    for param in [source.R_sersic, source.n_sersic, source.e1, source.e2, source.center_x, source.center_y]:
+        param.to_static()
+
+    image_data = np.ones((20, 20), dtype=float)
+    noise_map = np.ones((20, 20), dtype=float) * 0.1
+    psf_kernel = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+    model = PhysicalModel(lens_mass=[], source_light=[], lens_light=[source, background])
+    prob_model = ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=0.05,
+        nsub=1,
+        phys_model=model,
+        use_linear=True,
+        solver_type="normal",
+    )
+
+    image_model, intensity_list = prob_model.forward_model(
+        use_linear=True,
+        image_map=image_data,
+        noise_map=noise_map,
+    )
+    sim_result = prob_model.sim_obj.forward(data=image_data, noise_map=noise_map)
+
+    assert np.allclose(np.asarray(image_model), np.asarray(sim_result.model_image))
+    assert np.allclose(np.asarray(intensity_list), np.asarray(sim_result.linear_params))
+
+
 @pytest.mark.integration
 class TestEndToEndSimulation:
     """Test complete simulation workflows."""

@@ -15,6 +15,7 @@ import numpy as np
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
 from .config import SimulatorConfig
+from .results import SimulationResult
 from ...utils.linear_solver import LinearSolver, prepare_linear_system
 
 
@@ -255,6 +256,66 @@ class LensSimulator:
             return img, X_vec
         else:
             return img
+
+    def forward(
+        self,
+        data: Optional[Array] = None,
+        noise_map: Optional[Array] = None,
+        return_components: bool = False,
+        return_solver: bool = False,
+        return_image_2d: bool = True,
+        xgrid_sub: Optional[Array] = None,
+        ygrid_sub: Optional[Array] = None,
+        psf_kernel: Optional[Array] = None,
+    ) -> SimulationResult:
+        """Return the shared simulation result wrapper for parametric models."""
+        if return_solver:
+            raise ValueError("Parametric forward() does not return solver objects")
+        if not return_image_2d:
+            raise ValueError("Parametric forward() always returns 2D images")
+
+        use_linear = data is not None or noise_map is not None
+        if use_linear and (data is None or noise_map is None):
+            raise ValueError("data and noise_map must both be provided for linear simulation")
+
+        if return_components:
+            source_image, lens_image, linear_params = self.simulate(
+                use_linear=use_linear,
+                return_intensity=True,
+                ret_each_plane=True,
+                image_map=data,
+                noise_map=noise_map,
+                xgrid_sub=xgrid_sub,
+                ygrid_sub=ygrid_sub,
+                psf_kernel=psf_kernel,
+            )
+            return SimulationResult(
+                model_image=source_image + lens_image,
+                source_image=source_image,
+                lens_image=lens_image,
+                linear_params=linear_params,
+            )
+
+        if use_linear:
+            model_image, linear_params = self.simulate(
+                use_linear=True,
+                return_intensity=True,
+                image_map=data,
+                noise_map=noise_map,
+                xgrid_sub=xgrid_sub,
+                ygrid_sub=ygrid_sub,
+                psf_kernel=psf_kernel,
+            )
+        else:
+            model_image = self.simulate(
+                use_linear=False,
+                xgrid_sub=xgrid_sub,
+                ygrid_sub=ygrid_sub,
+                psf_kernel=psf_kernel,
+            )
+            linear_params = None
+
+        return SimulationResult(model_image=model_image, linear_params=linear_params)
 
     def _generate_ideal_model(
         self,
