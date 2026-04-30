@@ -18,7 +18,7 @@ TinyLensGpu/
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| New physical component | `TinyLensGpu/PhysicalModel/` | Mass, light, pixelized source abstractions |
+| New physical component | `TinyLensGpu/PhysicalModel/` | Mass and light abstractions |
 | New simulator behavior | `TinyLensGpu/ForwardSimulation/` | Config + orchestration |
 | New likelihood model | `TinyLensGpu/ObservationModel/` | Thin wrappers over simulators |
 | New sampler / optimizer glue | `TinyLensGpu/Inference/` | Keep demo-facing APIs stable |

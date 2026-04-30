@@ -1,4 +1,4 @@
-"""Mapping utilities for pixelized-source lensing reconstruction."""
+"""Mapping utilities for lensing reconstruction."""
 
 from functools import partial
 from typing import Literal

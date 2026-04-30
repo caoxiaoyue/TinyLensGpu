@@ -7,24 +7,17 @@
 ```text
 tests/
 |- conftest.py                    # shared fixtures
-|- pixelized_test_factory.py      # helper builder for pixelized tests
 |- test_mass_profile.py           # lenstronomy-backed mass checks
 |- test_light_profile.py          # lenstronomy-backed light checks
 |- test_integration.py            # end-to-end workflows
-|- test_pixelized_source.py       # largest pixelized regression suite
-|- test_operator_*.py             # operator backend correctness / perf
 |- test_performance.py            # timing thresholds
-`- bench_mapping_strategy.py      # standalone benchmark, not pytest
 ```
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | Shared fixtures | `tests/conftest.py` | image, noise, PSF, coordinate grids |
-| Pixelized test setup | `tests/pixelized_test_factory.py` | reusable model builder |
 | End-to-end regression | `tests/test_integration.py` | broadest workflow coverage |
-| Pixelized subsystem regression | `tests/test_pixelized_source.py` | largest and most detailed suite |
-| Operator backend perf / VRAM | `tests/test_operator_backend_performance.py` | GPU-conditional |
 
 ## CONVENTIONS
 - Use pytest markers defined in `pytest.ini`: `unit`, `integration`, `slow`, `performance`, `boundary`.
@@ -40,5 +33,4 @@ tests/
 - Do not turn standalone benchmarks into pytest tests unless they become deterministic enough for CI.
 
 ## NOTES
-- `test_pixelized_source.py`, `test_operator_solver.py`, and `test_integration.py` are the best executable docs for major architectural flows.
-- `bench_mapping_strategy.py` is intentionally run as a script, not through pytest discovery.
+- `test_integration.py` is the best executable doc for major architectural flows.

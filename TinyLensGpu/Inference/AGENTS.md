@@ -32,7 +32,7 @@ TinyLensGpu/Inference/
 ## ANTI-PATTERNS
 - Do not assume YAML config pipelines still exist in this tree; current demos are direct Python.
 - Do not introduce new parameter wrappers that bypass `ParamU` semantics.
-- Do not break compatibility with `ImageProbModel` / `PixelizedImageProbModel` callable expectations when changing wrappers.
+- Do not break compatibility with `ImageProbModel` callable expectations when changing wrappers.
 
 ## NOTES
 - `NestedSampler/__init__.py` is intentionally empty; import concrete wrappers directly when editing that area.

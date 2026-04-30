@@ -13,8 +13,8 @@ TinyLensGpu is a JAX-powered, GPU-accelerated framework for galaxy–galaxy stro
 | Layer | Purpose | Key Objects |
 | --- | --- | --- |
 | Models | Mass & light components implemented as `caskade.Module`s | `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`, `PhysicalModel` |
-| ObservationModel | Likelihood / evidence evaluation | `ImageProbModel`, `PixelizedImageProbModel` |
-| ForwardSimulation | Ray-tracing + PSF convolution + (optional) linear intensity solving | `LensSimulator`, `PixelizedLensSimulator` |
+| ObservationModel | Likelihood / evidence evaluation | `ImageProbModel` |
+| ForwardSimulation | Ray-tracing + PSF convolution + (optional) linear intensity solving | `LensSimulator` |
 | Inference | Prior/likelihood wrappers + samplers/optimizers | `make_prior_transformation`, `make_likelihood`, Nautilus/Dynesty/SciPy optimizers |
 
 This repository snapshot focuses on the programmatic (pure-Python) workflow used in `paper/demo/**`.

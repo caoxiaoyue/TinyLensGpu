@@ -8,7 +8,6 @@ We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Spac
 
 Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using:
 - **Parametric models**: Sérsic, Gaussian, and multi-Gaussian expansion (MGE) models
-- **Pixelized source models**: Discrete pixel reconstruction with Gaussian Process regularization (NEW in v2.1)
 
 ## 🆕 Programmatic API (v2.0)
 
@@ -49,8 +48,6 @@ pytest
 # Run specific test suites
 pytest tests/test_caskade_models.py     # Caskade model implementations
 pytest tests/test_integration.py         # End-to-end integration
-pytest tests/test_operator_solver.py     # Operator backend inversion
-pytest tests/test_pixelized_source.py    # Pixelized source modeling
 pytest tests/test_mass_profile.py        # Parametric mass models
 ```
 
@@ -61,7 +58,7 @@ Every demo under `paper/demo/*` contains a `run_model.py` that follows the same 
 1. **Load data** – `load_lens_data` wraps FITS image/noise/PSF loading and basic masking.
 2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
 3. **Select dynamic/static parameters** – Call `.to_dynamic()`, `.to_static(value)`, or rely on `.to_linear()` defaults for flux-like parameters.
-4. **Build physics + likelihood** – assemble `PhysicalModel(...)`, then construct `ImageProbModel(...)` (or `PixelizedImageProbModel(...)`) with `dpix`, `nsub`, solver, and optional position likelihood.
+4. **Build physics + likelihood** – assemble `PhysicalModel(...)`, then construct `ImageProbModel(...)` with `dpix`, `nsub`, solver, and optional position likelihood.
 5. **Vectorize and sample** – Use `prob_model` directly as the likelihood object, then create `prior, prior_specs = make_prior_transformation(prob_model)` and `loglike = make_likelihood(prob_model, ...)`. Feed both into Nautilus/Dynesty.
 
 ### Minimal example
@@ -127,73 +124,7 @@ python run_model.py          # lens + source parametric example
 cd ../lens_src_mge
 python run_model.py          # MGE lens + source example
 
-cd ../src_only_pix_src
-python demo_pix_src.py       # pixelized source reconstruction example
-```
-
 Each demo writes results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Modify the scripts directly to experiment with priors, components, likelihood options, or sampler settings.
-
-### Pixelized Source Modeling (NEW)
-
-TinyLensGpu now supports pixelized source reconstruction as an alternative to parametric source models:
-
-```python
-from TinyLensGpu.PhysicalModel import (
-    PhysicalModel,
-    PixelizedSourceModel,
-    PixelizedSourceConfig,
-    IrregularGridConfig,
-    MappingConfig,
-    RegularizationConfig,
-    SIE,
-)
-from TinyLensGpu.ObservationModel import PixelizedImageProbModel
-
-# Create mass model
-sie = SIE(theta_E=1.5, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-pix_src = PixelizedSourceModel(
-    config=PixelizedSourceConfig(
-        grid=IrregularGridConfig(n_source_points=1500, mesh_alpha=1.5),
-        mapping=MappingConfig(k_neighbors=5, interp_kernel="wendland_c4", radius_scale=1.5),
-        regularization=RegularizationConfig(mode="dense_gp", gp_kernel="exp"),
-    ),
-    reg_scale=0.05,
-    reg_coefficient=1.0,
-)
-phys_model = PhysicalModel(lens_mass=[sie], source_light=[pix_src])
-
-# Create probability model
-prob_model = PixelizedImageProbModel(
-    image_data=image,
-    noise_map=noise,
-    psf_kernel=psf,
-    dpix=0.05,
-    phys_model=phys_model,
-    mask=mask,
-)
-
-# Compute log evidence (analogous to log likelihood)
-log_ev = prob_model.log_evidence()
-
-# Reconstruct source (via simulator)
-data_vector = prob_model.image_data[~prob_model.mask]
-noise_variance = prob_model.noise_map[~prob_model.mask] ** 2
-source_intensities, source_mesh_beta, model_image, _ = prob_model.simulator.reconstruct_source(
-    data_vector=data_vector,
-    noise_variance=noise_variance,
-    reg_scale=prob_model.pix_src_model.reg_scale.value,
-    reg_coefficient=prob_model.pix_src_model.reg_coefficient.value,
-)
-```
-
-**Key Features**:
-- Bayesian evidence calculation for hyperparameter optimization
-- Multiple regularization kernels (exponential, Gaussian, Matern-3/2, Matern-5/2)
-- Adaptive source mesh generation
-- Compatible with nested sampling for joint mass + hyperparameter inference
-
-See [Pixelized Source Guide](doc/pixelized_source_guide.md) for detailed documentation.
-
 
 ## Citation
 If you find this work useful, please cite Cao et al. (2025). The BibTeX entry is provided below for your convenience.

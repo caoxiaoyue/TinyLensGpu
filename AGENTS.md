@@ -25,7 +25,7 @@ TinyLensGpu is a JAX/Caskade strong-lensing library. Core work is programmatic P
 | Task | Location | Notes |
 |------|----------|-------|
 | Add mass or light profile | `TinyLensGpu/PhysicalModel/LensImage/` | Caskade `ck.Module` patterns live here |
-| Change image simulation | `TinyLensGpu/ForwardSimulation/LensImage/` | `parametric.py` and `pixelized.py` are entry surfaces |
+| Change image simulation | `TinyLensGpu/ForwardSimulation/LensImage/` | `parametric.py` is the entry surface |
 | Change likelihood / evidence | `TinyLensGpu/ObservationModel/LensImage/` | Thin bridge over simulators |
 | Change priors / sampler wiring | `TinyLensGpu/Inference/` | `ParamU`, `build_prior.py`, `build_likelihood.py` |
 | Change mapping / PSF / regularization | `TinyLensGpu/utils/lensing/` | Shared by simulators and observation models |
@@ -38,13 +38,11 @@ TinyLensGpu is a JAX/Caskade strong-lensing library. Core work is programmatic P
 |--------|------|----------|------|------|
 | `PhysicalModel` | class | `TinyLensGpu/PhysicalModel/LensImage/composite.py` | package-wide | Composition root for mass / source / lens light |
 | `LensSimulator` | class | `TinyLensGpu/ForwardSimulation/LensImage/parametric.py` | demos + tests | Parametric forward model |
-| `PixelizedLensSimulator` | class | `TinyLensGpu/ForwardSimulation/LensImage/pixelized.py` | pixelized workflows | Orchestrates grids, PSF, regularization, inversion |
 | `ImageProbModel` | class | `TinyLensGpu/ObservationModel/LensImage/parametric_image_model.py` | demos + tests | Image chi-square likelihood |
-| `PixelizedImageProbModel` | class | `TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py` | pixelized workflows | Log-evidence wrapper |
 | `ParamU` | class | `TinyLensGpu/Inference/param_u.py` | all modern demos | Prior-aware parameter wrapper |
 | `make_prior_transformation` | function | `TinyLensGpu/Inference/build_prior.py` | all demos | Unit-cube to physical transform |
 | `make_likelihood` | function | `TinyLensGpu/Inference/build_likelihood.py` | all demos | Sampler-facing callable builder |
-| `OperatorInversion` | class | `TinyLensGpu/utils/inversion/operator_solver.py` | pixelized pipeline | Matrix-free solve + SLQ logdet |
+
 
 ## CONVENTIONS
 - Activate the environment with `source ~/anaconda3/bin/activate && conda activate tinylens_gpu` before running test programs.
@@ -69,7 +67,7 @@ TinyLensGpu is a JAX/Caskade strong-lensing library. Core work is programmatic P
 
 ## UNIQUE STYLES
 - Architecture is pipeline-shaped: `PhysicalModel -> ForwardSimulation -> ObservationModel -> Inference`.
-- Pixelized source support is a first-class subsystem with separate matrix and operator backends.
+- Tests are flat, not mirrored by subpackage, but they still map tightly onto source subsystems.
 - Tests are flat, not mirrored by subpackage, but they still map tightly onto source subsystems.
 
 ## COMMANDS

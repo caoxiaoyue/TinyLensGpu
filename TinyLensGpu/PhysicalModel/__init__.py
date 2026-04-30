@@ -15,13 +15,6 @@ from .LensImage import (
     ShapeletBasisFunction,
     build_shapelet_set,
     build_shapelet_basis_matrix,
-    PixelizedSourceModel,
-    PixelizedSourceConfig,
-    IrregularGridConfig,
-    RectangularGridConfig,
-    MappingConfig,
-    RegularizationConfig,
-    SolverConfig,
 )
 
 __all__ = [
@@ -34,11 +27,4 @@ __all__ = [
     'ShapeletBasisFunction',
     'build_shapelet_set',
     'build_shapelet_basis_matrix',
-    'PixelizedSourceModel',
-    'PixelizedSourceConfig',
-    'IrregularGridConfig',
-    'RectangularGridConfig',
-    'MappingConfig',
-    'RegularizationConfig',
-    'SolverConfig',
 ]

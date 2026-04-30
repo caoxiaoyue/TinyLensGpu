@@ -35,7 +35,6 @@ def test_forward_simulation_exports_simulation_result():
 
     assert result.model_image.shape == (2, 2)
     assert result.source_image is None
-    assert result.inverter is None
 
 
 def test_lens_simulator_forward_matches_simulate_output():
