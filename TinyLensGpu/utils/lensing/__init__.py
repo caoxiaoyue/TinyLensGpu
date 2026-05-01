@@ -3,6 +3,8 @@
 from .mapping import (
     dense_mapping_from_weights_indices,
     lens_mapping_operator_bilinear_rectangular_from,
+    build_source_grid,
+    build_lens_mapping_matrix,
 )
 from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .point_source_solver import (
@@ -19,6 +21,8 @@ from .point_source_solver import (
 __all__ = [
     'dense_mapping_from_weights_indices',
     'lens_mapping_operator_bilinear_rectangular_from',
+    'build_source_grid',
+    'build_lens_mapping_matrix',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',
     'apply_psf_to_mapping_matrix',

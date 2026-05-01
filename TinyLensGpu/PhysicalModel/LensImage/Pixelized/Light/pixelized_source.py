@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from TinyLensGpu.Inference.param_u import ParamU
-from TinyLensGpu.utils.pixelized_source_utils import (
+from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
 )

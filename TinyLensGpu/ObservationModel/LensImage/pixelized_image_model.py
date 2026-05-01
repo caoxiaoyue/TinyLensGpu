@@ -4,8 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence, Union, cast
-import warnings
+from typing import Union
 
 import caskade as ck
 import jax.numpy as jnp
@@ -35,13 +34,6 @@ class PixelizedImageProbModel(ck.Module):
         Physical model accepted by :class:`PixelizedLensSimulator`.
     mask : array_like, optional
         Boolean mask where ``True`` pixels are excluded.
-
-    Notes
-    -----
-    The ``_log_evidence_for_values`` method uses manual Caskade parameter mutation
-    when called with an explicit ``theta`` argument. This pattern is incompatible
-    with JAX transforms (``jit``, ``vmap``, ``grad``) and will be replaced by a
-    functional parameter-resolution approach in a future version.
     """
 
     def __init__(
@@ -51,9 +43,8 @@ class PixelizedImageProbModel(ck.Module):
         psf_kernel: Union[np.ndarray, Array],
         dpix: float,
         phys_model: PhysicalModel,
-        mask: Optional[Union[np.ndarray, Array]] = None,
+        mask: Union[np.ndarray, Array, None] = None,
     ) -> None:
-        """Initialize the pixelized evidence model."""
         super().__init__("pixelized_image_prob_model")
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
@@ -89,19 +80,7 @@ class PixelizedImageProbModel(ck.Module):
         return self.phys_model.dynamic_params
 
     def get_values(self, mode="flat"):
-        """Return current dynamic-parameter values.
-
-        Parameters
-        ----------
-        mode : str, optional
-            Only ``"flat"`` is customized here; other modes delegate to
-            ``caskade.Module.get_values``.
-
-        Returns
-        -------
-        Array
-            Flat array of dynamic parameter values.
-        """
+        """Return current dynamic-parameter values (``"flat"`` mode returns a JAX array)."""
         if mode == "flat":
             return jnp.asarray([jnp.asarray(param.value) for param in self.get_dynamic_params()])
         return super().get_values(mode)
@@ -111,28 +90,9 @@ class PixelizedImageProbModel(ck.Module):
         """Return the single pixelized source configuration."""
         return self.phys_model.source_light[0]
 
-    def _regularization_strength(self) -> Array:
-        """Return the current source regularization strength."""
-        return jnp.asarray(self.source_model.lambda_reg.value)
-
-    def _log_evidence_for_values(self, theta: Array | None = None) -> Array:
-        """Evaluate evidence, optionally from a flat dynamic parameter vector."""
-        original_values = None
-        dynamic_params = []
-        if theta is not None:
-            warnings.warn(
-                "Passing theta to _log_evidence_for_values uses manual parameter "
-                "mutation, which is incompatible with JAX transforms (jit, vmap, grad). "
-                "This pattern will be replaced by a functional approach in a future version.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            dynamic_params = list(self.get_dynamic_params())
-            original_values = [param.value for param in dynamic_params]
-            for param, value in zip(dynamic_params, theta):
-                param.value = float(np.asarray(value))
-
-        lambda_reg = self._regularization_strength()
+    def _log_evidence(self) -> Array:
+        """Evaluate log evidence for current parameter values."""
+        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix = self._regularization_matrix(source_half_size)
 
@@ -166,13 +126,7 @@ class PixelizedImageProbModel(ck.Module):
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
         )
-        log_evidence = jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
-
-        if original_values is not None:
-            for param, value in zip(dynamic_params, original_values):
-                param.value = value
-
-        return log_evidence
+        return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
 
     def _regularization_matrix(self, source_half_size: Array | float) -> Array:
         """Return the configured dense source regularization matrix."""
@@ -204,7 +158,7 @@ class PixelizedImageProbModel(ck.Module):
         weighted_design = design_matrix / self.noise_1d[:, None]
         weighted_data = self.data_1d / self.noise_1d
         reg_matrix = self._regularization_matrix(source_half_size)
-        lambda_reg = self._regularization_strength()
+        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
 
         curvature = weighted_design.T @ weighted_design + lambda_reg * reg_matrix
         rhs = weighted_design.T @ weighted_data
@@ -218,16 +172,7 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def __call__(self):
         """Return a finite scalar log evidence approximation."""
-        return self._log_evidence_for_values()
-
-    def evaluate(self, params: Optional[Union[Array, Sequence, Mapping]] = None):
-        """Return scalar log evidence for current or supplied parameters."""
-        if params is None:
-            return self()
-        theta = jnp.asarray(params)
-        if theta.ndim == 1:
-            return self._log_evidence_for_values(theta)
-        return jnp.asarray([self._log_evidence_for_values(row) for row in theta])
+        return self._log_evidence()
 
     def likelihood(self, debug: bool = True) -> float:
         """Return the current log evidence as a Python float."""

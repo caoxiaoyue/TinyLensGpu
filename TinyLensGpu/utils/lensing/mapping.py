@@ -134,7 +134,43 @@ def lens_mapping_operator_bilinear_rectangular_from(
     return weights, indices, valid
 
 
+def build_source_grid(nx, ny, half_size):
+    """Build a rectangular source-plane grid spanning [-half_size, +half_size].
+
+    Returns (x_axis, y_axis, xgrid, ygrid) with ``jnp.meshgrid(..., indexing='xy')`` layout.
+    """
+    x_axis = jnp.linspace(-half_size, half_size, int(nx))
+    y_axis = jnp.linspace(-half_size, half_size, int(ny))
+    xgrid, ygrid = jnp.meshgrid(x_axis, y_axis, indexing="xy")
+    return x_axis, y_axis, xgrid, ygrid
+
+
+def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
+    """Build dense bilinear mapping matrix (N_d image pixels x N_s source pixels)."""
+    beta_x = jnp.ravel(jnp.asarray(beta_x))
+    beta_y = jnp.ravel(jnp.asarray(beta_y))
+    data_mesh_beta = jnp.stack([beta_x, beta_y], axis=1)
+
+    source_x_axis = jnp.asarray(source_x_axis)
+    source_y_axis = jnp.asarray(source_y_axis)
+    nx = int(source_x_axis.shape[0])
+    ny = int(source_y_axis.shape[0])
+
+    weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
+        data_mesh_beta,
+        source_x_axis[0],
+        source_x_axis[-1],
+        source_y_axis[0],
+        source_y_axis[-1],
+        nx,
+        ny,
+    )
+    return dense_mapping_from_weights_indices(weights, indices, nx * ny)
+
+
 __all__ = [
     "lens_mapping_operator_bilinear_rectangular_from",
     "dense_mapping_from_weights_indices",
+    "build_source_grid",
+    "build_lens_mapping_matrix",
 ]

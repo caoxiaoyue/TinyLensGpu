@@ -10,7 +10,6 @@ small synthetic problems so the future implementation can be validated quickly.
 
 import pytest
 import jax.numpy as jnp
-import caskade as ck
 
 from TinyLensGpu.ForwardSimulation import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
@@ -20,49 +19,8 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-
-
-class PixelizedSource(ck.Module):
-    """Minimal pixelized source marker used by the TDD tests."""
-
-    def __init__(
-        self,
-        *,
-        nx: int = 5,
-        ny: int = 5,
-        lambda_reg: ParamU | float = 1.0,
-        kernel_scale: ParamU | float | None = None,
-        regularization_type: str = "second-order",
-        kernel_type: str = "gaussian",
-    ) -> None:
-        """Create a lightweight source configuration container.
-
-        Parameters
-        ----------
-        nx, ny : int
-            Number of source pixels along the x and y axes.
-        lambda_reg : ParamU or float
-            Regularization strength parameter for evidence optimization.
-        kernel_scale : ParamU or float, optional
-            Gaussian-process kernel scale parameter, required only for GP
-            regularization tests.
-        regularization_type : str
-            Regularization family name expected by the pixelized model.
-        kernel_type : str
-            Kernel family used by GP-style regularization tests.
-        """
-        super().__init__()
-        object.__setattr__(self, "nx", nx)
-        object.__setattr__(self, "ny", ny)
-        object.__setattr__(self, "regularization_type", regularization_type)
-        object.__setattr__(self, "kernel_type", kernel_type)
-        object.__setattr__(self, "is_pixelized_source", True)
-        self.lambda_reg = lambda_reg if isinstance(lambda_reg, ParamU) else ParamU("lambda_reg", lambda_reg)
-        if kernel_scale is not None:
-            self.kernel_scale = kernel_scale if isinstance(kernel_scale, ParamU) else ParamU("kernel_scale", kernel_scale)
-        else:
-            self.kernel_scale = None
 
 
 def _delta_psf() -> jnp.ndarray:
@@ -93,7 +51,7 @@ def _static_parametric_source() -> GaussianEllipse:
     return source
 
 
-def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> PixelizedSource:
+def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> PixelizedSourceModel:
     """Build a pixelized source with dynamic regularization parameters."""
     lambda_reg = ParamU(
         "lambda_reg",
@@ -104,7 +62,7 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
     )
     lambda_reg.to_dynamic()
     if not with_gp:
-        return PixelizedSource(nx=5, ny=5, lambda_reg=lambda_reg)
+        return PixelizedSourceModel(nx=5, ny=5, lambda_reg=lambda_reg)
 
     kernel_scale = ParamU(
         "kernel_scale",
@@ -114,7 +72,7 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
         limits=[0.01, 5.0],
     )
     kernel_scale.to_dynamic()
-    return PixelizedSource(
+    return PixelizedSourceModel(
         nx=5,
         ny=5,
         lambda_reg=lambda_reg,
@@ -124,7 +82,7 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
     )
 
 
-def _physical_model(*, source: PixelizedSource | None = None) -> PhysicalModel:
+def _physical_model(*, source: PixelizedSourceModel | None = None) -> PhysicalModel:
     """Build the canonical tiny pixelized physical model."""
     return PhysicalModel(lens_mass=[_dynamic_sie()], source_light=[source or _pixelized_source()], lens_light=[])
 
@@ -145,7 +103,7 @@ def _prob_model(
     image_data: jnp.ndarray | None = None,
     noise_map: jnp.ndarray | None = None,
     psf_kernel: jnp.ndarray | None = None,
-    source: PixelizedSource | None = None,
+    source: PixelizedSourceModel | None = None,
     mask: jnp.ndarray | None = None,
 ) -> PixelizedImageProbModel:
     """Build a small pixelized evidence model."""

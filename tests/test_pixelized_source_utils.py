@@ -11,7 +11,7 @@ not provided here.
 import pytest
 import jax.numpy as jnp
 
-from TinyLensGpu.utils.lensing.pixelized_source import (
+from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
 )
