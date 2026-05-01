@@ -6,7 +6,6 @@ More robust and faster than MLS, better accuracy than simple IDW.
 """
 import jax
 import jax.numpy as jnp
-from functools import partial
 
 
 def get_interpolation_weights(points, query_points, k_neighbors=10, kernel='wendland_c4',

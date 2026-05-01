@@ -1,7 +1,6 @@
 """Mapping utilities for lensing reconstruction."""
 
 from functools import partial
-from typing import Literal
 
 import jax
 import jax.numpy as jnp

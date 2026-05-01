@@ -3,9 +3,6 @@ Linear solvers for intensity parameter estimation.
 
 This module provides linear solvers (NNLS and normal least squares) adapted
 for use with caskade models, handling batch processing and regularization.
-
-The FNNLS implementation was copied from the legacy Simulator.Image.fnnls module
-to make the implementation independent of legacy code.
 """
 
 from typing import Tuple, Callable, Optional
@@ -16,27 +13,8 @@ from jax import jit, Array
 
 @jax.jit
 def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Array, float]:
-    """
-    JAX implementation of the Fast Non-Negative Least Squares (FNNLS) algorithm.
-
-    Parameters
-    ----------
-    Z: jnp.ndarray
-        m x n matrix.
-    x: jnp.ndarray
-        m vector.
-    epsilon: float or None
-        Numerical tolerance. If None, uses jnp.finfo(float).eps.
-
-    Returns
-    -------
-    d: jnp.ndarray
-        n vector, solution to min ||x - Zd|| s.t. d >= 0
-    res: float
-        Residual norm ||x - Zd||
-    """
+    """JAX implementation of the Fast Non-Negative Least Squares (FNNLS) algorithm."""
     m, n = Z.shape
-    # Ensure Z and x are float arrays
     Z = Z.astype(jnp.float32)
     x = x.astype(jnp.float32)
     if epsilon is None:
@@ -72,18 +50,13 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
         def c1_body_fn(carry):
             s, d, P = carry
-            # C2: Find largest alpha such that d + alpha(s-d) >= 0 for indices where s <= tolerance
             q = P & (s <= tolerance)
             safe = jnp.where(q, d / (d - s + 1e-12), jnp.inf)
             alpha = jnp.min(safe)
             alpha = jnp.where(jnp.isfinite(alpha), alpha, 0.0)
-            # C3: Update d
             d = d + alpha * (s - d)
-            # C4: Move elements with d <= tolerance to active set
             P = P & (d > tolerance)
-            # C5: Update s
             s = masked_lstsq(ZTZ, ZTx, P)
-            # C6: Set s[~P] = 0
             s = s * P.astype(s.dtype)
             return (s, d, P)
 
@@ -94,7 +67,6 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         # B6: w = ZTx - ZTZ @ d
         w = ZTx - ZTZ @ d
 
-        # Check if there has been a change to the passive set
         no_update = jnp.where(jnp.all(current_P == P), no_update + 1, 0)
         return (d, s, P, w, no_update, 0)
 
@@ -102,14 +74,12 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         d, s, P, w, no_update, _ = state
         return (~jnp.all(P)) & (jnp.max(jnp.where(~P, w, -jnp.inf)) > tolerance) & (no_update < max_repetitions)
 
-    # Initializations
     P = jnp.zeros(n, dtype=bool)
     d = jnp.zeros(n, dtype=Z.dtype)
     s = jnp.zeros(n, dtype=Z.dtype)
     w = ZTx - ZTZ @ d
     no_update = 0
 
-    # Main loop
     state = (d, s, P, w, no_update, 0)
     d, s, P, w, no_update, _ = jax.lax.while_loop(cond_fun, body_fun, state)
 
@@ -117,63 +87,42 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
     return d, res
 
 
-
-
-class LinearSolver:
-    """
-    Linear solver for intensity parameters.
-
-    Supports two solver types:
-    - 'nnls': Non-negative least squares (recommended for optical components)
-    - 'normal': Standard least squares
+def solve_linear_system(A_mat: Array, D_vec: Array, solver_type: str = 'nnls') -> Tuple[Array, Optional[float]]:
+    """Solve linear system AX = D.
 
     Parameters
     ----------
-    solver_type : str
-        Solver type, either 'nnls' or 'normal' (default: 'nnls')
+    A_mat : Array, shape [m, n]
+        Design matrix.
+    D_vec : Array, shape [m]
+        Data vector.
+    solver_type : {'nnls', 'normal'}
+        'nnls' enforces non-negativity; 'normal' uses standard least squares.
+
+    Returns
+    -------
+    X_vec : Array, shape [n]
+        Solution vector.
+    residuals : float or None
+        Residuals for NNLS, None for normal solver.
     """
+    if solver_type == 'nnls':
+        return fnnls_jax(A_mat, D_vec)
+    if solver_type == 'normal':
+        return solve_linear(A_mat, D_vec), None
+    raise ValueError("solver_type must be either 'nnls' or 'normal'")
+
+
+class LinearSolver:
+    """Lightweight solver that remembers solver_type between calls."""
 
     def __init__(self, solver_type: str = 'nnls') -> None:
-        """
-        Initialize linear solver backend selection.
-
-        Parameters
-        ----------
-        solver_type : {'nnls', 'normal'}, optional
-            Solver backend. ``'nnls'`` enforces non-negativity.
-
-        Raises
-        ------
-        ValueError
-            If ``solver_type`` is not one of the supported values.
-        """
         if solver_type not in ['nnls', 'normal']:
             raise ValueError("solver_type must be either 'nnls' or 'normal'")
         self.solver_type = solver_type
 
     def solve(self, A_mat: Array, D_vec: Array) -> Tuple[Array, Optional[float]]:
-        """
-        Solve linear system AX = D.
-
-        Parameters
-        ----------
-        A_mat : array_like
-            Design matrix, shape [m, n]
-        D_vec : array_like
-            Data vector, shape [m]
-
-        Returns
-        -------
-        X_vec : array_like
-            Solution vector, shape [n]
-        residuals : array_like or None
-            Residuals (only for NNLS), None for normal solver
-        """
-        if self.solver_type == 'nnls':
-            return fnnls_jax(A_mat, D_vec)
-        else:
-            X_vec = solve_linear(A_mat, D_vec)
-            return X_vec, None
+        return solve_linear_system(A_mat, D_vec, self.solver_type)
 
 
 @jit

@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Optional, Tuple
 
 import numpy as np
@@ -8,18 +7,6 @@ from astropy.io import fits
 MASKED_NOISE_VALUE = 1e8
 
 logger = logging.getLogger(__name__)
-
-
-def auto_mkdir_path(path_dir: str) -> None:
-    """
-    Create a directory if it does not already exist.
-
-    Parameters
-    ----------
-    path_dir : str
-        Directory path to create.
-    """
-    os.makedirs(path_dir, exist_ok=True)
 
 
 def load_lens_data(

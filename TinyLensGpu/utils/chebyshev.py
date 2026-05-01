@@ -11,7 +11,7 @@ parameters evolve with wavelength:
 where z(λ) maps the wavelength range to [-1, +1].
 """
 
-from typing import Sequence, Callable
+from typing import Sequence
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
@@ -101,55 +101,6 @@ def evaluate_chebyshev_series(
         result = result + coeff * chebyshev_polynomial(z, order)
         
     return result
-
-
-def create_chebyshev_parameter_function(
-    wavelength: float,
-    lambda_min: float,
-    lambda_max: float,
-    max_order: int = 2,
-) -> Callable:
-    """
-    Create a function that evaluates a Chebyshev series at a fixed wavelength.
-    
-    This factory function returns a callable suitable for use with caskade's
-    parameter linking mechanism. The returned function takes coefficients
-    as input and returns the parameter value at the specified wavelength.
-    
-    Parameters
-    ----------
-    wavelength : float
-        Wavelength at which to evaluate the parameter
-    lambda_min : float
-        Minimum wavelength in the band set
-    lambda_max : float
-        Maximum wavelength in the band set
-    max_order : int, optional
-        Maximum Chebyshev polynomial order (default: 2 for quadratic)
-        
-    Returns
-    -------
-    param_func : callable
-        Function that takes Chebyshev coefficients and returns parameter value
-        
-    Example
-    -------
-    >>> # For second-order Chebyshev (3 coefficients: c0, c1, c2)
-    >>> func = create_chebyshev_parameter_function(
-    ...     wavelength=6231.0,  # r-band
-    ...     lambda_min=3543.0,  # u-band
-    ...     lambda_max=22010.0, # K-band
-    ...     max_order=2
-    ... )
-    >>> # Use with caskade: param = lambda p: func([p.c0.value, p.c1.value, p.c2.value])
-    """
-    z = chebyshev_node(wavelength, lambda_min, lambda_max)
-    
-    def param_func(coefficients: Sequence[float]) -> Array:
-        """Evaluate Chebyshev series with given coefficients."""
-        return evaluate_chebyshev_series(z, coefficients)
-    
-    return param_func
 
 
 def compute_wavelength_range(
