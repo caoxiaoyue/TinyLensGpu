@@ -9,6 +9,7 @@ from .LensImage import (
     BandImageData,
     ImageProbModel,
     MultiBandImageProbModel,
+    PixelizedImageProbModel,
     PointSourceProbModel,
 )
 
@@ -16,5 +17,6 @@ __all__ = [
     'BandImageData',
     'ImageProbModel',
     'MultiBandImageProbModel',
+    'PixelizedImageProbModel',
     'PointSourceProbModel',
 ]

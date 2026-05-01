@@ -15,6 +15,7 @@ from .LensImage import (
     ShapeletBasisFunction,
     build_shapelet_set,
     build_shapelet_basis_matrix,
+    PixelizedSourceModel,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     'ShapeletBasisFunction',
     'build_shapelet_set',
     'build_shapelet_basis_matrix',
+    'PixelizedSourceModel',
 ]

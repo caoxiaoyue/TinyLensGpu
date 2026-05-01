@@ -20,12 +20,15 @@ mesh : Source mesh sampling utilities
 
 from .linear_solver import LinearSolver, prepare_linear_system
 from .misc import auto_mkdir_path, load_lens_data
+from .pixelized_source_utils import build_lens_mapping_matrix, build_source_grid
 
 __all__ = [
     'LinearSolver',
     'prepare_linear_system',
     'auto_mkdir_path',
     'load_lens_data',
+    'build_source_grid',
+    'build_lens_mapping_matrix',
     'geometry',
     'interpolation',
     'lensing',

@@ -126,6 +126,10 @@ class PhysicalModel(ck.Module):
         """
         return self._lens_light_list
 
+    def get_dynamic_params(self):
+        """Return the dynamic parameters tracked by caskade."""
+        return self.dynamic_params
+
     @ck.forward
     def deflection(self, x: Array, y: Array) -> Tuple[Array, Array]:
         """
@@ -216,5 +220,4 @@ class PhysicalModel(ck.Module):
             'n_source_light': len(self.source_light),
             'n_lens_light': len(self.lens_light)
         }
-
 

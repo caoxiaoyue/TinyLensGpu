@@ -3,6 +3,8 @@ This module provides a simplified likelihood interface using JAX vmap
 for efficient batch processing.
 """
 
+# pyright: reportMissingImports=false
+
 from typing import Callable, Optional
 import jax
 import jax.numpy as jnp
@@ -66,6 +68,7 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
         """
         return likelihood_obj(theta)
     
+    batch_loglike = None
     if vectorized:
         # Vectorize using JAX vmap for efficient batch processing
         batch_loglike = jit(jax.vmap(loglike_fn))
@@ -85,9 +88,9 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
             Scalar for single input, vector of log-likelihoods for batched input.
         """
         theta = jnp.asarray(params, dtype=dtype) if dtype is not None else jnp.asarray(params)
-        
+
         # Batch evaluation using vmap if requested and input is 2D
-        if vectorized and theta.ndim > 1:
+        if vectorized and theta.ndim > 1 and batch_loglike is not None:
             return batch_loglike(theta)
         
         # Single evaluation (fallback for 1D or non-vectorized)
