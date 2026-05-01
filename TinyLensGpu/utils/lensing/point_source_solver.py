@@ -52,15 +52,15 @@ def _find_initial_candidates(
     tuple[jnp.ndarray, float]
         Candidate image positions of shape ``(k_keep, 2)`` and coarse pixel width.
     """
-    xs = jnp.linspace(-initial_range, initial_range, int(n_x) + 1)
-    ys = jnp.linspace(-initial_range, initial_range, int(n_y) + 1)
+    xs = jnp.linspace(-initial_range, initial_range, n_x + 1)
+    ys = jnp.linspace(-initial_range, initial_range, n_y + 1)
     grid_x, grid_y = jnp.meshgrid(xs, ys)
     initial_theta = jnp.stack([grid_x.reshape(-1), grid_y.reshape(-1)], axis=-1)
 
     beta_0 = ray_trace_fn(initial_theta)
     dist_0 = jnp.linalg.norm(beta_0 - source_pos, axis=-1)
 
-    dist_grid = dist_0.reshape(int(n_y) + 1, int(n_x) + 1)
+    dist_grid = dist_0.reshape(n_y + 1, n_x + 1)
     padded_dist = jnp.pad(dist_grid, 1, mode='constant', constant_values=jnp.inf)
 
     is_min = (
@@ -83,10 +83,10 @@ def _find_initial_candidates(
     scores = -(dist_0 + penalty)
 
     n_total = initial_theta.shape[0]
-    k_keep = int(min(max(k_keep, 1), n_total))
+    k_keep = min(max(k_keep, 1), n_total)
     _, indices = lax.top_k(scores, k_keep)
 
-    pixel_width = (2.0 * float(initial_range)) / float(max(int(n_x), 1))
+    pixel_width = (2.0 * float(initial_range)) / float(max(n_x, 1))
     return initial_theta[indices], pixel_width
 
 
@@ -151,7 +151,7 @@ def solve_lens_equation_optimization_core(
             delta = jnp.linalg.solve(jac + jacobian_eps * eye2, val)
             return theta - delta, None
 
-        final_theta, _ = lax.scan(body_fn, start_theta, None, length=int(num_iters))
+        final_theta, _ = lax.scan(body_fn, start_theta, None, length=num_iters)
         return final_theta
 
     final_points = vmap(refine_candidate)(best_candidates)
@@ -217,8 +217,8 @@ def solve_lens_equation_mesh_refine_core(
         """Refine all candidates by local grid search at current scale."""
         candidates, width = carry
 
-        local_xs = jnp.linspace(-width / 2.0, width / 2.0, int(subgrid_res) + 1)
-        local_ys = jnp.linspace(-width / 2.0, width / 2.0, int(subgrid_res) + 1)
+        local_xs = jnp.linspace(-width / 2.0, width / 2.0, subgrid_res + 1)
+        local_ys = jnp.linspace(-width / 2.0, width / 2.0, subgrid_res + 1)
         lx, ly = jnp.meshgrid(local_xs, local_ys)
         offsets = jnp.stack([lx.reshape(-1), ly.reshape(-1)], axis=-1)
 
@@ -231,10 +231,10 @@ def solve_lens_equation_mesh_refine_core(
             return subgrid_theta[best_idx]
 
         next_candidates = vmap(refine_candidate)(candidates)
-        next_width = width / float(max(int(subgrid_res), 1)) * float(search_factor)
+        next_width = width / float(max(subgrid_res, 1)) * float(search_factor)
         return (next_candidates, next_width), None
 
-    n_refine = max(int(depth) - 1, 0)
+    n_refine = max(depth - 1, 0)
     final_state, _ = lax.scan(body_fn, init_val, None, length=n_refine)
     final_points, _ = final_state
 
@@ -461,7 +461,6 @@ def select_unique_images_fixed(
     sorted_images = images[sort_idx]
     sorted_dists = dists[sort_idx]
 
-    n_select = int(n_select)
     init_images = jnp.zeros((n_select, 2), dtype=sorted_images.dtype)
     init_mask = jnp.zeros((n_select,), dtype=bool)
     init_count = jnp.array(0, dtype=jnp.int32)
@@ -598,42 +597,9 @@ def min_assignment_chi2(
     # cost shape: (N_obs, N_pred)
     cost = sqdist / sigma2[:, None]
 
-    # Use the precomputed permutations to sum up costs for every assignment.
-    # We use JAX advanced indexing and broadcasting to compute all permutations at once.
-    # obs_idx: [1, N] array containing [[0, 1, ..., N-1]]
+    # Evaluate cost for all N! permutations via advanced indexing
     obs_idx = jnp.arange(observed_positions.shape[0])[None, :]
-    
-    # cost[obs_idx, permutation_indices] uses advanced indexing:
-    # - obs_idx has shape (1, N) and provides the observed indices [0..N-1].
-    # - permutation_indices has shape (N!, N); each row is one assignment of predicted indices.
-    # Broadcasting produces an array of shape (N!, N) where:
-    #   selected[i, j] = cost[j, permutation_indices[i, j]]
-    # i.e. row i lists the per-image costs for the i-th one-to-one assignment.
-    #
-    # Example with N=3 (3 observed, 3 predicted images):
-    #   obs_idx = [[0, 1, 2]]  # shape (1, 3)
-    #   permutation_indices = [[0, 1, 2],  # shape (6, 3), all 3! = 6 permutations
-    #                         [0, 2, 1],
-    #                         [1, 0, 2],
-    #                         [1, 2, 0],
-    #                         [2, 0, 1],
-    #                         [2, 1, 0]]
-    #   cost = [[0.1, 0.5, 0.9],  # shape (3, 3): cost[i,j] = cost matching observed i with predicted j
-    #           [0.2, 0.6, 1.0],
-    #           [0.3, 0.7, 1.1]]
-    #   cost[obs_idx, permutation_indices] = [[0.1, 0.6, 1.1],  # shape (6, 3): each row is one assignment's costs
-    #                                         [0.1, 1.0, 0.7],
-    #                                         [0.5, 0.2, 1.1],
-    #                                         [0.5, 1.0, 0.3],
-    #                                         [0.9, 0.2, 0.7],
-    #                                         [0.9, 0.6, 0.3]]
-    #   perm_cost = [1.8, 1.8, 1.8, 1.8, 1.8, 1.8]  # shape (6,): sum each row to get total cost per assignment
-    
-    # Sum along axis 1 to get total chi-square for each of the N! permutations.
-    # perm_cost shape: (N_permutations,)
     perm_cost = jnp.sum(cost[obs_idx, permutation_indices], axis=1)
-    
-    # Return the global minimum cost (best assignment)
     return jnp.min(perm_cost)
 
 
