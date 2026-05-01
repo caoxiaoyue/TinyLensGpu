@@ -41,45 +41,38 @@ def chebyshev_node(wavelength: float, lambda_min: float, lambda_max: float) -> f
 def chebyshev_polynomial(z: Array, order: int) -> Array:
     """
     Evaluate Chebyshev polynomial of the first kind T_n(z).
-    
+
     Uses recurrence relation:
         T_0(z) = 1
         T_1(z) = z
         T_n(z) = 2*z*T_{n-1}(z) - T_{n-2}(z)
-    
+
     Parameters
     ----------
     z : array_like
         Normalized wavelength in [-1, +1]
     order : int
         Polynomial order (0 = constant, 1 = linear, 2 = quadratic)
-        
+
     Returns
     -------
     T_n : array_like
         Chebyshev polynomial evaluated at z
     """
     z = jnp.asarray(z)
-    
+
     if order == 0:
         return jnp.ones_like(z)
-    elif order == 1:
+    if order == 1:
         return z
-    elif order == 2:
-        return 2.0 * z**2 - 1.0
-    elif order == 3:
-        return 4.0 * z**3 - 3.0 * z
-    else:
-        # General recurrence for higher orders
-        T_prev2 = jnp.ones_like(z)  # T_0
-        T_prev1 = z  # T_1
-        
-        for n in range(2, order + 1):
-            T_current = 2.0 * z * T_prev1 - T_prev2
-            T_prev2 = T_prev1
-            T_prev1 = T_current
-            
-        return T_prev1
+
+    T_prev2 = jnp.ones_like(z)  # T_0
+    T_prev1 = z  # T_1
+    for _ in range(2, order + 1):
+        T_current = 2.0 * z * T_prev1 - T_prev2
+        T_prev2 = T_prev1
+        T_prev1 = T_current
+    return T_prev1
 
 
 def evaluate_chebyshev_series(

@@ -39,7 +39,6 @@ class DenseRegularizationBuilder:
         If the grid shape or regularization configuration is invalid.
     """
 
-    _TRADITIONAL_TYPES = {"zero-order", "first-order", "second-order"}
     _GP_TYPES = {"exponential", "gaussian"}
     _VALID_TYPES = {"zero-order", "first-order", "second-order", "exponential", "gaussian", "gp"}
 

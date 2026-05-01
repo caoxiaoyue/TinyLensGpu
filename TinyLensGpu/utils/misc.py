@@ -19,9 +19,7 @@ def auto_mkdir_path(path_dir: str) -> None:
     path_dir : str
         Directory path to create.
     """
-    if not os.path.exists(path_dir):
-        abs_path = os.path.abspath(path_dir)
-        os.makedirs(abs_path, exist_ok=True)
+    os.makedirs(path_dir, exist_ok=True)
 
 
 def load_lens_data(
@@ -55,10 +53,8 @@ def load_lens_data(
             noise_map = np.where(mask, MASKED_NOISE_VALUE, noise_map)
         except FileNotFoundError:
             logger.warning("Mask file not found: %s", mask_path)
-        except (OSError, IOError) as e:
-            logger.warning("Could not load mask file %s: %s", mask_path, e)
         except Exception as e:  # noqa: BLE001
-            logger.warning("Unexpected error loading mask file %s: %s", mask_path, e)
+            logger.warning("Could not load mask file %s: %s", mask_path, e)
 
     return image_data, noise_map, psf_kernel, mask
 

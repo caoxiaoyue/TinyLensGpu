@@ -49,19 +49,6 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
     max_repetitions = 5
 
     def body_fun(state):
-        """
-        One outer-loop update of the FNNLS active/passive sets.
-
-        Parameters
-        ----------
-        state : tuple
-            Current solver state ``(d, s, P, w, no_update, _)``.
-
-        Returns
-        -------
-        tuple
-            Updated solver state tuple.
-        """
         d, s, P, w, no_update, _ = state
         current_P = P
 
@@ -71,24 +58,6 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
         # B4: Set s to the least squares solution along the passive set
         def masked_lstsq(ZTZ, ZTx, P):
-            # Masked solve: for inactive variables, set ZTZ to identity and ZTx to zero
-            """
-            Solve least-squares system restricted to passive variables.
-
-            Parameters
-            ----------
-            ZTZ : Array
-                Gram matrix ``Z.T @ Z``.
-            ZTx : Array
-                Right-hand side ``Z.T @ x``.
-            P : Array
-                Boolean passive-set mask.
-
-            Returns
-            -------
-            Array
-                Candidate coefficient vector.
-            """
             mask = P.astype(ZTZ.dtype)
             eye = jnp.eye(ZTZ.shape[0], dtype=ZTZ.dtype)
             ZTZ_masked = ZTZ * (mask[None, :] * mask[:, None]) + eye * (1.0 - mask[None, :] * mask[:, None])
@@ -98,36 +67,10 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
         # C1: Loop until all s[P] > tolerance
         def c1_cond_fn(carry):
-            """
-            Check C1 condition from the classic FNNLS algorithm.
-
-            Parameters
-            ----------
-            carry : tuple
-                Inner-loop state ``(s, d, P)``.
-
-            Returns
-            -------
-            bool
-                ``True`` when at least one passive coefficient violates tolerance.
-            """
             s, d, P = carry
             return jnp.any(P) & (jnp.min(jnp.where(P, s, jnp.inf)) <= tolerance)
 
         def c1_body_fn(carry):
-            """
-            Perform one C-loop correction step in FNNLS.
-
-            Parameters
-            ----------
-            carry : tuple
-                Inner-loop state ``(s, d, P)``.
-
-            Returns
-            -------
-            tuple
-                Updated inner-loop state ``(s, d, P)``.
-            """
             s, d, P = carry
             # C2: Find largest alpha such that d + alpha(s-d) >= 0 for indices where s <= tolerance
             q = P & (s <= tolerance)
@@ -156,19 +99,6 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         return (d, s, P, w, no_update, 0)
 
     def cond_fun(state):
-        """
-        Stopping rule for the outer FNNLS loop.
-
-        Parameters
-        ----------
-        state : tuple
-            Current solver state ``(d, s, P, w, no_update, _)``.
-
-        Returns
-        -------
-        bool
-            ``True`` while there are improving active-set moves.
-        """
         d, s, P, w, no_update, _ = state
         return (~jnp.all(P)) & (jnp.max(jnp.where(~P, w, -jnp.inf)) > tolerance) & (no_update < max_repetitions)
 
