@@ -50,7 +50,7 @@ def test_kernel_scale_exists_only_for_gp_regularization():
         nx=5,
         ny=5,
         lambda_reg=10.0,
-        regularization_type="curvature",
+        regularization_type="second-order",
     )
 
     assert isinstance(gp_model.kernel_scale, ParamU)

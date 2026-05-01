@@ -12,6 +12,7 @@ import jax.scipy as jsp
 from jax import Array
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
+from ...PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
 from ...utils.pixelized_source_utils import build_lens_mapping_matrix, build_source_grid
 from .config import SimulatorConfig
 from .results import SimulationResult
@@ -92,25 +93,22 @@ class PixelizedLensSimulator:
         Returns
         -------
         bool
-            ``True`` when the source carries an explicit ``is_pixelized_source``
-            marker, is a :class:`PixelizedSourceModel` instance, or exposes
-            ``nx``/``ny`` without a parametric ``light`` evaluator.
+            ``True`` when the source carries the ``is_pixelized_source`` marker
+            or is a :class:`PixelizedSourceModel` instance.
         """
         if hasattr(source_model, "is_pixelized_source"):
             return bool(getattr(source_model, "is_pixelized_source"))
-        try:
-            from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import (
-                PixelizedSourceModel,
-            )
-            if isinstance(source_model, PixelizedSourceModel):
-                return True
-        except Exception:
-            pass
-        return (
-            hasattr(source_model, "nx")
-            and hasattr(source_model, "ny")
-            and not hasattr(source_model, "light")
-        )
+        return isinstance(source_model, PixelizedSourceModel)
+
+    def _compute_deflection(self) -> tuple[Array, Array]:
+        """Compute source-plane deflection for active image pixels.
+
+        Returns
+        -------
+        tuple[Array, Array]
+            ``(beta_x, beta_y)`` ray-traced source-plane coordinates.
+        """
+        return self.phys_model.deflection(x=self.image_x_active, y=self.image_y_active)
 
     def infer_source_half_size(self, beta_x: Array, beta_y: Array) -> Array:
         """Return 1.05 * max(|beta_x|, |beta_y|) with numerical floor 1e-6.
@@ -147,7 +145,7 @@ class PixelizedLensSimulator:
             Dense mapping matrix with one row per unmasked image pixel and one
             column per source pixel.
         """
-        beta_x, beta_y = self.phys_model.deflection(x=self.image_x_active, y=self.image_y_active)
+        beta_x, beta_y = self._compute_deflection()
         if source_half_size is None:
             source_half_size = self.infer_source_half_size(beta_x, beta_y)
 
@@ -183,7 +181,7 @@ class PixelizedLensSimulator:
             ``(M, inferred_source_half_size)`` where ``M`` has shape
             ``(N_d, N_s)`` and includes PSF convolution.
         """
-        beta_x, beta_y = self.phys_model.deflection(x=self.image_x_active, y=self.image_y_active)
+        beta_x, beta_y = self._compute_deflection()
         if source_half_size is None:
             source_half_size = self.infer_source_half_size(beta_x, beta_y)
 
@@ -254,8 +252,7 @@ class PixelizedLensSimulator:
 
         If ``source_pixels`` is omitted, a mapping matrix is built for side
         effects and a zero source is simulated. When ``return_mapping`` is true,
-        the mapping matrix is returned through ``source_image`` because
-        ``SimulationResult`` has no dedicated mapping-matrix field.
+        the mapping matrix is returned through the ``mapping_matrix`` field.
 
         Parameters
         ----------
@@ -287,7 +284,8 @@ class PixelizedLensSimulator:
 
         return SimulationResult(
             model_image=model_image,
-            source_image=mapping_matrix,
+            source_image=None,
+            mapping_matrix=mapping_matrix,
             linear_params=None,
         )
 

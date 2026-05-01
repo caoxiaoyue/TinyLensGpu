@@ -1,5 +1,7 @@
 """Pixelized source-plane light model."""
 
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 import caskade as ck
@@ -24,8 +26,9 @@ class PixelizedSourceModel(ck.Module):
         Regularization strength. Wrapped as a ``ParamU`` with a log-uniform
         prior over ``[1e-4, 1e4]`` when provided as a scalar.
     regularization_type : str, optional
-        Regularization family. Supported values are ``"curvature"``,
-        ``"gradient"``, ``"exponential"``, and ``"gaussian"``.
+        Regularization family. Supported values are ``"zero-order"``,
+        ``"first-order"``, ``"second-order"``, ``"exponential"``, and
+        ``"gaussian"``.
     kernel_type : str, optional
         Kernel family for GP-style regularization. Kept as a static attribute.
     kernel_scale : float or ParamU or None, optional
@@ -38,13 +41,13 @@ class PixelizedSourceModel(ck.Module):
         ny: int,
         *,
         lambda_reg: float | ParamU | None = None,
-        regularization_type: str = "curvature",
+        regularization_type: str = "second-order",
         kernel_type: str = "gaussian",
         kernel_scale: float | ParamU | None = None,
     ) -> None:
         super().__init__()
 
-        if regularization_type not in {"zero", "first", "gradient", "curvature", "exponential", "gaussian"}:
+        if regularization_type not in {"zero-order", "first-order", "second-order", "exponential", "gaussian"}:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
 
         object.__setattr__(self, "nx", int(nx))
@@ -78,6 +81,8 @@ class PixelizedSourceModel(ck.Module):
                 )
         elif kernel_scale is not None:
             raise ValueError("kernel_scale is only valid for GP regularization types")
+        else:
+            self.kernel_scale = None
 
     @ck.forward
     def light(
@@ -88,7 +93,7 @@ class PixelizedSourceModel(ck.Module):
         source_half_size: Array | float,
     ) -> Array:
         """Interpolate pixelized source brightness onto image-plane coordinates."""
-        half_size = jnp.asarray(source_half_size, dtype=jnp.float32)
+        half_size = jnp.asarray(source_half_size)
         source_x_axis, source_y_axis, _, _ = build_source_grid(self.nx, self.ny, half_size)
         mapping_matrix = build_lens_mapping_matrix(x, y, source_x_axis, source_y_axis)
         brightness = mapping_matrix @ jnp.ravel(jnp.asarray(source_values))

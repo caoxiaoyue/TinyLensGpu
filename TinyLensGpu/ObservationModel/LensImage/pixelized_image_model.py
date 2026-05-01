@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Mapping, Optional, Sequence, Union, cast
+import warnings
 
 import caskade as ck
 import jax.numpy as jnp
@@ -34,6 +35,13 @@ class PixelizedImageProbModel(ck.Module):
         Physical model accepted by :class:`PixelizedLensSimulator`.
     mask : array_like, optional
         Boolean mask where ``True`` pixels are excluded.
+
+    Notes
+    -----
+    The ``_log_evidence_for_values`` method uses manual Caskade parameter mutation
+    when called with an explicit ``theta`` argument. This pattern is incompatible
+    with JAX transforms (``jit``, ``vmap``, ``grad``) and will be replaced by a
+    functional parameter-resolution approach in a future version.
     """
 
     def __init__(
@@ -57,7 +65,7 @@ class PixelizedImageProbModel(ck.Module):
             dpix=dpix,
             npix=int(self.image_data.shape[0]),
             psf_kernel=psf_kernel,
-            nsub=1,
+            nsub=1,  # Pixelized source uses native image pixels, not sub-sampled grid.
             mask=mask,
         )
         self.sim_obj = PixelizedLensSimulator(self.phys_model, sim_config)
@@ -65,16 +73,10 @@ class PixelizedImageProbModel(ck.Module):
         self.data_1d = self.image_data[self.unmask]
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
-        source_nx = int(getattr(self.source_model, "_nx", self.source_model.nx))
-        source_ny = int(getattr(self.source_model, "_ny", self.source_model.ny))
-        self.reg_type = getattr(
-            self.source_model,
-            "_reg_type",
-            getattr(self.source_model, "regularization_type", getattr(self.source_model, "regularization", "curvature")),
-        )
-        self.kernel_type = getattr(self.source_model, "_kernel_type", getattr(self.source_model, "kernel_type", "gaussian"))
-        if self.reg_type == "gradient":
-            self.reg_type = "first"
+        source_nx = int(self.source_model.nx)
+        source_ny = int(self.source_model.ny)
+        self.reg_type = self.source_model.regularization_type
+        self.kernel_type = self.source_model.kernel_type
         self.reg_builder = DenseRegularizationBuilder(
             source_nx,
             source_ny,
@@ -118,6 +120,13 @@ class PixelizedImageProbModel(ck.Module):
         original_values = None
         dynamic_params = []
         if theta is not None:
+            warnings.warn(
+                "Passing theta to _log_evidence_for_values uses manual parameter "
+                "mutation, which is incompatible with JAX transforms (jit, vmap, grad). "
+                "This pattern will be replaced by a functional approach in a future version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             dynamic_params = list(self.get_dynamic_params())
             original_values = [param.value for param in dynamic_params]
             for param, value in zip(dynamic_params, theta):
@@ -127,6 +136,8 @@ class PixelizedImageProbModel(ck.Module):
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix = self._regularization_matrix(source_half_size)
 
+        # Weight by inverse variance (Lambda = diag(1/sigma^2)); equivalent to
+        # the W = diag(1/sigma) formulation used in forward_model.
         inv_variance = 1.0 / (self.noise_1d**2)
         weighted_design = design_matrix * inv_variance[:, None]
         curvature = design_matrix.T @ weighted_design + lambda_reg * reg_matrix
@@ -139,9 +150,10 @@ class PixelizedImageProbModel(ck.Module):
         e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
 
         sign_a, logdet_a = jnp.linalg.slogdet(curvature)
-        logdet_a = jnp.where(sign_a > 0.0, logdet_a, jnp.inf)
+        # Invalid determinants should drive evidence toward negative infinity.
+        logdet_a = jnp.where(sign_a > 0.0, logdet_a, -jnp.inf)
         sign_h, logdet_h = jnp.linalg.slogdet(reg_matrix)
-        logdet_h = jnp.where(sign_h > 0.0, logdet_h, jnp.inf)
+        logdet_h = jnp.where(sign_h > 0.0, logdet_h, -jnp.inf)
 
         n_source = self.sim_obj.n_source_pixels
         n_data = self.data_1d.size
@@ -187,6 +199,8 @@ class PixelizedImageProbModel(ck.Module):
             Model image, optionally with solved source pixels.
         """
         design_matrix, source_half_size = self.sim_obj.design_matrix()
+        # Weight by 1/sigma (W = diag(1/sigma)); the normal equations become
+        # (F^T W^T W F + lambda*H) s = F^T W^T W d, equivalent to F^T Lambda F.
         weighted_design = design_matrix / self.noise_1d[:, None]
         weighted_data = self.data_1d / self.noise_1d
         reg_matrix = self._regularization_matrix(source_half_size)

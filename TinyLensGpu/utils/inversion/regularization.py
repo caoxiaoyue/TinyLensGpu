@@ -23,8 +23,9 @@ class DenseRegularizationBuilder:
     ny : int
         Number of source pixels along the y-axis.
     regularization_type : str
-        Regularization family. Supported values are ``"zero"``, ``"first"``,
-        ``"curvature"``, ``"exponential"``, ``"gaussian"``, and ``"gp"``.
+        Regularization family. Supported values are ``"zero-order"``,
+        ``"first-order"``, ``"second-order"``, ``"exponential"``, ``"gaussian"``,
+        and ``"gp"``.
         The ``"gp"`` alias selects the kernel through ``kernel_type``.
     kernel_type : str, optional
         GP kernel used when ``regularization_type="gp"``. Supported values are
@@ -38,9 +39,9 @@ class DenseRegularizationBuilder:
         If the grid shape or regularization configuration is invalid.
     """
 
-    _TRADITIONAL_TYPES = {"zero", "first", "curvature"}
+    _TRADITIONAL_TYPES = {"zero-order", "first-order", "second-order"}
     _GP_TYPES = {"exponential", "gaussian"}
-    _VALID_TYPES = _TRADITIONAL_TYPES | _GP_TYPES | {"gp"}
+    _VALID_TYPES = {"zero-order", "first-order", "second-order", "exponential", "gaussian", "gp"}
 
     def __init__(
         self,
@@ -98,70 +99,115 @@ class DenseRegularizationBuilder:
         """
         half_size = jnp.asarray(half_size)
 
-        if self.regularization_type == "zero":
+        if self.regularization_type == "zero-order":
             return self._identity
-        if self.regularization_type == "first":
-            return self._first_matrix(half_size)
-        if self.regularization_type == "curvature":
-            return self._curvature_matrix(half_size)
+        if self.regularization_type == "first-order":
+            return self._first_order_matrix(half_size)
+        if self.regularization_type == "second-order":
+            return self._second_order_matrix(half_size)
 
         if kernel_scale is None or float(kernel_scale) <= 0.0:
             raise ValueError("kernel_scale must be provided and positive for GP regularization.")
         return self._gp_matrix(half_size, float(kernel_scale))
 
     def _build_first_difference_operators(self):
-        """Return first-order x/y finite-difference operators on index space."""
+        """Return first-order x/y finite-difference operators on index space.
+
+        Uses vectorized index-based construction instead of per-element
+        loops, giving O(1) JAX array operations regardless of grid size.
+        Boundary rows use the Suyu et al. zero-order fallback (diagonal 1).
+        """
+        ix = jnp.arange(self.nx)
+        iy = jnp.arange(self.ny)
+        gx, gy = jnp.meshgrid(ix, iy, indexing='ij')
+        flat_idx = (gy * self.nx + gx).ravel()
+
+        # Interior x-differences: idx -> idx+1
+        interior_x = gx < (self.nx - 1)
+        interior_rows_x = flat_idx[interior_x.ravel()]
+        interior_diag_x = interior_rows_x
+        interior_off_x = interior_rows_x + 1
+
+        # Boundary x (last column): diagonal 1
+        boundary_x = gx == (self.nx - 1)
+        boundary_rows_x = flat_idx[boundary_x.ravel()]
+
         dx_operator = jnp.zeros((self.n_pixels, self.n_pixels))
+        dx_operator = dx_operator.at[interior_diag_x, interior_diag_x].add(-1.0)
+        dx_operator = dx_operator.at[interior_rows_x, interior_off_x].add(1.0)
+        dx_operator = dx_operator.at[boundary_rows_x, boundary_rows_x].add(1.0)
+
+        # Interior y-differences: idx -> idx+nx
+        interior_y = gy < (self.ny - 1)
+        interior_rows_y = flat_idx[interior_y.ravel()]
+        interior_diag_y = interior_rows_y
+        interior_off_y = interior_rows_y + self.nx
+
+        # Boundary y (last row): diagonal 1
+        boundary_y = gy == (self.ny - 1)
+        boundary_rows_y = flat_idx[boundary_y.ravel()]
+
         dy_operator = jnp.zeros((self.n_pixels, self.n_pixels))
-
-        for iy in range(self.ny):
-            for ix in range(self.nx):
-                idx = self._index(ix, iy)
-                if ix < self.nx - 1:
-                    dx_operator = dx_operator.at[idx, idx].set(-1.0)
-                    dx_operator = dx_operator.at[idx, self._index(ix + 1, iy)].set(1.0)
-                else:
-                    # Suyu et al. boundary condition: first-order boundary rows
-                    # fall back to a zero-order diagonal penalty.
-                    dx_operator = dx_operator.at[idx, idx].set(1.0)
-
-                if iy < self.ny - 1:
-                    dy_operator = dy_operator.at[idx, idx].set(-1.0)
-                    dy_operator = dy_operator.at[idx, self._index(ix, iy + 1)].set(1.0)
-                else:
-                    dy_operator = dy_operator.at[idx, idx].set(1.0)
+        dy_operator = dy_operator.at[interior_diag_y, interior_diag_y].add(-1.0)
+        dy_operator = dy_operator.at[interior_rows_y, interior_off_y].add(1.0)
+        dy_operator = dy_operator.at[boundary_rows_y, boundary_rows_y].add(1.0)
 
         return dx_operator, dy_operator
 
     def _build_curvature_difference_operators(self):
-        """Return second-order x/y finite-difference operators on index space."""
+        """Return second-order x/y finite-difference operators on index space.
+
+        Uses vectorized index-based construction instead of per-element
+        loops, giving O(1) JAX array operations regardless of grid size.
+        Near-boundary curvature reduces to first gradient; outer boundary
+        uses zero-order fallback (diagonal 1).
+        """
+        ix = jnp.arange(self.nx)
+        iy = jnp.arange(self.ny)
+        gx, gy = jnp.meshgrid(ix, iy, indexing='ij')
+        flat_idx = (gy * self.nx + gx).ravel()
+
+        # == X curvature operator ==
+        # Full curvature (3-point stencil): ix < nx-2
+        full_x = gx < (self.nx - 2)
+        full_rows_x = flat_idx[full_x.ravel()]
+
+        # Near-boundary (2-point first gradient): ix == nx-2
+        near_x = gx == (self.nx - 2)
+        near_rows_x = flat_idx[near_x.ravel()]
+
+        # Outer boundary (diagonal): ix == nx-1
+        outer_x = gx == (self.nx - 1)
+        outer_rows_x = flat_idx[outer_x.ravel()]
+
         lx_operator = jnp.zeros((self.n_pixels, self.n_pixels))
+        lx_operator = lx_operator.at[full_rows_x, full_rows_x].add(1.0)
+        lx_operator = lx_operator.at[full_rows_x, full_rows_x + 1].add(-2.0)
+        lx_operator = lx_operator.at[full_rows_x, full_rows_x + 2].add(1.0)
+        lx_operator = lx_operator.at[near_rows_x, near_rows_x].add(-1.0)
+        lx_operator = lx_operator.at[near_rows_x, near_rows_x + 1].add(1.0)
+        lx_operator = lx_operator.at[outer_rows_x, outer_rows_x].add(1.0)
+
+        # == Y curvature operator ==
+        # Full curvature (3-point stencil): iy < ny-2
+        full_y = gy < (self.ny - 2)
+        full_rows_y = flat_idx[full_y.ravel()]
+
+        # Near-boundary (2-point first gradient): iy == ny-2
+        near_y = gy == (self.ny - 2)
+        near_rows_y = flat_idx[near_y.ravel()]
+
+        # Outer boundary (diagonal): iy == ny-1
+        outer_y = gy == (self.ny - 1)
+        outer_rows_y = flat_idx[outer_y.ravel()]
+
         ly_operator = jnp.zeros((self.n_pixels, self.n_pixels))
-
-        for iy in range(self.ny):
-            for ix in range(self.nx):
-                idx = self._index(ix, iy)
-                if ix < self.nx - 2:
-                    lx_operator = lx_operator.at[idx, idx].set(1.0)
-                    lx_operator = lx_operator.at[idx, self._index(ix + 1, iy)].set(-2.0)
-                    lx_operator = lx_operator.at[idx, self._index(ix + 2, iy)].set(1.0)
-                elif ix < self.nx - 1:
-                    # Near-boundary curvature reduces to a first gradient.
-                    lx_operator = lx_operator.at[idx, idx].set(-1.0)
-                    lx_operator = lx_operator.at[idx, self._index(ix + 1, iy)].set(1.0)
-                else:
-                    # Outer boundary falls back to a zero-order penalty.
-                    lx_operator = lx_operator.at[idx, idx].set(1.0)
-
-                if iy < self.ny - 2:
-                    ly_operator = ly_operator.at[idx, idx].set(1.0)
-                    ly_operator = ly_operator.at[idx, self._index(ix, iy + 1)].set(-2.0)
-                    ly_operator = ly_operator.at[idx, self._index(ix, iy + 2)].set(1.0)
-                elif iy < self.ny - 1:
-                    ly_operator = ly_operator.at[idx, idx].set(-1.0)
-                    ly_operator = ly_operator.at[idx, self._index(ix, iy + 1)].set(1.0)
-                else:
-                    ly_operator = ly_operator.at[idx, idx].set(1.0)
+        ly_operator = ly_operator.at[full_rows_y, full_rows_y].add(1.0)
+        ly_operator = ly_operator.at[full_rows_y, full_rows_y + self.nx].add(-2.0)
+        ly_operator = ly_operator.at[full_rows_y, full_rows_y + 2 * self.nx].add(1.0)
+        ly_operator = ly_operator.at[near_rows_y, near_rows_y].add(-1.0)
+        ly_operator = ly_operator.at[near_rows_y, near_rows_y + self.nx].add(1.0)
+        ly_operator = ly_operator.at[outer_rows_y, outer_rows_y].add(1.0)
 
         return lx_operator, ly_operator
 
@@ -175,16 +221,16 @@ class DenseRegularizationBuilder:
             axis=1,
         )
 
-    def _first_matrix(self, half_size: float):
-        """Return spacing-scaled first-gradient regularization."""
+    def _first_order_matrix(self, half_size: float):
+        """Return spacing-scaled first-order gradient regularization."""
         dx = 2.0 * half_size / (self.nx - 1)
         dy = 2.0 * half_size / (self.ny - 1)
         scaled_dx = self._dx_operator / dx
         scaled_dy = self._dy_operator / dy
         return scaled_dx.T @ scaled_dx + scaled_dy.T @ scaled_dy
 
-    def _curvature_matrix(self, half_size: float):
-        """Return spacing-scaled curvature regularization."""
+    def _second_order_matrix(self, half_size: float):
+        """Return spacing-scaled second-order curvature regularization."""
         dx = 2.0 * half_size / (self.nx - 1)
         dy = 2.0 * half_size / (self.ny - 1)
         scaled_lx = self._lx_operator / (dx**2)

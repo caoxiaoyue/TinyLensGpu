@@ -33,7 +33,8 @@ class PixelizedSource(ck.Module):
         ny: int = 5,
         lambda_reg: ParamU | float = 1.0,
         kernel_scale: ParamU | float | None = None,
-        regularization: str = "curvature",
+        regularization_type: str = "second-order",
+        kernel_type: str = "gaussian",
     ) -> None:
         """Create a lightweight source configuration container.
 
@@ -46,16 +47,22 @@ class PixelizedSource(ck.Module):
         kernel_scale : ParamU or float, optional
             Gaussian-process kernel scale parameter, required only for GP
             regularization tests.
-        regularization : str
+        regularization_type : str
             Regularization family name expected by the pixelized model.
+        kernel_type : str
+            Kernel family used by GP-style regularization tests.
         """
         super().__init__()
-        self.nx = nx
-        self.ny = ny
-        self.regularization = regularization
+        object.__setattr__(self, "nx", nx)
+        object.__setattr__(self, "ny", ny)
+        object.__setattr__(self, "regularization_type", regularization_type)
+        object.__setattr__(self, "kernel_type", kernel_type)
+        object.__setattr__(self, "is_pixelized_source", True)
         self.lambda_reg = lambda_reg if isinstance(lambda_reg, ParamU) else ParamU("lambda_reg", lambda_reg)
         if kernel_scale is not None:
             self.kernel_scale = kernel_scale if isinstance(kernel_scale, ParamU) else ParamU("kernel_scale", kernel_scale)
+        else:
+            self.kernel_scale = None
 
 
 def _delta_psf() -> jnp.ndarray:
@@ -107,7 +114,14 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
         limits=[0.01, 5.0],
     )
     kernel_scale.to_dynamic()
-    return PixelizedSource(nx=5, ny=5, lambda_reg=lambda_reg, kernel_scale=kernel_scale, regularization="gp")
+    return PixelizedSource(
+        nx=5,
+        ny=5,
+        lambda_reg=lambda_reg,
+        kernel_scale=kernel_scale,
+        regularization_type="gaussian",
+        kernel_type="gaussian",
+    )
 
 
 def _physical_model(*, source: PixelizedSource | None = None) -> PhysicalModel:

@@ -32,8 +32,8 @@ def build_source_grid(
         ``(x_axis, y_axis, xgrid, ygrid)`` where the grids follow row-major
         ``jnp.meshgrid(..., indexing='xy')`` layout.
     """
-    x_axis = jnp.linspace(-half_size, half_size, int(nx), dtype=jnp.float32)
-    y_axis = jnp.linspace(-half_size, half_size, int(ny), dtype=jnp.float32)
+    x_axis = jnp.linspace(-half_size, half_size, int(nx))
+    y_axis = jnp.linspace(-half_size, half_size, int(ny))
     xgrid, ygrid = jnp.meshgrid(x_axis, y_axis, indexing="xy")
     return x_axis, y_axis, xgrid, ygrid
 
@@ -58,12 +58,12 @@ def build_lens_mapping_matrix(
     jnp.ndarray
         Dense mapping matrix of shape ``(N_d, N_s)``.
     """
-    beta_x = jnp.ravel(jnp.asarray(beta_x, dtype=jnp.float32))
-    beta_y = jnp.ravel(jnp.asarray(beta_y, dtype=jnp.float32))
+    beta_x = jnp.ravel(jnp.asarray(beta_x))
+    beta_y = jnp.ravel(jnp.asarray(beta_y))
     data_mesh_beta = jnp.stack([beta_x, beta_y], axis=1)
 
-    source_x_axis = jnp.asarray(source_x_axis, dtype=jnp.float32)
-    source_y_axis = jnp.asarray(source_y_axis, dtype=jnp.float32)
+    source_x_axis = jnp.asarray(source_x_axis)
+    source_y_axis = jnp.asarray(source_y_axis)
     nx = int(source_x_axis.shape[0])
     ny = int(source_y_axis.shape[0])
 

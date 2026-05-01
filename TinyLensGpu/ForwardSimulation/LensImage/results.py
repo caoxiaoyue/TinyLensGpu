@@ -1,5 +1,7 @@
 """Shared result types for lens-image simulators."""
 
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ class SimulationResult:
 
     model_image: Optional[ImageArray]
     source_image: Optional[ImageArray] = None
+    mapping_matrix: Optional[Array] = None
     lens_image: Optional[ImageArray] = None
     linear_params: Optional[LinearParameterArray] = None
     source_intensities: Optional[IntensityArray] = None
