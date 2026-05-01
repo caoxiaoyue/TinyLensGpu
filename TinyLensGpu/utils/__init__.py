@@ -33,5 +33,4 @@ __all__ = [
     'interpolation',
     'lensing',
     'inversion',
-    'mesh',
 ]

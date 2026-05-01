@@ -20,25 +20,6 @@ from jax import jacfwd, lax, vmap
 import jax.numpy as jnp
 
 
-def _ray_trace_from_fn(theta: jnp.ndarray, ray_trace_fn: Callable[[jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-    """
-    Evaluate user-provided ray-tracing callable.
-
-    Parameters
-    ----------
-    theta : jnp.ndarray
-        Image-plane coordinates with shape ``(..., 2)``.
-    ray_trace_fn : callable
-        Function mapping image-plane coordinates to source-plane coordinates.
-
-    Returns
-    -------
-    jnp.ndarray
-        Source-plane coordinates with shape ``(..., 2)``.
-    """
-    return ray_trace_fn(theta)
-
-
 def _find_initial_candidates(
     source_pos: jnp.ndarray,
     ray_trace_fn: Callable[[jnp.ndarray], jnp.ndarray],
@@ -76,7 +57,7 @@ def _find_initial_candidates(
     grid_x, grid_y = jnp.meshgrid(xs, ys)
     initial_theta = jnp.stack([grid_x.reshape(-1), grid_y.reshape(-1)], axis=-1)
 
-    beta_0 = _ray_trace_from_fn(initial_theta, ray_trace_fn)
+    beta_0 = ray_trace_fn(initial_theta)
     dist_0 = jnp.linalg.norm(beta_0 - source_pos, axis=-1)
 
     dist_grid = dist_0.reshape(int(n_y) + 1, int(n_x) + 1)
@@ -163,7 +144,7 @@ def solve_lens_equation_optimization_core(
             """Single Newton step for a candidate coordinate."""
             def f(t: jnp.ndarray) -> jnp.ndarray:
                 """Lens equation residual ``beta(theta) - source_pos``."""
-                return _ray_trace_from_fn(t, ray_trace_fn) - source_pos
+                return ray_trace_fn(t) - source_pos
 
             val = f(theta)
             jac = jacfwd(f)(theta)
@@ -174,7 +155,7 @@ def solve_lens_equation_optimization_core(
         return final_theta
 
     final_points = vmap(refine_candidate)(best_candidates)
-    final_betas = _ray_trace_from_fn(final_points, ray_trace_fn)
+    final_betas = ray_trace_fn(final_points)
     final_dists = jnp.linalg.norm(final_betas - source_pos, axis=-1)
 
     sort_idx = jnp.argsort(final_dists)
@@ -244,7 +225,7 @@ def solve_lens_equation_mesh_refine_core(
         def refine_candidate(center: jnp.ndarray) -> jnp.ndarray:
             """Select best local point around one center candidate."""
             subgrid_theta = center + offsets
-            betas = _ray_trace_from_fn(subgrid_theta, ray_trace_fn)
+            betas = ray_trace_fn(subgrid_theta)
             dists = jnp.linalg.norm(betas - source_pos, axis=-1)
             best_idx = jnp.argmin(dists)
             return subgrid_theta[best_idx]
@@ -257,7 +238,7 @@ def solve_lens_equation_mesh_refine_core(
     final_state, _ = lax.scan(body_fn, init_val, None, length=n_refine)
     final_points, _ = final_state
 
-    final_betas = _ray_trace_from_fn(final_points, ray_trace_fn)
+    final_betas = ray_trace_fn(final_points)
     final_dists = jnp.linalg.norm(final_betas - source_pos, axis=-1)
 
     sort_idx = jnp.argsort(final_dists)

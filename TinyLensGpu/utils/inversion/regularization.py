@@ -252,9 +252,4 @@ class DenseRegularizationBuilder:
         stabilized = covariance + self.jitter * self._identity
         return jnp.linalg.inv(stabilized)
 
-    def _index(self, ix: int, iy: int) -> int:
-        """Return flattened row-major index for grid coordinates."""
-        return iy * self.nx + ix
-
-
 __all__ = ["DenseRegularizationBuilder"]
