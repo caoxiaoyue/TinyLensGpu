@@ -123,7 +123,7 @@ print(f"  {len(param_names)} dynamic parameters:")
 for s in prior_specs:
     print(f"    {s.name:15s}: {s.describe()}")
 
-loglike = make_likelihood(prob_model, vectorized=True)
+loglike = make_likelihood(prob_model, vectorized=False)
 
 # ------------------------------------------------------------------ #
 # Nautilus nested sampling
@@ -134,8 +134,8 @@ sampler = Sampler(
     loglike,
     n_dim=len(param_names),
     n_live=200,
-    vectorized=True,
-    n_batch=800,
+    vectorized=False,
+    # n_batch=800,
 )
 
 t0 = time.time()
