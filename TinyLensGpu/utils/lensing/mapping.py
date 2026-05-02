@@ -50,11 +50,11 @@ def lens_mapping_operator_bilinear_rectangular_from(
     """Build bilinear interpolation weights/indices on a rectangular source grid."""
     beta = jnp.asarray(data_mesh_beta, dtype=jnp.float32)
 
-    dx = (x_max - x_min) / max(nx - 1, 1)
-    dy = (y_max - y_min) / max(ny - 1, 1)
+    dx = (x_max - x_min) / (nx - 1)
+    dy = (y_max - y_min) / (ny - 1)
 
-    ux = (beta[:, 0] - x_min) / (dx + 1e-12)
-    uy = (beta[:, 1] - y_min) / (dy + 1e-12)
+    ux = (beta[:, 0] - x_min) / dx
+    uy = (beta[:, 1] - y_min) / dy
 
     ix0 = jnp.floor(ux).astype(jnp.int32)
     iy0 = jnp.floor(uy).astype(jnp.int32)

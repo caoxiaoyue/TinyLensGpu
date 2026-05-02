@@ -214,7 +214,7 @@ class DenseRegularizationBuilder:
         """Return source-grid coordinates for a unit half-size plane."""
         x_axis = jnp.linspace(-1.0, 1.0, self.nx)
         y_axis = jnp.linspace(-1.0, 1.0, self.ny)
-        source_x_mesh, source_y_mesh = jnp.meshgrid(x_axis, y_axis)
+        source_x_mesh, source_y_mesh = jnp.meshgrid(x_axis, y_axis, indexing='xy')
         return jnp.stack(
             [source_x_mesh.reshape(-1), source_y_mesh.reshape(-1)],
             axis=1,

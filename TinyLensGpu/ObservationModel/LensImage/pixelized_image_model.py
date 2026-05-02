@@ -90,27 +90,31 @@ class PixelizedImageProbModel(ck.Module):
         """Return the single pixelized source configuration."""
         return self.phys_model.source_light[0]
 
+    def _solve_source(
+        self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
+    ) -> tuple[Array, Array]:
+        """Solve normal equations for MAP source pixels.
+
+        Returns (source_pixels, curvature) where
+        curvature = (F/σ)^T (F/σ) + λH = F^T C^{-1} F + λH.
+        """
+        weighted_design = design_matrix / self.noise_1d[:, None]
+        curvature = weighted_design.T @ weighted_design + lambda_reg * reg_matrix
+        rhs = weighted_design.T @ (self.data_1d / self.noise_1d)
+        return jnp.linalg.solve(curvature, rhs), curvature
+
     def _log_evidence(self) -> Array:
         """Evaluate log evidence for current parameter values."""
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix = self._regularization_matrix(source_half_size)
+        source_pixels, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
-        # Weight by inverse variance (Lambda = diag(1/sigma^2)); equivalent to
-        # the W = diag(1/sigma) formulation used in forward_model.
-        inv_variance = 1.0 / (self.noise_1d**2)
-        weighted_design = design_matrix * inv_variance[:, None]
-        curvature = design_matrix.T @ weighted_design + lambda_reg * reg_matrix
-        rhs = design_matrix.T @ (self.data_1d * inv_variance)
-        source_pixels = jnp.linalg.solve(curvature, rhs)
-
-        model_1d = design_matrix @ source_pixels
-        resid = self.data_1d - model_1d
+        resid = self.data_1d - design_matrix @ source_pixels
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
         e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
 
         sign_a, logdet_a = jnp.linalg.slogdet(curvature)
-        # Invalid determinants should drive evidence toward negative infinity.
         logdet_a = jnp.where(sign_a > 0.0, logdet_a, -jnp.inf)
         sign_h, logdet_h = jnp.linalg.slogdet(reg_matrix)
         logdet_h = jnp.where(sign_h > 0.0, logdet_h, -jnp.inf)
@@ -153,17 +157,13 @@ class PixelizedImageProbModel(ck.Module):
             Model image, optionally with solved source pixels.
         """
         design_matrix, source_half_size = self.sim_obj.design_matrix()
-        # Weight by 1/sigma (W = diag(1/sigma)); the normal equations become
-        # (F^T W^T W F + lambda*H) s = F^T W^T W d, equivalent to F^T Lambda F.
-        weighted_design = design_matrix / self.noise_1d[:, None]
-        weighted_data = self.data_1d / self.noise_1d
         reg_matrix = self._regularization_matrix(source_half_size)
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
+        source_pixels, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
-        curvature = weighted_design.T @ weighted_design + lambda_reg * reg_matrix
-        rhs = weighted_design.T @ weighted_data
-        source_pixels = jnp.linalg.solve(curvature, rhs)
-        model_image = self.sim_obj.simulate(source_pixels, source_half_size=source_half_size)
+        model_1d = design_matrix @ source_pixels
+        model_image = jnp.zeros(self.sim_obj.image_shape, dtype=model_1d.dtype)
+        model_image = model_image.at[self.sim_obj.active_mask].set(model_1d)
 
         if return_source:
             return model_image, source_pixels
