@@ -8,6 +8,7 @@ from typing import Union
 
 import caskade as ck
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import numpy as np
 from jax import Array
 
@@ -74,6 +75,19 @@ class PixelizedImageProbModel(ck.Module):
             self.reg_type,
             kernel_type=self.kernel_type,
         )
+        # Precompute logdet(H(half_size)) = logdet_H_unit + scaling * log(half_size)
+        # for finite-difference regularization where H(h) = h^{-k} * H_unit.
+        # logdet H(h) = logdet H_unit + (-k * n_s) * log(h)
+        # zero-order: k=0; first-order: k=2 (H scales as h^{-2}); second-order: k=4.
+        n_s = source_nx * source_ny
+        _exponent = {"zero-order": 0, "first-order": -2, "second-order": -4}.get(self.reg_type, None)
+        self._logdet_H_scaling = _exponent * n_s if _exponent is not None else None
+        if self._logdet_H_scaling is not None:
+            H_unit = jnp.asarray(self.reg_builder.matrix(1.0), dtype=self.image_data.dtype)
+            sign_h, logdet_h_unit = jnp.linalg.slogdet(H_unit)
+            self._logdet_H_unit = jnp.where(sign_h > 0.0, logdet_h_unit, -jnp.inf)
+        else:
+            self._logdet_H_unit = None
 
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
@@ -92,32 +106,39 @@ class PixelizedImageProbModel(ck.Module):
 
     def _solve_source(
         self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
-    ) -> tuple[Array, Array]:
-        """Solve normal equations for MAP source pixels.
+    ) -> tuple[Array, Array, Array]:
+        """Solve normal equations via Cholesky for MAP source pixels.
 
-        Returns (source_pixels, curvature) where
-        curvature = (F/σ)^T (F/σ) + λH = F^T C^{-1} F + λH.
+        Returns (source_pixels, chol_factor, curvature).
+        curvature = F^T C^{-1} F + λH; chol_factor is its lower-triangular Cholesky.
         """
         weighted_design = design_matrix / self.noise_1d[:, None]
         curvature = weighted_design.T @ weighted_design + lambda_reg * reg_matrix
         rhs = weighted_design.T @ (self.data_1d / self.noise_1d)
-        return jnp.linalg.solve(curvature, rhs), curvature
+        chol = jnp.linalg.cholesky(curvature)
+        source_pixels = jsl.cho_solve((chol, True), rhs)
+        return source_pixels, chol, curvature
 
     def _log_evidence(self) -> Array:
         """Evaluate log evidence for current parameter values."""
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix = self._regularization_matrix(source_half_size)
-        source_pixels, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        source_pixels, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         resid = self.data_1d - design_matrix @ source_pixels
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
         e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
 
-        sign_a, logdet_a = jnp.linalg.slogdet(curvature)
-        logdet_a = jnp.where(sign_a > 0.0, logdet_a, -jnp.inf)
-        sign_h, logdet_h = jnp.linalg.slogdet(reg_matrix)
-        logdet_h = jnp.where(sign_h > 0.0, logdet_h, -jnp.inf)
+        # logdet curvature from Cholesky diagonal
+        logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+
+        # logdet reg matrix: analytical for finite-difference types, numeric otherwise
+        if self._logdet_H_scaling is not None:
+            logdet_h = self._logdet_H_unit + self._logdet_H_scaling * jnp.log(source_half_size)
+        else:
+            sign_h, logdet_h_raw = jnp.linalg.slogdet(reg_matrix)
+            logdet_h = jnp.where(sign_h > 0.0, logdet_h_raw, -jnp.inf)
 
         n_source = self.sim_obj.n_source_pixels
         n_data = self.data_1d.size
@@ -159,7 +180,7 @@ class PixelizedImageProbModel(ck.Module):
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix = self._regularization_matrix(source_half_size)
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
-        source_pixels, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        source_pixels, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         model_1d = design_matrix @ source_pixels
         model_image = jnp.zeros(self.sim_obj.image_shape, dtype=model_1d.dtype)

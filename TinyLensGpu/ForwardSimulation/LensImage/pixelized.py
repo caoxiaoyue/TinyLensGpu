@@ -103,13 +103,22 @@ class PixelizedLensSimulator:
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
 
-        def convolve_basis(column: Array) -> Array:
-            image = jnp.zeros(self.image_shape, dtype=column.dtype)
-            image = image.at[self.active_mask].set(column)
-            convolved = jsp.signal.fftconvolve(image, kernel, mode="same")
-            return convolved[self.active_mask]
+        # Precompute PSF FFT once for all columns.
+        H, W = self.image_shape
+        psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
+        psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
+        psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
+        psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
-        design_matrix = jax.vmap(convolve_basis, in_axes=1, out_axes=1)(mapping_matrix)
+        # Scatter all N_s columns into images at once: (N_s, H, W)
+        imgs = jnp.zeros((self.n_source_pixels, H, W), dtype=mapping_matrix.dtype)
+        imgs = imgs.at[:, self.active_mask].set(mapping_matrix.T)
+
+        # Single batched rfft2, multiply, irfft2
+        imgs_fft = jnp.fft.rfft2(imgs)  # (N_s, H, W//2+1)
+        conv_imgs = jnp.fft.irfft2(imgs_fft * psf_fft[None], s=(H, W))  # (N_s, H, W)
+
+        design_matrix = conv_imgs[:, self.active_mask].T  # (N_d, N_s)
         return design_matrix, jnp.asarray(source_half_size)
 
     def simulate(self, source_pixels: Array, *, source_half_size: Array | float | None = None, psf_kernel: Array | None = None) -> Array:
