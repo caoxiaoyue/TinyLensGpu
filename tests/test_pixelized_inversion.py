@@ -92,9 +92,10 @@ def _simulator(
     mask: jnp.ndarray | None = None,
     psf_kernel: jnp.ndarray | None = None,
     phys_model: PhysicalModel | None = None,
+    nsub: int = 1,
 ) -> PixelizedLensSimulator:
     """Build a small pixelized lens simulator for fast unit tests."""
-    config = SimulatorConfig(dpix=0.08, npix=10, nsub=1, psf_kernel=psf_kernel or _delta_psf(), mask=mask)
+    config = SimulatorConfig(dpix=0.08, npix=10, nsub=nsub, psf_kernel=psf_kernel or _delta_psf(), mask=mask)
     return PixelizedLensSimulator(phys_model or _physical_model(), config)
 
 
@@ -105,6 +106,7 @@ def _prob_model(
     psf_kernel: jnp.ndarray | None = None,
     source: PixelizedSourceModel | None = None,
     mask: jnp.ndarray | None = None,
+    nsub: int = 1,
 ) -> PixelizedImageProbModel:
     """Build a small pixelized evidence model."""
     data = image_data if image_data is not None else jnp.zeros((10, 10))
@@ -116,6 +118,7 @@ def _prob_model(
         dpix=0.08,
         phys_model=_physical_model(source=source),
         mask=mask,
+        nsub=nsub,
     )
 
 
@@ -298,6 +301,56 @@ def test_forward_model_returns_image_and_source_when_requested() -> None:
     assert model_image.shape == (10, 10)
     assert source_pixels.shape == (25,)
     assert jnp.all(jnp.isfinite(model_image))
+    assert jnp.all(jnp.isfinite(source_pixels))
+
+
+@pytest.mark.unit
+def test_nsub_two_design_matrix_matches_simulate_on_active_pixels() -> None:
+    """Test design_matrix and simulate are consistent when nsub > 1."""
+    mask = jnp.zeros((10, 10), dtype=bool).at[1, 1].set(True).at[7, 2].set(True)
+    simulator = _simulator(mask=mask, nsub=2, psf_kernel=_delta_psf())
+    source_pixels = jnp.arange(25, dtype=float) - 12.0
+
+    design_matrix, _ = simulator.design_matrix(psf_kernel=_delta_psf())
+    model_image = simulator.simulate(source_pixels, psf_kernel=_delta_psf())
+
+    assert jnp.allclose(model_image[~mask], design_matrix @ source_pixels, atol=1e-4)
+
+
+@pytest.mark.unit
+def test_nsub_two_returns_finite_convolved_image() -> None:
+    """Test nsub=2 with a non-delta PSF returns finite values."""
+    simulator = _simulator(nsub=2, psf_kernel=_blur_psf())
+    source_pixels = jnp.linspace(0.1, 2.5, 25)
+
+    model_image = simulator.simulate(source_pixels, psf_kernel=_blur_psf())
+
+    assert model_image.shape == (10, 10)
+    assert jnp.all(jnp.isfinite(model_image))
+
+
+@pytest.mark.unit
+def test_nsub_two_prob_model_returns_finite_evidence() -> None:
+    """Test that PixelizedImageProbModel with nsub=2 returns finite evidence."""
+    model = _prob_model(image_data=jnp.ones((10, 10)) * 0.05, nsub=2)
+
+    log_evidence = model()
+
+    assert jnp.shape(log_evidence) == ()
+    assert jnp.isfinite(log_evidence)
+
+
+@pytest.mark.unit
+def test_nsub_two_forward_model_reconstructs_source() -> None:
+    """Test forward_model with nsub=2 solves source pixels correctly."""
+    true_source = jnp.linspace(-1.0, 1.0, 25)
+    simulator = _simulator(nsub=2, psf_kernel=_delta_psf())
+    image_data = simulator.simulate(true_source, psf_kernel=_delta_psf())
+    model = _prob_model(image_data=image_data, noise_map=jnp.ones((10, 10)) * 0.01, psf_kernel=_delta_psf(), nsub=2)
+
+    _, source_pixels = model.forward_model(return_source=True)
+
+    assert source_pixels.shape == (25,)
     assert jnp.all(jnp.isfinite(source_pixels))
 
 

@@ -35,6 +35,8 @@ class PixelizedImageProbModel(ck.Module):
         Physical model accepted by :class:`PixelizedLensSimulator`.
     mask : array_like, optional
         Boolean mask where ``True`` pixels are excluded.
+    nsub : int, optional
+        Subsampling factor for image-plane ray-tracing (default: 1).
     """
 
     def __init__(
@@ -45,6 +47,7 @@ class PixelizedImageProbModel(ck.Module):
         dpix: float,
         phys_model: PhysicalModel,
         mask: Union[np.ndarray, Array, None] = None,
+        nsub: int = 1,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         self.image_data = jnp.asarray(image_data)
@@ -57,7 +60,7 @@ class PixelizedImageProbModel(ck.Module):
             dpix=dpix,
             npix=int(self.image_data.shape[0]),
             psf_kernel=psf_kernel,
-            nsub=1,  # Pixelized source uses native image pixels, not sub-sampled grid.
+            nsub=nsub,
             mask=mask,
         )
         self.sim_obj = PixelizedLensSimulator(self.phys_model, sim_config)

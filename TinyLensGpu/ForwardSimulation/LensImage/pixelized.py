@@ -13,6 +13,7 @@ from ...PhysicalModel.LensImage.composite import PhysicalModel
 from ...PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
 from ...utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid
 from .config import SimulatorConfig
+from .parametric import bin_image_general
 from .results import SimulationResult
 
 
@@ -26,28 +27,29 @@ def _is_pixelized_source_model(source: object) -> bool:
 class PixelizedLensSimulator:
     """Forward simulator for a single pixelized source and no lens light.
 
-    Ray-traces native image pixels to the source plane, builds the dense
-    bilinear mapping matrix, and convolves with PSF via FFT.
+    Ray-traces image-plane pixels to the source plane, builds the dense
+    bilinear mapping matrix, and convolves with PSF via FFT.  When
+    ``nsub > 1`` the ray-tracing uses a sub-sampled grid and aggregates
+    the mapping back to native resolution before PSF convolution.
 
     Parameters
     ----------
     phys_model : PhysicalModel
-        Model with lens mass and exactly one pixelized source. ``nsub`` must be 1.
+        Model with lens mass and exactly one pixelized source.
     sim_config : SimulatorConfig
-        Image grid, PSF, and mask configuration.
+        Image grid, PSF, mask, and subsampling (``nsub``) configuration.
 
     Raises
     ------
     ValueError
-        If the model has mixed sources, multiple sources, lens light, or nsub != 1.
+        If the model has mixed sources, multiple sources, or lens light.
     """
 
     def __init__(self, phys_model: PhysicalModel, sim_config: SimulatorConfig) -> None:
         self.phys_model = phys_model
         self.sim_config = sim_config
+        self.nsub = int(sim_config.nsub)
 
-        if sim_config.nsub != 1:
-            raise ValueError("PixelizedLensSimulator does not support nsub in this version")
         if len(phys_model.lens_light) != 0:
             raise ValueError("PixelizedLensSimulator does not support lens_light in this version")
 
@@ -71,18 +73,71 @@ class PixelizedLensSimulator:
         self.image_y_active = jnp.asarray(sim_config.ygrid)[self.active_mask]
         self.psf_kernel = jnp.asarray(sim_config.psf_kernel)
 
+        if self.nsub > 1:
+            self.image_shape_sub = sim_config.subgrid_shape
+            self.flat_indices_sub = sim_config.flat_indices
+            self.image_x_active_sub = jnp.asarray(sim_config.xgrid_sub_1d)
+            self.image_y_active_sub = jnp.asarray(sim_config.ygrid_sub_1d)
+        else:
+            self.image_shape_sub = self.image_shape
+            self.flat_indices_sub = self.flat_indices
+            self.image_x_active_sub = self.image_x_active
+            self.image_y_active_sub = self.image_y_active
+
     def infer_source_half_size(self, beta_x: Array, beta_y: Array) -> Array:
         """1.05 * max(|beta_x|, |beta_y|) floored at 1e-6."""
         return jnp.maximum(1.05 * jnp.maximum(jnp.max(jnp.abs(beta_x)), jnp.max(jnp.abs(beta_y))), 1.0e-6)
 
-    def build_mapping_matrix(self, *, source_half_size: Array | float | None = None) -> Array:
+    def build_mapping_matrix(
+        self,
+        *,
+        source_half_size: Array | float | None = None,
+        use_subgrid: bool = False,
+    ) -> Array:
         """Build Nd x Ns lens mapping matrix via bilinear interpolation."""
-        beta_x, beta_y = self.phys_model.deflection(x=self.image_x_active, y=self.image_y_active)
+        if use_subgrid and self.nsub > 1:
+            x_active = self.image_x_active_sub
+            y_active = self.image_y_active_sub
+        else:
+            x_active = self.image_x_active
+            y_active = self.image_y_active
+
+        beta_x, beta_y = self.phys_model.deflection(x=x_active, y=y_active)
         if source_half_size is None:
             source_half_size = self.infer_source_half_size(beta_x, beta_y)
 
         source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
         return build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+
+    def _aggregate_mapping_to_native(self, mapping_matrix_sub: Array) -> Array:
+        """Average a sub-grid mapping matrix back to native resolution.
+
+        Parameters
+        ----------
+        mapping_matrix_sub : Array
+            Mapping matrix of shape (Nd_sub, Ns) built on the sub-grid.
+
+        Returns
+        -------
+        Array
+            Mapping matrix of shape (Nd, Ns) at native resolution.
+        """
+        npix = self.sim_config.npix
+        nsub = self.nsub
+        n_source = self.n_source_pixels
+
+        flat_indices_sub = self.flat_indices_sub
+        i_sub = flat_indices_sub // (npix * nsub)
+        j_sub = flat_indices_sub % (npix * nsub)
+        i_native = i_sub // nsub
+        j_native = j_sub // nsub
+        native_flat = i_native * npix + j_native
+
+        mapping_native_full = jnp.zeros((npix * npix, n_source), dtype=mapping_matrix_sub.dtype)
+        mapping_native_full = mapping_native_full.at[native_flat].add(mapping_matrix_sub)
+        mapping_native_full = mapping_native_full / (nsub ** 2)
+
+        return mapping_native_full[self.active_mask.ravel()]
 
     def design_matrix(
         self,
@@ -94,12 +149,19 @@ class PixelizedLensSimulator:
 
         Returns (M, inferred_source_half_size).
         """
-        beta_x, beta_y = self.phys_model.deflection(x=self.image_x_active, y=self.image_y_active)
+        beta_x, beta_y = self.phys_model.deflection(
+            x=self.image_x_active_sub, y=self.image_y_active_sub
+        )
         if source_half_size is None:
             source_half_size = self.infer_source_half_size(beta_x, beta_y)
 
         source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
-        mapping_matrix = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+        mapping_matrix_sub = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+
+        if self.nsub > 1:
+            mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
+        else:
+            mapping_matrix = mapping_matrix_sub
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
 
@@ -124,11 +186,18 @@ class PixelizedLensSimulator:
     def simulate(self, source_pixels: Array, *, source_half_size: Array | float | None = None, psf_kernel: Array | None = None) -> Array:
         """Return full 2D model image for given source pixels."""
         source_pixels = jnp.asarray(source_pixels)
-        mapping_matrix = self.build_mapping_matrix(source_half_size=source_half_size)
-        m_ideal_1d = mapping_matrix @ source_pixels
+        mapping_matrix_sub = self.build_mapping_matrix(source_half_size=source_half_size, use_subgrid=True)
+        m_ideal_1d_sub = mapping_matrix_sub @ source_pixels
 
-        model_image = jnp.zeros(self.image_shape, dtype=m_ideal_1d.dtype)
-        model_image = model_image.at[self.active_mask].set(m_ideal_1d)
+        if self.nsub > 1:
+            H_sub, W_sub = self.image_shape_sub
+            model_image_sub = jnp.zeros((H_sub * W_sub,), dtype=m_ideal_1d_sub.dtype)
+            model_image_sub = model_image_sub.at[self.flat_indices_sub].set(m_ideal_1d_sub)
+            model_image_sub = model_image_sub.reshape(H_sub, W_sub)
+            model_image = bin_image_general(model_image_sub, self.nsub)
+        else:
+            model_image = jnp.zeros(self.image_shape, dtype=m_ideal_1d_sub.dtype)
+            model_image = model_image.at[self.active_mask].set(m_ideal_1d_sub)
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
         convolved_image = jsp.signal.fftconvolve(model_image, kernel, mode="same")
@@ -142,12 +211,20 @@ class PixelizedLensSimulator:
 
         mapping_matrix = None
         if source_pixels is None:
-            mapping_matrix = self.build_mapping_matrix()
+            mapping_matrix_sub = self.build_mapping_matrix(use_subgrid=(self.nsub > 1))
+            if self.nsub > 1:
+                mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
+            else:
+                mapping_matrix = mapping_matrix_sub
             source_pixels = jnp.zeros(self.n_source_pixels, dtype=mapping_matrix.dtype)
 
         model_image = self.simulate(source_pixels, psf_kernel=psf_kernel)
         if return_mapping and mapping_matrix is None:
-            mapping_matrix = self.build_mapping_matrix()
+            mapping_matrix_sub = self.build_mapping_matrix(use_subgrid=(self.nsub > 1))
+            if self.nsub > 1:
+                mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
+            else:
+                mapping_matrix = mapping_matrix_sub
 
         return SimulationResult(model_image=model_image, source_image=None, mapping_matrix=mapping_matrix, linear_params=None)
 
