@@ -137,7 +137,7 @@ class PixelizedLensSimulator:
         mapping_native_full = mapping_native_full.at[native_flat].add(mapping_matrix_sub)
         mapping_native_full = mapping_native_full / (nsub ** 2)
 
-        return mapping_native_full[self.active_mask.ravel()]
+        return mapping_native_full[self.flat_indices]
 
     def design_matrix(
         self,
@@ -173,14 +173,16 @@ class PixelizedLensSimulator:
         psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
         # Scatter all N_s columns into images at once: (N_s, H, W)
-        imgs = jnp.zeros((self.n_source_pixels, H, W), dtype=mapping_matrix.dtype)
-        imgs = imgs.at[:, self.active_mask].set(mapping_matrix.T)
+        imgs = jnp.zeros((self.n_source_pixels, H * W), dtype=mapping_matrix.dtype)
+        imgs = imgs.at[:, self.flat_indices].set(mapping_matrix.T)
+        imgs = imgs.reshape(self.n_source_pixels, H, W)
 
         # Single batched rfft2, multiply, irfft2
         imgs_fft = jnp.fft.rfft2(imgs)  # (N_s, H, W//2+1)
         conv_imgs = jnp.fft.irfft2(imgs_fft * psf_fft[None], s=(H, W))  # (N_s, H, W)
 
-        design_matrix = conv_imgs[:, self.active_mask].T  # (N_d, N_s)
+        conv_imgs_flat = conv_imgs.reshape(self.n_source_pixels, H * W)
+        design_matrix = conv_imgs_flat[:, self.flat_indices].T  # (N_d, N_s)
         return design_matrix, jnp.asarray(source_half_size)
 
     def simulate(self, source_pixels: Array, *, source_half_size: Array | float | None = None, psf_kernel: Array | None = None) -> Array:
@@ -196,8 +198,10 @@ class PixelizedLensSimulator:
             model_image_sub = model_image_sub.reshape(H_sub, W_sub)
             model_image = bin_image_general(model_image_sub, self.nsub)
         else:
-            model_image = jnp.zeros(self.image_shape, dtype=m_ideal_1d_sub.dtype)
-            model_image = model_image.at[self.active_mask].set(m_ideal_1d_sub)
+            H, W = self.image_shape
+            model_image = jnp.zeros(H * W, dtype=m_ideal_1d_sub.dtype)
+            model_image = model_image.at[self.flat_indices].set(m_ideal_1d_sub)
+            model_image = model_image.reshape(H, W)
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
         convolved_image = jsp.signal.fftconvolve(model_image, kernel, mode="same")

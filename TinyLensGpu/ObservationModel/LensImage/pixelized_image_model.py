@@ -186,8 +186,10 @@ class PixelizedImageProbModel(ck.Module):
         source_pixels, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         model_1d = design_matrix @ source_pixels
-        model_image = jnp.zeros(self.sim_obj.image_shape, dtype=model_1d.dtype)
-        model_image = model_image.at[self.sim_obj.active_mask].set(model_1d)
+        H, W = self.sim_obj.image_shape
+        model_image = jnp.zeros(H * W, dtype=model_1d.dtype)
+        model_image = model_image.at[self.sim_obj.flat_indices].set(model_1d)
+        model_image = model_image.reshape(H, W)
 
         if return_source:
             return model_image, source_pixels

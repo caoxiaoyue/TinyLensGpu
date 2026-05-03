@@ -110,6 +110,7 @@ prob_model = PixelizedImageProbModel(
     dpix=DPIX,
     phys_model=phys_model,
     mask=mask,
+    nsub=2,
 )
 
 # ------------------------------------------------------------------ #
