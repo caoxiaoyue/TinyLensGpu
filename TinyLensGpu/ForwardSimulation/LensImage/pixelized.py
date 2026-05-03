@@ -131,7 +131,9 @@ class PixelizedLensSimulator:
         model_image = model_image.at[self.active_mask].set(m_ideal_1d)
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
-        return jsp.signal.fftconvolve(model_image, kernel, mode="same")
+        convolved_image = jsp.signal.fftconvolve(model_image, kernel, mode="same")
+
+        return jnp.where(self.active_mask, convolved_image, jnp.zeros_like(convolved_image))
 
     def forward(self, *, source_pixels: Array | None = None, return_mapping: bool = False, return_image_2d: bool = True, psf_kernel: Array | None = None) -> SimulationResult:
         """Forward model compatible with the parametric simulator API."""
