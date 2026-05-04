@@ -338,7 +338,7 @@ class ImageProbModel(ck.Module):
         The penalty function is a smooth approximation of a step function (soft truncation).
 
         $Penalty = min\_log\_like \cdot (1 - \exp(-ratio))$
-        where $ratio = \max(separation) / threshold$.
+        where $ratio = \max(0, \max(separation) - threshold) / threshold$.
 
         Returns
         -------

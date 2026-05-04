@@ -110,6 +110,7 @@ def _prob_model(
     source: PixelizedSourceModel | None = None,
     mask: jnp.ndarray | None = None,
     nsub: int = 1,
+    position_likelihood: dict | None = None,
 ) -> PixelizedImageProbModel:
     """Build a small pixelized evidence model."""
     data = image_data if image_data is not None else jnp.zeros((10, 10))
@@ -122,6 +123,7 @@ def _prob_model(
         phys_model=_physical_model(source=source),
         mask=mask,
         nsub=nsub,
+        position_likelihood=position_likelihood,
     )
 
 
@@ -501,6 +503,85 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     )
 
     assert jnp.allclose(inferred_half_size, source_half_size)
+
+
+@pytest.mark.unit
+def test_pixelized_position_likelihood_evidence_is_finite() -> None:
+    """PixelizedImageProbModel with position_likelihood returns a finite scalar."""
+    model = _prob_model(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        position_likelihood={
+            "positions": [(0.0, 0.0), (0.1, 0.1)],
+            "threshold_arcsec": 0.3,
+            "min_log_like": -1.0e10,
+        },
+    )
+    log_evidence = model()
+    assert jnp.shape(log_evidence) == ()
+    assert jnp.isfinite(log_evidence)
+
+
+@pytest.mark.unit
+def test_pixelized_position_likelihood_inactive_returns_zero() -> None:
+    """A very large threshold should yield zero penalty and unchanged evidence."""
+    model_without = _prob_model(image_data=jnp.ones((10, 10)) * 0.05)
+    model_with = _prob_model(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        position_likelihood={
+            "positions": [(0.0, 0.0), (0.1, 0.1)],
+            "threshold_arcsec": 1.0e3,
+            "min_log_like": -10.0,
+        },
+    )
+
+    log_ev_without = float(model_without())
+    log_ev_with = float(model_with())
+    assert np.isclose(log_ev_with, log_ev_without, atol=1e-4)
+
+
+@pytest.mark.unit
+def test_pixelized_position_likelihood_penalizes_bad_model() -> None:
+    """A lens model with shifted centre should incur a negative penalty."""
+    theta_e = ParamU("theta_E", 0.12, prior_type="uniform", prior_settings=[0.05, 0.20], limits=[0.0, 1.0])
+    sie = SIE(theta_E=theta_e, e1=0.0, e2=0.0, center_x=0.5, center_y=0.0)
+    sie.theta_E.to_dynamic()
+    for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+
+    source = _pixelized_source()
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+
+    data = jnp.ones((10, 10)) * 0.05
+    noise = jnp.ones((10, 10)) * 0.1
+
+    prob_without = PixelizedImageProbModel(
+        image_data=data,
+        noise_map=noise,
+        psf_kernel=_delta_psf(),
+        dpix=0.08,
+        phys_model=phys_model,
+        nsub=1,
+    )
+    prob_with = PixelizedImageProbModel(
+        image_data=data,
+        noise_map=noise,
+        psf_kernel=_delta_psf(),
+        dpix=0.08,
+        phys_model=phys_model,
+        nsub=1,
+        position_likelihood={
+            "positions": [(0.0, 0.0), (0.1, 0.1)],
+            "threshold_arcsec": 0.01,
+            "min_log_like": -1.0e4,
+        },
+    )
+
+    log_ev_without = float(prob_without())
+    log_ev_with = float(prob_with())
+    penalty = log_ev_with - log_ev_without
+
+    assert penalty < 0.0
+    assert log_ev_with < log_ev_without
 
 
 if __name__ == "__main__":

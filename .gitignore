@@ -9,6 +9,6 @@ paper/mock_csst/dataset/
 .worktrees/
 CLAUDE.md
 tmp/
-**/output/
+**/output*/
 **/data/
 docs/

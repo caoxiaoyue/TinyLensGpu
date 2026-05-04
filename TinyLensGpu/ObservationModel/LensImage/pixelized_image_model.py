@@ -4,13 +4,14 @@
 
 from __future__ import annotations
 
-from typing import Union
+from typing import Dict, Optional, Union
 
 import caskade as ck
+import functools
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 import numpy as np
-from jax import Array
+from jax import Array, jit
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
@@ -40,6 +41,12 @@ class PixelizedImageProbModel(ck.Module):
         Boolean mask where ``True`` pixels are excluded.
     nsub : int, optional
         Subsampling factor for image-plane ray-tracing (default: 1).
+    position_likelihood : dict, optional
+        Position likelihood constraint configuration. If provided, the
+        log-evidence is penalized when the observed image-plane positions
+        do not map back to a common source-plane position. Expected keys:
+        ``positions`` (list of [x, y] pairs), ``threshold_arcsec``,
+        and ``min_log_like``.
     """
 
     def __init__(
@@ -51,6 +58,7 @@ class PixelizedImageProbModel(ck.Module):
         phys_model: PhysicalModel,
         mask: Union[np.ndarray, Array, None] = None,
         nsub: int = 1,
+        position_likelihood: Optional[Dict] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         self.image_data = jnp.asarray(image_data)
@@ -92,6 +100,30 @@ class PixelizedImageProbModel(ck.Module):
             self._logdet_H_unit = jnp.where(sign_h > 0.0, logdet_h_unit, -jnp.inf)
         else:
             self._logdet_H_unit = None
+
+        self._init_position_likelihood(position_likelihood)
+
+    def _init_position_likelihood(self, config: Optional[Dict]) -> None:
+        self._pos_px = None
+        self._pos_py = None
+        self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
+        self._pos_minl = jnp.array(0.0, dtype=jnp.float32)
+        self._has_pos_penalty = False
+
+        if config is not None:
+            positions = config.get('positions', [])
+            if positions is not None and len(positions) >= 2:
+                self._pos_px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
+                self._pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
+                self._pos_thr = jnp.array(
+                    float(config.get('threshold_arcsec', config.get('position_threshold', 0.0))),
+                    dtype=jnp.float32,
+                )
+                self._pos_minl = jnp.array(
+                    float(config.get('min_log_like', config.get('min_position_likelihood', 0.0))),
+                    dtype=jnp.float32,
+                )
+                self._has_pos_penalty = True
 
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
@@ -199,7 +231,30 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def __call__(self):
         """Return a finite scalar log evidence approximation."""
-        return self._log_evidence()
+        log_ev = self._log_evidence()
+        if self._has_pos_penalty:
+            log_ev = log_ev + self._position_likelihood_penalty_jax()
+        return log_ev
+
+    @functools.partial(jit, static_argnums=(0,))
+    def _position_likelihood_penalty_jax(self) -> Array:
+        r"""Penalize image positions that don't map to the same source position.
+
+        $Penalty = min\_log\_like \cdot (1 - \exp(-ratio))$
+        where $ratio = \max(0, \max(separation) - threshold) / threshold$.
+        """
+        beta_x, beta_y = self.phys_model.deflection(self._pos_px, self._pos_py)
+
+        dx = beta_x[:, None] - beta_x[None, :]
+        dy = beta_y[:, None] - beta_y[None, :]
+        dist = jnp.sqrt(dx * dx + dy * dy)
+        max_sep = jnp.max(dist)
+
+        exceed = jnp.maximum(0.0, max_sep - self._pos_thr)
+        ratio = jnp.where(self._pos_thr > 0.0, exceed / self._pos_thr, 0.0)
+        pen_continuous = self._pos_minl * (1.0 - jnp.exp(-ratio))
+
+        return jnp.clip(pen_continuous, min=self._pos_minl, max=0.0)
 
     def likelihood(self, debug: bool = True) -> float:
         """Return the current log evidence as a Python float."""
