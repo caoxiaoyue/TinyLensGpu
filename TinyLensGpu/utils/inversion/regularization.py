@@ -12,6 +12,19 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
+    "zero-order", "first-order", "second-order",
+    "exponential", "gaussian",
+    "matern32", "matern52", "matern72",
+})
+"""All supported regularization type names."""
+
+GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
+    "exponential", "gaussian",
+    "matern32", "matern52", "matern72",
+})
+"""GP-style regularization types that require a kernel_scale parameter."""
+
 
 class DenseRegularizationBuilder:
     """Build dense source-grid regularization matrices.
@@ -24,8 +37,8 @@ class DenseRegularizationBuilder:
         Number of source pixels along the y-axis.
     regularization_type : str
         Regularization family. Supported values are ``"zero-order"``,
-        ``"first-order"``, ``"second-order"``, ``"exponential"``, and
-        ``"gaussian"``.
+        ``"first-order"``, ``"second-order"``, ``"exponential"``,
+        ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
     jitter : float, optional
         Diagonal jitter added to GP covariance matrices for numerical stability.
 
@@ -35,7 +48,7 @@ class DenseRegularizationBuilder:
         If the grid shape or regularization configuration is invalid.
     """
 
-    _VALID_TYPES = {"zero-order", "first-order", "second-order", "exponential", "gaussian"}
+    _VALID_TYPES = VALID_REGULARIZATION_TYPES
 
     def __init__(
         self,
@@ -232,13 +245,25 @@ class DenseRegularizationBuilder:
         coordinates = self._unit_coordinates * half_size
         delta = coordinates[:, None, :] - coordinates[None, :, :]
         distances = jnp.sqrt(jnp.sum(delta**2, axis=-1))
+        r = distances / kernel_scale
 
         if self.regularization_type == "exponential":
-            covariance = jnp.exp(-distances / kernel_scale)
+            covariance = jnp.exp(-r)
+        elif self.regularization_type == "gaussian":
+            covariance = jnp.exp(-0.5 * r ** 2)
+        elif self.regularization_type == "matern32":
+            sqrt3_r = jnp.sqrt(3.0) * r
+            covariance = (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r)
+        elif self.regularization_type == "matern52":
+            sqrt5_r = jnp.sqrt(5.0) * r
+            covariance = (1.0 + sqrt5_r + 5.0 * r ** 2 / 3.0) * jnp.exp(-sqrt5_r)
+        elif self.regularization_type == "matern72":
+            sqrt7_r = jnp.sqrt(7.0) * r
+            covariance = (1.0 + sqrt7_r + 14.0 * r ** 2 / 5.0 + 7.0 * jnp.sqrt(7.0) * r ** 3 / 15.0) * jnp.exp(-sqrt7_r)
         else:
-            covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2)
+            raise RuntimeError(f"Unhandled GP regularization type: {self.regularization_type!r}")
 
         stabilized = covariance + self.jitter * self._identity
         return jnp.linalg.inv(stabilized)
 
-__all__ = ["DenseRegularizationBuilder"]
+__all__ = ["DenseRegularizationBuilder", "VALID_REGULARIZATION_TYPES", "GP_REGULARIZATION_TYPES"]

@@ -9,6 +9,10 @@ import jax.numpy as jnp
 from jax import Array
 
 from TinyLensGpu.Inference.param_u import ParamU
+from TinyLensGpu.utils.inversion.regularization import (
+    GP_REGULARIZATION_TYPES,
+    VALID_REGULARIZATION_TYPES,
+)
 from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
@@ -27,8 +31,8 @@ class PixelizedSourceModel(ck.Module):
         prior over ``[1e-4, 1e4]`` when provided as a scalar.
     regularization_type : str, optional
         Regularization family. Supported values are ``"zero-order"``,
-        ``"first-order"``, ``"second-order"``, ``"exponential"``, and
-        ``"gaussian"``.
+        ``"first-order"``, ``"second-order"``, ``"exponential"``,
+        ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
     kernel_scale : float or ParamU or None, optional
         Kernel scale for GP-style regularization only.
     """
@@ -44,7 +48,7 @@ class PixelizedSourceModel(ck.Module):
     ) -> None:
         super().__init__()
 
-        if regularization_type not in {"zero-order", "first-order", "second-order", "exponential", "gaussian"}:
+        if regularization_type not in VALID_REGULARIZATION_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
 
         object.__setattr__(self, "nx", int(nx))
@@ -58,7 +62,7 @@ class PixelizedSourceModel(ck.Module):
                         prior_settings=[1e-4, 1e4], limits=[1e-4, 1e4])
         )
 
-        if regularization_type in {"exponential", "gaussian"}:
+        if regularization_type in GP_REGULARIZATION_TYPES:
             self.kernel_scale = (
                 kernel_scale if isinstance(kernel_scale, ParamU)
                 else ParamU("kernel_scale", kernel_scale, prior_type="log_uniform",

@@ -15,7 +15,10 @@ from jax import Array
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
+from TinyLensGpu.utils.inversion.regularization import (
+    DenseRegularizationBuilder,
+    GP_REGULARIZATION_TYPES,
+)
 
 
 class PixelizedImageProbModel(ck.Module):
@@ -157,7 +160,7 @@ class PixelizedImageProbModel(ck.Module):
     def _regularization_matrix(self, source_half_size: Array | float) -> Array:
         """Return the configured dense source regularization matrix."""
         kernel_scale = None
-        if self.reg_type in {"exponential", "gaussian"}:
+        if self.reg_type in GP_REGULARIZATION_TYPES:
             kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
         return jnp.asarray(
             self.reg_builder.matrix(source_half_size, kernel_scale=kernel_scale),

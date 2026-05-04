@@ -48,7 +48,8 @@ class TestDenseRegularizationBuilder:
 
     @pytest.mark.parametrize(
         "regularization_type",
-        ["zero-order", "first-order", "second-order", "exponential", "gaussian"],
+        ["zero-order", "first-order", "second-order", "exponential", "gaussian",
+         "matern32", "matern52", "matern72"],
     )
     def test_regularization_matrices_are_valid(self, small_source_grid_shape, regularization_type):
         """Test shape, symmetry, finite values, and PSD stability for all types."""
@@ -127,6 +128,30 @@ class TestGaussianProcessRegularization:
         distances = pairwise_source_distances(nx, ny, half_size)
         covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(nx * ny)
         expected = jnp.linalg.inv(covariance)
+
+        assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
+
+    @pytest.mark.parametrize("reg_type,nu", [("matern32", 1.5), ("matern52", 2.5), ("matern72", 3.5)])
+    def test_matern_regularization_uses_distance_kernel(self, small_source_grid_shape, reg_type, nu):
+        nx, ny = small_source_grid_shape
+        half_size = 1.0
+        kernel_scale = 0.7
+        jitter = 1e-6
+        builder = DenseRegularizationBuilder(nx, ny, reg_type, jitter=jitter)
+
+        matrix = builder.matrix(half_size, kernel_scale=kernel_scale)
+        distances = pairwise_source_distances(nx, ny, half_size)
+        r = distances / kernel_scale
+        if nu == 1.5:
+            sqrt3_r = jnp.sqrt(3.0) * r
+            covariance = (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r)
+        elif nu == 2.5:
+            sqrt5_r = jnp.sqrt(5.0) * r
+            covariance = (1.0 + sqrt5_r + 5.0 * r ** 2 / 3.0) * jnp.exp(-sqrt5_r)
+        else:
+            sqrt7_r = jnp.sqrt(7.0) * r
+            covariance = (1.0 + sqrt7_r + 14.0 * r ** 2 / 5.0 + 7.0 * jnp.sqrt(7.0) * r ** 3 / 15.0) * jnp.exp(-sqrt7_r)
+        expected = jnp.linalg.inv(covariance + jitter * jnp.eye(nx * ny))
 
         assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
 
