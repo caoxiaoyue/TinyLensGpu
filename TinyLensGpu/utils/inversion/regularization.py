@@ -109,9 +109,9 @@ class DenseRegularizationBuilder:
         if self.regularization_type == "second-order":
             return self._second_order_matrix(half_size)
 
-        if kernel_scale is None or float(kernel_scale) <= 0.0:
-            raise ValueError("kernel_scale must be provided and positive for GP regularization.")
-        return self._gp_matrix(half_size, float(kernel_scale))
+        if kernel_scale is None:
+            raise ValueError("kernel_scale must be provided for GP regularization.")
+        return self._gp_matrix(half_size, kernel_scale)
 
     def _build_first_difference_operators(self):
         """Return first-order x/y finite-difference operators on index space.
