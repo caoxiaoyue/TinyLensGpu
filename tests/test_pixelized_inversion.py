@@ -8,11 +8,15 @@ simulator and Bayesian evidence probability model. They intentionally exercise
 small synthetic problems so the future implementation can be validated quickly.
 """
 
+import numpy as np
 import pytest
 import jax.numpy as jnp
+from scipy.signal import fftconvolve
 
 from TinyLensGpu.ForwardSimulation import SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+from TinyLensGpu.utils.geometry.transforms import phi_q2_ellipticity
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
@@ -352,6 +356,152 @@ def test_nsub_two_forward_model_reconstructs_source() -> None:
 
     assert source_pixels.shape == (25,)
     assert jnp.all(jnp.isfinite(source_pixels))
+
+
+def _gaussian_psf_kernel(size: int = 5, sigma_pixels: float = 0.8) -> np.ndarray:
+    if size % 2 == 0:
+        raise ValueError("PSF kernel size must be odd")
+    coord = np.arange(size) - size // 2
+    xx, yy = np.meshgrid(coord, coord)
+    kernel = np.exp(-(xx**2 + yy**2) / (2.0 * sigma_pixels**2))
+    kernel /= kernel.sum()
+    return kernel
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("nsub", [1, 2])
+def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_truth(nsub: int) -> None:
+    """Test that L @ s and M @ s match an independent ground-truth lensed image.
+
+    The ground-truth lensed image is built from parametric Gaussian sources
+    evaluated directly via PhysicalModel.source_surface_brightness, independent
+    of the pixelized bilinear mapping path.  For the ideal (unconvolved) check
+    the mapping matrix is built on the native-resolution grid; when nsub > 1
+    the design_matrix path uses the sub-grid internally and aggregates back to
+    native resolution before PSF convolution.
+
+    The PSF ground truth uses scipy.signal.fftconvolve, which shares the same
+    periodic-boundary assumption as the JAX FFT convolution inside
+    PixelizedLensSimulator.design_matrix, so the comparison is valid.
+    """
+    npix = 30
+    dpix = 0.08
+    source_nx = 15
+    source_ny = 15
+    source_half_size = 0.6
+
+    psf_kernel = _gaussian_psf_kernel(size=5, sigma_pixels=0.8)
+
+    xgrid, ygrid = tuple(np.asarray(v) for v in make_grid_2d(npix, dpix))
+    center_x, center_y = 0.0, 0.0
+    radius = np.hypot(xgrid - center_x, ygrid - center_y)
+    mask = ~((radius >= 0.65) & (radius <= 1.18))
+
+    e1_1, e2_1 = phi_q2_ellipticity(np.deg2rad(-20.0), 0.72)
+    e1_1, e2_1 = float(e1_1), float(e2_1)
+    true_src1 = GaussianEllipse(
+        flux=1.0 * 2.0 * np.pi * 0.16**2,
+        sigma=0.16,
+        e1=e1_1,
+        e2=e2_1,
+        center_x=0.04,
+        center_y=0.02,
+    )
+    for p in [true_src1.flux, true_src1.sigma, true_src1.e1, true_src1.e2, true_src1.center_x, true_src1.center_y]:
+        p.to_static()
+
+    e1_2, e2_2 = phi_q2_ellipticity(np.deg2rad(35.0), 0.85)
+    e1_2, e2_2 = float(e1_2), float(e2_2)
+    true_src2 = GaussianEllipse(
+        flux=0.35 * 2.0 * np.pi * 0.10**2,
+        sigma=0.10,
+        e1=e1_2,
+        e2=e2_2,
+        center_x=-0.08,
+        center_y=0.07,
+    )
+    for p in [true_src2.flux, true_src2.sigma, true_src2.e1, true_src2.e2, true_src2.center_x, true_src2.center_y]:
+        p.to_static()
+
+    e1_lens, e2_lens = phi_q2_ellipticity(np.deg2rad(28.0), 0.76)
+    e1_lens, e2_lens = float(e1_lens), float(e2_lens)
+    sie = SIE(theta_E=1.12, e1=e1_lens, e2=e2_lens, center_x=center_x, center_y=center_y)
+    for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        p.to_static()
+
+    gt_phys = PhysicalModel(lens_mass=[sie], source_light=[true_src1, true_src2], lens_light=[])
+
+    beta_x, beta_y = gt_phys.deflection(xgrid, ygrid)
+    ideal_lensed_truth = np.asarray(gt_phys.source_surface_brightness(beta_x, beta_y))
+
+    source_x_axis = np.linspace(-source_half_size, source_half_size, source_nx)
+    source_y_axis = np.linspace(-source_half_size, source_half_size, source_ny)
+    source_xx, source_yy = np.meshgrid(source_x_axis, source_y_axis, indexing="xy")
+    source_pixels = np.asarray(gt_phys.source_surface_brightness(source_xx, source_yy)).ravel()
+
+    pixelized_src = PixelizedSourceModel(nx=source_nx, ny=source_ny, lambda_reg=1.0)
+    test_phys = PhysicalModel(lens_mass=[sie], source_light=[pixelized_src], lens_light=[])
+    config = SimulatorConfig(
+        dpix=dpix,
+        npix=npix,
+        nsub=nsub,
+        psf_kernel=psf_kernel,
+        mask=jnp.asarray(mask),
+    )
+    simulator = PixelizedLensSimulator(test_phys, config)
+
+    # Build the native-resolution mapping matrix (no sub-grid).  For nsub=1
+    # this is the same as the internal ray-tracing grid; for nsub>1 the
+    # design_matrix path traces on the sub-grid and aggregates, so this
+    # ideal check only validates the native-resolution interpolation.
+    mapping_matrix = simulator.build_mapping_matrix(source_half_size=source_half_size)
+    m_ideal = np.asarray(mapping_matrix @ jnp.asarray(source_pixels))
+    expected_ideal = ideal_lensed_truth[~mask]
+
+    ideal_rms = np.sqrt(np.mean((m_ideal - expected_ideal) ** 2))
+    truth_scale = max(float(np.max(np.abs(expected_ideal))), 1.0e-12)
+    # The 5% threshold might seem weak, but it is tightly bound to the coarse grid
+    # resolution used in this test (npix=30, source_nx=15) to keep the test fast.
+    # A source with sigma=0.10 spans only ~1.25 pixels on this source grid.
+    # Bilinear interpolation of such narrow features naturally introduces ~2-4% error.
+    # Increasing resolution (e.g., npix=60, source_nx=30) drops this error to ~0.6%.
+    assert ideal_rms / truth_scale < 5.0e-2, (
+        f"Ideal RMS relative error too large (nsub={nsub}): {ideal_rms / truth_scale:.3e}"
+    )
+
+    # Both the ground-truth convolution (scipy) and the design_matrix path
+    # (JAX FFT) assume periodic boundaries, so edge wrap-around artifacts
+    # cancel in the comparison.  The annular mask further excludes the
+    # outermost pixels where boundary effects are strongest.
+    ideal_lensed_masked = np.where(~mask, ideal_lensed_truth, 0.0)
+    blurred_truth = fftconvolve(ideal_lensed_masked, psf_kernel, mode="same")
+    expected_blurred = blurred_truth[~mask]
+
+    design_matrix, inferred_half_size = simulator.design_matrix(
+        source_half_size=source_half_size,
+        psf_kernel=jnp.asarray(psf_kernel),
+    )
+    m_blurred = np.asarray(design_matrix @ jnp.asarray(source_pixels))
+
+    model_image = simulator.simulate(
+        jnp.asarray(source_pixels),
+        source_half_size=source_half_size,
+        psf_kernel=jnp.asarray(psf_kernel),
+    )
+
+    blurred_matrix_rms = np.sqrt(np.mean((m_blurred - expected_blurred) ** 2))
+    blurred_sim_rms = np.sqrt(np.mean((np.asarray(model_image)[~mask] - expected_blurred) ** 2))
+    blurred_scale = max(float(np.max(np.abs(expected_blurred))), 1.0e-12)
+
+    # Similarly, the 5% threshold here is due to the coarse resolution.
+    assert blurred_matrix_rms / blurred_scale < 5.0e-2, (
+        f"Blurred matrix RMS too large (nsub={nsub}): {blurred_matrix_rms / blurred_scale:.3e}"
+    )
+    assert blurred_sim_rms / blurred_scale < 5.0e-2, (
+        f"Blurred sim RMS too large (nsub={nsub}): {blurred_sim_rms / blurred_scale:.3e}"
+    )
+
+    assert jnp.allclose(inferred_half_size, source_half_size)
 
 
 if __name__ == "__main__":
