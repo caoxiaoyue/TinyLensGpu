@@ -29,8 +29,6 @@ class PixelizedSourceModel(ck.Module):
         Regularization family. Supported values are ``"zero-order"``,
         ``"first-order"``, ``"second-order"``, ``"exponential"``, and
         ``"gaussian"``.
-    kernel_type : str, optional
-        Kernel family for GP-style regularization. Kept as a static attribute.
     kernel_scale : float or ParamU or None, optional
         Kernel scale for GP-style regularization only.
     """
@@ -42,7 +40,6 @@ class PixelizedSourceModel(ck.Module):
         *,
         lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
-        kernel_type: str = "gaussian",
         kernel_scale: float | ParamU | None = None,
     ) -> None:
         super().__init__()
@@ -53,32 +50,20 @@ class PixelizedSourceModel(ck.Module):
         object.__setattr__(self, "nx", int(nx))
         object.__setattr__(self, "ny", int(ny))
         object.__setattr__(self, "regularization_type", regularization_type)
-        object.__setattr__(self, "kernel_type", kernel_type)
         object.__setattr__(self, "is_pixelized_source", True)
 
-        if isinstance(lambda_reg, ParamU):
-            self.lambda_reg = lambda_reg
-        else:
-            self.lambda_reg = ParamU(
-                "lambda_reg",
-                lambda_reg,
-                prior_type="log_uniform",
-                prior_settings=[1e-4, 1e4],
-                limits=[1e-4, 1e4],
-            )
+        self.lambda_reg = (
+            lambda_reg if isinstance(lambda_reg, ParamU)
+            else ParamU("lambda_reg", lambda_reg, prior_type="log_uniform",
+                        prior_settings=[1e-4, 1e4], limits=[1e-4, 1e4])
+        )
 
-        is_gp_regularization = regularization_type in {"exponential", "gaussian"}
-        if is_gp_regularization:
-            if isinstance(kernel_scale, ParamU):
-                self.kernel_scale = kernel_scale
-            else:
-                self.kernel_scale = ParamU(
-                    "kernel_scale",
-                    kernel_scale,
-                    prior_type="log_uniform",
-                    prior_settings=[1e-4, 1e4],
-                    limits=[1e-4, 1e4],
-                )
+        if regularization_type in {"exponential", "gaussian"}:
+            self.kernel_scale = (
+                kernel_scale if isinstance(kernel_scale, ParamU)
+                else ParamU("kernel_scale", kernel_scale, prior_type="log_uniform",
+                            prior_settings=[1e-4, 1e4], limits=[1e-4, 1e4])
+            )
         elif kernel_scale is not None:
             raise ValueError("kernel_scale is only valid for GP regularization types")
         else:

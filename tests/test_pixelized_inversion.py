@@ -82,7 +82,6 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
         lambda_reg=lambda_reg,
         kernel_scale=kernel_scale,
         regularization_type="gaussian",
-        kernel_type="gaussian",
     )
 
 

@@ -71,12 +71,10 @@ class PixelizedImageProbModel(ck.Module):
         source_nx = int(self.source_model.nx)
         source_ny = int(self.source_model.ny)
         self.reg_type = self.source_model.regularization_type
-        self.kernel_type = self.source_model.kernel_type
         self.reg_builder = DenseRegularizationBuilder(
             source_nx,
             source_ny,
             self.reg_type,
-            kernel_type=self.kernel_type,
         )
         # Precompute logdet(H(half_size)) = logdet_H_unit + scaling * log(half_size)
         # for finite-difference regularization where H(h) = h^{-k} * H_unit.
@@ -159,7 +157,7 @@ class PixelizedImageProbModel(ck.Module):
     def _regularization_matrix(self, source_half_size: Array | float) -> Array:
         """Return the configured dense source regularization matrix."""
         kernel_scale = None
-        if self.reg_type in {"gp", "exponential", "gaussian"}:
+        if self.reg_type in {"exponential", "gaussian"}:
             kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
         return jnp.asarray(
             self.reg_builder.matrix(source_half_size, kernel_scale=kernel_scale),

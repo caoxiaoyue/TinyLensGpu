@@ -24,12 +24,8 @@ class DenseRegularizationBuilder:
         Number of source pixels along the y-axis.
     regularization_type : str
         Regularization family. Supported values are ``"zero-order"``,
-        ``"first-order"``, ``"second-order"``, ``"exponential"``, ``"gaussian"``,
-        and ``"gp"``.
-        The ``"gp"`` alias selects the kernel through ``kernel_type``.
-    kernel_type : str, optional
-        GP kernel used when ``regularization_type="gp"``. Supported values are
-        ``"exponential"`` and ``"gaussian"``.
+        ``"first-order"``, ``"second-order"``, ``"exponential"``, and
+        ``"gaussian"``.
     jitter : float, optional
         Diagonal jitter added to GP covariance matrices for numerical stability.
 
@@ -39,8 +35,7 @@ class DenseRegularizationBuilder:
         If the grid shape or regularization configuration is invalid.
     """
 
-    _GP_TYPES = {"exponential", "gaussian"}
-    _VALID_TYPES = {"zero-order", "first-order", "second-order", "exponential", "gaussian", "gp"}
+    _VALID_TYPES = {"zero-order", "first-order", "second-order", "exponential", "gaussian"}
 
     def __init__(
         self,
@@ -48,7 +43,6 @@ class DenseRegularizationBuilder:
         ny: int,
         regularization_type: str,
         *,
-        kernel_type: str = "gaussian",
         jitter: float = 1e-6,
     ) -> None:
         self.nx = int(nx)
@@ -58,13 +52,10 @@ class DenseRegularizationBuilder:
 
         self.n_pixels = self.nx * self.ny
         self.regularization_type = regularization_type.lower()
-        self.kernel_type = kernel_type.lower()
         self.jitter = float(jitter)
 
         if self.regularization_type not in self._VALID_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type!r}.")
-        if self.kernel_type not in self._GP_TYPES:
-            raise ValueError(f"Unsupported kernel_type: {kernel_type!r}.")
         if self.jitter < 0.0:
             raise ValueError("jitter must be non-negative.")
 
@@ -242,8 +233,7 @@ class DenseRegularizationBuilder:
         delta = coordinates[:, None, :] - coordinates[None, :, :]
         distances = jnp.sqrt(jnp.sum(delta**2, axis=-1))
 
-        kernel_name = self.kernel_type if self.regularization_type == "gp" else self.regularization_type
-        if kernel_name == "exponential":
+        if self.regularization_type == "exponential":
             covariance = jnp.exp(-distances / kernel_scale)
         else:
             covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2)

@@ -130,21 +130,6 @@ class TestGaussianProcessRegularization:
 
         assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
 
-    def test_kernel_type_alias_selects_gp_kernel(self, small_source_grid_shape):
-        """Test that kernel_type selects the GP kernel when the type is generic."""
-        nx, ny = small_source_grid_shape
-        half_size = 1.0
-        kernel_scale = 0.5
-        builder = DenseRegularizationBuilder(nx, ny, "gp", kernel_type="exponential")
-
-        matrix = builder.matrix(half_size, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, half_size)
-        covariance = jnp.exp(-distances / kernel_scale) + 1e-6 * jnp.eye(nx * ny)
-        expected = jnp.linalg.inv(covariance)
-
-        assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
-
-
 @pytest.mark.unit
 class TestDenseRegularizationBuilderValidation:
     """Test configuration validation for dense regularization builders."""
