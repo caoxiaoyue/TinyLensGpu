@@ -79,6 +79,21 @@ class DenseRegularizationBuilder:
         self._unit_coordinates = self._build_unit_coordinates()
         self._unit_distances = self._build_unit_distances()
 
+        # Precompute H_unit matrices on index space (half_size=1, spacing=2/(n-1)).
+        # H(h) = H_unit / dx(h)^2  for first-order,  / dx(h)^4  for second-order.
+        # dx(h) = 2h/(nx-1), dy(h) = 2h/(ny-1).
+        # Separate x/y contributions so non-square grids (nx != ny) are handled correctly.
+        dx_unit = 2.0 / (self.nx - 1)
+        dy_unit = 2.0 / (self.ny - 1)
+        sdx1 = self._dx_operator / dx_unit
+        sdy1 = self._dy_operator / dy_unit
+        self._H1_unit_x = sdx1.T @ sdx1   # x contribution at half_size=1
+        self._H1_unit_y = sdy1.T @ sdy1   # y contribution at half_size=1
+        sdx2 = self._lx_operator / (dx_unit ** 2)
+        sdy2 = self._ly_operator / (dy_unit ** 2)
+        self._H2_unit_x = sdx2.T @ sdx2
+        self._H2_unit_y = sdy2.T @ sdy2
+
     def matrix(self, half_size: float, *, kernel_scale: float | None = None):
         """Return the dense regularization matrix for a physical grid size.
 
@@ -238,19 +253,15 @@ class DenseRegularizationBuilder:
 
     def _first_order_matrix(self, half_size: float):
         """Return spacing-scaled first-order gradient regularization."""
-        dx = 2.0 * half_size / (self.nx - 1)
-        dy = 2.0 * half_size / (self.ny - 1)
-        scaled_dx = self._dx_operator / dx
-        scaled_dy = self._dy_operator / dy
-        return scaled_dx.T @ scaled_dx + scaled_dy.T @ scaled_dy
+        # H(h) = H_unit_x / (h/1)^2 + H_unit_y / (h/1)^2 = (H_unit_x + H_unit_y) / h^2
+        # because dx(h) = dx_unit * h and H_unit was built at half_size=1.
+        h2 = half_size * half_size
+        return (self._H1_unit_x + self._H1_unit_y) / h2
 
     def _second_order_matrix(self, half_size: float):
         """Return spacing-scaled second-order curvature regularization."""
-        dx = 2.0 * half_size / (self.nx - 1)
-        dy = 2.0 * half_size / (self.ny - 1)
-        scaled_lx = self._lx_operator / (dx**2)
-        scaled_ly = self._ly_operator / (dy**2)
-        return scaled_lx.T @ scaled_lx + scaled_ly.T @ scaled_ly
+        h4 = half_size ** 4
+        return (self._H2_unit_x + self._H2_unit_y) / h4
 
     def _gp_matrix(self, half_size: float, kernel_scale: float):
         """Return (precision, logdet_covariance) for a GP regularization matrix.

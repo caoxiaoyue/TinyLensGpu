@@ -29,9 +29,9 @@ def load_lens_data(
     mask : np.ndarray or None
         Boolean mask (True = masked out) if provided
     """
-    image_data = fits.getdata(image_path).astype("float64")
-    noise_map = fits.getdata(noise_path).astype("float64")
-    psf_kernel = fits.getdata(psf_path).astype("float64")
+    image_data = fits.getdata(image_path).astype("float32")
+    noise_map = fits.getdata(noise_path).astype("float32")
+    psf_kernel = fits.getdata(psf_path).astype("float32")
 
     mask = None
     if mask_path is not None:

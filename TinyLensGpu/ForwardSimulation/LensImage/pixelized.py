@@ -84,6 +84,14 @@ class PixelizedLensSimulator:
             self.image_x_active_sub = self.image_x_active
             self.image_y_active_sub = self.image_y_active
 
+        # Precompute PSF FFT once — PSF is fixed for the lifetime of this object.
+        H, W = self.image_shape
+        kernel = self.psf_kernel
+        psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
+        psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
+        psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
+        self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
+
     def infer_source_half_size(self, beta_x: Array, beta_y: Array) -> Array:
         """1.05 * max(|beta_x|, |beta_y|) floored at 1e-6."""
         return jnp.maximum(1.05 * jnp.maximum(jnp.max(jnp.abs(beta_x)), jnp.max(jnp.abs(beta_y))), 1.0e-6)
@@ -165,12 +173,15 @@ class PixelizedLensSimulator:
 
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
 
-        # Precompute PSF FFT once for all columns.
+        # Use precomputed PSF FFT when the kernel hasn't been overridden.
         H, W = self.image_shape
-        psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
-        psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
-        psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
-        psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
+        if psf_kernel is None:
+            psf_fft = self._psf_fft
+        else:
+            psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
+            psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
+            psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
+            psf_fft = jnp.fft.rfft2(psf_shifted)
 
         # Scatter all N_s columns into images at once: (N_s, H, W)
         imgs = jnp.zeros((self.n_source_pixels, H * W), dtype=mapping_matrix.dtype)

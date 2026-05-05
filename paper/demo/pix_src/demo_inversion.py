@@ -84,7 +84,7 @@ for LAMBDA in LAMBDA_LIST:
 
     reg_matrix = np.array(prob_model._regularization_matrix(source_half_size)[0])
     import jax.numpy as jnp
-    sp, _ = prob_model._solve_source(
+    sp, _, _ = prob_model._solve_source(
         jnp.asarray(F), jnp.asarray(reg_matrix), jnp.asarray(LAMBDA)
     )
     source_pixels = np.array(sp)
@@ -95,7 +95,7 @@ for LAMBDA in LAMBDA_LIST:
     # Reconstruct model image
     # ------------------------------------------------------------------ #
     model_1d  = F @ source_pixels
-    model_image = np.zeros(image_data.shape, dtype=np.float64)
+    model_image = np.zeros(image_data.shape, dtype=np.float32)
     model_image[~mask] = model_1d
 
     resid_norm = (image_data - model_image) / noise_map
