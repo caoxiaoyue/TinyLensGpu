@@ -11,6 +11,7 @@ from __future__ import annotations
 # pyright: reportMissingImports=false
 
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 
 VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
     "zero-order", "first-order", "second-order",
@@ -91,8 +92,13 @@ class DenseRegularizationBuilder:
 
         Returns
         -------
-        jax.Array
-            Dense ``(nx * ny, nx * ny)`` regularization matrix.
+        tuple[jax.Array, jax.Array | None]
+            ``(precision_matrix, logdet_covariance)`` for all regularization types.
+            For finite-difference types, ``logdet_covariance`` is ``None`` (callers
+            use the precomputed analytical logdet scaling instead).
+            For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the
+            Cholesky factorization — callers compute ``logdet(H) = -logdet_covariance``
+            without an extra O(n³) ``slogdet`` call.
 
         Raises
         ------
@@ -103,11 +109,11 @@ class DenseRegularizationBuilder:
         half_size = jnp.asarray(half_size)
 
         if self.regularization_type == "zero-order":
-            return self._identity
+            return self._identity, None
         if self.regularization_type == "first-order":
-            return self._first_order_matrix(half_size)
+            return self._first_order_matrix(half_size), None
         if self.regularization_type == "second-order":
-            return self._second_order_matrix(half_size)
+            return self._second_order_matrix(half_size), None
 
         if kernel_scale is None:
             raise ValueError("kernel_scale must be provided for GP regularization.")
@@ -241,7 +247,17 @@ class DenseRegularizationBuilder:
         return scaled_lx.T @ scaled_lx + scaled_ly.T @ scaled_ly
 
     def _gp_matrix(self, half_size: float, kernel_scale: float):
-        """Return a dense GP precision (inverse covariance) regularization matrix."""
+        """Return (precision, logdet_covariance) for a GP regularization matrix.
+
+        Uses Cholesky decomposition to compute both the precision matrix K^{-1}
+        and log|K| in a single O(n^3) factorization, avoiding a separate slogdet call.
+
+        Returns
+        -------
+        tuple[jax.Array, jax.Array]
+            ``(precision, logdet_covariance)`` where precision is ``K^{-1}`` of shape
+            ``(n_pixels, n_pixels)`` and ``logdet_covariance`` is the scalar ``log|K|``.
+        """
         coordinates = self._unit_coordinates * half_size
         delta = coordinates[:, None, :] - coordinates[None, :, :]
         distances = jnp.sqrt(jnp.sum(delta**2, axis=-1))
@@ -264,6 +280,16 @@ class DenseRegularizationBuilder:
             raise RuntimeError(f"Unhandled GP regularization type: {self.regularization_type!r}")
 
         stabilized = covariance + self.jitter * self._identity
-        return jnp.linalg.inv(stabilized)
+        # Single Cholesky factorization gives both precision and logdet(K).
+        # logdet(K) = 2 * sum(log(diag(L)))  where L = chol(K)
+        # K^{-1} via cho_solve avoids a second O(n^3) inv() call.
+        chol_k = jnp.linalg.cholesky(stabilized)
+        logdet_covariance = 2.0 * jnp.sum(jnp.log(jnp.diag(chol_k)))
+        eye = jnp.eye(self.n_pixels, dtype=stabilized.dtype)
+        precision = jsl.cho_solve((chol_k, True), eye)
+        # Enforce exact symmetry — cho_solve may introduce tiny asymmetry
+        # that can break downstream Cholesky factorizations.
+        precision = 0.5 * (precision + precision.T)
+        return precision, logdet_covariance
 
 __all__ = ["DenseRegularizationBuilder", "VALID_REGULARIZATION_TYPES", "GP_REGULARIZATION_TYPES"]

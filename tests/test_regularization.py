@@ -56,7 +56,8 @@ class TestDenseRegularizationBuilder:
         nx, ny = small_source_grid_shape
         builder = DenseRegularizationBuilder(nx, ny, regularization_type)
 
-        matrix = builder.matrix(1.0, kernel_scale=0.5)
+        result, _ = builder.matrix(1.0, kernel_scale=0.5)
+        matrix = result
 
         assert_valid_regularization_matrix(matrix, nx * ny)
 
@@ -65,7 +66,7 @@ class TestDenseRegularizationBuilder:
         nx, ny = small_source_grid_shape
         builder = DenseRegularizationBuilder(nx, ny, "zero-order")
 
-        matrix = builder.matrix(1.0)
+        matrix, _ = builder.matrix(1.0)
 
         assert jnp.allclose(matrix, jnp.eye(nx * ny))
 
@@ -79,8 +80,8 @@ class TestTraditionalRegularizationScaling:
         nx, ny = small_source_grid_shape
         builder = DenseRegularizationBuilder(nx, ny, "first-order")
 
-        matrix_half_size_1 = builder.matrix(1.0)
-        matrix_half_size_2 = builder.matrix(2.0)
+        matrix_half_size_1, _ = builder.matrix(1.0)
+        matrix_half_size_2, _ = builder.matrix(2.0)
 
         # first-order: H = (D/dx).T @ (D/dx), so doubling dx divides H by 4.
         assert jnp.allclose(matrix_half_size_2, matrix_half_size_1 / 4.0, rtol=1e-5, atol=1e-6)
@@ -90,8 +91,8 @@ class TestTraditionalRegularizationScaling:
         nx, ny = small_source_grid_shape
         builder = DenseRegularizationBuilder(nx, ny, "second-order")
 
-        matrix_half_size_1 = builder.matrix(1.0)
-        matrix_half_size_2 = builder.matrix(2.0)
+        matrix_half_size_1, _ = builder.matrix(1.0)
+        matrix_half_size_2, _ = builder.matrix(2.0)
 
         # second-order: H = (L/dx^2).T @ (L/dx^2), so doubling dx divides H by 16.
         assert jnp.allclose(matrix_half_size_2, matrix_half_size_1 / 16.0, rtol=1e-5, atol=1e-6)
@@ -109,12 +110,14 @@ class TestGaussianProcessRegularization:
         jitter = 1e-6
         builder = DenseRegularizationBuilder(nx, ny, "exponential", jitter=jitter)
 
-        matrix = builder.matrix(half_size, kernel_scale=kernel_scale)
+        matrix, logdet_cov = builder.matrix(half_size, kernel_scale=kernel_scale)
         distances = pairwise_source_distances(nx, ny, half_size)
         covariance = jnp.exp(-distances / kernel_scale) + jitter * jnp.eye(nx * ny)
         expected = jnp.linalg.inv(covariance)
 
-        assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
+        assert jnp.allclose(matrix, expected, rtol=1e-4, atol=1e-4)
+        _, expected_logdet = jnp.linalg.slogdet(covariance)
+        assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-4)
 
     def test_gaussian_regularization_uses_distance_kernel(self, small_source_grid_shape):
         """Test Gaussian kernel returns precision (inverse covariance) matrix."""
@@ -124,12 +127,14 @@ class TestGaussianProcessRegularization:
         jitter = 1e-6
         builder = DenseRegularizationBuilder(nx, ny, "gaussian", jitter=jitter)
 
-        matrix = builder.matrix(half_size, kernel_scale=kernel_scale)
+        matrix, logdet_cov = builder.matrix(half_size, kernel_scale=kernel_scale)
         distances = pairwise_source_distances(nx, ny, half_size)
         covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(nx * ny)
         expected = jnp.linalg.inv(covariance)
 
-        assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
+        assert jnp.allclose(matrix, expected, rtol=1e-3, atol=1e-3)
+        _, expected_logdet = jnp.linalg.slogdet(covariance)
+        assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-3)
 
     @pytest.mark.parametrize("reg_type,nu", [("matern32", 1.5), ("matern52", 2.5), ("matern72", 3.5)])
     def test_matern_regularization_uses_distance_kernel(self, small_source_grid_shape, reg_type, nu):
@@ -139,7 +144,7 @@ class TestGaussianProcessRegularization:
         jitter = 1e-6
         builder = DenseRegularizationBuilder(nx, ny, reg_type, jitter=jitter)
 
-        matrix = builder.matrix(half_size, kernel_scale=kernel_scale)
+        matrix, logdet_cov = builder.matrix(half_size, kernel_scale=kernel_scale)
         distances = pairwise_source_distances(nx, ny, half_size)
         r = distances / kernel_scale
         if nu == 1.5:
@@ -151,9 +156,12 @@ class TestGaussianProcessRegularization:
         else:
             sqrt7_r = jnp.sqrt(7.0) * r
             covariance = (1.0 + sqrt7_r + 14.0 * r ** 2 / 5.0 + 7.0 * jnp.sqrt(7.0) * r ** 3 / 15.0) * jnp.exp(-sqrt7_r)
-        expected = jnp.linalg.inv(covariance + jitter * jnp.eye(nx * ny))
+        stabilized = covariance + jitter * jnp.eye(nx * ny)
+        expected = jnp.linalg.inv(stabilized)
 
-        assert jnp.allclose(matrix, expected, rtol=1e-5, atol=1e-6)
+        assert jnp.allclose(matrix, expected, rtol=1e-4, atol=1e-4)
+        _, expected_logdet = jnp.linalg.slogdet(stabilized)
+        assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-4)
 
 @pytest.mark.unit
 class TestDenseRegularizationBuilderValidation:

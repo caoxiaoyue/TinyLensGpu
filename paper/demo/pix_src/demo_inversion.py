@@ -82,7 +82,7 @@ for LAMBDA in LAMBDA_LIST:
     d_vec  = np.array(prob_model.data_1d)  # shape (Nd,)
     sigma  = np.array(prob_model.noise_1d) # shape (Nd,)
 
-    reg_matrix = np.array(prob_model._regularization_matrix(source_half_size))
+    reg_matrix = np.array(prob_model._regularization_matrix(source_half_size)[0])
     import jax.numpy as jnp
     sp, _ = prob_model._solve_source(
         jnp.asarray(F), jnp.asarray(reg_matrix), jnp.asarray(LAMBDA)

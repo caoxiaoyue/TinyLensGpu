@@ -29,6 +29,7 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
@@ -37,7 +38,41 @@ from TinyLensGpu.utils import load_lens_data
 # True parameters (must match sim_data.py)
 # ------------------------------------------------------------------ #
 SIE_TRUE = dict(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+SRC_TRUE = dict(center_x=0.1, center_y=0.1)
 DPIX     = 0.05
+
+# ------------------------------------------------------------------ #
+# Solve true lensed image positions for the position likelihood
+# ------------------------------------------------------------------ #
+print("[0] Solving true lensed image positions ...")
+_true_mass = PhysicalModel(
+    lens_mass=[SIE(**SIE_TRUE)],
+    source_light=[],
+    lens_light=[],
+)
+_solver = PointSourceProbModel(
+    phys_model=_true_mass,
+    observed_positions=[[0.0, 0.0]],   # placeholder, not used for solving
+    position_sigma=[0.01],
+    source_x=SRC_TRUE["center_x"],
+    source_y=SRC_TRUE["center_y"],
+    source_position_fixed=True,
+    solver="optimization",
+    solver_config={
+        "initial_range": 3.0,
+        "n_x": 200,
+        "n_y": 200,
+        "k_keep": 30,
+        "num_iters": 20,
+        "tolerance": 5.0e-4,
+        "cluster_tol": 0.08,
+    },
+)
+_img_positions, _ = _solver.solve_image_positions()
+_img_positions = np.asarray(_img_positions)
+print(f"  Found {len(_img_positions)} lensed image positions:")
+for pos in _img_positions:
+    print(f"    ({pos[0]:.4f}, {pos[1]:.4f})")
 
 # ------------------------------------------------------------------ #
 # Data
@@ -74,15 +109,15 @@ sie = SIE(
 )
 
 pix_src = PixelizedSourceModel(
-    nx=40,
-    ny=40,
+    nx=25,
+    ny=25,
     regularization_type="matern32",
-    lambda_reg=ParamU("lambda_reg", 1.0,
-                      prior_type="log_uniform", prior_settings=[1e-3, 1e3],
-                      limits=[1e-6, 1e6]),
+    lambda_reg=ParamU("lambda_reg", 10.0,
+                      prior_type="log_uniform", prior_settings=[1e-2, 1e4],
+                      limits=[1e-2, 1e5]),
     kernel_scale=ParamU("kernel_scale", 0.3,
-                        prior_type="log_uniform", prior_settings=[0.01, 2.0],
-                        limits=[1e-3, 10.0]),
+                        prior_type="log_uniform", prior_settings=[0.02, 2.0],
+                        limits=[0.01, 5.0]),
 )
 
 phys_model = PhysicalModel(
@@ -100,6 +135,18 @@ pix_src.lambda_reg.to_dynamic()
 pix_src.kernel_scale.to_dynamic()
 
 # ------------------------------------------------------------------ #
+# Position likelihood: use the solved true image positions.
+# A correct lens mass model must map all these image-plane positions
+# back to the same source position; the penalty fires when the
+# max pairwise source-plane separation exceeds the threshold.
+# ------------------------------------------------------------------ #
+position_likelihood = {
+    'positions': _img_positions.tolist(),
+    'threshold_arcsec': 0.3,
+    'min_log_like': -1.0e10,
+}
+
+# ------------------------------------------------------------------ #
 # Probability model
 # ------------------------------------------------------------------ #
 prob_model = PixelizedImageProbModel(
@@ -110,6 +157,7 @@ prob_model = PixelizedImageProbModel(
     phys_model=phys_model,
     mask=mask,
     nsub=2,
+    position_likelihood=position_likelihood,
 )
 
 # ------------------------------------------------------------------ #
@@ -183,7 +231,8 @@ with open("output_matern32/fit_summary.csv", "w") as f:
 
 with gzip.open("output_matern32/fit_results.pkl.gz", "wb") as f:
     pickle.dump({"samples": samples, "weights": weights,
-                 "log_z": log_z, "param_names": param_names}, f)
+                 "log_z": log_z, "param_names": param_names,
+                 "image_positions": _img_positions}, f)
 
 # ------------------------------------------------------------------ #
 # Visualization: MAP source reconstruction
@@ -196,7 +245,7 @@ best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
     design_matrix, src_half_size = prob_model.sim_obj.design_matrix()
-    reg_matrix = prob_model._regularization_matrix(src_half_size)
+    reg_matrix, _ = prob_model._regularization_matrix(src_half_size)
     lam = jnp.asarray(pix_src.lambda_reg.value)
     source_pixels, _, _ = prob_model._solve_source(
         design_matrix, reg_matrix, lam
@@ -208,7 +257,7 @@ model_image      = np.zeros(image_data.shape)
 model_image[~mask] = model_1d
 resid_norm       = (image_data - model_image) / noise_map
 chi2_nu          = float(np.sum(resid_norm[~mask]**2) / (~mask).sum())
-source_image     = source_pixels_np.reshape(40, 40)
+source_image     = source_pixels_np.reshape(pix_src.ny, pix_src.nx)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,
@@ -246,7 +295,7 @@ axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
 plt.suptitle(
-    f"Fit: SIE + pix src (Matérn-3/2)  (θ_E={q50_list[0]:.3f}\", "
+    f"Fit: SIE + pix src (Matérn-3/2) + pos-like  (θ_E={q50_list[0]:.3f}\", "
     f"e1={q50_list[1]:.3f}, λ={lam_med:.2e}, ℓ={ks_med:.2f}\")",
     fontsize=12,
 )

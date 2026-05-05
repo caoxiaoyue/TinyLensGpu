@@ -95,7 +95,8 @@ class PixelizedImageProbModel(ck.Module):
         _exponent = {"zero-order": 0, "first-order": -2, "second-order": -4}.get(self.reg_type, None)
         self._logdet_H_scaling = _exponent * n_s if _exponent is not None else None
         if self._logdet_H_scaling is not None:
-            H_unit = jnp.asarray(self.reg_builder.matrix(1.0), dtype=self.image_data.dtype)
+            H_unit_raw, _ = self.reg_builder.matrix(1.0)
+            H_unit = jnp.asarray(H_unit_raw, dtype=self.image_data.dtype)
             sign_h, logdet_h_unit = jnp.linalg.slogdet(H_unit)
             self._logdet_H_unit = jnp.where(sign_h > 0.0, logdet_h_unit, -jnp.inf)
         else:
@@ -159,7 +160,7 @@ class PixelizedImageProbModel(ck.Module):
         """Evaluate log evidence for current parameter values."""
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         design_matrix, source_half_size = self.sim_obj.design_matrix()
-        reg_matrix = self._regularization_matrix(source_half_size)
+        reg_matrix, logdet_cov = self._regularization_matrix(source_half_size)
         source_pixels, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         resid = self.data_1d - design_matrix @ source_pixels
@@ -169,12 +170,13 @@ class PixelizedImageProbModel(ck.Module):
         # logdet curvature from Cholesky diagonal
         logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
 
-        # logdet reg matrix: analytical for finite-difference types, numeric otherwise
+        # logdet reg matrix: analytical for finite-difference types;
+        # for GP types use logdet_cov from _gp_matrix (no extra slogdet needed).
         if self._logdet_H_scaling is not None:
             logdet_h = self._logdet_H_unit + self._logdet_H_scaling * jnp.log(source_half_size)
         else:
-            sign_h, logdet_h_raw = jnp.linalg.slogdet(reg_matrix)
-            logdet_h = jnp.where(sign_h > 0.0, logdet_h_raw, -jnp.inf)
+            # GP types always return a non-None logdet_cov from _regularization_matrix.
+            logdet_h = -logdet_cov
 
         n_source = self.sim_obj.n_source_pixels
         n_data = self.data_1d.size
@@ -189,15 +191,26 @@ class PixelizedImageProbModel(ck.Module):
         )
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
 
-    def _regularization_matrix(self, source_half_size: Array | float) -> Array:
-        """Return the configured dense source regularization matrix."""
-        kernel_scale = None
+    def _regularization_matrix(self, source_half_size: Array | float) -> tuple[Array, Array | None]:
+        """Return (reg_matrix, logdet_covariance) for the configured regularization.
+
+        For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the Cholesky
+        factorization inside ``_gp_matrix`` — no extra ``slogdet`` needed.
+        For finite-difference types, ``logdet_covariance`` is ``None`` (the caller uses
+        the precomputed ``_logdet_H_unit`` / ``_logdet_H_scaling`` path instead).
+        """
         if self.reg_type in GP_REGULARIZATION_TYPES:
             kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
-        return jnp.asarray(
-            self.reg_builder.matrix(source_half_size, kernel_scale=kernel_scale),
+            precision, logdet_cov = self.reg_builder.matrix(
+                source_half_size, kernel_scale=kernel_scale
+            )
+            return jnp.asarray(precision, dtype=self.image_data.dtype), logdet_cov
+        reg_matrix_raw, _ = self.reg_builder.matrix(source_half_size)
+        reg_matrix = jnp.asarray(
+            reg_matrix_raw,
             dtype=self.image_data.dtype,
         )
+        return reg_matrix, None
 
     @ck.forward
     def forward_model(self, *, return_source: bool = False):
@@ -214,7 +227,7 @@ class PixelizedImageProbModel(ck.Module):
             Model image, optionally with solved source pixels.
         """
         design_matrix, source_half_size = self.sim_obj.design_matrix()
-        reg_matrix = self._regularization_matrix(source_half_size)
+        reg_matrix, _ = self._regularization_matrix(source_half_size)
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         source_pixels, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
