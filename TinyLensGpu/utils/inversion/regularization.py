@@ -77,6 +77,7 @@ class DenseRegularizationBuilder:
         self._dx_operator, self._dy_operator = self._build_first_difference_operators()
         self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
         self._unit_coordinates = self._build_unit_coordinates()
+        self._unit_distances = self._build_unit_distances()
 
     def matrix(self, half_size: float, *, kernel_scale: float | None = None):
         """Return the dense regularization matrix for a physical grid size.
@@ -230,6 +231,11 @@ class DenseRegularizationBuilder:
             axis=1,
         )
 
+    def _build_unit_distances(self):
+        """Return pairwise Euclidean distances on the unit half-size plane."""
+        delta = self._unit_coordinates[:, None, :] - self._unit_coordinates[None, :, :]
+        return jnp.sqrt(jnp.sum(delta**2, axis=-1))
+
     def _first_order_matrix(self, half_size: float):
         """Return spacing-scaled first-order gradient regularization."""
         dx = 2.0 * half_size / (self.nx - 1)
@@ -258,9 +264,7 @@ class DenseRegularizationBuilder:
             ``(precision, logdet_covariance)`` where precision is ``K^{-1}`` of shape
             ``(n_pixels, n_pixels)`` and ``logdet_covariance`` is the scalar ``log|K|``.
         """
-        coordinates = self._unit_coordinates * half_size
-        delta = coordinates[:, None, :] - coordinates[None, :, :]
-        distances = jnp.sqrt(jnp.sum(delta**2, axis=-1))
+        distances = self._unit_distances * half_size
         r = distances / kernel_scale
 
         if self.regularization_type == "exponential":
