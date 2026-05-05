@@ -562,9 +562,9 @@ def test_multiband_likelihood_returns_python_float() -> None:
     assert np.isclose(like, call_like)
 
 
-def test_multiband_nonfinite_joint_loglike_maps_to_negative_infinity() -> None:
+def test_multiband_nonfinite_joint_loglike_maps_to_finite_penalty() -> None:
     class _FakeBandModel:
-        def __init__(self, value) -> None:
+        def __init__(self, value: float) -> None:
             self._value = value
 
         def __call__(self):
@@ -584,8 +584,8 @@ def test_multiband_nonfinite_joint_loglike_maps_to_negative_infinity() -> None:
     object.__setattr__(model, "_band_identity_geometry", (True, True))
 
     joint_loglike = float(np.asarray(model()))
-    assert joint_loglike == float("-inf")
-    assert model.likelihood() == float("-inf")
+    assert joint_loglike == -1e10
+    assert model.likelihood() == -1e10
 
 
 def test_identical_bands_contribute_twice_to_joint_loglike() -> None:
