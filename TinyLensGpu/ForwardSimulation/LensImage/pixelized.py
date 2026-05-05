@@ -78,6 +78,23 @@ class PixelizedLensSimulator:
             self.flat_indices_sub = sim_config.flat_indices
             self.image_x_active_sub = jnp.asarray(sim_config.xgrid_sub_1d)
             self.image_y_active_sub = jnp.asarray(sim_config.ygrid_sub_1d)
+            # Precompute sub→native index mapping for _aggregate_mapping_to_native.
+            # Each sub-pixel maps to a native pixel; we store the native-pixel index
+            # relative to the active-pixel list so segment_sum can work directly on
+            # the (Nd_active,) output without allocating a full (npix*npix,) buffer.
+            npix = sim_config.npix
+            nsub = self.nsub
+            fis = self.flat_indices_sub          # sub-grid active flat indices
+            i_native = (fis // (npix * nsub)) // nsub
+            j_native = (fis % (npix * nsub)) // nsub
+            native_flat_all = i_native * npix + j_native  # native flat index (0..npix²-1)
+            # Map native flat index → position in the active-pixel list.
+            # flat_indices is sorted (from jnp.flatnonzero), so searchsorted
+            # gives the exact index of each native pixel in the active list.
+            self._agg_segment_ids = jnp.searchsorted(
+                self.flat_indices, native_flat_all
+            ).astype(jnp.int32)                 # shape (Nd_sub,)
+            self._agg_n_active = int(self.flat_indices.shape[0])
         else:
             self.image_shape_sub = self.image_shape
             self.flat_indices_sub = self.flat_indices
@@ -130,22 +147,14 @@ class PixelizedLensSimulator:
         Array
             Mapping matrix of shape (Nd, Ns) at native resolution.
         """
-        npix = self.sim_config.npix
-        nsub = self.nsub
-        n_source = self.n_source_pixels
-
-        flat_indices_sub = self.flat_indices_sub
-        i_sub = flat_indices_sub // (npix * nsub)
-        j_sub = flat_indices_sub % (npix * nsub)
-        i_native = i_sub // nsub
-        j_native = j_sub // nsub
-        native_flat = i_native * npix + j_native
-
-        mapping_native_full = jnp.zeros((npix * npix, n_source), dtype=mapping_matrix_sub.dtype)
-        mapping_native_full = mapping_native_full.at[native_flat].add(mapping_matrix_sub)
-        mapping_native_full = mapping_native_full / (nsub ** 2)
-
-        return mapping_native_full[self.flat_indices]
+        # Use precomputed segment IDs to sum sub-pixels into native active pixels
+        # directly, avoiding a full (npix*npix, Ns) scatter buffer.
+        summed = jax.ops.segment_sum(
+            mapping_matrix_sub,
+            self._agg_segment_ids,
+            num_segments=self._agg_n_active,
+        )
+        return summed / (self.nsub ** 2)
 
     def design_matrix(
         self,
