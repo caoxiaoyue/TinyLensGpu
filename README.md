@@ -6,14 +6,24 @@ On a consumer-grade RTX 4060 Ti GPU, TinyLensGpu can model a typical 200×200-pi
 
 We applied `TinyLensGpu` to uniformly model 1,000 mock lenses and 63 Hubble Space Telescope lenses, achieving strong performance in automated lens analysis. The fraction of catastrophic outliers, where automated modeling fails, is approximately 5–10%.
 
-Currently, `TinyLensGpu` can model the light distribution of both the lens and source galaxy using:
-- **Parametric models**: Sérsic, Gaussian, and multi-Gaussian expansion (MGE) models
+## Capabilities
 
-## 🆕 Programmatic API (v2.0)
+TinyLensGpu supports a range of modeling approaches, from classical parametric fitting to advanced pixel-based and basis-function reconstructions:
 
-TinyLensGpu now ships with a fully programmatic modeling API (see `paper/demo/*/run_model.py`) that provides:
+| Category | Public API | Demos | Description |
+|---|---|---|---|
+| **Parametric image modeling** | `ImageProbModel`, `PhysicalModel`, `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse` | `lens_only/`, `lens_src/`, `lens_only_plus_sky/`, `src_only/` | Standard lens/source image fitting with Sérsic, Gaussian, and MGE-style components, linear intensity solving, and vectorized likelihoods |
+| **Point source position modeling** | `PointSourceProbModel` | `point_source/` | Fits lensed image positions by solving the lens equation and matching predicted/observed image positions with permutation invariance |
+| **Multi-band fitting** | `MultiBandImageProbModel`, `BandImageData` | `lens_src_multiband/`, `lens_src_multiband_galfitm/` | Simultaneous `g/r/i` image fitting with shared physical parameters and band-specific data/PSFs/alignment |
+| **GALFITM-style wavelength evolution** | `MultiBandImageProbModel`, Chebyshev utilities | `lens_src_multiband_galfitm/` | Multi-band fitting where Sérsic radius and index evolve with wavelength via Chebyshev polynomials |
+| **Pixelated source modeling** | `PixelizedSourceModel`, `PixelizedImageProbModel` | `pix_src/` | Grid-based source reconstruction (e.g. 40×40) with Bayesian evidence and regularization (first-order, Matern32, Gaussian, etc.) |
+| **Shapelet source modeling** | `ShapeletBasisFunction`, `build_shapelet_set()` | `shapelet_src/` | Refregier (2003) shapelet basis reconstruction with analytically solved linear amplitudes; supports source-only or joint with lens light |
 
-- **ParamU-powered components** – All physical components (SIE, Shear, Sérsic, Gaussian, MGE) expose priors, bounds, and modes (dynamic/static/linear/pointer) through `ParamU`.
+## Programmatic API
+
+TinyLensGpu ships with a fully programmatic modeling API (see `paper/demo/*/run_model.py`) that provides:
+
+- **ParamU-powered components** – All physical components (SIE, Shear, Sérsic, Gaussian, MGE, Shapelet, Pixelized) expose priors, bounds, and modes (dynamic/static/linear/pointer) through `ParamU`.
 - **Direct Python configs** – Define complete models in Python; no YAML is required for new workflows.
 - **Vectorized likelihoods** – `ImageProbModel` + JAX `vmap` deliver 10–100× throughput for batched nested sampling.
 - **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
@@ -23,42 +33,37 @@ See [doc/GUIDE.md](doc/GUIDE.md) and the demos in `paper/demo` for detailed usag
 
 ## Installation
 
-```bash
-conda create -n tinylens_gpu python=3.11 #create a new conda environment
-sudo pacman -S cuda cudnn #for arch linux, install cuda and cudnn
-conda activate tinylens_gpu #activate the conda environment
-pip install -U "jax[cuda12]" #install jax with cuda 12 support
-pip install numba #install numba
-pip install nautilus-sampler dynesty
-pip install astropy matplotlib corner pyyaml
-conda install jupyter
-pip install "caskade[jax]"  # Required for  implementation
-git clone https://github.com/caoxiaoyue/TinyLensGpu #clone the TinyLensGpu repository, suppose you place it in the current directory
-conda develop TinyLensGpu #install TinyLensGpu in the conda environment
-```
-
-## Testing
-
-TinyLensGpu includes a comprehensive test suite with **90+ tests** covering all major functionality:
+It is recommended to install `TinyLensGpu` in an isolated environment (e.g., Conda). The software requires Python 3.10 or newer.
 
 ```bash
-# Run all tests
-pytest
+# 1. Create and activate a new conda environment
+conda create -n tinylens_gpu python=3.11
+conda activate tinylens_gpu
 
-# Run specific test suites
-pytest tests/test_caskade_models.py     # Caskade model implementations
-pytest tests/test_integration.py         # End-to-end integration
-pytest tests/test_mass_profile.py        # Parametric mass models
+# 2. Clone the repository
+git clone https://github.com/caoxiaoyue/TinyLensGpu.git
+cd TinyLensGpu
+
+# 3. Install the package and its dependencies
+pip install -e .
 ```
 
-## Usage (Programmatic API)
+If you plan to contribute to the codebase or run tests, you can install the development dependencies:
 
-Every demo under `paper/demo/*` contains a `run_model.py` that follows the same recipe:
+```bash
+pip install -e ".[dev]"
+```
+
+*Note: For GPU acceleration, the default installation automatically pulls `jax[cuda12]`. If you encounter issues with JAX and CUDA versions, please refer to the [JAX installation guide](https://jax.readthedocs.io/en/latest/installation.html).*
+
+## Quickstart
+
+Every demo under `paper/demo/*` follows the same recipe:
 
 1. **Load data** – `load_lens_data` wraps FITS image/noise/PSF loading and basic masking.
 2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
-3. **Select dynamic/static parameters** – Call `.to_dynamic()`, `.to_static(value)`, or rely on `.to_linear()` defaults for flux-like parameters.
-4. **Build physics + likelihood** – assemble `PhysicalModel(...)`, then construct `ImageProbModel(...)` with `dpix`, `nsub`, solver, and optional position likelihood.
+3. **Select dynamic/static parameters** – Call `.to_dynamic()`, `.to_static(value)`.
+4. **Build physics + likelihood** – Assemble `PhysicalModel(...)`, then construct `ImageProbModel(...)` with `dpix`, `nsub`, solver, and optional position likelihood.
 5. **Vectorize and sample** – Use `prob_model` directly as the likelihood object, then create `prior, prior_specs = make_prior_transformation(prob_model)` and `loglike = make_likelihood(prob_model, ...)`. Feed both into Nautilus/Dynesty.
 
 ### Minimal example
@@ -115,19 +120,108 @@ sampler = Sampler(prior, loglike, n_dim=len(prior_specs), n_live=200, vectorized
 sampler.run(verbose=True, n_eff=800)
 ```
 
-### Running the demos
+## Running the Demos
+
+All demos live under `paper/demo/`. Sampling-based demos write results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Inversion-based demos (pixelated/shapelet) write figures and JSON files.
+
+### Parametric lens light
+
+```bash
+cd TinyLensGpu/paper/demo/lens_only
+python run_model.py           # lens-only Sérsic fitting
+
+cd ../lens_only_mge
+python run_model.py           # lens-only MGE fitting
+
+cd ../lens_only_plus_sky
+python run_model.py           # lens light plus sky background
+
+cd ../lens_only_no_batch
+python run_model.py           # non-vectorized baseline
+```
+
+### Parametric lens + source
 
 ```bash
 cd TinyLensGpu/paper/demo/lens_src
-python run_model.py          # lens + source parametric example
+python run_model.py           # SIE + Sérsic source
 
 cd ../lens_src_mge
-python run_model.py          # MGE lens + source example
+python run_model.py           # lens/source fitting with MGE
+```
 
-Each demo writes results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Modify the scripts directly to experiment with priors, components, likelihood options, or sampler settings.
+### Source-only
+
+```bash
+cd TinyLensGpu/paper/demo/src_only
+python run_model.py           # source-only image likelihood
+
+cd ../src_only_poslike
+python run_model.py           # source-only with position likelihood constraint
+```
+
+### Point source position modeling
+
+```bash
+cd TinyLensGpu/paper/demo/point_source
+python sim_data.py && python run_model.py
+```
+
+### Multi-band fitting
+
+```bash
+cd TinyLensGpu/paper/demo/lens_src_multiband
+python sim_data.py && python run_model.py   # joint g/r/i fitting
+
+cd ../lens_src_multiband_galfitm
+python sim_data.py && python run_model.py   # Chebyshev wavelength evolution
+```
+
+### Pixelated source modeling
+
+```bash
+cd TinyLensGpu/paper/demo/pix_src
+python sim_data.py && python fit_lens_src.py
+```
+
+### Shapelet source modeling
+
+```bash
+cd TinyLensGpu/paper/demo/shapelet_src/src_light_only
+python sim_data.py && python single_step_inversion.py
+
+cd ../src_lens_light_joint
+python sim_data.py && python single_step_inversion.py          # joint MGE + shapelet
+python sim_data.py && python single_step_inversion_sersic_shapelet.py
+python sim_data.py && python single_step_inversion_mge_shapelet.py
+```
+
+## Testing
+
+TinyLensGpu includes a comprehensive test suite with **90+ tests** covering all major functionality:
+
+```bash
+# Run all tests
+pytest
+
+# Run specific test suites
+pytest tests/test_caskade_models.py     # Caskade model implementations
+pytest tests/test_integration.py         # End-to-end integration
+pytest tests/test_mass_profile.py        # Parametric mass models
+pytest tests/test_multiband_parametric.py   # Multi-band image models
+pytest tests/test_pixelized_inversion.py    # Pixelated source reconstruction
+pytest tests/test_point_source_model.py     # Point source position modeling
+```
+
+## Documentation
+
+- **[doc/GUIDE.md](doc/GUIDE.md)** – Authoritative guide for installation, quickstart, tests, and troubleshooting.
+- **paper/demo/** – Runnable examples; each subdirectory contains a `run_model.py` or `single_step_inversion.py` entry point.
 
 ## Citation
+
 If you find this work useful, please cite Cao et al. (2025). The BibTeX entry is provided below for your convenience.
+
 ```
 @ARTICLE{2025MNRAS.540.3121C,
        author = {{Cao}, Xiaoyue and {Li}, Ran and {Li}, Nan and {Chen}, Yun and {Li}, Rui and {Shan}, Huanyuan and {Li}, Tian},
@@ -147,6 +241,7 @@ archivePrefix = {arXiv},
       adsnote = {Provided by the SAO/NASA Astrophysics Data System}
 }
 ```
+
 Additionally, TinyLensGpu has benefited from several other open-source lens modeling projects. Please consider crediting them in your work as well:
 - [gigalens](https://github.com/giga-lens/gigalens)
 - [PyAutoLens](https://github.com/Jammy2211/PyAutoLens)

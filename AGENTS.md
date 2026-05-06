@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-21 Asia/Shanghai
-**Commit:** 38bdf5c
+**Generated:** 2026-05-06 Asia/Shanghai
+**Commit:** 13aa053
 **Branch:** main
 
 ## OVERVIEW
@@ -67,7 +67,6 @@ TinyLensGpu is a JAX/Caskade strong-lensing library. Core work is programmatic P
 
 ## UNIQUE STYLES
 - Architecture is pipeline-shaped: `PhysicalModel -> ForwardSimulation -> ObservationModel -> Inference`.
-- Tests are flat, not mirrored by subpackage, but they still map tightly onto source subsystems.
 - Tests are flat, not mirrored by subpackage, but they still map tightly onto source subsystems.
 
 ## COMMANDS
