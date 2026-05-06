@@ -22,6 +22,7 @@ os.chdir(Path(__file__).parent)
 
 import numpy as np
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
@@ -247,16 +248,27 @@ with ck.ActiveContext(prob_model):
     design_matrix, src_half_size = prob_model.sim_obj.design_matrix()
     reg_matrix, _ = prob_model._regularization_matrix(src_half_size)
     lam = jnp.asarray(pix_src.lambda_reg.value)
-    source_pixels, _, _ = prob_model._solve_source(
+    source_pixels, chol, curvature = prob_model._solve_source(
         design_matrix, reg_matrix, lam
     )
+    
+    # Calculate effective degrees of freedom (N_d - N_eff)
+    inv_F = jsl.cho_solve((chol, True), jnp.eye(curvature.shape[0]))
+    ATA = curvature - lam * reg_matrix
+    N_eff = float(jnp.trace(inv_F @ ATA))
 
 source_pixels_np = np.array(source_pixels)
 model_1d         = np.array(design_matrix @ source_pixels)
 model_image      = np.zeros(image_data.shape)
 model_image[~mask] = model_1d
 resid_norm       = (image_data - model_image) / noise_map
-chi2_nu          = float(np.sum(resid_norm[~mask]**2) / (~mask).sum())
+
+# Total chi-square and reduced chi-square
+chi2             = float(np.sum(resid_norm[~mask]**2))
+N_d              = int((~mask).sum())
+dof              = N_d - N_eff
+chi2_nu          = chi2 / dof if dof > 0 else 0.0
+
 source_image     = source_pixels_np.reshape(pix_src.ny, pix_src.nx)
 
 npix   = image_data.shape[0]
