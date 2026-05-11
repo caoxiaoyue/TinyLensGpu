@@ -1,16 +1,17 @@
 """
-Four-stage inference pipeline for the pix_src_pipe demo.
+Five-stage inference pipeline for the pix_src_pipe demo.
 
 Stage a : SIE + shear + MGE lens light + MGE source light (uniform priors)
 Stage b : build an arc feature mask from stage-a residuals
-Stage c : SIE + shear + fixed MGE lens light + pixelized source (Gaussian
-          priors from stage a, + log-uniform on lambda_reg)
+Stage l : arc-masked MGE lens light refinement (Gaussian priors from stage a)
+Stage c : SIE + shear + pixelized source (Gaussian priors from stage a,
+          + log-uniform on lambda_reg)
 Stage d : EPL + shear + pixelized source, with lambda_reg fixed to the stage-c
           median; all shared mass/shear params use Gaussian priors from stage c,
           and EPL.gamma is sampled with an explicit prior.
 
 Each stage pickles its posterior samples/weights to
-``output/stage_{a,c,d}.pkl`` and is re-runnable via ``--skip-done``.
+``output/stage_{a,l,c,d}.pkl`` and is re-runnable via ``--skip-done``.
 """
 
 from __future__ import annotations
@@ -296,6 +297,179 @@ def run_stage_b(image_data, noise_map, lens_light_model):
     plt.savefig(OUT_DIR / "stage_b_mask.png", dpi=120, bbox_inches="tight")
     plt.close(fig)
     return feature_mask
+
+
+# ------------------------------------------------------------------ #
+# Stage L — arc-masked MGE lens light refinement
+# ------------------------------------------------------------------ #
+def build_stage_new_likelihood(
+    image_data,
+    noise_map,
+    psf_kernel,
+    feature_mask,
+    samples_a,
+    weights_a,
+    names_a,
+):
+    """
+    Build a lens-light-only likelihood using Gaussian priors from stage a.
+
+    The arc region (``feature_mask == False``) is excluded so the fit is
+    driven only by the clean lens-light pixels, yielding a better
+    lens-light subtraction for the subsequent pixelized-source stages.
+    """
+    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
+
+    # Lens light geometry — Gaussian priors from stage a posterior
+    cx_l = passer.gaussian(
+        "center_x_lens", model="Gaussian", attr="center_x", limits=[-1.0, 1.0]
+    )
+    cy_l = passer.gaussian(
+        "center_y_lens", model="Gaussian", attr="center_y", limits=[-1.0, 1.0]
+    )
+    e1_l = passer.gaussian(
+        "e1_lens", model="Gaussian", attr="e1", limits=[-1.0, 1.0]
+    )
+    e2_l = passer.gaussian(
+        "e2_lens", model="Gaussian", attr="e2", limits=[-1.0, 1.0]
+    )
+
+    # MGE lens light — same structure as stage a
+    N_ll = 20
+    sigmas_ll = 10 ** np.linspace(-2.0, np.log10(3.0), N_ll)
+    lens_gaussians = []
+    for i, s in enumerate(sigmas_ll):
+        g = GaussianEllipse(
+            sigma=ParamU(f"sigma_lens_{i}", float(s)),
+            center_x=cx_l,
+            center_y=cy_l,
+            e1=e1_l,
+            e2=e2_l,
+            flux=ParamU(f"flux_lens_{i}", 1.0),
+        )
+        g.sigma.to_static(float(s))
+        g.flux.to_static(1.0)
+        lens_gaussians.append(g)
+    cx_l.to_dynamic()
+    cy_l.to_dynamic()
+    e1_l.to_dynamic()
+    e2_l.to_dynamic()
+
+    # Invert mask: feature_mask has True = EXCLUDED; stage L wants to
+    # exclude the arc (where feature_mask is False) and keep everything else.
+    lens_light_mask = ~feature_mask
+
+    phys = PhysicalModel(
+        lens_mass=[],
+        source_light=[],
+        lens_light=lens_gaussians,
+    )
+    return ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=DPIX,
+        nsub=NSUB,
+        phys_model=phys,
+        use_linear=True,
+        solver_type="nnls",
+        mask=lens_light_mask,
+    )
+
+
+def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
+                  samples_a, weights_a, names_a):
+    print("\n" + "=" * 60)
+    print(" Stage L : arc-masked MGE lens light refinement")
+    print("=" * 60)
+    n_excluded = int(feature_mask.sum())
+    n_kept = feature_mask.size - n_excluded
+    print(f"[stage-L] arc pixels excluded = {n_excluded} / {feature_mask.size}")
+    print(f"[stage-L] lens-light pixels kept  = {n_kept} / {feature_mask.size}")
+
+    likelihood = build_stage_new_likelihood(
+        image_data,
+        noise_map,
+        psf_kernel,
+        feature_mask,
+        samples_a,
+        weights_a,
+        names_a,
+    )
+    samples, weights, names, logz = _run_sampler(
+        likelihood,
+        n_live=200,
+        n_eff=800,
+        tag="stage-L",
+        vectorized=False,
+    )
+    _print_summary("stage-L", samples, weights, names)
+
+    medians = _posterior_median(samples, weights, names)
+    q50 = [medians[n] for n in names]
+
+    # Evaluate lens-light model image at median (needed for stage C/D).
+    likelihood.set_values(q50)
+    fwd = likelihood.forward_model(
+        use_linear=True,
+        return_intensity=True,
+        ret_each_plane=True,
+        image_map=likelihood.image_data,
+        noise_map=likelihood.noise_map,
+    )
+    lens_image_model = np.asarray(fwd[1])
+
+    _dump_stage(
+        "l",
+        samples,
+        weights,
+        names,
+        logz,
+        extra=dict(
+            medians=medians,
+            lens_light_model=lens_image_model,
+        ),
+    )
+
+    try:
+        plot_model_results(
+            likelihood,
+            jnp.asarray(q50),
+            save_path=str(OUT_DIR / "stage_l_model.png"),
+            title="Stage L : arc-masked MGE lens light",
+        )
+    except Exception as err:
+        print(f"[stage-L] plotting failed (non-fatal): {err}")
+
+    # 1×4 diagnostic: true lens light vs. fit
+    try:
+        lens_light_true = np.asarray(fits.getdata(DATA_DIR / "lens_light_true.fits"))
+        diff = lens_light_true - lens_image_model
+        diff_norm = diff / noise_map
+        npix = image_data.shape[0]
+        ext = [-npix * DPIX / 2, npix * DPIX / 2] * 2
+
+        fig, axes = plt.subplots(1, 4, figsize=(18, 4.2))
+        for ax, img, title, kw in [
+            (axes[0], lens_light_true, "True lens light (X)", dict(vmin=0, cmap="viridis")),
+            (axes[1], lens_image_model,  "Fitted lens light (M)", dict(vmin=0, cmap="viridis")),
+            (axes[2], diff,               "Residual (X - M)", dict(cmap="RdBu_r")),
+            (axes[3], diff_norm,          "(X - M) / noise", dict(vmin=-5, vmax=5, cmap="RdBu_r")),
+        ]:
+            im = ax.imshow(img, origin="lower", extent=ext, **kw)
+            ax.set_title(title, fontsize=11)
+            ax.set_xlabel("arcsec")
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        axes[0].set_ylabel("arcsec")
+        plt.suptitle("Stage L : lens light diagnostic", fontsize=11)
+        plt.tight_layout()
+        plt.savefig(OUT_DIR / "stage_l_diagnostic.png", dpi=120, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[stage-L] diagnostic plot saved to {OUT_DIR / 'stage_l_diagnostic.png'}")
+    except Exception as err:
+        print(f"[stage-L] diagnostic plot failed (non-fatal): {err}")
+
+    return samples, weights, names, medians, lens_image_model
 
 
 # ------------------------------------------------------------------ #
@@ -702,6 +876,19 @@ def main(skip_done: bool = False):
 
     # ---- stage B ---------------------------------------------------- #
     feature_mask = run_stage_b(image_data, noise_map, lens_light_model)
+
+    # ---- stage L ---------------------------------------------------- #
+    if skip_done and (OUT_DIR / "stage_l.pkl").exists():
+        print("[stage-L] loading cached output/stage_l.pkl")
+        d = _load_stage("l")
+        samples_l, weights_l, names_l = d["samples"], d["weights"], d["param_names"]
+        medians_l = d["extra"]["medians"]
+        lens_light_model = d["extra"]["lens_light_model"]
+    else:
+        samples_l, weights_l, names_l, medians_l, lens_light_model = run_stage_new(
+            image_data, noise_map, psf_kernel, feature_mask,
+            samples_a, weights_a, names_a,
+        )
 
     lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)

@@ -115,6 +115,18 @@ os.makedirs("data", exist_ok=True)
 plt.savefig("data/sim_preview.png", dpi=120, bbox_inches="tight")
 
 # ------------------------------------------------------------------ #
+# True lens light (noiseless, PSF-convolved) for Stage L diagnostics
+# ------------------------------------------------------------------ #
+phys_model_ll = PhysicalModel(
+    lens_mass=[],
+    source_light=[],
+    lens_light=[SersicEllipse(**LENS_LIGHT_TRUE)],
+)
+sim_obj_ll = LensSimulator(phys_model_ll, sim_config)
+img_lens_light_ideal = np.asarray(sim_obj_ll.simulate())
+fits.writeto("data/lens_light_true.fits", img_lens_light_ideal.astype(np.float32), overwrite=True)
+
+# ------------------------------------------------------------------ #
 # Save FITS
 # ------------------------------------------------------------------ #
 fits.writeto("data/image.fits", img_noisy.astype(np.float32), overwrite=True)
