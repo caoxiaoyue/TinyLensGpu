@@ -88,6 +88,53 @@ class TestShear:
         assert jnp.max(jnp.abs(alpha_y)) > 0, "Shear deflection y should be non-zero"
 
 
+class TestPhotometry:
+    """Test photometry utility functions for magnitude conversions."""
+
+    def test_mag2cps_zero_point(self):
+        """At zero point, magnitude should give 1 count per second."""
+        from TinyLensGpu.utils.photometry import mag2cps
+
+        result = mag2cps(22.0, 22.0)
+        assert jnp.isclose(result, 1.0), "mag2cps at zero point should be 1.0"
+
+    def test_mag2cps_brighter(self):
+        """Brighter object (smaller magnitude) should give more counts."""
+        from TinyLensGpu.utils.photometry import mag2cps
+
+        result = mag2cps(21.0, 22.0)
+        expected = 10.0 ** 0.4  # 1 magnitude brighter = 10^(0.4) ~ 2.512x
+        assert jnp.isclose(result, expected, rtol=1e-6), \
+            f"mag2cps(21, 22) should be ~{expected:.4f}, got {result}"
+
+    def test_mag2cps_fainter(self):
+        """Fainter object (larger magnitude) should give fewer counts."""
+        from TinyLensGpu.utils.photometry import mag2cps
+
+        result = mag2cps(23.0, 22.0)
+        expected = 10.0 ** (-0.4)  # 1 magnitude fainter = 10^(-0.4) ~ 0.398x
+        assert jnp.isclose(result, expected, rtol=1e-6), \
+            f"mag2cps(23, 22) should be ~{expected:.4f}, got {result}"
+
+    def test_cps2mag_roundtrip(self):
+        """cps2mag should invert mag2cps exactly."""
+        from TinyLensGpu.utils.photometry import mag2cps, cps2mag
+
+        test_mags = jnp.array([20.0, 22.0, 24.0, 18.5, 25.3])
+        zp = 22.0
+        cps = mag2cps(test_mags, zp)
+        recovered = cps2mag(cps, zp)
+        assert jnp.allclose(test_mags, recovered, rtol=1e-6), \
+            "cps2mag(mag2cps(m, zp), zp) should recover m exactly"
+
+    def test_cps2mag_zero_point(self):
+        """1 cps at zero point should equal the zero point magnitude."""
+        from TinyLensGpu.utils.photometry import cps2mag
+
+        result = cps2mag(1.0, 22.0)
+        assert jnp.isclose(result, 22.0), "cps2mag(1.0, 22.0) should be 22.0"
+
+
 class TestSersic:
     """Test Sersic light profile"""
 
@@ -124,6 +171,137 @@ class TestSersic:
         assert brightness.shape == X.shape, "Sersic brightness shape mismatch"
         assert jnp.max(brightness) > 0, "Sersic brightness should be positive"
         assert jnp.min(brightness) >= 0, "Sersic brightness should be non-negative"
+
+    def test_sersic_magnitude_constructor(self):
+        """Test that Sersic can be constructed with magnitude instead of Ie."""
+        R_sersic, n_sersic = 1.0, 4.0
+        e1, e2 = 0.1, -0.05
+        center_x, center_y = 0.0, 0.0
+        magnitude = 22.0
+        mag_zero_point = 22.0
+
+        # Should not raise
+        sersic = Sersic(
+            R_sersic=R_sersic, n_sersic=n_sersic,
+            e1=e1, e2=e2, center_x=center_x, center_y=center_y,
+            magnitude=magnitude, mag_zero_point=mag_zero_point
+        )
+        assert hasattr(sersic, 'magnitude'), "Sersic should have magnitude attribute"
+        assert hasattr(sersic, 'mag_zero_point'), "Sersic should have mag_zero_point attribute"
+
+    def test_sersic_mutual_exclusion(self):
+        """Test that Ie and magnitude cannot both be provided."""
+        with pytest.raises(ValueError, match="exactly one"):
+            Sersic(
+                R_sersic=1.0, n_sersic=4.0,
+                e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+                Ie=1.0, magnitude=22.0
+            )
+
+    def test_sersic_neither_brightness_param(self):
+        """Test that at least one brightness param (Ie or magnitude) must be given."""
+        with pytest.raises(ValueError, match="exactly one"):
+            Sersic(
+                R_sersic=1.0, n_sersic=4.0,
+                e1=0.0, e2=0.0, center_x=0.0, center_y=0.0
+            )
+
+    def test_sersic_magnitude_brightness_equivalence(self):
+        """Test that magnitude-based Sersic gives same brightness as equivalent Ie."""
+        # Parameters
+        R_sersic, n_sersic = 1.0, 4.0
+        e1, e2 = 0.1, -0.05
+        center_x, center_y = 0.0, 0.0
+        magnitude = 22.0
+        mag_zero_point = 22.0
+
+        # Create test grid
+        x = jnp.linspace(-3, 3, 50)
+        y = jnp.linspace(-3, 3, 50)
+        X, Y = jnp.meshgrid(x, y)
+
+        # Build magnitude-based Sersic
+        sersic_mag = Sersic(
+            R_sersic=R_sersic, n_sersic=n_sersic,
+            e1=e1, e2=e2, center_x=center_x, center_y=center_y,
+            magnitude=magnitude, mag_zero_point=mag_zero_point
+        )
+        sersic_mag.R_sersic.to_static()
+        sersic_mag.n_sersic.to_static()
+        sersic_mag.e1.to_static()
+        sersic_mag.e2.to_static()
+        sersic_mag.center_x.to_static()
+        sersic_mag.center_y.to_static()
+        sersic_mag.magnitude.to_static()
+
+        brightness_mag = sersic_mag.light(X, Y)
+
+        # Compute equivalent Ie using the class method
+        Ie_equivalent = Sersic.Ie_from_magnitude(
+            magnitude, mag_zero_point, R_sersic, n_sersic
+        )
+
+        # Build Ie-based Sersic with the equivalent Ie
+        sersic_ie = Sersic(
+            R_sersic=R_sersic, n_sersic=n_sersic,
+            e1=e1, e2=e2, center_x=center_x, center_y=center_y, Ie=Ie_equivalent
+        )
+        sersic_ie.R_sersic.to_static()
+        sersic_ie.n_sersic.to_static()
+        sersic_ie.e1.to_static()
+        sersic_ie.e2.to_static()
+        sersic_ie.center_x.to_static()
+        sersic_ie.center_y.to_static()
+        sersic_ie.Ie.to_static()
+
+        brightness_ie = sersic_ie.light(X, Y)
+
+        assert jnp.allclose(brightness_mag, brightness_ie, rtol=1e-5), \
+            "Magnitude-based and Ie-based Sersic should produce identical brightness"
+
+    def test_sersic_total_flux_analytic(self):
+        """Test that total_flux_analytic is consistent with the Sersic formula."""
+        R_sersic, n_sersic = 1.0, 4.0
+        Ie = 1.0
+
+        # Compute total flux analytically
+        F_analytic = Sersic.total_flux_analytic_from(
+            R_sersic=R_sersic, Ie=Ie, n_sersic=n_sersic
+        )
+
+        # The result should be positive and finite
+        assert F_analytic > 0, "Total flux should be positive"
+        assert jnp.isfinite(F_analytic), "Total flux should be finite"
+
+        # Test linear scaling: doubling Ie should double total flux
+        F_doubled = Sersic.total_flux_analytic_from(
+            R_sersic=R_sersic, Ie=2.0, n_sersic=n_sersic
+        )
+        assert jnp.isclose(F_doubled, 2.0 * F_analytic, rtol=1e-5), \
+            "Total flux should scale linearly with Ie"
+
+    def test_sersic_magnitude_roundtrip(self):
+        """Test that converting magnitude -> Ie -> total_flux is consistent."""
+        R_sersic, n_sersic = 1.0, 4.0
+        magnitude = 22.0
+        mag_zero_point = 22.0
+
+        # Convert magnitude to Ie
+        Ie = Sersic.Ie_from_magnitude(
+            magnitude, mag_zero_point, R_sersic, n_sersic
+        )
+
+        # Compute total flux from this Ie
+        F_from_Ie = Sersic.total_flux_analytic_from(
+            R_sersic=R_sersic, Ie=Ie, n_sersic=n_sersic
+        )
+
+        # Direct magnitude -> cps
+        from TinyLensGpu.utils.photometry import mag2cps
+        F_direct = mag2cps(magnitude, mag_zero_point)
+
+        assert jnp.isclose(F_from_Ie, F_direct, rtol=1e-5), \
+            "Flux from Ie should match direct mag2cps conversion"
 
 
 class TestGaussian:
