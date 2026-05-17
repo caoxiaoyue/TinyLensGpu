@@ -107,7 +107,7 @@ if __name__ == "__main__":
         nsub=4,
         phys_model=phys_model,
         use_linear=True,
-        solver_type='nnls',
+        solver_type='normal',
         mask=mask,
     )
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
         n_dim=len(param_names),
         n_live=200,
         vectorized=True,
-        n_batch=200,
+        n_batch=10,
     )
     sampler.run(verbose=True, n_eff=800)
     end_time = time.time()
@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
     # 8. Model median (including linear parameters)
     model_median = likelihood.get_linear_solved_params(q50_list)
-    print(f"\nPosterior median with {len(model_median)} linear-solved amplitudes.")
+    print(f"\nPosterior median with linear-solved amplitudes: {model_median}")
 
     print("\n" + "=" * 60)
     print("Inference Complete!")

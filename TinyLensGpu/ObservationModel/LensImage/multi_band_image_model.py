@@ -382,18 +382,23 @@ class MultiBandImageProbModel(ck.Module):
         n_src = len(band_model.phys_model.source_light)
         n_lens = len(band_model.phys_model.lens_light)
 
-        def update_intensity_param(module: Any, value: Any) -> None:
+        def update_intensity_param(module: Any, value: Any, prefix: str) -> None:
             for name in ["Ie", "amp", "intensity", "I0", "flux"]:
                 if hasattr(module, name):
                     param = getattr(module, name)
-                    params[param.name] = value
+                    mod_name = getattr(module, '__name__', prefix)
+                    if param.name.startswith(mod_name):
+                        key = param.name
+                    else:
+                        key = f"{mod_name}_{param.name}"
+                    params[key] = value
                     return
 
         for i in range(n_src):
-            update_intensity_param(band_model.phys_model.source_light[i], intensity_array[i])
+            update_intensity_param(band_model.phys_model.source_light[i], intensity_array[i], f"source_light_{i}")
 
         for i in range(n_lens):
-            update_intensity_param(band_model.phys_model.lens_light[i], intensity_array[n_src + i])
+            update_intensity_param(band_model.phys_model.lens_light[i], intensity_array[n_src + i], f"lens_light_{i}")
 
         return params
 

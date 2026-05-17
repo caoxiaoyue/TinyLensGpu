@@ -374,7 +374,7 @@ class TestBsplineMultipoleIntegration:
         prob_model, _, _ = self._build_prob_model(solver_type="nnls")
         solved_params = prob_model.get_linear_solved_params([0.0, 0.0, 0.0, 0.0])
 
-        amp_values = [v for name, v in solved_params.items() if name == "amp"]
+        amp_values = [v for name, v in solved_params.items() if name.endswith("_amp")]
         assert len(amp_values) > 0
         for amp in amp_values:
             assert jnp.all(jnp.asarray(amp) >= -1e-10)

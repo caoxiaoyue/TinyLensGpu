@@ -565,9 +565,9 @@ class TestProbModelIntegration:
 
         solved_params = prob_model.get_linear_solved_params({})
 
-        assert np.isclose(solved_params[fitted_sersic.Ie.name], true_ie, rtol=1e-4, atol=5e-4)
+        assert np.isclose(solved_params[f"lens_light_0_{fitted_sersic.Ie.name}"], true_ie, rtol=1e-4, atol=5e-4)
         assert np.isclose(
-            solved_params[fitted_background.intensity.name],
+            solved_params[f"lens_light_1_{fitted_background.intensity.name}"],
             true_intensity,
             rtol=1e-4,
             atol=5e-4,
@@ -957,8 +957,8 @@ class TestMultiBandIntegration:
         joint_like = multi_model.likelihood()
 
         assert np.isfinite(joint_like)
-        assert np.isclose(solved["g"]["g_Ie_fit"], true_ie_g, rtol=1e-4, atol=5e-4)
-        assert np.isclose(solved["r"]["r_Ie_fit"], true_ie_r, rtol=1e-4, atol=5e-4)
+        assert np.isclose(solved["g"]["lens_light_0_g_Ie_fit"], true_ie_g, rtol=1e-4, atol=5e-4)
+        assert np.isclose(solved["r"]["lens_light_0_r_Ie_fit"], true_ie_r, rtol=1e-4, atol=5e-4)
 
     def test_multiband_identical_bands_double_count(self):
         """Adding identical bands should double the likelihood contribution."""

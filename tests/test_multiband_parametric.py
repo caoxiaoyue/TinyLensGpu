@@ -627,10 +627,10 @@ def test_per_band_linear_params_are_band_scoped() -> None:
 
     solved = model.get_linear_solved_params(theta.tolist())
 
-    assert "g_Ie_src" in solved["g"]
-    assert "r_Ie_src" in solved["r"]
-    assert "g_Ie_src" not in solved["r"]
-    assert "r_Ie_src" not in solved["g"]
+    assert "source_light_0_g_Ie_src" in solved["g"]
+    assert "source_light_0_r_Ie_src" in solved["r"]
+    assert "source_light_0_g_Ie_src" not in solved["r"]
+    assert "source_light_0_r_Ie_src" not in solved["g"]
 
 
 def test_get_linear_solved_params_returns_nested_band_mapping() -> None:
@@ -807,23 +807,23 @@ def test_demo_parameter_names_are_band_scoped_for_linear_terms() -> None:
     solved = model.get_linear_solved_params(theta.tolist())
 
     # Each band has its own band-prefixed linear param
-    assert "g_Ie_src" in solved["g"]
-    assert "r_Ie_src" in solved["r"]
-    assert "i_Ie_src" in solved["i"]
+    assert "source_light_0_g_Ie_src" in solved["g"]
+    assert "source_light_0_r_Ie_src" in solved["r"]
+    assert "source_light_0_i_Ie_src" in solved["i"]
 
     # No cross-band leakage
-    assert "g_Ie_src" not in solved["r"]
-    assert "g_Ie_src" not in solved["i"]
-    assert "r_Ie_src" not in solved["g"]
-    assert "r_Ie_src" not in solved["i"]
-    assert "i_Ie_src" not in solved["g"]
-    assert "i_Ie_src" not in solved["r"]
+    assert "source_light_0_g_Ie_src" not in solved["r"]
+    assert "source_light_0_g_Ie_src" not in solved["i"]
+    assert "source_light_0_r_Ie_src" not in solved["g"]
+    assert "source_light_0_r_Ie_src" not in solved["i"]
+    assert "source_light_0_i_Ie_src" not in solved["g"]
+    assert "source_light_0_i_Ie_src" not in solved["r"]
 
     # Non-linear params (like center_x) may legitimately appear across bands;
     # only band-prefixed linear terms must not collide
-    g_linear = {k for k in solved["g"] if k.startswith("g_")}
-    r_linear = {k for k in solved["r"] if k.startswith("r_")}
-    i_linear = {k for k in solved["i"] if k.startswith("i_")}
+    g_linear = {k for k in solved["g"] if k.startswith("source_light_0_g_")}
+    r_linear = {k for k in solved["r"] if k.startswith("source_light_0_r_")}
+    i_linear = {k for k in solved["i"] if k.startswith("source_light_0_i_")}
 
     assert g_linear.isdisjoint(r_linear), "g-band and r-band linear params must not collide"
     assert g_linear.isdisjoint(i_linear), "g-band and i-band linear params must not collide"
