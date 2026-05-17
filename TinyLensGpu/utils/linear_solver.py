@@ -25,9 +25,10 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
 
     tolerance = epsilon * n
     max_repetitions = 5
+    eye = jnp.eye(n, dtype=ZTZ.dtype)
 
     def body_fun(state):
-        d, s, P, w, no_update, _ = state
+        d, s, P, w, no_update, outer_iter = state
         current_P = P
 
         # B2 + B3: Move the element in active set with largest value of w into the passive set
@@ -35,32 +36,32 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         P = P.at[idx].set(True)
 
         # B4: Set s to the least squares solution along the passive set
-        def masked_lstsq(ZTZ, ZTx, P):
-            mask = P.astype(ZTZ.dtype)
-            eye = jnp.eye(ZTZ.shape[0], dtype=ZTZ.dtype)
-            ZTZ_masked = ZTZ * (mask[None, :] * mask[:, None]) + eye * (1.0 - mask[None, :] * mask[:, None])
-            ZTx_masked = ZTx * mask
-            return jnp.linalg.solve(ZTZ_masked, ZTx_masked)
-        s = masked_lstsq(ZTZ, ZTx, P)
+        def masked_lstsq(P_mask):
+            mask_2d = P_mask[:, None] & P_mask[None, :]
+            ZTZ_masked = jnp.where(mask_2d, ZTZ, eye)
+            ZTx_masked = jnp.where(P_mask, ZTx, 0.0)
+            return jax.scipy.linalg.solve(ZTZ_masked, ZTx_masked, assume_a='pos')
+            
+        s = masked_lstsq(P)
 
         # C1: Loop until all s[P] > tolerance
         def c1_cond_fn(carry):
-            s, d, P = carry
-            return jnp.any(P) & (jnp.min(jnp.where(P, s, jnp.inf)) <= tolerance)
+            s, d, P, inner_iter = carry
+            return jnp.any(P & (s <= tolerance)) & (inner_iter < 5 * n)
 
         def c1_body_fn(carry):
-            s, d, P = carry
+            s, d, P, inner_iter = carry
             q = P & (s <= tolerance)
             safe = jnp.where(q, d / (d - s + 1e-12), jnp.inf)
             alpha = jnp.min(safe)
             alpha = jnp.where(jnp.isfinite(alpha), alpha, 0.0)
+            alpha = jnp.clip(alpha, 0.0, 1.0)
             d = d + alpha * (s - d)
             P = P & (d > tolerance)
-            s = masked_lstsq(ZTZ, ZTx, P)
-            s = s * P.astype(s.dtype)
-            return (s, d, P)
+            s = jnp.where(P, masked_lstsq(P), 0.0)
+            return (s, d, P, inner_iter + 1)
 
-        s, d, P = jax.lax.while_loop(c1_cond_fn, c1_body_fn, (s, d, P))
+        s, d, P, _ = jax.lax.while_loop(c1_cond_fn, c1_body_fn, (s, d, P, 0))
 
         # B5: d = s
         d = s
@@ -68,11 +69,11 @@ def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Arra
         w = ZTx - ZTZ @ d
 
         no_update = jnp.where(jnp.all(current_P == P), no_update + 1, 0)
-        return (d, s, P, w, no_update, 0)
+        return (d, s, P, w, no_update, outer_iter + 1)
 
     def cond_fun(state):
-        d, s, P, w, no_update, _ = state
-        return (~jnp.all(P)) & (jnp.max(jnp.where(~P, w, -jnp.inf)) > tolerance) & (no_update < max_repetitions)
+        d, s, P, w, no_update, outer_iter = state
+        return jnp.any(~P & (w > tolerance)) & (no_update < max_repetitions) & (outer_iter < 5 * n)
 
     P = jnp.zeros(n, dtype=bool)
     d = jnp.zeros(n, dtype=Z.dtype)

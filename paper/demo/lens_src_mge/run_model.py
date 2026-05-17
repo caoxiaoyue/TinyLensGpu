@@ -70,7 +70,7 @@ if __name__ == "__main__":
     
     # Build MGE source light model
     print("Building MGE source light model...")
-    N_gaussians_src = 10
+    N_gaussians_src = 20
     sigma_list_src = 10**(np.linspace(-2.0, np.log10(1.0), N_gaussians_src))
     
     # Create shared geometric parameters for source MGE
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     
     # Build MGE lens light model
     print("Building MGE lens light model...")
-    N_gaussians_lens = 10
+    N_gaussians_lens = 20
     sigma_list_lens = 10**(np.linspace(-2.0, np.log10(3.0), N_gaussians_lens))
     
     # Create shared geometric parameters for MGE
