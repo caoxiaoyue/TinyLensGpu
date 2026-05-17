@@ -132,7 +132,17 @@ if __name__ == "__main__":
     
     q16_list, q50_list, q84_list = [], [], []
     for i, name in enumerate(param_names):
-        q16, q50, q84 = jnp.percentile(samples[:, i], jnp.array([16, 50, 84]))
+        # Calculate quantiles using weighted samples
+        sorted_idx = jnp.argsort(samples[:, i])
+        sorted_samples = samples[sorted_idx, i]
+        sorted_weights = weights[sorted_idx]
+        cumsum = jnp.cumsum(sorted_weights)
+        cumsum /= cumsum[-1]
+
+        q16 = jnp.interp(0.16, cumsum, sorted_samples)
+        q50 = jnp.interp(0.50, cumsum, sorted_samples)
+        q84 = jnp.interp(0.84, cumsum, sorted_samples)
+
         q16_list.append(float(q16))
         q50_list.append(float(q50))
         q84_list.append(float(q84))

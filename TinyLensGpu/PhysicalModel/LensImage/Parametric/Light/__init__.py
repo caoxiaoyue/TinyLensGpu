@@ -8,6 +8,7 @@ from .moffat import MoffatEllipse
 from .pseudo_jaffe import PseudoJaffeEllipse
 from .ellipsoid import Ellipsoid
 from .shapelet import ShapeletBasisFunction, build_shapelet_set, build_shapelet_basis_matrix
+from .bspline_multipole import BsplineMultipoleBasis, build_bspline_multipole_set
 
 __all__ = [
     'SersicEllipse',
@@ -20,4 +21,6 @@ __all__ = [
     'ShapeletBasisFunction',
     'build_shapelet_set',
     'build_shapelet_basis_matrix',
+    'BsplineMultipoleBasis',
+    'build_bspline_multipole_set',
 ]
