@@ -1,9 +1,9 @@
 """
 Five-stage inference pipeline for the pix_src_pipe demo.
 
-Stage a : SIE + shear + MGE lens light + MGE source light (uniform priors)
+Stage a : SIE + shear + Bspline lens light + Bspline source light (uniform priors)
 Stage b : build an arc feature mask from stage-a residuals
-Stage l : arc-masked MGE lens light refinement (Gaussian priors from stage a)
+Stage l : arc-masked Bspline lens light refinement (Gaussian priors from stage a)
 Stage c : SIE + shear + pixelized source (Gaussian priors from stage a,
           + log-uniform on lambda_reg)
 Stage d : EPL + shear + pixelized source, with lambda_reg fixed to the stage-c
@@ -41,14 +41,14 @@ from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel import (
-    GaussianEllipse,
     PhysicalModel,
     PixelizedSourceModel,
     SersicEllipse,
     Shear,
 )
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import build_bspline_multipole_set
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
-from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
+from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import plot_model_results
 
 from mask_tool import arc_mask_from
@@ -158,9 +158,7 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
               shear.gamma1, shear.gamma2):
         p.to_dynamic()
 
-    # MGE source
-    N_src = 10
-    sigmas_src = 10 ** np.linspace(-2.0, 0.0, N_src)
+    # Bspline source
     cx_s = ParamU("center_x_src", 0.0, prior_type="gaussian",
                   prior_settings=[0.0, 0.5], limits=[-3.0, 3.0])
     cy_s = ParamU("center_y_src", 0.0, prior_type="gaussian",
@@ -169,21 +167,22 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
     e2_s = ParamU("e2_src", 0.0, prior_type="gaussian",
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-    source_gaussians = []
-    for i, s in enumerate(sigmas_src):
-        g = GaussianEllipse(
-            sigma=ParamU(f"sigma_src_{i}", float(s)),
-            center_x=cx_s, center_y=cy_s, e1=e1_s, e2=e2_s,
-            flux=ParamU(f"flux_src_{i}", 1.0),
-        )
-        g.sigma.to_static(float(s))
-        g.flux.to_static(1.0)
-        source_gaussians.append(g)
+    source_bspline = build_bspline_multipole_set(
+        dpix=DPIX,
+        r_min=0.01,
+        r_max=1.0,
+        n_radial=15,
+        ntheta=[0],
+        degree=3,
+        center_x=cx_s,
+        center_y=cy_s,
+        e1=e1_s,
+        e2=e2_s,
+        mask=None,
+    )
     cx_s.to_dynamic(); cy_s.to_dynamic(); e1_s.to_dynamic(); e2_s.to_dynamic()
 
-    # MGE lens light
-    N_ll = 20
-    sigmas_ll = 10 ** np.linspace(-2.0, np.log10(3.0), N_ll)
+    # Bspline lens light
     cx_l = ParamU("center_x_lens", 0.0, prior_type="gaussian",
                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
     cy_l = ParamU("center_y_lens", 0.0, prior_type="gaussian",
@@ -192,34 +191,37 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
     e2_l = ParamU("e2_lens", 0.0, prior_type="gaussian",
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-    lens_gaussians = []
-    for i, s in enumerate(sigmas_ll):
-        g = GaussianEllipse(
-            sigma=ParamU(f"sigma_lens_{i}", float(s)),
-            center_x=cx_l, center_y=cy_l, e1=e1_l, e2=e2_l,
-            flux=ParamU(f"flux_lens_{i}", 1.0),
-        )
-        g.sigma.to_static(float(s))
-        g.flux.to_static(1.0)
-        lens_gaussians.append(g)
+    lens_bspline = build_bspline_multipole_set(
+        dpix=DPIX,
+        r_min=0.01,
+        r_max=2.5,
+        n_radial=15,
+        ntheta=[0],
+        degree=3,
+        center_x=cx_l,
+        center_y=cy_l,
+        e1=e1_l,
+        e2=e2_l,
+        mask=None,
+    )
     cx_l.to_dynamic(); cy_l.to_dynamic(); e1_l.to_dynamic(); e2_l.to_dynamic()
 
     phys = PhysicalModel(
         lens_mass=[sie, shear],
-        source_light=source_gaussians,
-        lens_light=lens_gaussians,
+        source_light=source_bspline,
+        lens_light=lens_bspline,
     )
     return ImageProbModel(
         image_data=image_data, noise_map=noise_map,
         psf_kernel=psf_kernel, dpix=DPIX, nsub=NSUB,
-        phys_model=phys, use_linear=True, solver_type="nnls",
+        phys_model=phys, use_linear=True, solver_type="normal",
     )
 
 
 def run_stage_a(image_data, noise_map, psf_kernel):
     OUT_DIR.mkdir(exist_ok=True)
     print("\n" + "=" * 60)
-    print(" Stage A : SIE + shear + MGE lens light + MGE source light")
+    print(" Stage A : SIE + shear + Bspline lens light + Bspline source light")
     print("=" * 60)
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel)
     samples, weights, names, logz = _run_sampler(
@@ -251,7 +253,7 @@ def run_stage_a(image_data, noise_map, psf_kernel):
         plot_model_results(
             likelihood, jnp.asarray(q50),
             save_path=str(OUT_DIR / "stage_a_model.png"),
-            title="Stage A : MGE lens+source",
+            title="Stage A : Bspline lens+source",
         )
     except Exception as err:
         print(f"[stage-A] plotting failed (non-fatal): {err}")
@@ -279,8 +281,8 @@ def run_stage_b(image_data, noise_map, lens_light_model):
                  feature_mask.astype(np.uint8), overwrite=True)
 
     # Quick-look figure
-    extent = [-image_data.shape[0] * DPIX / 2,
-               image_data.shape[0] * DPIX / 2] * 2
+    ny_img, nx_img = image_data.shape
+    extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2, -ny_img * DPIX / 2, ny_img * DPIX / 2]
     fig, axes = plt.subplots(1, 3, figsize=(13, 4))
     im0 = axes[0].imshow(residual, origin="lower", extent=extent, cmap="viridis")
     axes[0].set_title("residual = image - stage-A lens light")
@@ -334,33 +336,23 @@ def build_stage_new_likelihood(
         "e2_lens", model="Gaussian", attr="e2", limits=[-1.0, 1.0]
     )
 
-    # MGE lens light — avoid placing sigmas within the lensed arc annular region
-    medians_a = _posterior_median(samples_a, weights_a, names_a)
-    cx = medians_a.get("center_x_lens", 0.0)
-    cy = medians_a.get("center_y_lens", 0.0)
-
     # Invert mask: feature_mask has True = EXCLUDED; stage L wants to
     # exclude the arc (where feature_mask is False) and keep everything else.
     lens_light_mask = ~feature_mask
-    
-    # feature_mask == False indicates the arc region (which we want to avoid)
-    sigmas_ll = generate_radial_basis_knots(
-        DPIX, cx, cy, n_sigmas=20, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=lens_light_mask
-    )
 
-    lens_gaussians = []
-    for i, s in enumerate(sigmas_ll):
-        g = GaussianEllipse(
-            sigma=ParamU(f"sigma_lens_{i}", float(s)),
-            center_x=cx_l,
-            center_y=cy_l,
-            e1=e1_l,
-            e2=e2_l,
-            flux=ParamU(f"flux_lens_{i}", 1.0),
-        )
-        g.sigma.to_static(float(s))
-        g.flux.to_static(1.0)
-        lens_gaussians.append(g)
+    lens_bspline = build_bspline_multipole_set(
+        dpix=DPIX,
+        r_min=0.01,
+        r_max=2.5,
+        n_radial=15,
+        ntheta=[0],
+        degree=3,
+        center_x=cx_l,
+        center_y=cy_l,
+        e1=e1_l,
+        e2=e2_l,
+        mask=lens_light_mask,
+    )
     cx_l.to_dynamic()
     cy_l.to_dynamic()
     e1_l.to_dynamic()
@@ -369,7 +361,7 @@ def build_stage_new_likelihood(
     phys = PhysicalModel(
         lens_mass=[],
         source_light=[],
-        lens_light=lens_gaussians,
+        lens_light=lens_bspline,
     )
     return ImageProbModel(
         image_data=image_data,
@@ -379,7 +371,7 @@ def build_stage_new_likelihood(
         nsub=NSUB,
         phys_model=phys,
         use_linear=True,
-        solver_type="nnls",
+        solver_type="normal",
         mask=lens_light_mask,
     )
 
@@ -387,12 +379,12 @@ def build_stage_new_likelihood(
 def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a):
     print("\n" + "=" * 60)
-    print(" Stage L : arc-masked MGE lens light refinement")
+    print(" Stage L : arc-masked Bspline lens light refinement")
     print("=" * 60)
-    n_excluded = int(feature_mask.sum())
-    n_kept = feature_mask.size - n_excluded
-    print(f"[stage-L] arc pixels excluded = {n_excluded} / {feature_mask.size}")
-    print(f"[stage-L] lens-light pixels kept  = {n_kept} / {feature_mask.size}")
+    n_arc    = int((~feature_mask).sum())
+    n_nonarc = feature_mask.size - n_arc
+    print(f"[stage-L] arc pixels excluded     = {n_arc}    / {feature_mask.size}")
+    print(f"[stage-L] lens-light pixels kept  = {n_nonarc} / {feature_mask.size}")
 
     likelihood = build_stage_new_likelihood(
         image_data,
@@ -443,7 +435,7 @@ def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
             likelihood,
             jnp.asarray(q50),
             save_path=str(OUT_DIR / "stage_l_model.png"),
-            title="Stage L : arc-masked MGE lens light",
+            title="Stage L : arc-masked Bspline lens light",
         )
     except Exception as err:
         print(f"[stage-L] plotting failed (non-fatal): {err}")
@@ -454,7 +446,7 @@ def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
         diff = lens_light_true - lens_image_model
         diff_norm = diff / noise_map
         npix = image_data.shape[0]
-        ext = [-npix * DPIX / 2, npix * DPIX / 2] * 2
+        ext = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
 
         fig, axes = plt.subplots(1, 4, figsize=(18, 4.2))
         for ax, img, title, kw in [
@@ -544,7 +536,6 @@ def _epl_mass_for_stage_d(passer: GaussianPriorPasser):
         prior_settings=[1.0, 3.0],
         limits=[1.0, 3.0],
     )
-    gamma.to_dynamic()
 
     epl = EPL(theta_E=theta_E, gamma=gamma, e1=e1m, e2=e2m, center_x=cx, center_y=cy)
     for p in (epl.theta_E, epl.gamma, epl.e1, epl.e2, epl.center_x, epl.center_y):
@@ -692,8 +683,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     src_img = np.array(source_pixels).reshape(ny, nx)
 
     npix = image_data.shape[0]
-    ext_i = [-npix * DPIX / 2, npix * DPIX / 2] * 2
-    ext_s = [-float(src_half_size), float(src_half_size)] * 2
+    ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
+    ext_s = [-float(src_half_size), float(src_half_size), -float(src_half_size), float(src_half_size)]
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
 
     fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))

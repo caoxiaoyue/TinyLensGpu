@@ -78,7 +78,7 @@ if __name__ == "__main__":
         r_min=0.01,
         r_max=5.0,
         n_radial=15,
-        ntheta=[0, -2, 2],
+        ntheta=[0],
         degree=3,
         center_x=center_x_shared,
         center_y=center_y_shared,
