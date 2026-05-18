@@ -14,7 +14,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numpy as np
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, GaussianEllipse
-from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
@@ -39,7 +39,10 @@ if __name__ == "__main__":
     # 2. Build MGE model components
     print("\n[Stage 2] Building MGE model...")
     N_gaussians = 15
-    sigma_list = 10**(np.linspace(-2.0, np.log10(3.0), N_gaussians))
+    sigma_list = generate_radial_basis_knots(
+        dpix=0.074, center_x=0.0, center_y=0.0,
+        n_sigmas=N_gaussians, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask
+    )
     
     # Create shared geometric parameters
     center_x_shared = ParamU("center_x", 0.0,

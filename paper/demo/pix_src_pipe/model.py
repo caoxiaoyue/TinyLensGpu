@@ -48,7 +48,7 @@ from TinyLensGpu.PhysicalModel import (
     Shear,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
-from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots_with_mask
+from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.visualizer import plot_model_results
 
 from mask_tool import arc_mask_from
@@ -344,14 +344,8 @@ def build_stage_new_likelihood(
     lens_light_mask = ~feature_mask
     
     # feature_mask == False indicates the arc region (which we want to avoid)
-    sigmas_ll = generate_radial_basis_knots_with_mask(
-        arc_mask=lens_light_mask,
-        dpix=DPIX,
-        center_x=cx,
-        center_y=cy,
-        n_sigmas=20,
-        log_min=-2.0,
-        log_max=np.log10(3.0),
+    sigmas_ll = generate_radial_basis_knots(
+        DPIX, cx, cy, n_sigmas=20, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=lens_light_mask
     )
 
     lens_gaussians = []

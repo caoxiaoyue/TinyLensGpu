@@ -32,17 +32,19 @@ from TinyLensGpu.PhysicalModel import (
     build_shapelet_basis_matrix,
 )
 from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
 
 def build_mge_basis_lens(
-    n_components: int, sigma_min: float, sigma_max: float
+    n_components: int, sigma_min: float, sigma_max: float, dpix: float = 0.05, mask: np.ndarray = None
 ) -> list[GaussianEllipse]:
-    """Build log-spaced MGE lens-light basis with fixed ellipticity."""
+    """Build MGE lens-light basis, avoiding the lensed arc region if mask is provided."""
     e1_lens, e2_lens = phi_q2_ellipticity(90.0 * np.pi / 180.0, 0.9)
-    sigma_list = 10.0 ** np.linspace(
-        np.log10(sigma_min), np.log10(sigma_max), n_components
+    sigma_list = generate_radial_basis_knots(
+        dpix=dpix, n_sigmas=n_components,
+        log_rmin=np.log10(sigma_min), log_rmax=np.log10(sigma_max),
+        arc_mask=mask
     )
     return [
         GaussianEllipse(
@@ -126,7 +128,10 @@ def build_model(
 
     source_light = [sersic_source] + shapelet_basis
 
-    lens_mge_basis = build_mge_basis_lens(n_mge, sigma_min, sigma_max)
+    lens_mge_basis = build_mge_basis_lens(
+        n_mge, sigma_min, sigma_max,
+        dpix=float(data_dict["dpix"]), mask=data_dict["mask"]
+    )
 
     phys_model = PhysicalModel(
         lens_mass=mass_model,

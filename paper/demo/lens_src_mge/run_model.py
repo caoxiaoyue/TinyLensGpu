@@ -16,7 +16,7 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
-from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from nautilus import Sampler
@@ -71,7 +71,9 @@ if __name__ == "__main__":
     # Build MGE source light model
     print("Building MGE source light model...")
     N_gaussians_src = 20
-    sigma_list_src = 10**(np.linspace(-2.0, np.log10(1.0), N_gaussians_src))
+    sigma_list_src = generate_radial_basis_knots(
+        dpix=0.074, n_sigmas=N_gaussians_src, log_rmin=-2.0, log_rmax=np.log10(1.0)
+    )
     
     # Create shared geometric parameters for source MGE
     center_x_src = ParamU("center_x_src", 0.0,
@@ -122,7 +124,10 @@ if __name__ == "__main__":
     # Build MGE lens light model
     print("Building MGE lens light model...")
     N_gaussians_lens = 20
-    sigma_list_lens = 10**(np.linspace(-2.0, np.log10(3.0), N_gaussians_lens))
+    sigma_list_lens = generate_radial_basis_knots(
+        dpix=0.074, center_x=0.0, center_y=0.0,
+        n_sigmas=N_gaussians_lens, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask
+    )
     
     # Create shared geometric parameters for MGE
     center_x_lens = ParamU("center_x_lens", 0.0,
