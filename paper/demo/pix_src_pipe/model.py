@@ -48,7 +48,7 @@ from TinyLensGpu.PhysicalModel import (
     Shear,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
-from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots_with_mask
 from TinyLensGpu.visualizer import plot_model_results
 
 from mask_tool import arc_mask_from
@@ -334,9 +334,26 @@ def build_stage_new_likelihood(
         "e2_lens", model="Gaussian", attr="e2", limits=[-1.0, 1.0]
     )
 
-    # MGE lens light — same structure as stage a
-    N_ll = 20
-    sigmas_ll = 10 ** np.linspace(-2.0, np.log10(3.0), N_ll)
+    # MGE lens light — avoid placing sigmas within the lensed arc annular region
+    medians_a = _posterior_median(samples_a, weights_a, names_a)
+    cx = medians_a.get("center_x_lens", 0.0)
+    cy = medians_a.get("center_y_lens", 0.0)
+
+    # Invert mask: feature_mask has True = EXCLUDED; stage L wants to
+    # exclude the arc (where feature_mask is False) and keep everything else.
+    lens_light_mask = ~feature_mask
+    
+    # feature_mask == False indicates the arc region (which we want to avoid)
+    sigmas_ll = generate_radial_basis_knots_with_mask(
+        arc_mask=lens_light_mask,
+        dpix=DPIX,
+        center_x=cx,
+        center_y=cy,
+        n_sigmas=20,
+        log_min=-2.0,
+        log_max=np.log10(3.0),
+    )
+
     lens_gaussians = []
     for i, s in enumerate(sigmas_ll):
         g = GaussianEllipse(
@@ -354,10 +371,6 @@ def build_stage_new_likelihood(
     cy_l.to_dynamic()
     e1_l.to_dynamic()
     e2_l.to_dynamic()
-
-    # Invert mask: feature_mask has True = EXCLUDED; stage L wants to
-    # exclude the arc (where feature_mask is False) and keep everything else.
-    lens_light_mask = ~feature_mask
 
     phys = PhysicalModel(
         lens_mass=[],

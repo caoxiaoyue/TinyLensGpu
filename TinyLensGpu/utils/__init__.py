@@ -1,5 +1,5 @@
 from .linear_solver import LinearSolver, prepare_linear_system, solve_linear_system
-from .misc import load_lens_data
+from .misc import load_lens_data, generate_radial_basis_knots_with_mask
 from .lensing.mapping import build_lens_mapping_matrix, build_source_grid
 from .photometry import mag2cps, cps2mag
 
@@ -8,6 +8,7 @@ __all__ = [
     'solve_linear_system',
     'prepare_linear_system',
     'load_lens_data',
+    'generate_radial_basis_knots_with_mask',
     'build_source_grid',
     'build_lens_mapping_matrix',
     'mag2cps',

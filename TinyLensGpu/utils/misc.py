@@ -108,3 +108,72 @@ def get_mask_bounding_box(
         ylim = (float(ymin), float(ymax))
 
     return xlim, ylim
+
+
+def generate_radial_basis_knots_with_mask(
+    arc_mask: np.ndarray,
+    dpix: float,
+    center_x: float = 0.0,
+    center_y: float = 0.0,
+    n_sigmas: int = 20,
+    log_min: float = -2.0,
+    log_max: float = np.log10(3.0),
+) -> np.ndarray:
+    """
+    Generate logarithmically spaced radial basis knots (sigmas) that avoid a masked annular region.
+
+    Parameters
+    ----------
+    arc_mask : np.ndarray
+        Boolean mask where True indicates pixels inside the lensed arc region
+        to avoid.
+    dpix : float
+        Pixel scale in arcsec.
+    center_x, center_y : float, optional
+        Center of the lens in arcsec, by default 0.0.
+    n_sigmas : int, optional
+        Total number of knots (sigmas) to generate, by default 20.
+    log_min, log_max : float, optional
+        Log10 boundaries for the knot distribution, by default -2.0 and
+        log10(3.0).
+
+    Returns
+    -------
+    np.ndarray
+        Array of generated knots (sigmas).
+    """
+    npix = arc_mask.shape[0]
+    y, x = np.indices((npix, npix))
+    x_arcsec = (x - npix / 2 + 0.5) * dpix - center_x
+    y_arcsec = (y - npix / 2 + 0.5) * dpix - center_y
+    r_arcsec = np.hypot(x_arcsec, y_arcsec)
+
+    arc_r = r_arcsec[arc_mask]
+    if arc_r.size > 0:
+        r_in = float(np.min(arc_r))
+        r_out = float(np.max(arc_r))
+    else:
+        r_in = r_out = np.nan
+
+    if np.isnan(r_in):
+        return 10 ** np.linspace(log_min, log_max, n_sigmas)
+
+    log_rin = min(max(np.log10(r_in), log_min), log_max)
+    log_rout = min(max(np.log10(r_out), log_min), log_max)
+
+    len_in = log_rin - log_min
+    len_out = log_max - log_rout
+    total_len = len_in + len_out
+
+    if total_len > 0:
+        n_in = int(round(n_sigmas * len_in / total_len))
+        n_out = n_sigmas - n_in
+        sigmas_in = (
+            np.logspace(log_min, log_rin, n_in) if n_in > 0 else np.array([])
+        )
+        sigmas_out = (
+            np.logspace(log_rout, log_max, n_out) if n_out > 0 else np.array([])
+        )
+        return np.concatenate([sigmas_in, sigmas_out])
+    else:
+        return 10 ** np.linspace(log_min, log_max, n_sigmas)
