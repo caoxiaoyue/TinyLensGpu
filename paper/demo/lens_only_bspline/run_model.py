@@ -74,6 +74,7 @@ if __name__ == "__main__":
     # 15 log-spaced radial breakpoints in [0.01, 5.0] arcsec
     # ntheta=[0, -2, 2]: monopole, sin(2θ), cos(2θ) angular terms
     components = build_bspline_multipole_set(
+        dpix=0.074,
         r_min=0.01,
         r_max=5.0,
         n_radial=15,
@@ -83,6 +84,7 @@ if __name__ == "__main__":
         center_y=center_y_shared,
         e1=e1_shared,
         e2=e2_shared,
+        mask=mask,
     )
 
     # Set shared geometric parameters to dynamic for sampling

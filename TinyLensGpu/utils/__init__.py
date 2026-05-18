@@ -8,7 +8,7 @@ __all__ = [
     'solve_linear_system',
     'prepare_linear_system',
     'load_lens_data',
-    'generate_radial_basis_knots_with_mask',
+    'generate_radial_basis_knots',
     'build_source_grid',
     'build_lens_mapping_matrix',
     'mag2cps',

@@ -15,6 +15,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from TinyLensGpu.Inference.param_u import ParamU
+from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils.geometry.transforms import ellipticity2phi_q, xy_transform
 
 
@@ -208,6 +209,7 @@ class BsplineMultipoleBasis(ck.Module):
 
 
 def build_bspline_multipole_set(
+    dpix: float,
     r_min: float = 0.01,
     r_max: float = 5.0,
     n_radial: int = 15,
@@ -217,11 +219,14 @@ def build_bspline_multipole_set(
     center_y: Optional[float] = None,
     e1: Optional[float] = None,
     e2: Optional[float] = None,
+    mask: Optional[jnp.ndarray] = None,
 ) -> List[BsplineMultipoleBasis]:
     """Create all B-spline multipole basis components.
 
     Parameters
     ----------
+    dpix : float
+        Pixel scale in arcsec.
     r_min, r_max : float
         Radial range in arcseconds.
     n_radial : int
@@ -236,6 +241,9 @@ def build_bspline_multipole_set(
     e1, e2 : ParamU or float, optional
         Shared ellipticity. Same sharing behavior as ``center_x`` and
         ``center_y``.
+    mask : jnp.ndarray, optional
+        Boolean mask where True indicates pixels to avoid when distributing
+        knots.
 
     Returns
     -------
@@ -245,7 +253,20 @@ def build_bspline_multipole_set(
     if ntheta is None:
         ntheta = [0, -2, 2]
 
-    rbkpt = jnp.logspace(jnp.log10(r_min), jnp.log10(r_max), n_radial)
+    # Knots are static; use the float values of centers for distribution
+    cx_val = float(center_x.value) if isinstance(center_x, ParamU) else (0.0 if center_x is None else float(center_x))
+    cy_val = float(center_y.value) if isinstance(center_y, ParamU) else (0.0 if center_y is None else float(center_y))
+
+    rbkpt = generate_radial_basis_knots(
+        dpix=dpix,
+        center_x=cx_val,
+        center_y=cy_val,
+        n_sigmas=n_radial,
+        log_rmin=jnp.log10(r_min),
+        log_rmax=jnp.log10(r_max),
+        arc_mask=mask,
+    )
+
     center_x = center_x if isinstance(center_x, ParamU) else ParamU("center_x", 0.0 if center_x is None else center_x)
     center_y = center_y if isinstance(center_y, ParamU) else ParamU("center_y", 0.0 if center_y is None else center_y)
     e1 = e1 if isinstance(e1, ParamU) else ParamU("e1", 0.0 if e1 is None else e1)
