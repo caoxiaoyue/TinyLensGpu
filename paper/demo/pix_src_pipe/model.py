@@ -1,17 +1,14 @@
 """
-Five-stage inference pipeline for the pix_src_pipe demo.
+Four-stage inference pipeline for the pix_src_pipe demo.
 
 Stage a : SIE + shear + Bspline lens light + Bspline source light (uniform priors)
 Stage b : build an arc feature mask from stage-a residuals
 Stage l : arc-masked Bspline lens light refinement (Gaussian priors from stage a)
-Stage c : SIE + shear + pixelized source (Gaussian priors from stage a,
-          + log-uniform on lambda_reg)
-Stage d : EPL + shear + pixelized source, with lambda_reg fixed to the stage-c
-          median; all shared mass/shear params use Gaussian priors from stage c,
-          and EPL.gamma is sampled with an explicit prior.
+Stage m : EPL + shear + pixelized source (Gaussian priors from stage a,
+          + uniform prior on gamma, + log-uniform on lambda_reg)
 
 Each stage pickles its posterior samples/weights to
-``output/stage_{a,l,c,d}.pkl`` and is re-runnable via ``--skip-done``.
+``output/stage_{a,l,m}.pkl`` and is re-runnable via ``--skip-done``.
 """
 
 from __future__ import annotations
@@ -60,7 +57,7 @@ import jax.scipy.linalg as jsl
 # ------------------------------------------------------------------ #
 DPIX = 0.05
 NSUB = 4
-NSUB_PIX = 2  # lower oversampling for pixelized stages (memory)
+NSUB_PIX = 4  # lower oversampling for pixelized stages (memory)
 OUT_DIR = Path("output")
 DATA_DIR = Path("data")
 
@@ -169,9 +166,9 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
     source_bspline = build_bspline_multipole_set(
         dpix=DPIX,
-        r_min=0.01,
+        r_min=0.001,
         r_max=1.0,
-        n_radial=15,
+        n_radial=20,
         ntheta=[0],
         degree=3,
         center_x=cx_s,
@@ -193,9 +190,9 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
     lens_bspline = build_bspline_multipole_set(
         dpix=DPIX,
-        r_min=0.01,
+        r_min=0.001,
         r_max=2.5,
-        n_radial=15,
+        n_radial=20,
         ntheta=[0],
         degree=3,
         center_x=cx_l,
@@ -225,7 +222,7 @@ def run_stage_a(image_data, noise_map, psf_kernel):
     print("=" * 60)
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel)
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=400, n_eff=2000, tag="stage-A",
+        likelihood, n_live=200, n_eff=2000, tag="stage-A", vectorized=True, 
     )
     _print_summary("stage-A", samples, weights, names)
 
@@ -376,7 +373,7 @@ def build_stage_new_likelihood(
     )
 
 
-def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
+def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a):
     print("\n" + "=" * 60)
     print(" Stage L : arc-masked Bspline lens light refinement")
@@ -407,7 +404,7 @@ def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
     medians = _posterior_median(samples, weights, names)
     q50 = [medians[n] for n in names]
 
-    # Evaluate lens-light model image at median (needed for stage C/D).
+    # Evaluate lens-light model image at median (needed for stage M).
     likelihood.set_values(q50)
     fwd = likelihood.forward_model(
         use_linear=True,
@@ -472,48 +469,10 @@ def run_stage_new(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
-# Stage C / D — pixelized source stages
+# Stage M — merged EPL + shear + pixelized source (replaces C + D)
 # ------------------------------------------------------------------ #
-def _sie_mass_from_stage_a(passer: GaussianPriorPasser):
-    """SIE (+ shear) with Gaussian priors inherited from stage-A posterior."""
-    theta_E = passer.gaussian(
-        "theta_E", model="SIE", attr="theta_E", limits=[0.0, 5.0],
-    )
-    e1m = passer.gaussian(
-        "e1_mass", model="SIE", attr="e1", limits=[-1.0, 1.0],
-    )
-    e2m = passer.gaussian(
-        "e2_mass", model="SIE", attr="e2", limits=[-1.0, 1.0],
-    )
-    cx = passer.gaussian(
-        "center_x_mass", model="SIE", attr="center_x", limits=[-1.0, 1.0],
-    )
-    cy = passer.gaussian(
-        "center_y_mass", model="SIE", attr="center_y", limits=[-1.0, 1.0],
-    )
-    sie = SIE(theta_E=theta_E, e1=e1m, e2=e2m, center_x=cx, center_y=cy)
-    for p in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
-        p.to_dynamic()
-
-    shear = Shear(
-        gamma1=passer.gaussian(
-            "gamma1", model="Shear", attr="gamma1", limits=[-0.5, 0.5],
-        ),
-        gamma2=passer.gaussian(
-            "gamma2", model="Shear", attr="gamma2", limits=[-0.5, 0.5],
-        ),
-    )
-    shear.gamma1.to_dynamic()
-    shear.gamma2.to_dynamic()
-    return sie, shear
-
-
-def _epl_mass_for_stage_d(passer: GaussianPriorPasser):
-    """EPL (+ shear) with Gaussian priors inherited from stage-C posterior.
-
-    Stage C uses SIE, so it has no slope parameter. EPL.gamma therefore uses an
-    explicit prior in stage D.
-    """
+def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
+    """EPL (+ shear) with Gaussian priors inherited from stage-A posterior."""
     theta_E = passer.gaussian(
         "theta_E", model="EPL", attr="theta_E", limits=[0.0, 5.0],
     )
@@ -715,13 +674,13 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
 
 # ------------------------------------------------------------------ #
-# Stage C — SIE + shear + pixelized source (on lens-subtracted image)
+# Stage M — EPL + shear + pixelized source (merged C + D)
 # ------------------------------------------------------------------ #
-def build_stage_c_likelihood(
+def build_stage_m_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     passer: GaussianPriorPasser, position_likelihood,
 ):
-    sie, shear = _sie_mass_from_stage_a(passer)
+    epl, shear = _epl_mass_from_stage_a(passer)
     lam = ParamU(
         "lambda_reg",
         1.0,
@@ -730,40 +689,6 @@ def build_stage_c_likelihood(
         limits=[1e-6, 1e6],
     )
     lam.to_dynamic()
-
-    pix_src = PixelizedSourceModel(
-        nx=30,
-        ny=30,
-        lambda_reg=lam,
-        regularization_type="first-order",
-    )
-    phys = PhysicalModel(
-        lens_mass=[sie, shear],
-        source_light=[pix_src],
-        lens_light=[],
-    )
-    return PixelizedImageProbModel(
-        image_data=lens_subtracted_image,
-        noise_map=noise_map,
-        psf_kernel=psf_kernel,
-        dpix=DPIX,
-        nsub=NSUB_PIX,
-        phys_model=phys,
-        mask=feature_mask,
-        position_likelihood=position_likelihood,
-    )
-
-
-# ------------------------------------------------------------------ #
-# Stage D — EPL + shear + pixelized source (lambda_reg fixed)
-# ------------------------------------------------------------------ #
-def build_stage_d_likelihood(
-    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, lambda_reg_value, position_likelihood,
-):
-    epl, shear = _epl_mass_for_stage_d(passer)
-    lam = ParamU("lambda_reg", float(lambda_reg_value))
-    lam.to_static(float(lambda_reg_value))
 
     pix_src = PixelizedSourceModel(
         nx=30,
@@ -788,14 +713,14 @@ def build_stage_d_likelihood(
     )
 
 
-def run_stage_c(image_data, noise_map, psf_kernel, feature_mask,
+def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
                 lens_light_model, samples_a, weights_a, names_a, position_likelihood):
     print("\n" + "=" * 60)
-    print(" Stage C : SIE + shear + pix source (lambda_reg free)")
+    print(" Stage M : EPL + shear + pix source (lambda_reg free)")
     print("=" * 60)
     lens_subtracted = image_data - lens_light_model
     passer = GaussianPriorPasser(samples_a, weights_a, names_a)
-    likelihood = build_stage_c_likelihood(
+    likelihood = build_stage_m_likelihood(
         lens_subtracted,
         noise_map,
         psf_kernel,
@@ -804,49 +729,16 @@ def run_stage_c(image_data, noise_map, psf_kernel, feature_mask,
         position_likelihood,
     )
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=200, n_eff=800, tag="stage-C", vectorized=False,
+        likelihood, n_live=200, n_eff=800, tag="stage-M", vectorized=False,
     )
-    _print_summary("stage-C", samples, weights, names)
+    _print_summary("stage-M", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
-    _dump_stage("c", samples, weights, names, logz, extra=dict(medians=medians))
+    _dump_stage("m", samples, weights, names, logz, extra=dict(medians=medians))
     try:
-        _plot_pix_stage("stage-C", likelihood, medians, names,
-                        str(OUT_DIR / "stage_c_model.png"))
+        _plot_pix_stage("stage-M", likelihood, medians, names,
+                        str(OUT_DIR / "stage_m_model.png"))
     except Exception as err:
-        print(f"[stage-C] plotting failed (non-fatal): {err}")
-    return samples, weights, names, medians
-
-
-def run_stage_d(image_data, noise_map, psf_kernel, feature_mask,
-                lens_light_model, samples_c, weights_c, names_c, medians_c, position_likelihood):
-    print("\n" + "=" * 60)
-    print(" Stage D : EPL + shear + pix source (lambda_reg fixed at stage-C median)")
-    print("=" * 60)
-    lambda_reg_fixed = medians_c["lambda_reg"]
-    lens_subtracted = image_data - lens_light_model
-    passer = GaussianPriorPasser(samples_c, weights_c, names_c)
-    likelihood = build_stage_d_likelihood(
-        lens_subtracted,
-        noise_map,
-        psf_kernel,
-        feature_mask,
-        passer,
-        lambda_reg_fixed,
-        position_likelihood,
-    )
-    samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=200, n_eff=800, tag="stage-D", vectorized=False,
-    )
-    _print_summary("stage-D", samples, weights, names)
-    medians = _posterior_median(samples, weights, names)
-    _dump_stage("d", samples, weights, names, logz,
-                extra=dict(medians=medians,
-                           lambda_reg_fixed=lambda_reg_fixed))
-    try:
-        _plot_pix_stage("stage-D", likelihood, medians, names,
-                        str(OUT_DIR / "stage_d_model.png"))
-    except Exception as err:
-        print(f"[stage-D] plotting failed (non-fatal): {err}")
+        print(f"[stage-M] plotting failed (non-fatal): {err}")
     return samples, weights, names, medians
 
 
@@ -883,7 +775,7 @@ def main(skip_done: bool = False):
         medians_l = d["extra"]["medians"]
         lens_light_model = d["extra"]["lens_light_model"]
     else:
-        samples_l, weights_l, names_l, medians_l, lens_light_model = run_stage_new(
+        samples_l, weights_l, names_l, medians_l, lens_light_model = run_stage_l(
             image_data, noise_map, psf_kernel, feature_mask,
             samples_a, weights_a, names_a,
         )
@@ -891,73 +783,42 @@ def main(skip_done: bool = False):
     lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
-    # ---- stage C ---------------------------------------------------- #
-    if skip_done and (OUT_DIR / "stage_c.pkl").exists():
-        print("[stage-C] loading cached output/stage_c.pkl")
-        d = _load_stage("c")
-        samples_c, weights_c, names_c = d["samples"], d["weights"], d["param_names"]
-        medians_c = d["extra"]["medians"]
+    # ---- stage M ---------------------------------------------------- #
+    if skip_done and (OUT_DIR / "stage_m.pkl").exists():
+        print("[stage-M] loading cached output/stage_m.pkl")
+        d = _load_stage("m")
+        samples_m, weights_m, names_m = d["samples"], d["weights"], d["param_names"]
+        medians_m = d["extra"]["medians"]
     else:
-        samples_c, weights_c, names_c, medians_c = run_stage_c(
+        samples_m, weights_m, names_m, medians_m = run_stage_m(
             image_data, noise_map, psf_kernel, feature_mask,
             lens_light_model, samples_a, weights_a, names_a,
             position_likelihood,
         )
 
-    if not (OUT_DIR / "stage_c_model.png").exists():
-        passer_c = GaussianPriorPasser(samples_a, weights_a, names_a)
-        lkl_c = build_stage_c_likelihood(
+    if not (OUT_DIR / "stage_m_model.png").exists():
+        passer_m = GaussianPriorPasser(samples_a, weights_a, names_a)
+        lkl_m = build_stage_m_likelihood(
             lens_subtracted,
             noise_map,
             psf_kernel,
             feature_mask,
-            passer_c,
+            passer_m,
             position_likelihood,
         )
         try:
-            _plot_pix_stage("stage-C", lkl_c, medians_c, names_c,
-                            str(OUT_DIR / "stage_c_model.png"))
+            _plot_pix_stage("stage-M", lkl_m, medians_m, names_m,
+                            str(OUT_DIR / "stage_m_model.png"))
         except Exception as err:
-            print(f"[stage-C] plotting failed (non-fatal): {err}")
-
-    # ---- stage D ---------------------------------------------------- #
-    if skip_done and (OUT_DIR / "stage_d.pkl").exists():
-        print("[stage-D] loading cached output/stage_d.pkl")
-        d = _load_stage("d")
-        samples_d = d["samples"]; weights_d = d["weights"]
-        names_d = d["param_names"]; medians_d = d["extra"]["medians"]
-    else:
-        samples_d, weights_d, names_d, medians_d = run_stage_d(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, samples_c, weights_c, names_c, medians_c,
-            position_likelihood,
-        )
-
-    if not (OUT_DIR / "stage_d_model.png").exists():
-        lambda_reg_fixed = medians_c["lambda_reg"]
-        passer_d = GaussianPriorPasser(samples_c, weights_c, names_c)
-        lkl_d = build_stage_d_likelihood(
-            lens_subtracted,
-            noise_map,
-            psf_kernel,
-            feature_mask,
-            passer_d,
-            lambda_reg_fixed,
-            position_likelihood,
-        )
-        try:
-            _plot_pix_stage("stage-D", lkl_d, medians_d, names_d,
-                            str(OUT_DIR / "stage_d_model.png"))
-        except Exception as err:
-            print(f"[stage-D] plotting failed (non-fatal): {err}")
+            print(f"[stage-M] plotting failed (non-fatal): {err}")
 
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
               "center_x_mass", "center_y_mass", "gamma1", "gamma2"):
-        if k in medians_d:
-            print(f"    final  {k:15s} = {medians_d[k]:+.4f}")
+        if k in medians_m:
+            print(f"    final  {k:15s} = {medians_m[k]:+.4f}")
 
 
 if __name__ == "__main__":
