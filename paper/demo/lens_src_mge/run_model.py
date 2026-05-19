@@ -72,7 +72,7 @@ if __name__ == "__main__":
     print("Building MGE source light model...")
     N_gaussians_src = 20
     sigma_list_src = generate_radial_basis_knots(
-        dpix=0.074, n_sigmas=N_gaussians_src, log_rmin=-2.0, log_rmax=np.log10(1.0)
+        dpix=0.074, n_sigmas=N_gaussians_src, log_rmin=-2.0, log_rmax=np.log10(1.0), mode='mge'
     )
     
     # Create shared geometric parameters for source MGE
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     N_gaussians_lens = 20
     sigma_list_lens = generate_radial_basis_knots(
         dpix=0.074, center_x=0.0, center_y=0.0,
-        n_sigmas=N_gaussians_lens, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask
+        n_sigmas=N_gaussians_lens, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask, mode='mge'
     )
     
     # Create shared geometric parameters for MGE

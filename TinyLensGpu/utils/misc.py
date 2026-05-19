@@ -118,9 +118,21 @@ def generate_radial_basis_knots(
     log_rmin: float = -2.0,
     log_rmax: float = np.log10(3.0),
     arc_mask: Optional[np.ndarray] = None,
+    mode: str = "bspline",
 ) -> np.ndarray:
     """
-    Generate logarithmically spaced radial basis knots (sigmas) that avoid a masked annular region.
+    Generate logarithmically spaced radial basis knots (sigmas).
+
+    Two generation modes are supported:
+
+    - ``"bspline"`` (default): prepends a knot at radius ``0.0`` so that
+      B-spline bases can reconstruct flux at the exact centre.  The
+      returned array has the form ``[0.0] + 10**logspace(...)``.
+    - ``"mge"`` : returns pure log-spaced knots without the central zero
+      knot, suitable for Multi-Gaussian Expansion (MGE) component widths.
+
+    When ``arc_mask`` is provided, knots are placed in the inner and outer
+    regions that avoid the masked annulus.
 
     Parameters
     ----------
@@ -136,47 +148,60 @@ def generate_radial_basis_knots(
     arc_mask : np.ndarray, optional
         Boolean mask where True indicates pixels inside the lensed arc region
         to avoid. Defaults to None.
+    mode : {"bspline", "mge"}, optional
+        Knot generation mode. Default is ``"bspline"``.
 
     Returns
     -------
     np.ndarray
         Array of generated knots (sigmas).
     """
+    # Effective number of log-spaced knots to generate (excluding the central zero knot)
+    n_base = n_sigmas - 1 if mode == "bspline" else n_sigmas
+
     if arc_mask is None:
-        return 10 ** np.linspace(log_rmin, log_rmax, n_sigmas)
-
-    npix = arc_mask.shape[0]
-    y, x = np.indices((npix, npix))
-    x_arcsec = (x - npix / 2 + 0.5) * dpix - center_x
-    y_arcsec = (y - npix / 2 + 0.5) * dpix - center_y
-    r_arcsec = np.hypot(x_arcsec, y_arcsec)
-
-    arc_r = r_arcsec[arc_mask]
-    if arc_r.size > 0:
-        r_in = float(np.min(arc_r))
-        r_out = float(np.max(arc_r))
+        sigmas = 10 ** np.linspace(log_rmin, log_rmax, n_base)
     else:
-        r_in = r_out = np.nan
+        npix = arc_mask.shape[0]
+        x_1d = (np.arange(npix) - npix / 2.0 + 0.5) * dpix - center_x
+        y_1d = (np.arange(npix) - npix / 2.0 + 0.5) * dpix - center_y
+        x_arcsec, y_arcsec = np.meshgrid(x_1d, y_1d)
+        r_arcsec = np.hypot(x_arcsec, y_arcsec)
 
-    if np.isnan(r_in):
-        return 10 ** np.linspace(log_rmin, log_rmax, n_sigmas)
+        arc_r = r_arcsec[arc_mask]
+        if arc_r.size > 0:
+            r_in = float(np.min(arc_r))
+            r_out = float(np.max(arc_r))
+        else:
+            r_in = r_out = np.nan
 
-    log_rin_clamped = min(max(np.log10(r_in), log_rmin), log_rmax)
-    log_rout_clamped = min(max(np.log10(r_out), log_rmin), log_rmax)
+        if np.isnan(r_in):
+            sigmas = 10 ** np.linspace(log_rmin, log_rmax, n_base)
+        else:
+            log_rin_clamped = min(max(np.log10(r_in), log_rmin), log_rmax)
+            log_rout_clamped = min(max(np.log10(r_out), log_rmin), log_rmax)
 
-    len_in = log_rin_clamped - log_rmin
-    len_out = log_rmax - log_rout_clamped
-    total_len = len_in + len_out
+            len_in = log_rin_clamped - log_rmin
+            len_out = log_rmax - log_rout_clamped
+            total_len = len_in + len_out
 
-    if total_len > 0:
-        n_in = int(round(n_sigmas * len_in / total_len))
-        n_out = n_sigmas - n_in
-        sigmas_in = (
-            np.logspace(log_rmin, log_rin_clamped, n_in) if n_in > 0 else np.array([])
-        )
-        sigmas_out = (
-            np.logspace(log_rout_clamped, log_rmax, n_out) if n_out > 0 else np.array([])
-        )
-        return np.concatenate([sigmas_in, sigmas_out])
-    else:
-        return 10 ** np.linspace(log_rmin, log_rmax, n_sigmas)
+            if total_len > 0:
+                n_in = int(round(n_base * len_in / total_len))
+                n_out = n_base - n_in
+                sigmas_in = (
+                    np.logspace(log_rmin, log_rin_clamped, n_in)
+                    if n_in > 0
+                    else np.array([])
+                )
+                sigmas_out = (
+                    np.logspace(log_rout_clamped, log_rmax, n_out)
+                    if n_out > 0
+                    else np.array([])
+                )
+                sigmas = np.concatenate([sigmas_in, sigmas_out])
+            else:
+                sigmas = 10 ** np.linspace(log_rmin, log_rmax, n_base)
+
+    if mode == "bspline":
+        return np.concatenate([np.array([0.0]), sigmas])
+    return sigmas

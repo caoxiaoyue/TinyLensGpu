@@ -43,7 +43,7 @@ def build_mge_basis_lens(
     sigma_list = generate_radial_basis_knots(
         dpix=dpix, n_sigmas=n_components,
         log_rmin=np.log10(sigma_min), log_rmax=np.log10(sigma_max),
-        arc_mask=mask
+        arc_mask=mask, mode='mge'
     )
     return [
         GaussianEllipse(
@@ -84,7 +84,7 @@ def build_mge_basis_source(
     """
     sigma_list = generate_radial_basis_knots(
         dpix=dpix, n_sigmas=n_components,
-        log_rmin=np.log10(sigma_min), log_rmax=np.log10(sigma_max)
+        log_rmin=np.log10(sigma_min), log_rmax=np.log10(sigma_max), mode='mge'
     )
     source_gaussians = []
     for i, sigma in enumerate(sigma_list):

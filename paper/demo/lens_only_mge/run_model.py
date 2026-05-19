@@ -41,7 +41,7 @@ if __name__ == "__main__":
     N_gaussians = 15
     sigma_list = generate_radial_basis_knots(
         dpix=0.074, center_x=0.0, center_y=0.0,
-        n_sigmas=N_gaussians, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask
+        n_sigmas=N_gaussians, log_rmin=-2.0, log_rmax=np.log10(3.0), arc_mask=mask, mode='mge'
     )
     
     # Create shared geometric parameters
