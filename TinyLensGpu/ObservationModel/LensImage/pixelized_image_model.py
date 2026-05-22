@@ -14,7 +14,7 @@ import numpy as np
 from jax import Array, jit
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
-from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator, EPSILON_REG
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
@@ -57,6 +57,7 @@ class PixelizedImageProbModel(ck.Module):
         dpix: float,
         phys_model: PhysicalModel,
         mask: Union[np.ndarray, Array, None] = None,
+        source_seed_mask: Union[np.ndarray, Array, None] = None,
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
     ) -> None:
@@ -73,6 +74,7 @@ class PixelizedImageProbModel(ck.Module):
             psf_kernel=psf_kernel,
             nsub=nsub,
             mask=mask,
+            source_seed_mask=source_seed_mask,
         )
         self.sim_obj = PixelizedLensSimulator(self.phys_model, sim_config)
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
@@ -89,8 +91,6 @@ class PixelizedImageProbModel(ck.Module):
         )
         # Precompute logdet(H(half_size)) = logdet_H_unit + scaling * log(half_size)
         # for finite-difference regularization where H(h) = h^{-k} * H_unit.
-        # logdet H(h) = logdet H_unit + (-k * n_s) * log(h)
-        # zero-order: k=0; first-order: k=2 (H scales as h^{-2}); second-order: k=4.
         n_s = source_nx * source_ny
         _exponent = {"zero-order": 0, "first-order": -2, "second-order": -4}.get(self.reg_type, None)
         self._logdet_H_scaling = _exponent * n_s if _exponent is not None else None
@@ -101,6 +101,11 @@ class PixelizedImageProbModel(ck.Module):
             self._logdet_H_unit = jnp.where(sign_h > 0.0, logdet_h_unit, -jnp.inf)
         else:
             self._logdet_H_unit = None
+
+        # Lens-light configuration
+        self.n_lens_light = self.sim_obj.n_lens_light
+        self.has_lens_light = self.sim_obj.has_lens_light
+        self.eps_reg = EPSILON_REG
 
         self._init_position_likelihood(position_likelihood)
 
@@ -144,26 +149,54 @@ class PixelizedImageProbModel(ck.Module):
     def _solve_source(
         self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
     ) -> tuple[Array, Array, Array]:
-        """Solve normal equations via Cholesky for MAP source pixels.
+        """Solve normal equations via Cholesky for MAP source and lens-light pixels.
 
-        Returns (source_pixels, chol_factor, curvature).
-        curvature = F^T C^{-1} F + λH; chol_factor is its lower-triangular Cholesky.
+        For source-only models (Nl=0), solves the standard source inversion.
+        For joint models (Nl>0), solves the joint system with block-diagonal
+        regularization: block_diag(lambda_reg * R_src, eps * I).
+
+        Returns (linear_params, chol_factor, curvature).
+        linear_params contains [s | A] for joint models, or just s otherwise.
+        curvature = M^T C^{-1} M + R_tilde; chol_factor is its Cholesky.
         """
+        n_source = self.sim_obj.n_source_pixels
+        n_total = design_matrix.shape[1]  # Ns + Nl
+
         weighted_design = design_matrix / self.noise_1d[:, None]
-        curvature = weighted_design.T @ weighted_design + lambda_reg * reg_matrix
+        curvature = weighted_design.T @ weighted_design
+
+        # Add source regularization
+        curvature = curvature.at[:n_source, :n_source].add(lambda_reg * reg_matrix)
+
+        # Add lens-light Tikhonov regularization (eps * I) if present
+        if self.has_lens_light:
+            lens_light_block = jnp.eye(n_total - n_source, dtype=curvature.dtype) * self.eps_reg
+            curvature = curvature.at[n_source:, n_source:].add(lens_light_block)
+
         rhs = weighted_design.T @ (self.data_1d / self.noise_1d)
         chol = jnp.linalg.cholesky(curvature)
-        source_pixels = jsl.cho_solve((chol, True), rhs)
-        return source_pixels, chol, curvature
+        linear_params = jsl.cho_solve((chol, True), rhs)
+        return linear_params, chol, curvature
 
     def _log_evidence(self) -> Array:
         """Evaluate log evidence for current parameter values."""
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix, logdet_cov = self._regularization_matrix(source_half_size)
-        source_pixels, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        linear_params, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
-        resid = self.data_1d - design_matrix @ source_pixels
+        n_source = self.sim_obj.n_source_pixels
+        n_data = self.data_1d.size
+
+        # Split parameters if joint model
+        if self.has_lens_light:
+            source_pixels = linear_params[:n_source]
+            lens_amplitudes = linear_params[n_source:]
+        else:
+            source_pixels = linear_params
+            lens_amplitudes = None
+
+        resid = self.data_1d - design_matrix @ linear_params
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
         e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
 
@@ -171,15 +204,12 @@ class PixelizedImageProbModel(ck.Module):
         logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
 
         # logdet reg matrix: analytical for finite-difference types;
-        # for GP types use logdet_cov from _gp_matrix (no extra slogdet needed).
+        # for GP types use logdet_cov from _gp_matrix.
         if self._logdet_H_scaling is not None:
             logdet_h = self._logdet_H_unit + self._logdet_H_scaling * jnp.log(source_half_size)
         else:
-            # GP types always return a non-None logdet_cov from _regularization_matrix.
             logdet_h = -logdet_cov
 
-        n_source = self.sim_obj.n_source_pixels
-        n_data = self.data_1d.size
         log_evidence = (
             -e_d
             - lambda_reg * e_s
@@ -189,6 +219,15 @@ class PixelizedImageProbModel(ck.Module):
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
         )
+
+        # Add lens-light regularization contribution if present
+        if self.has_lens_light and lens_amplitudes is not None:
+            n_lens = self.n_lens_light
+            # Prior quadratic penalty: -0.5 * eps * ||A||^2
+            e_lens = 0.5 * self.eps_reg * jnp.sum(lens_amplitudes ** 2)
+            # Prior logdet: +0.5 * log|eps * I| = +0.5 * Nl * log(eps)
+            log_evidence = log_evidence - e_lens + 0.5 * n_lens * jnp.log(self.eps_reg)
+
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
 
     def _regularization_matrix(self, source_half_size: Array | float) -> tuple[Array, Array | None]:
@@ -213,30 +252,47 @@ class PixelizedImageProbModel(ck.Module):
         return reg_matrix, None
 
     @ck.forward
-    def forward_model(self, *, return_source: bool = False):
-        """Solve source pixels and return the reconstructed model image.
+    def forward_model(self, *, return_source: bool = False, return_components: bool = False):
+        """Solve linear params and return the reconstructed model image.
 
         Parameters
         ----------
         return_source : bool, optional
             If ``True``, return ``(model_image, source_pixels)``.
+        return_components : bool, optional
+            If ``True`` and lens_light is present, return
+            ``(model_image, source_pixels, lens_amplitudes)``.
 
         Returns
         -------
-        Array or tuple[Array, Array]
-            Model image, optionally with solved source pixels.
+        Array or tuple
+            Model image, optionally with source pixels and lens light.
         """
         design_matrix, source_half_size = self.sim_obj.design_matrix()
         reg_matrix, _ = self._regularization_matrix(source_half_size)
         lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
-        source_pixels, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        linear_params, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
-        model_1d = design_matrix @ source_pixels
+        n_source = self.sim_obj.n_source_pixels
+        source_pixels = linear_params[:n_source]
+
+        if self.has_lens_light:
+            lens_amplitudes = linear_params[n_source:]
+            L_cols = design_matrix[:, n_source:]
+            source_1d = design_matrix[:, :n_source] @ source_pixels
+            lens_1d = L_cols @ lens_amplitudes
+            model_1d = source_1d + lens_1d
+        else:
+            model_1d = design_matrix @ source_pixels
+            lens_amplitudes = None
+
         H, W = self.sim_obj.image_shape
         model_image = jnp.zeros(H * W, dtype=model_1d.dtype)
         model_image = model_image.at[self.sim_obj.flat_indices].set(model_1d)
         model_image = model_image.reshape(H, W)
 
+        if return_components and self.has_lens_light:
+            return model_image, source_pixels, lens_amplitudes
         if return_source:
             return model_image, source_pixels
         return model_image

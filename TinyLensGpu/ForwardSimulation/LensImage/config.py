@@ -136,6 +136,7 @@ class SimulatorConfig:
         psf_kernel: Optional[Array] = None,
         nsub: int = 1,
         mask: Optional[Array] = None,
+        source_seed_mask: Optional[Array] = None,
     ) -> None:
         """
         Initialize a `SimulatorConfig` instance with validated configuration.
@@ -152,6 +153,11 @@ class SimulatorConfig:
             Subsampling factor for higher resolution ray-tracing (default: 1).
         mask : array_like, optional
             Boolean mask array. True values are masked out. Default: no mask.
+        source_seed_mask : array_like, optional
+            Boolean mask array used to infer the source-plane bounding box.
+            True values are masked out. If None, defaults to ``mask``.
+            This mask should be a subset of ``mask`` (i.e. have the same or
+            fewer unmasked pixels) and only cover the lensed arc region.
         """
         self.dpix = dpix
         self.npix = npix
@@ -167,6 +173,10 @@ class SimulatorConfig:
         if mask is None:
             mask = jnp.zeros((npix, npix))
         self.mask = jnp.array(mask, dtype=bool)
+
+        if source_seed_mask is None:
+            source_seed_mask = self.mask
+        self.source_seed_mask = jnp.array(source_seed_mask, dtype=bool)
 
         self.xgrid, self.ygrid, self.xgrid_sub, self.ygrid_sub = self.get_coords(
             self.npix, self.dpix, self.nsub

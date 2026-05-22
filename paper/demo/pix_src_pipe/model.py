@@ -46,9 +46,9 @@ from TinyLensGpu.PhysicalModel import (
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import build_bspline_multipole_set
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils.misc import arc_mask_from
 from TinyLensGpu.visualizer import plot_model_results
 
-from mask_tool import arc_mask_from
 from prior_passing import GaussianPriorPasser
 
 import caskade as ck

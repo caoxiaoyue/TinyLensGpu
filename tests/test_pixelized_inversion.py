@@ -278,14 +278,10 @@ def test_vectorized_likelihood_works_for_small_parameter_batch() -> None:
             PhysicalModel(lens_mass=[_dynamic_sie()], source_light=[_pixelized_source(), _static_parametric_source()], lens_light=[]),
             "parametric source",
         ),
-        (
-            PhysicalModel(lens_mass=[_dynamic_sie()], source_light=[_pixelized_source()], lens_light=[ConstantBackground(0.1)]),
-            "lens_light",
-        ),
     ],
 )
 def test_invalid_source_configurations_raise_value_error(phys_model: PhysicalModel, message: str) -> None:
-    """Test first-version restrictions on pixelized model composition."""
+    """Test restrictions on pixelized model composition."""
     with pytest.raises(ValueError, match=message):
         PixelizedImageProbModel(
             image_data=jnp.zeros((10, 10)),
@@ -294,6 +290,135 @@ def test_invalid_source_configurations_raise_value_error(phys_model: PhysicalMod
             dpix=0.08,
             phys_model=phys_model,
         )
+
+
+@pytest.mark.unit
+def test_pixelized_simulator_accepts_lens_light() -> None:
+    """Test that pixelized simulator now accepts lens_light components."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+    lens_light = SersicEllipse(
+        R_sersic=1.0, n_sersic=4.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for p in [lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie, lens_light.e1, lens_light.e2, lens_light.center_x, lens_light.center_y]:
+        p.to_static()
+    phys_model = PhysicalModel(
+        lens_mass=[_dynamic_sie()],
+        source_light=[_pixelized_source()],
+        lens_light=[lens_light],
+    )
+    # Should not raise
+    simulator = _simulator(phys_model=phys_model)
+    assert simulator.has_lens_light
+    assert simulator.n_lens_light == 1
+
+
+@pytest.mark.unit
+def test_build_lens_light_matrix_matches_independent_convolved_lens_light() -> None:
+    """Test that build_lens_light_matrix matches independent PSF-convolved lens light."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+    from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
+
+    lens_light = SersicEllipse(
+        R_sersic=1.0, n_sersic=4.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for p in [lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie, lens_light.e1, lens_light.e2, lens_light.center_x, lens_light.center_y]:
+        p.to_static()
+
+    phys_model = PhysicalModel(
+        lens_mass=[_dynamic_sie()],
+        source_light=[_pixelized_source()],
+        lens_light=[lens_light],
+    )
+
+    psf = _blur_psf()
+    simulator = _simulator(phys_model=phys_model, psf_kernel=psf)
+
+    # Build lens light matrix via the method under test
+    L = simulator.build_lens_light_matrix()  # (Nd, Nl), Nl=1
+    assert L.shape == (simulator.flat_indices.shape[0], 1)
+
+    # Independent ground truth: evaluate lens light on native grid,
+    # convolve with PSF, extract active pixels
+    xgrid, ygrid = make_grid_2d(10, 0.08)
+    lens_img = lens_light.light(x=xgrid, y=ygrid)
+    expected_convolved = fftconvolve(np.array(lens_img), np.array(psf), mode="same")
+    expected_1d = expected_convolved.ravel()[np.array(simulator.flat_indices)]
+
+    # Compare: unit-amplitude basis, should match closely
+    L_np = np.array(L).ravel()
+    assert np.allclose(L_np, expected_1d, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_build_lens_light_matrix_returns_empty_for_no_lens_light() -> None:
+    """Test that build_lens_light_matrix returns (Nd, 0) when no lens light present."""
+    simulator = _simulator()
+    L = simulator.build_lens_light_matrix()
+    assert L.shape == (simulator.flat_indices.shape[0], 0)
+    assert L.dtype == jnp.float32
+
+
+@pytest.mark.unit
+def test_joint_design_matrix_shape_adds_lens_columns() -> None:
+    """Test that joint design matrix [F|L] has correct shape."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+    lens_light = SersicEllipse(
+        R_sersic=1.0, n_sersic=4.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for p in [lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie, lens_light.e1, lens_light.e2, lens_light.center_x, lens_light.center_y]:
+        p.to_static()
+    phys_model = PhysicalModel(
+        lens_mass=[_dynamic_sie()],
+        source_light=[_pixelized_source()],
+        lens_light=[lens_light],
+    )
+    simulator = _simulator(phys_model=phys_model)
+    design_matrix, _ = simulator.design_matrix()
+    n_source = simulator.n_source_pixels
+    n_lens = simulator.n_lens_light
+    n_data = simulator.flat_indices.shape[0]
+    assert design_matrix.shape == (n_data, n_source + n_lens)
+
+
+@pytest.mark.unit
+def test_source_only_design_matrix_is_unchanged() -> None:
+    """Test that source-only design matrix shape is unchanged."""
+    simulator = _simulator()
+    design_matrix, _ = simulator.design_matrix()
+    n_source = simulator.n_source_pixels
+    n_data = simulator.flat_indices.shape[0]
+    assert design_matrix.shape == (n_data, n_source)
+    assert not simulator.has_lens_light
+
+
+@pytest.mark.unit
+def test_joint_evidence_is_finite_for_lens_light() -> None:
+    """Test that joint evidence with lens_light returns finite scalar."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+    lens_light = SersicEllipse(
+        R_sersic=1.0, n_sersic=4.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for p in [lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie, lens_light.e1, lens_light.e2, lens_light.center_x, lens_light.center_y]:
+        p.to_static()
+    phys_model = PhysicalModel(
+        lens_mass=[_dynamic_sie()],
+        source_light=[_pixelized_source()],
+        lens_light=[lens_light],
+    )
+    model = PixelizedImageProbModel(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        noise_map=jnp.ones((10, 10)) * 0.1,
+        psf_kernel=_delta_psf(),
+        dpix=0.08,
+        phys_model=phys_model,
+    )
+    log_evidence = model()
+    assert jnp.shape(log_evidence) == ()
+    assert jnp.isfinite(log_evidence)
 
 
 @pytest.mark.unit

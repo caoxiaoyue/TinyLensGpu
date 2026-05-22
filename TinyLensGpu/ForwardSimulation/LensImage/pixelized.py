@@ -24,34 +24,40 @@ def _is_pixelized_source_model(source: object) -> bool:
     return isinstance(source, PixelizedSourceModel)
 
 
+EPSILON_REG = 1e-6  # Tiny Tikhonov regularization for lens-light amplitudes
+
+
 class PixelizedLensSimulator:
-    """Forward simulator for a single pixelized source and no lens light.
+    """Forward simulator for a single pixelized source and optional lens light.
 
     Ray-traces image-plane pixels to the source plane, builds the dense
     bilinear mapping matrix, and convolves with PSF via FFT.  When
     ``nsub > 1`` the ray-tracing uses a sub-sampled grid and aggregates
     the mapping back to native resolution before PSF convolution.
 
+    When ``lens_light`` is present, the simulator builds a joint design
+    matrix ``M = [F | L]`` where ``F`` is the source mapping matrix and
+    ``L`` is the lens-light basis matrix, enabling joint linear inversion.
+
     Parameters
     ----------
     phys_model : PhysicalModel
         Model with lens mass and exactly one pixelized source.
+        May optionally include lens light components.
     sim_config : SimulatorConfig
         Image grid, PSF, mask, and subsampling (``nsub``) configuration.
 
     Raises
     ------
     ValueError
-        If the model has mixed sources, multiple sources, or lens light.
+        If the model has mixed sources, multiple pixelized sources,
+        or a parametric source.
     """
 
     def __init__(self, phys_model: PhysicalModel, sim_config: SimulatorConfig) -> None:
         self.phys_model = phys_model
         self.sim_config = sim_config
         self.nsub = int(sim_config.nsub)
-
-        if len(phys_model.lens_light) != 0:
-            raise ValueError("PixelizedLensSimulator does not support lens_light in this version")
 
         n_pixelized = sum(_is_pixelized_source_model(s) for s in phys_model.source_light)
         if n_pixelized != len(phys_model.source_light):
@@ -65,6 +71,10 @@ class PixelizedLensSimulator:
         self.source_ny = int(source.ny)
         self.n_source_pixels = self.source_nx * self.source_ny
 
+        # Lens light
+        self.n_lens_light = len(phys_model.lens_light)
+        self.has_lens_light = self.n_lens_light > 0
+
         self.image_shape = tuple(sim_config.mask.shape)
         self.mask = jnp.asarray(sim_config.mask, dtype=bool)
         self.active_mask = ~self.mask
@@ -72,6 +82,19 @@ class PixelizedLensSimulator:
         self.image_x_active = jnp.asarray(sim_config.xgrid)[self.active_mask]
         self.image_y_active = jnp.asarray(sim_config.ygrid)[self.active_mask]
         self.psf_kernel = jnp.asarray(sim_config.psf_kernel)
+
+        # Source seed mask for bounding-box inference (dual-masking strategy)
+        self.source_seed_mask = jnp.asarray(sim_config.source_seed_mask, dtype=bool)
+        self.seed_active_mask = ~self.source_seed_mask
+        # Ensure seed active region is a subset of data active region
+        if not jnp.all(self.seed_active_mask <= self.active_mask):
+            raise ValueError(
+                "source_seed_mask active region must be a subset of mask active region. "
+                "Ensure every unmasked pixel in source_seed_mask is also unmasked in mask."
+            )
+        self.seed_flat_indices = jnp.flatnonzero(self.seed_active_mask.ravel())
+        self.image_x_seed = jnp.asarray(sim_config.xgrid)[self.seed_active_mask]
+        self.image_y_seed = jnp.asarray(sim_config.ygrid)[self.seed_active_mask]
 
         if self.nsub > 1:
             self.image_shape_sub = sim_config.subgrid_shape
@@ -101,7 +124,7 @@ class PixelizedLensSimulator:
             self.image_x_active_sub = self.image_x_active
             self.image_y_active_sub = self.image_y_active
 
-        # Precompute PSF FFT once — PSF is fixed for the lifetime of this object.
+        # Precompute PSF FFT once
         H, W = self.image_shape
         kernel = self.psf_kernel
         psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
@@ -134,6 +157,65 @@ class PixelizedLensSimulator:
         source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
         return build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
 
+    def build_lens_light_matrix(
+        self,
+        *,
+        psf_kernel: Array | None = None,
+    ) -> Array:
+        """Build Nd x Nl lens-light basis matrix L.
+
+        Evaluates each lens-light component on the image-plane grid,
+        convolves with the PSF, and extracts the active (unmasked) pixels.
+        The returned columns are normalized basis images with unit amplitude.
+
+        Parameters
+        ----------
+        psf_kernel : Array, optional
+            Override PSF kernel. If None, uses the simulator's PSF.
+
+        Returns
+        -------
+        Array
+            Lens-light basis matrix of shape (Nd, Nl).
+        """
+        if not self.has_lens_light:
+            return jnp.zeros((self.flat_indices.shape[0], 0), dtype=jnp.float32)
+
+        kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
+        H, W = self.image_shape
+
+        # Evaluate each lens-light component on the sub-grid for accuracy,
+        # then bin to native resolution to match the source simulation path.
+        if self.nsub > 1:
+            xgrid = jnp.asarray(self.sim_config.xgrid_sub)
+            ygrid = jnp.asarray(self.sim_config.ygrid_sub)
+        else:
+            xgrid = jnp.asarray(self.sim_config.xgrid)
+            ygrid = jnp.asarray(self.sim_config.ygrid)
+
+        lens_images = []
+        for light_model in self.phys_model.lens_light:
+            img = light_model.light(x=xgrid, y=ygrid)
+            lens_images.append(img)
+
+        lens_stack = jnp.stack(lens_images, axis=-1)
+
+        # Bin to native resolution when using sub-grid
+        if self.nsub > 1:
+            lens_stack = bin_image_general(lens_stack, self.nsub)  # (H, W, Nl)
+
+        # PSF convolution for each component (vectorized)
+        lens_convolved = jax.vmap(
+            lambda x: jsp.signal.fftconvolve(x, kernel, mode="same"),
+            in_axes=-1,
+            out_axes=-1,
+        )(lens_stack)
+
+        # Extract active pixels and flatten
+        lens_1d = lens_convolved.reshape(H * W, self.n_lens_light)
+        L = lens_1d[self.flat_indices, :]  # (Nd, Nl)
+        return L
+
     def _aggregate_mapping_to_native(self, mapping_matrix_sub: Array) -> Array:
         """Average a sub-grid mapping matrix back to native resolution.
 
@@ -162,15 +244,24 @@ class PixelizedLensSimulator:
         source_half_size: Array | float | None = None,
         psf_kernel: Array | None = None,
     ) -> tuple[Array, Array]:
-        """Build Nd x Ns PSF-convolved design matrix M.
+        """Build Nd x (Ns+Nl) PSF-convolved joint design matrix M = [F | L].
+
+        When lens_light is absent, returns the source-only matrix F with
+        shape (Nd, Ns).  When lens_light is present, returns the joint
+        matrix [F | L] with shape (Nd, Ns+Nl).
 
         Returns (M, inferred_source_half_size).
         """
+        # --- Source mapping matrix F ---
         beta_x, beta_y = self.phys_model.deflection(
             x=self.image_x_active_sub, y=self.image_y_active_sub
         )
         if source_half_size is None:
-            source_half_size = self.infer_source_half_size(beta_x, beta_y)
+            # Use seed mask for bounding box inference (dual-masking strategy)
+            beta_x_seed, beta_y_seed = self.phys_model.deflection(
+                x=self.image_x_seed, y=self.image_y_seed
+            )
+            source_half_size = self.infer_source_half_size(beta_x_seed, beta_y_seed)
 
         source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
         mapping_matrix_sub = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
@@ -202,15 +293,58 @@ class PixelizedLensSimulator:
         conv_imgs = jnp.fft.irfft2(imgs_fft * psf_fft[None], s=(H, W))  # (N_s, H, W)
 
         conv_imgs_flat = conv_imgs.reshape(self.n_source_pixels, H * W)
-        design_matrix = conv_imgs_flat[:, self.flat_indices].T  # (N_d, N_s)
-        return design_matrix, jnp.asarray(source_half_size)
+        F = conv_imgs_flat[:, self.flat_indices].T  # (N_d, N_s)
 
-    def simulate(self, source_pixels: Array, *, source_half_size: Array | float | None = None, psf_kernel: Array | None = None) -> Array:
-        """Return full 2D model image for given source pixels."""
+        # --- Joint with lens light if present ---
+        if self.has_lens_light:
+            L = self.build_lens_light_matrix(psf_kernel=psf_kernel)  # (N_d, Nl)
+            M = jnp.concatenate([F, L], axis=1)  # (N_d, Ns+Nl)
+            return M, jnp.asarray(source_half_size)
+
+        return F, jnp.asarray(source_half_size)
+
+    def simulate(
+        self,
+        source_pixels: Array,
+        *,
+        lens_light_amplitudes: Array | None = None,
+        source_half_size: Array | float | None = None,
+        psf_kernel: Array | None = None,
+    ) -> Array:
+        """Return full 2D model image for given source and lens-light parameters.
+
+        Parameters
+        ----------
+        source_pixels : Array
+            Source pixel intensities, shape (Ns,).
+        lens_light_amplitudes : Array, optional
+            Lens light linear amplitudes, shape (Nl,). Required when
+            ``has_lens_light`` is True.
+        source_half_size : Array or float, optional
+            Override source-plane half-size.
+        psf_kernel : Array, optional
+            Override PSF kernel.
+
+        Returns
+        -------
+        Array
+            Full 2D model image.
+        """
         source_pixels = jnp.asarray(source_pixels)
-        mapping_matrix_sub = self.build_mapping_matrix(source_half_size=source_half_size, use_subgrid=True)
+
+        # Infer source_half_size using seed mask coordinates (same as design_matrix)
+        if source_half_size is None:
+            beta_x_seed, beta_y_seed = self.phys_model.deflection(
+                x=self.image_x_seed, y=self.image_y_seed
+            )
+            source_half_size = self.infer_source_half_size(beta_x_seed, beta_y_seed)
+
+        mapping_matrix_sub = self.build_mapping_matrix(
+            source_half_size=source_half_size, use_subgrid=True
+        )
         m_ideal_1d_sub = mapping_matrix_sub @ source_pixels
 
+        H, W = self.image_shape
         if self.nsub > 1:
             H_sub, W_sub = self.image_shape_sub
             model_image_sub = jnp.zeros((H_sub * W_sub,), dtype=m_ideal_1d_sub.dtype)
@@ -218,7 +352,6 @@ class PixelizedLensSimulator:
             model_image_sub = model_image_sub.reshape(H_sub, W_sub)
             model_image = bin_image_general(model_image_sub, self.nsub)
         else:
-            H, W = self.image_shape
             model_image = jnp.zeros(H * W, dtype=m_ideal_1d_sub.dtype)
             model_image = model_image.at[self.flat_indices].set(m_ideal_1d_sub)
             model_image = model_image.reshape(H, W)
@@ -226,9 +359,27 @@ class PixelizedLensSimulator:
         kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
         convolved_image = jsp.signal.fftconvolve(model_image, kernel, mode="same")
 
+        # Add lens light contribution if present
+        if self.has_lens_light and lens_light_amplitudes is not None:
+            lens_light_amplitudes = jnp.asarray(lens_light_amplitudes)
+            L = self.build_lens_light_matrix(psf_kernel=psf_kernel)
+            lens_1d = L @ lens_light_amplitudes
+            lens_image = jnp.zeros(H * W, dtype=lens_1d.dtype)
+            lens_image = lens_image.at[self.flat_indices].set(lens_1d)
+            lens_image = lens_image.reshape(H, W)
+            convolved_image = convolved_image + lens_image
+
         return jnp.where(self.active_mask, convolved_image, jnp.zeros_like(convolved_image))
 
-    def forward(self, *, source_pixels: Array | None = None, return_mapping: bool = False, return_image_2d: bool = True, psf_kernel: Array | None = None) -> SimulationResult:
+    def forward(
+        self,
+        *,
+        source_pixels: Array | None = None,
+        lens_light_amplitudes: Array | None = None,
+        return_mapping: bool = False,
+        return_image_2d: bool = True,
+        psf_kernel: Array | None = None,
+    ) -> SimulationResult:
         """Forward model compatible with the parametric simulator API."""
         if not return_image_2d:
             raise ValueError("Pixelized forward() always returns 2D images")
@@ -242,7 +393,11 @@ class PixelizedLensSimulator:
                 mapping_matrix = mapping_matrix_sub
             source_pixels = jnp.zeros(self.n_source_pixels, dtype=mapping_matrix.dtype)
 
-        model_image = self.simulate(source_pixels, psf_kernel=psf_kernel)
+        model_image = self.simulate(
+            source_pixels,
+            lens_light_amplitudes=lens_light_amplitudes,
+            psf_kernel=psf_kernel,
+        )
         if return_mapping and mapping_matrix is None:
             mapping_matrix_sub = self.build_mapping_matrix(use_subgrid=(self.nsub > 1))
             if self.nsub > 1:
@@ -255,7 +410,8 @@ class PixelizedLensSimulator:
     def __repr__(self) -> str:
         return (f"PixelizedLensSimulator(image_shape={self.image_shape}, "
                 f"source_shape=({self.source_ny}, {self.source_nx}), "
-                f"n_active={int(self.flat_indices.shape[0])})")
+                f"n_active={int(self.flat_indices.shape[0])}, "
+                f"n_lens_light={self.n_lens_light})")
 
 
-__all__ = ["PixelizedLensSimulator"]
+__all__ = ["PixelizedLensSimulator", "EPSILON_REG"]
