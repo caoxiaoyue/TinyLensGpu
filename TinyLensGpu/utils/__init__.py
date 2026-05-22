@@ -1,5 +1,5 @@
 from .linear_solver import LinearSolver, prepare_linear_system, solve_linear_system
-from .misc import load_lens_data, generate_radial_basis_knots
+from .misc import load_lens_data, generate_radial_basis_knots, weighted_quantile
 from .lensing.mapping import build_lens_mapping_matrix, build_source_grid
 from .photometry import mag2cps, cps2mag
 
@@ -13,4 +13,5 @@ __all__ = [
     'build_lens_mapping_matrix',
     'mag2cps',
     'cps2mag',
+    'weighted_quantile',
 ]

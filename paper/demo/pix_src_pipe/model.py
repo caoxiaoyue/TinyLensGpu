@@ -46,7 +46,7 @@ from TinyLensGpu.PhysicalModel import (
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import build_bspline_multipole_set
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import load_lens_data
-from TinyLensGpu.utils.misc import arc_mask_from
+from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results
 
 from prior_passing import GaussianPriorPasser
@@ -107,25 +107,19 @@ def _load_stage(tag: str):
 def _posterior_median(samples, weights, param_names):
     """Return dict of weighted medians keyed by param name."""
     out = {}
-    order = np.argsort(samples, axis=0)
-    w = weights / weights.sum()
+    q = np.array([0.5])
     for i, name in enumerate(param_names):
-        s = samples[order[:, i], i]
-        cw = np.cumsum(w[order[:, i]])
-        cw /= cw[-1]
-        out[name] = float(np.interp(0.5, cw, s))
+        out[name] = float(weighted_quantile(
+            np.asarray(samples[:, i]), weights, q))
     return out
 
 
 def _print_summary(tag: str, samples, weights, param_names):
     print(f"\n[{tag}] Posterior summary:")
-    w = weights / weights.sum()
+    q = np.array([0.16, 0.5, 0.84])
     for i, name in enumerate(param_names):
-        order = np.argsort(samples[:, i])
-        s = samples[order, i]
-        cw = np.cumsum(w[order])
-        cw /= cw[-1]
-        q16, q50, q84 = [float(np.interp(q, cw, s)) for q in (0.16, 0.5, 0.84)]
+        qs = weighted_quantile(np.asarray(samples[:, i]), weights, q)
+        q16, q50, q84 = float(qs[0]), float(qs[1]), float(qs[2])
         print(f"    {name:25s} = {q50:+.4f} ({q16-q50:+.4f}, {q84-q50:+.4f})")
 
 

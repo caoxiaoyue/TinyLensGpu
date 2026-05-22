@@ -20,7 +20,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import TinyLensGpu
 import caskade as ck
-from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import BandImageData, MultiBandImageProbModel
@@ -239,27 +239,6 @@ def build_band_physical_model(
     return PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[lens])
 
 
-def weighted_quantiles(samples: np.ndarray, weights: np.ndarray) -> tuple[list[float], list[float], list[float]]:
-    q16_list: list[float] = []
-    q50_list: list[float] = []
-    q84_list: list[float] = []
-    for idx in range(samples.shape[1]):
-        sorted_idx = np.argsort(samples[:, idx])
-        sorted_samples = samples[sorted_idx, idx]
-        sorted_weights = weights[sorted_idx]
-        cumsum = np.cumsum(sorted_weights)
-        cumsum /= cumsum[-1]
-
-        q16 = float(np.interp(0.16, cumsum, sorted_samples))
-        q50 = float(np.interp(0.50, cumsum, sorted_samples))
-        q84 = float(np.interp(0.84, cumsum, sorted_samples))
-
-        q16_list.append(q16)
-        q50_list.append(q50)
-        q84_list.append(q84)
-    return q16_list, q50_list, q84_list
-
-
 def plot_multiband_overview(model: MultiBandImageProbModel, theta: list[float], save_path: Path) -> None:
     model.set_values(theta)
 
@@ -461,12 +440,10 @@ if __name__ == "__main__":
     print(f"Sampling completed in {elapsed:.2f} seconds")
 
     print("\n[Stage 6] Saving posterior products...")
-    samples, log_w, _ = sampler.posterior()
-    weights = np.exp(log_w - np.max(log_w))
-    weights /= weights.sum()
-
-    q16_list, q50_list, q84_list = weighted_quantiles(np.asarray(samples), np.asarray(weights))
-    log_z = float(np.asarray(sampler.log_z))
+    samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+    q16_list = [float(qs[0]) for qs in quantiles.values()]
+    q50_list = [float(qs[1]) for qs in quantiles.values()]
+    q84_list = [float(qs[2]) for qs in quantiles.values()]
     linear_medians = likelihood.get_linear_solved_params(q50_list)
 
     output_dir.mkdir(parents=True, exist_ok=True)

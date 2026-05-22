@@ -180,6 +180,37 @@ def arc_mask_from(
     return ~signal_mask
 
 
+def weighted_quantile(
+    samples: np.ndarray,
+    weights: np.ndarray,
+    q: np.ndarray = np.array([0.16, 0.50, 0.84]),
+) -> np.ndarray:
+    """
+    Compute weighted quantiles of 1-D samples via CDF interpolation.
+
+    Parameters
+    ----------
+    samples : np.ndarray, shape (n,)
+        Sample values.
+    weights : np.ndarray, shape (n,)
+        Weights (need not be normalized).
+    q : array-like, optional
+        Quantiles to compute, in [0, 1]. Default is (0.16, 0.50, 0.84).
+
+    Returns
+    -------
+    quantiles : np.ndarray
+        Interpolated quantile values, same shape as *q*.
+    """
+    q = np.asarray(q)
+    order = np.argsort(samples)
+    s = samples[order]
+    w = weights[order]
+    cdf = np.cumsum(w)
+    cdf /= cdf[-1]
+    return np.interp(q, cdf, s)
+
+
 def generate_radial_basis_knots(
     dpix: float,
     center_x: float = 0.0,

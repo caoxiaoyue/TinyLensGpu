@@ -26,7 +26,7 @@ import jax.scipy.linalg as jsl
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
-from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
@@ -194,27 +194,10 @@ print(f"  Sampling done in {time.time() - t0:.1f} s")
 # Posterior summary
 # ------------------------------------------------------------------ #
 print("[5] Processing results ...")
-samples, log_w, _ = sampler.posterior()
-weights = np.exp(log_w - np.max(log_w))
-weights /= weights.sum()
-
-print("\n" + "="*60)
-print("Posterior Summary")
-print("="*60)
-q16_list, q50_list, q84_list = [], [], []
-for i, name in enumerate(param_names):
-    idx   = np.argsort(samples[:, i])
-    s_s   = samples[idx, i]
-    w_s   = weights[idx]
-    cdf   = np.cumsum(w_s); cdf /= cdf[-1]
-    q16   = float(np.interp(0.16, cdf, s_s))
-    q50   = float(np.interp(0.50, cdf, s_s))
-    q84   = float(np.interp(0.84, cdf, s_s))
-    q16_list.append(q16); q50_list.append(q50); q84_list.append(q84)
-    print(f"  {name:15s} = {q50:.4f}  ({q16-q50:+.4f}, {q84-q50:+.4f})")
-
-log_z = float(np.asarray(sampler.log_z))
-print(f"\nlog(Z) = {log_z:.2f}")
+samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+q16_list = [float(qs[0]) for qs in quantiles.values()]
+q50_list = [float(qs[1]) for qs in quantiles.values()]
+q84_list = [float(qs[2]) for qs in quantiles.values()]
 
 # ------------------------------------------------------------------ #
 # Save

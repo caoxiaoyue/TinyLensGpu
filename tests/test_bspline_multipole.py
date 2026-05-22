@@ -224,15 +224,15 @@ class TestBsplineMultipoleFactory:
 
     def test_factory_default_count(self):
         """Default radial and angular settings should create 51 components (17 bases * 3 multipoles)."""
-        components = build_bspline_multipole_set()
+        components = build_bspline_multipole_set(dpix=0.1)
 
         # n_bases = n_radial + degree - 1 = 15 + 3 - 1 = 17; 17 * 3 = 51
         assert len(components) == 51
 
     def test_factory_custom_ntheta(self):
         """The component count should scale with the requested angular modes."""
-        monopoles = build_bspline_multipole_set(ntheta=[0])
-        five_modes = build_bspline_multipole_set(ntheta=[0, -2, 2, 4, -4])
+        monopoles = build_bspline_multipole_set(dpix=0.1, ntheta=[0])
+        five_modes = build_bspline_multipole_set(dpix=0.1, ntheta=[0, -2, 2, 4, -4])
 
         # n_bases = n_radial + degree - 1 = 15 + 3 - 1 = 17
         assert len(monopoles) == 17
@@ -240,30 +240,32 @@ class TestBsplineMultipoleFactory:
 
     def test_factory_log_spacing(self):
         """Factory radial breakpoints should be logarithmically spaced."""
-        components = build_bspline_multipole_set(r_min=0.01, r_max=10.0, n_radial=8)
+        components = build_bspline_multipole_set(dpix=0.1, r_min=0.01, r_max=10.0, n_radial=8)
         rbkpt = components[0]._rbkpt
-        ratios = rbkpt[1:] / rbkpt[:-1]
+        # Skip the central 0.0 knot
+        ratios = rbkpt[2:] / rbkpt[1:-1]
 
         np.testing.assert_allclose(ratios, jnp.full_like(ratios, ratios[0]), rtol=1e-6)
 
     def test_factory_rmin_rmax(self):
         """Factory breakpoints should honor the requested radial bounds."""
-        components = build_bspline_multipole_set(r_min=0.02, r_max=3.5, n_radial=9)
+        components = build_bspline_multipole_set(dpix=0.1, r_min=0.02, r_max=3.5, n_radial=9)
         rbkpt = components[0]._rbkpt
 
-        np.testing.assert_allclose(rbkpt[0], 0.02, rtol=1e-6)
+        # Skip the central 0.0 knot
+        np.testing.assert_allclose(rbkpt[1], 0.02, rtol=1e-6)
         np.testing.assert_allclose(rbkpt[-1], 3.5, rtol=1e-6)
 
     def test_factory_shared_params(self):
         """All generated components should share the same center parameters."""
-        components = build_bspline_multipole_set()
+        components = build_bspline_multipole_set(dpix=0.1)
         center_x = components[0].center_x
 
         assert all(component.center_x is center_x for component in components)
 
     def test_factory_all_components_light(self):
         """Every generated component should be evaluable on a small grid."""
-        components = build_bspline_multipole_set(n_radial=15, r_min=0.01, r_max=2.0)
+        components = build_bspline_multipole_set(dpix=0.1, n_radial=15, r_min=0.01, r_max=2.0)
         x = jnp.linspace(-1.0, 1.0, 12)
         y = jnp.linspace(-1.0, 1.0, 12)
         X, Y = jnp.meshgrid(x, y)
@@ -275,7 +277,7 @@ class TestBsplineMultipoleFactory:
 
     def test_factory_amp_default(self):
         """Each component should start with a unit amplitude parameter."""
-        components = build_bspline_multipole_set()
+        components = build_bspline_multipole_set(dpix=0.1)
 
         for component in components:
             np.testing.assert_allclose(component.amp.value, 1.0)
@@ -294,6 +296,7 @@ class TestBsplineMultipoleIntegration:
             param.to_dynamic()
 
         return build_bspline_multipole_set(
+            dpix=0.1,
             r_min=0.01,
             r_max=2.0,
             n_radial=15,

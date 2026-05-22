@@ -17,7 +17,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
@@ -152,34 +152,10 @@ if __name__ == "__main__":
 
     # 5. Process results and summary
     print("\n[Stage 5] Processing results...")
-    samples, log_w, _ = sampler.posterior()
-    weights = np.exp(log_w - np.max(log_w))
-    weights /= weights.sum()
-    
-    print("\n" + "="*60)
-    print("Posterior Summary")
-    print("="*60)
-    
-    q16_list, q50_list, q84_list = [], [], []
-    for i, name in enumerate(param_names):
-        sorted_idx = np.argsort(samples[:, i])
-        sorted_samples = samples[sorted_idx, i]
-        sorted_weights = weights[sorted_idx]
-        cumsum = np.cumsum(sorted_weights)
-        cumsum /= cumsum[-1]
-        
-        q16 = np.interp(0.16, cumsum, sorted_samples)
-        q50 = np.interp(0.50, cumsum, sorted_samples)
-        q84 = np.interp(0.84, cumsum, sorted_samples)
-        
-        q16_list.append(q16)
-        q50_list.append(q50)
-        q84_list.append(q84)
-        
-        print(f"  {name:15s} = {q50:.4f} ({q16-q50:+.4f}, {q84-q50:+.4f})")
-    
-    log_z = float(np.asarray(sampler.log_z))
-    print(f"\nlog(Z) = {log_z:.2f}")
+    samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+    q16_list = [float(qs[0]) for qs in quantiles.values()]
+    q50_list = [float(qs[1]) for qs in quantiles.values()]
+    q84_list = [float(qs[2]) for qs in quantiles.values()]
 
     # 6. Save results
     print("\n[Stage 6] Saving results...")

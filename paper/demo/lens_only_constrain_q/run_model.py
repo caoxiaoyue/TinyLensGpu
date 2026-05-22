@@ -14,7 +14,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from TinyLensGpu.Inference import ParamU, EllipticityConstraint
+from TinyLensGpu.Inference import ParamU, EllipticityConstraint, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils import load_lens_data
@@ -125,38 +125,16 @@ if __name__ == "__main__":
 
     # 5. Process results and summary
     print("\n[Stage 5] Processing results...")
-    samples, log_w, _ = sampler.posterior()
-    samples = jnp.asarray(samples, dtype=jnp.float32)
-    weights = jnp.exp(log_w)
-    weights /= weights.sum()
-    
-    print("\n" + "="*60)
-    print("Posterior Summary")
-    print("="*60)
-    
-    q16_list, q50_list, q84_list = [], [], []
+    samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+    q16_list = [float(qs[0]) for qs in quantiles.values()]
+    q50_list = [float(qs[1]) for qs in quantiles.values()]
+    q84_list = [float(qs[2]) for qs in quantiles.values()]
+
     e1_idx, e2_idx = -1, -1
     for i, name in enumerate(param_names):
         if name == 'e1': e1_idx = i
         if name == 'e2': e2_idx = i
-        
-        # Calculate quantiles using weighted samples
-        sorted_idx = jnp.argsort(samples[:, i])
-        sorted_samples = samples[sorted_idx, i]
-        sorted_weights = weights[sorted_idx]
-        cumsum = jnp.cumsum(sorted_weights)
-        cumsum /= cumsum[-1]
-        
-        q16 = jnp.interp(0.16, cumsum, sorted_samples)
-        q50 = jnp.interp(0.50, cumsum, sorted_samples)
-        q84 = jnp.interp(0.84, cumsum, sorted_samples)
-        
-        q16_list.append(float(q16))
-        q50_list.append(float(q50))
-        q84_list.append(float(q84))
-        
-        print(f"  {name:12s} = {q50:.4f} ({q16-q50:+.4f}, {q84-q50:+.4f})")
-        
+
     if e1_idx != -1 and e2_idx != -1:
         from TinyLensGpu.utils.geometry.transforms import ellipticity2phi_q
         phi_med, q_med = ellipticity2phi_q(q50_list[e1_idx], q50_list[e2_idx])

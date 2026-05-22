@@ -27,30 +27,11 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, Shear
-
-
-def weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    sorter = np.argsort(values)
-    values_sorted = values[sorter]
-    weights_sorted = weights[sorter]
-    cumsum = np.cumsum(weights_sorted)
-    cumsum /= cumsum[-1]
-    return float(np.interp(q, cumsum, values_sorted))
-
-
-def summarize_posterior(samples: np.ndarray, weights: np.ndarray, names: List[str]) -> List[Tuple[str, float, float, float]]:
-    out = []
-    for i, name in enumerate(names):
-        q16 = weighted_quantile(samples[:, i], weights, 0.16)
-        q50 = weighted_quantile(samples[:, i], weights, 0.50)
-        q84 = weighted_quantile(samples[:, i], weights, 0.84)
-        out.append((name, q16, q50, q84))
-    return out
 
 
 def select_best_matched_positions(
@@ -135,7 +116,7 @@ def build_inference_model(observed_positions: np.ndarray, sigma_pos: np.ndarray)
     return model
 
 
-def sample_with_nautilus(prior, loglike, ndim: int, n_eff: int = 600):
+def sample_with_nautilus(prior, loglike, ndim: int, param_names: List[str], n_eff: int = 600):
     from nautilus import Sampler
 
     sampler = Sampler(
@@ -151,10 +132,8 @@ def sample_with_nautilus(prior, loglike, ndim: int, n_eff: int = 600):
     t1 = time.time()
     print(f"Nautilus done in {t1 - t0:.2f} s")
 
-    samples, log_w, _ = sampler.posterior()
-    weights = np.exp(log_w - np.max(log_w))
-    weights /= np.sum(weights)
-    return np.asarray(samples), np.asarray(weights), float(np.asarray(sampler.log_z))
+    samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+    return np.asarray(samples), np.asarray(weights), float(log_z), quantiles
 
 
 if __name__ == "__main__":
@@ -191,10 +170,13 @@ if __name__ == "__main__":
 
     print("\n[Stage 3] Run inference")
     n_eff = int(os.environ.get("POINT_SOURCE_DEMO_N_EFF", "600"))
-    samples, weights, log_z = sample_with_nautilus(prior, loglike, len(param_names), n_eff=n_eff)
+    samples, weights, log_z, quantiles = sample_with_nautilus(prior, loglike, len(param_names), param_names, n_eff=n_eff)
     backend = "nautilus"
 
-    summary = summarize_posterior(samples, weights, param_names)
+    q16_list = [float(qs[0]) for qs in quantiles.values()]
+    q50_list = [float(qs[1]) for qs in quantiles.values()]
+    q84_list = [float(qs[2]) for qs in quantiles.values()]
+    summary = [(param_names[i], q16_list[i], q50_list[i], q84_list[i]) for i in range(len(param_names))]
 
     print("\nPosterior summary (q50 [q16, q84]):")
     med = {}
