@@ -28,6 +28,7 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
@@ -37,7 +38,41 @@ from TinyLensGpu.utils import load_lens_data
 # ------------------------------------------------------------------ #
 SIE_TRUE = dict(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
 LENS_LIGHT_TRUE = dict(R_sersic=1.0, n_sersic=4.0, Ie=1.0, e1=0.1, e2=0.0)
+SRC_TRUE = dict(center_x=0.1, center_y=0.1)
 DPIX = 0.05
+
+# ------------------------------------------------------------------ #
+# Solve true lensed image positions for position likelihood
+# ------------------------------------------------------------------ #
+print("[0] Solving true lensed image positions ...")
+_true_mass = PhysicalModel(
+    lens_mass=[SIE(**SIE_TRUE)],
+    source_light=[],
+    lens_light=[],
+)
+_solver = PointSourceProbModel(
+    phys_model=_true_mass,
+    observed_positions=[[0.0, 0.0]],   # placeholder, not used for solving
+    position_sigma=[0.01],
+    source_x=SRC_TRUE["center_x"],
+    source_y=SRC_TRUE["center_y"],
+    source_position_fixed=True,
+    solver="optimization",
+    solver_config={
+        "initial_range": 3.0,
+        "n_x": 200,
+        "n_y": 200,
+        "k_keep": 30,
+        "num_iters": 20,
+        "tolerance": 5.0e-4,
+        "cluster_tol": 0.08,
+    },
+)
+_img_positions, _ = _solver.solve_image_positions()
+_img_positions = np.asarray(_img_positions)
+print(f"  Found {len(_img_positions)} lensed image positions:")
+for pos in _img_positions:
+    print(f"    ({pos[0]:.4f}, {pos[1]:.4f})")
 
 # ------------------------------------------------------------------ #
 # Data
@@ -130,6 +165,16 @@ lens_light.center_y.to_dynamic()
 pix_src.lambda_reg.to_dynamic()
 
 # ------------------------------------------------------------------ #
+# Position likelihood: penalize lens mass models whose deflections
+# are inconsistent with the observed multiply-imaged positions.
+# ------------------------------------------------------------------ #
+position_likelihood = {
+    'positions': _img_positions.tolist(),
+    'threshold_arcsec': 0.3,
+    'min_log_like': -1.0e10,
+}
+
+# ------------------------------------------------------------------ #
 # Probability model (Bayesian evidence)
 # ------------------------------------------------------------------ #
 print("[3] Building probability model ...")
@@ -142,6 +187,7 @@ prob_model = PixelizedImageProbModel(
     mask=mask,
     source_seed_mask=source_seed_mask,
     nsub=2,
+    position_likelihood=position_likelihood,
 )
 
 # ------------------------------------------------------------------ #
@@ -261,13 +307,13 @@ npix = image_data.shape[0]
 flat_indices = prob_model.sim_obj.flat_indices
 
 model_image = np.zeros((npix, npix))
-model_image.flat[flat_indices] = np.array(model_1d)
+model_image.put(flat_indices, np.array(model_1d))
 
 source_image_2d = np.zeros((npix, npix))
-source_image_2d.flat[flat_indices] = np.array(source_1d)
+source_image_2d.put(flat_indices, np.array(source_1d))
 
 lens_image_2d = np.zeros((npix, npix))
-lens_image_2d.flat[flat_indices] = np.array(lens_1d)
+lens_image_2d.put(flat_indices, np.array(lens_1d))
 
 resid_norm = (image_data - model_image) / noise_map
 
