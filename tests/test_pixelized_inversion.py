@@ -237,6 +237,37 @@ def test_source_reconstruction_allows_negative_values_without_nnls_constraint() 
 
 
 @pytest.mark.unit
+def test_nnls_solver_enforces_non_negative_source_pixels() -> None:
+    """NNLS solver clamps source pixels to >= 0, even when unconstrained solve goes negative."""
+    true_source = jnp.linspace(-1.0, 1.0, 25)
+    simulator = _simulator(psf_kernel=_delta_psf())
+    image_data = simulator.simulate(true_source, psf_kernel=_delta_psf())
+    model = _prob_model(image_data=image_data, noise_map=jnp.ones((10, 10)) * 0.01, psf_kernel=_delta_psf())
+    model.solver_type = "nnls"
+
+    _, source_pixels = model.forward_model(return_source=True)
+
+    assert jnp.all(source_pixels >= -1e-6)
+    assert jnp.all(jnp.isfinite(source_pixels))
+
+
+@pytest.mark.unit
+def test_nnls_solver_reconstructs_positive_source() -> None:
+    """NNLS solver faithfully reconstructs a strictly positive source."""
+    true_source = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    simulator = _simulator(psf_kernel=_delta_psf())
+    image_data = simulator.simulate(true_source, psf_kernel=_delta_psf())
+    model = _prob_model(image_data=image_data, noise_map=jnp.ones((10, 10)) * 0.01, psf_kernel=_delta_psf())
+    model.solver_type = "nnls"
+
+    _, source_pixels = model.forward_model(return_source=True)
+
+    assert jnp.all(source_pixels >= -1e-6)
+    assert jnp.all(jnp.isfinite(source_pixels))
+    assert jnp.any(source_pixels > 0.0)  # not all zeros
+
+
+@pytest.mark.unit
 def test_prior_transformation_sees_mass_and_regularization_parameters() -> None:
     """Test that prior extraction includes lens mass and lambda_reg parameters."""
     _, prior_specs = make_prior_transformation(_prob_model())

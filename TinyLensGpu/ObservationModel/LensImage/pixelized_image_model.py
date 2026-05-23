@@ -20,6 +20,7 @@ from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     GP_REGULARIZATION_TYPES,
 )
+from TinyLensGpu.utils.linear_solver import fnnls_jax
 
 
 class PixelizedImageProbModel(ck.Module):
@@ -47,6 +48,10 @@ class PixelizedImageProbModel(ck.Module):
         do not map back to a common source-plane position. Expected keys:
         ``positions`` (list of [x, y] pairs), ``threshold_arcsec``,
         and ``min_log_like``.
+    solver_type : str, optional
+        Linear solver for MAP source/lens-light amplitudes. ``"cholesky"``
+        (default) uses unconstrained normal equations; ``"nnls"`` enforces
+        non-negativity via FNNLS.
     """
 
     def __init__(
@@ -60,8 +65,12 @@ class PixelizedImageProbModel(ck.Module):
         source_seed_mask: Union[np.ndarray, Array, None] = None,
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
+        solver_type: str = "cholesky",
     ) -> None:
         super().__init__("pixelized_image_prob_model")
+        if solver_type not in ("nnls", "cholesky"):
+            raise ValueError(f"solver_type must be 'nnls' or 'cholesky', got {solver_type}")
+        self.solver_type = solver_type
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
         if jnp.any(self.noise_map <= 0.0):
@@ -149,11 +158,14 @@ class PixelizedImageProbModel(ck.Module):
     def _solve_source(
         self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
     ) -> tuple[Array, Array, Array]:
-        """Solve normal equations via Cholesky for MAP source and lens-light pixels.
+        """Solve for MAP source and lens-light pixels.
 
         For source-only models (Nl=0), solves the standard source inversion.
         For joint models (Nl>0), solves the joint system with block-diagonal
         regularization: block_diag(lambda_reg * R_src, eps * I).
+
+        When ``solver_type='nnls'``, enforces non-negativity on all linear
+        parameters (source pixels and lens light amplitudes) using FNNLS.
 
         Returns (linear_params, chol_factor, curvature).
         linear_params contains [s | A] for joint models, or just s otherwise.
@@ -175,7 +187,18 @@ class PixelizedImageProbModel(ck.Module):
 
         rhs = weighted_design.T @ (self.data_1d / self.noise_1d)
         chol = jnp.linalg.cholesky(curvature)
-        linear_params = jsl.cho_solve((chol, True), rhs)
+
+        if self.solver_type == "nnls":
+            # Solve min ||d||^2_A - 2 b^T d  s.t. d >= 0
+            # via augmented NNLS: Z_aug = L^T, x_aug = L^{-1} b
+            # where curvature = L @ L^T (Cholesky), so Z_aug^T @ Z_aug = curvature
+            # and Z_aug^T @ x_aug = b.
+            Z_aug = chol.T  # L^T
+            x_aug = jsl.solve_triangular(chol, rhs, lower=True)
+            linear_params, _ = fnnls_jax(Z_aug, x_aug)
+        else:
+            linear_params = jsl.cho_solve((chol, True), rhs)
+
         return linear_params, chol, curvature
 
     def _log_evidence(self) -> Array:

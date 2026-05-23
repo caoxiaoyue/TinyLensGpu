@@ -198,6 +198,7 @@ prob_model = PixelizedImageProbModel(
     source_seed_mask=source_seed_mask,
     nsub=2,
     position_likelihood=position_likelihood,
+    solver_type="nnls",
 )
 
 # ------------------------------------------------------------------ #
