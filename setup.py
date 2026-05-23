@@ -19,6 +19,7 @@ install_requires = [
     "numba>=0.57.0",
     "nautilus-sampler>=0.6.0",
     "dynesty>=2.0.0",
+    "jaxnnls>=1.0.0",
 ]
 
 # Optional dependencies

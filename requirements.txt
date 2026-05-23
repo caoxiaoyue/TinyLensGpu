@@ -10,6 +10,7 @@ caskade[jax]>=1.0.0
 # Core scientific computing
 numpy>=1.24.0,<2.0.0
 scipy>=1.10.0
+jaxnnls>=1.0.0  # NNLS backend used by TinyLensGpu.utils.linear_solver
 
 # Astronomy and FITS file handling
 astropy>=5.0.0

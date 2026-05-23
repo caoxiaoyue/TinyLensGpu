@@ -9,83 +9,70 @@ from typing import Tuple, Callable, Optional
 import jax
 import jax.numpy as jnp
 from jax import jit, Array
+import jaxnnls
 
 
 @jax.jit
-def fnnls_jax(Z: Array, x: Array, epsilon: Optional[float] = None) -> Tuple[Array, float]:
-    """JAX implementation of the Fast Non-Negative Least Squares (FNNLS) algorithm."""
-    m, n = Z.shape
-    Z = Z.astype(jnp.float32)
-    x = x.astype(jnp.float32)
-    if epsilon is None:
-        epsilon = jnp.finfo(jnp.float32).eps
+def fnnls_jax(Z: Array, x: Array) -> Tuple[Array, float]:
+    """NNLS solver backed by jaxnnls PDIP.
 
-    ZTZ = Z.T @ Z
-    ZTx = Z.T @ x
+    Solves :math:`\\min_d \\|Z d - x\\|^2` subject to :math:`d \\ge 0`
+    using the primal-dual interior-point method from ``jaxnnls``.
+    This wrapper adds three numerical safeguards around the external solver:
 
-    tolerance = epsilon * n
-    max_repetitions = 5
-    eye = jnp.eye(n, dtype=ZTZ.dtype)
+    1. Columns are normalized to unit norm to reduce conditioning issues.
+    2. Columns that are negligible relative to the largest basis vector in the
+       same problem are removed from the NNLS system and forced to zero.
+    3. The normal equations are globally rescaled so that the right-hand side
+       has order-unity magnitude, which avoids premature convergence when the
+       physical signal is very small in absolute units.
+    """
+    n = Z.shape[1]
+    dtype = Z.dtype
+    eps = jnp.finfo(dtype).eps
 
-    def body_fun(state):
-        d, s, P, w, no_update, outer_iter = state
-        current_P = P
+    col_norms = jnp.sqrt(jnp.sum(Z * Z, axis=0))
+    max_col_norm = jnp.max(col_norms)
 
-        # B2 + B3: Move the element in active set with largest value of w into the passive set
-        idx = jnp.argmax(jnp.where(~P, w, -jnp.inf))
-        P = P.at[idx].set(True)
+    # Relative threshold: a column is inactive only if its norm is
+    # negligible compared to the largest column norm in the same problem.
+    active = col_norms > (eps * 10) * max_col_norm
+    safe_norms = jnp.where(active, col_norms, 1.0)
+    Z_scaled = jnp.where(
+        active[jnp.newaxis, :],
+        Z / safe_norms[jnp.newaxis, :],
+        0.0,
+    )
 
-        # B4: Set s to the least squares solution along the passive set
-        def masked_lstsq(P_mask):
-            mask_2d = P_mask[:, None] & P_mask[None, :]
-            ZTZ_masked = jnp.where(mask_2d, ZTZ, eye)
-            ZTx_masked = jnp.where(P_mask, ZTx, 0.0)
-            return jax.scipy.linalg.solve(ZTZ_masked, ZTx_masked, assume_a='pos')
-            
-        s = masked_lstsq(P)
+    ZTZ = Z_scaled.T @ Z_scaled
+    # Diagonal jitter guards against Cholesky failure in edge cases
+    ZTZ = ZTZ + (eps * 10) * jnp.eye(n, dtype=dtype)
+    ZTx = Z_scaled.T @ x
 
-        # C1: Loop until all s[P] > tolerance
-        def c1_cond_fn(carry):
-            s, d, P, inner_iter = carry
-            return jnp.any(P & (s <= tolerance)) & (inner_iter < 5 * n)
+    def zero_solution(_: None) -> Tuple[Array, float]:
+        """Return the trivial solution when no active or driven columns remain."""
+        d = jnp.zeros(n, dtype=dtype)
+        return d, jnp.linalg.norm(x)
 
-        def c1_body_fn(carry):
-            s, d, P, inner_iter = carry
-            q = P & (s <= tolerance)
-            safe = jnp.where(q, d / (d - s + 1e-12), jnp.inf)
-            alpha = jnp.min(safe)
-            alpha = jnp.where(jnp.isfinite(alpha), alpha, 0.0)
-            alpha = jnp.clip(alpha, 0.0, 1.0)
-            d = d + alpha * (s - d)
-            P = P & (d > tolerance)
-            s = jnp.where(P, masked_lstsq(P), 0.0)
-            return (s, d, P, inner_iter + 1)
+    def solve_active_system(_: None) -> Tuple[Array, float]:
+        """Solve the stabilized NNLS subproblem on the active column set."""
+        rhs_max = jnp.max(jnp.abs(ZTx))
 
-        s, d, P, _ = jax.lax.while_loop(c1_cond_fn, c1_body_fn, (s, d, P, 0))
+        # jaxnnls uses absolute KKT tolerances internally. Rescaling both the
+        # matrix and right-hand side preserves the minimizer while preventing
+        # very small ``Z^T x`` values from being treated as numerically zero.
+        # A target RHS magnitude above unity is intentional here: for tiny
+        # signals, jaxnnls may still stop too early when the scaled RHS is only
+        # O(1), especially if inactive dummy dimensions remain in the system.
+        equation_scale = jnp.minimum(1e3 / jnp.maximum(rhs_max, eps), 1e10)
+        d_scaled = jaxnnls.solve_nnls(equation_scale * ZTZ, equation_scale * ZTx)[0]
+        d_unscaled = d_scaled / safe_norms
+        d = jnp.where(active, d_unscaled, 0.0)
+        res = jnp.linalg.norm(x - Z @ d)
+        return d, res
 
-        # B5: d = s
-        d = s
-        # B6: w = ZTx - ZTZ @ d
-        w = ZTx - ZTZ @ d
-
-        no_update = jnp.where(jnp.all(current_P == P), no_update + 1, 0)
-        return (d, s, P, w, no_update, outer_iter + 1)
-
-    def cond_fun(state):
-        d, s, P, w, no_update, outer_iter = state
-        return jnp.any(~P & (w > tolerance)) & (no_update < max_repetitions) & (outer_iter < 5 * n)
-
-    P = jnp.zeros(n, dtype=bool)
-    d = jnp.zeros(n, dtype=Z.dtype)
-    s = jnp.zeros(n, dtype=Z.dtype)
-    w = ZTx - ZTZ @ d
-    no_update = 0
-
-    state = (d, s, P, w, no_update, 0)
-    d, s, P, w, no_update, _ = jax.lax.while_loop(cond_fun, body_fun, state)
-
-    res = jnp.linalg.norm(x - Z @ d)
-    return d, res
+    should_solve = jnp.any(active) & jnp.any(jnp.abs(ZTx) > 0)
+    return jax.lax.cond(should_solve, solve_active_system, zero_solution, operand=None)
 
 
 def solve_linear_system(A_mat: Array, D_vec: Array, solver_type: str = 'nnls') -> Tuple[Array, Optional[float]]:

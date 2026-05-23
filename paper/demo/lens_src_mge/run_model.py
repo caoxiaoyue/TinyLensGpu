@@ -209,6 +209,8 @@ if __name__ == "__main__":
 
     # 4. Run sampling
     print("\n[Stage 4] Running Nautilus sampler...")
+    import time
+    start_time = time.time()
     sampler = Sampler(
         prior, 
         loglike, 
@@ -218,6 +220,8 @@ if __name__ == "__main__":
         n_batch=200
     )
     sampler.run(verbose=True, n_eff=800)
+    end_time = time.time()
+    print(f"Sampling time: {end_time - start_time:.2f} seconds")
 
     # 5. Process results and summary
     print("\n[Stage 5] Processing results...")

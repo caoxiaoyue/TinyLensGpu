@@ -44,13 +44,17 @@ conda activate tinylens_gpu
 git clone https://github.com/caoxiaoyue/TinyLensGpu.git
 cd TinyLensGpu
 
-# 3. Install the package and its dependencies
+# 3. Install runtime dependencies and the editable package
+pip install -r requirements.txt
 pip install -e .
 ```
+
+`requirements.txt` includes the `jaxnnls` dependency used by the NNLS linear solver in `TinyLensGpu.utils.linear_solver`.
 
 If you plan to contribute to the codebase or run tests, you can install the development dependencies:
 
 ```bash
+pip install -r requirements-dev.txt
 pip install -e ".[dev]"
 ```
 

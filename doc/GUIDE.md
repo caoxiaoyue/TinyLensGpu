@@ -28,7 +28,7 @@ This repository snapshot focuses on the programmatic (pure-Python) workflow used
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -U pip
-pip install -r requirements.txt        # runtime deps
+pip install -r requirements.txt        # runtime deps, including jaxnnls for NNLS solving
 pip install -r requirements-dev.txt    # optional dev/test deps
 pip install -e .                       # editable install
 ```
@@ -40,7 +40,7 @@ conda create -n tinylens_gpu python=3.11
 conda activate tinylens_gpu
 conda install -c conda-forge cudatoolkit=12.0  # or match your driver
 pip install -U "jax[cuda12]"
-pip install -r requirements.txt
+pip install -r requirements.txt        # includes jaxnnls for the linear NNLS backend
 pip install -e .
 ```
 
