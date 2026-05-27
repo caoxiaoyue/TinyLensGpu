@@ -48,7 +48,7 @@ from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results
 
-from prior_passing import GaussianPriorPasser
+from TinyLensGpu.Inference import GaussianPriorPasser
 
 import caskade as ck
 import jax.scipy.linalg as jsl
