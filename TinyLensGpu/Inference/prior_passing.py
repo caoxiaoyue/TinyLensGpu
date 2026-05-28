@@ -25,7 +25,7 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from TinyLensGpu.Inference import ParamU
+from .param_u import ParamU
 
 
 # ------------------------------------------------------------------ #
