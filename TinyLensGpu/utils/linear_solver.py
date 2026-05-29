@@ -155,7 +155,8 @@ def prepare_linear_system(
     n_lens_light: int,
     n_src: int,
     bin_func: Callable[[Array, int], Array],
-    fftconvolve_func: Callable
+    fftconvolve_func: Callable,
+    unmask_1d: Optional[Array] = None
 ) -> Tuple[Array, Array]:
     """
     Prepare linear system for intensity solving.
@@ -185,6 +186,8 @@ def prepare_linear_system(
         Binning function
     fftconvolve_func : callable
         FFT convolution function
+    unmask_1d : array_like, optional
+        1D array of valid integer indices to keep (from flatnonzero(~mask)).
 
     Returns
     -------
@@ -232,11 +235,16 @@ def prepare_linear_system(
     # Prepare design matrix (weighted by noise)
     A_mat = img / n_1d[:, jnp.newaxis]  # [ny*nx, n_total]
 
+    # Apply mask if provided
+    if unmask_1d is not None:
+        A_mat = A_mat[unmask_1d]
+        D_vec = D_vec[unmask_1d]
+
     # Add regularization (see https://arxiv.org/pdf/2403.16253 eq.15)
     n_total = n_lens_light + n_src
     Reg_mat = jnp.eye(n_total) * 0.001  # [n_total, n_total]
 
-    A_mat = jnp.concatenate([A_mat, Reg_mat], axis=0)  # [ny*nx+n_total, n_total]
-    D_vec = jnp.concatenate([D_vec, jnp.zeros(n_total)], axis=0)  # [ny*nx+n_total]
+    A_mat = jnp.concatenate([A_mat, Reg_mat], axis=0)  # [n_unmasked+n_total, n_total]
+    D_vec = jnp.concatenate([D_vec, jnp.zeros(n_total)], axis=0)  # [n_unmasked+n_total]
 
     return A_mat, D_vec

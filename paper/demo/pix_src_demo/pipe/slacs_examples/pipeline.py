@@ -58,6 +58,7 @@ NSUB = 4
 NSUB_PIX = 4  # lower oversampling for pixelized stages (memory)
 N_GAUSSIANS_SRC = 20
 N_GAUSSIANS_LENS = 20
+MASK_RADIUS = 2.5
 OUT_DIR = Path("output")
 DATA_DIR = Path("data")
 
@@ -198,7 +199,7 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=None):
                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
     sigma_list_lens = generate_radial_basis_knots(
         dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
-        log_rmin=-2.0, log_rmax=np.log10(3.5), mode="mge"
+        log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
     )
     lens_gaussians = []
     for i, sigma in enumerate(sigma_list_lens):
@@ -235,7 +236,7 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     print("=" * 60)
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=circular_mask)
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=200, n_eff=2000, tag="stage-A", vectorized=True,
+        likelihood, n_live=300, n_eff=2000, tag="stage-A", vectorized=True,
     )
     _print_summary("stage-A", samples, weights, names)
 
@@ -304,7 +305,7 @@ def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
     axes[1].set_title("S/N map")
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     # Plot the kept region (the arc itself) for visualization
-    axes[2].imshow(~arc_mask, origin="lower", extent=extent, cmap="gray")
+    axes[2].imshow(~feature_mask, origin="lower", extent=extent, cmap="gray")
     axes[2].set_title("arc region (True = kept)")
     plt.tight_layout()
     OUT_DIR.mkdir(exist_ok=True)
@@ -321,55 +322,64 @@ def build_stage_new_likelihood(
     noise_map,
     psf_kernel,
     feature_mask,
-    samples_a,
-    weights_a,
-    names_a,
     circular_mask=None,
 ):
     """
-    Build a lens-light-only likelihood using Gaussian priors from stage a.
+    Build a lens-light-only likelihood with two independent MGE groups.
 
-    The arc region (``feature_mask == False``) is excluded so the fit is
-    driven only by the clean lens-light pixels, yielding a better
-    lens-light subtraction for the subsequent pixelized-source stages.
+    Each group contains 20 GaussianEllipse components that share the same
+    centre and ellipticity within the group, but the two groups are
+    independent.  All geometric priors mirror stage-a lens-light settings.
+
+    The arc region (``feature_mask == False``) is down-weighted so the fit
+    is driven mostly by clean lens-light pixels while preserving weak
+    geometric information from the arc direction.
     """
-    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
+    # Group 1 geometry
+    cx_l1 = ParamU("center_x_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l1 = ParamU("center_y_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l1 = ParamU("e1_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l1 = ParamU("e2_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
 
-    # Lens light geometry -- Gaussian priors from stage a posterior
-    cx_l = passer.gaussian(
-        "center_x_lens", model="Gaussian", attr="center_x", limits=[-1.0, 1.0]
-    )
-    cy_l = passer.gaussian(
-        "center_y_lens", model="Gaussian", attr="center_y", limits=[-1.0, 1.0]
-    )
-    e1_l = passer.gaussian(
-        "e1_lens", model="Gaussian", attr="e1", limits=[-1.0, 1.0]
-    )
-    e2_l = passer.gaussian(
-        "e2_lens", model="Gaussian", attr="e2", limits=[-1.0, 1.0]
-    )
+    # Group 2 geometry
+    cx_l2 = ParamU("center_x_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l2 = ParamU("center_y_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l2 = ParamU("e1_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l2 = ParamU("e2_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
 
     sigma_list_lens = generate_radial_basis_knots(
         dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
-        log_rmin=-2.0, log_rmax=np.log10(2.5), mode="mge"
+        log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
     )
+
     lens_gaussians = []
-    for i, sigma in enumerate(sigma_list_lens):
-        gauss = GaussianEllipse(
-            sigma=ParamU(f"sigma_lens_{i}", float(sigma)),
-            center_x=cx_l,
-            center_y=cy_l,
-            e1=e1_l,
-            e2=e2_l,
-            flux=ParamU(f"flux_lens_{i}", 1.0),
-        )
-        gauss.sigma.to_static(float(sigma))
-        gauss.flux.to_static(1.0)
-        lens_gaussians.append(gauss)
-    cx_l.to_dynamic()
-    cy_l.to_dynamic()
-    e1_l.to_dynamic()
-    e2_l.to_dynamic()
+    for group_id, center_x, center_y, e1, e2 in (
+        (1, cx_l1, cy_l1, e1_l1, e2_l1),
+        (2, cx_l2, cy_l2, e1_l2, e2_l2),
+    ):
+        for i, sigma in enumerate(sigma_list_lens):
+            gauss = GaussianEllipse(
+                sigma=ParamU(f"sigma_lens_{group_id}_{i}", float(sigma)),
+                center_x=center_x,
+                center_y=center_y,
+                e1=e1,
+                e2=e2,
+                flux=ParamU(f"flux_lens_{group_id}_{i}", 1.0),
+            )
+            gauss.sigma.to_static(float(sigma))
+            gauss.flux.to_static(1.0)
+            lens_gaussians.append(gauss)
+
+    for p in (cx_l1, cy_l1, e1_l1, e2_l1, cx_l2, cy_l2, e1_l2, e2_l2):
+        p.to_dynamic()
 
     # Soft mask: downweight arc pixels by inflating their noise instead of
     # hard-excluding them.  This preserves ellipticity information from the
@@ -399,7 +409,7 @@ def build_stage_new_likelihood(
 
 
 def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
-                samples_a, weights_a, names_a, circular_mask=None):
+                circular_mask=None):
     print("\n" + "=" * 60)
     print(" Stage L : arc-masked MGE lens light refinement")
     print("=" * 60)
@@ -413,9 +423,6 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         noise_map,
         psf_kernel,
         feature_mask,
-        samples_a,
-        weights_a,
-        names_a,
         circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
@@ -423,7 +430,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         n_live=200,
         n_eff=800,
         tag="stage-L",
-        vectorized=True,
+        vectorized=False,
     )
     _print_summary("stage-L", samples, weights, names)
 
@@ -595,7 +602,7 @@ def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
             "This pipeline assumes a strong-lensing configuration; treat this as a solver failure."
         )
 
-    threshold_arcsec = 0.3
+    threshold_arcsec = 0.1
     min_log_like = -1.0e10
     print(f"[pos-like] solved {img_positions.shape[0]} lensed image positions from stage-A medians")
     for p in img_positions:
@@ -689,8 +696,8 @@ def build_stage_m_likelihood(
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
-        nx=30,
-        ny=30,
+        nx=40,
+        ny=40,
         lambda_reg=lam,
         regularization_type="first-order",
     )
@@ -732,7 +739,7 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
         circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=200, n_eff=800, tag="stage-M", vectorized=False,
+        likelihood, n_live=300, n_eff=800, tag="stage-M", vectorized=False,
     )
     _print_summary("stage-M", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
@@ -755,10 +762,10 @@ def main(skip_done: bool = False):
         psf_path=str(DATA_DIR / "psf.fits"),
     )
 
-    # Circular mask applied to all stages: exclude pixels > 3.5 arcsec from centre
-    circular_mask = _make_circular_mask(image_data.shape, DPIX, radius_arcsec=3.5)
+    # Circular mask applied to all stages: exclude pixels > MASK_RADIUS arcsec from centre
+    circular_mask = _make_circular_mask(image_data.shape, DPIX, radius_arcsec=MASK_RADIUS)
     n_excl = int(circular_mask.sum())
-    print(f"[circular mask] excluded {n_excl} / {circular_mask.size} pixels (> 3.5 arcsec)")
+    print(f"[circular mask] excluded {n_excl} / {circular_mask.size} pixels (> {MASK_RADIUS} arcsec)")
 
     # ---- stage A ---------------------------------------------------- #
     if skip_done and (OUT_DIR / "stage_a.pkl").exists():
@@ -785,7 +792,7 @@ def main(skip_done: bool = False):
     else:
         samples_l, weights_l, names_l, medians_l, lens_light_model = run_stage_l(
             image_data, noise_map, psf_kernel, feature_mask,
-            samples_a, weights_a, names_a, circular_mask=circular_mask,
+            circular_mask=circular_mask,
         )
 
     lens_subtracted = image_data - lens_light_model

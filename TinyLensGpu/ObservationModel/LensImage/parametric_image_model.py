@@ -133,7 +133,7 @@ class ImageProbModel(ck.Module):
         )
 
         self.use_linear = use_linear
-        self.unmask = jnp.array(~sim_config.mask)
+        self.unmask = sim_config.unmask
         self.position_like_config = position_likelihood
 
         # Precompute Gaussian log-likelihood constant term: -0.5 * sum(ln(2*pi*sigma^2))

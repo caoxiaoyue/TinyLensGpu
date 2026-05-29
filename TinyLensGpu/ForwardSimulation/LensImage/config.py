@@ -191,6 +191,9 @@ class SimulatorConfig:
         The method caches index/coordinate arrays frequently reused by forward
         simulation and inversion routines.
         """
+        self.unmask = ~self.mask
+        self.flat_indices_native = jnp.flatnonzero(self.unmask)
+
         if self.nsub > 1:
             self.mask_sub = jnp.repeat(jnp.repeat(self.mask, self.nsub, axis=0), self.nsub, axis=1)
         else:

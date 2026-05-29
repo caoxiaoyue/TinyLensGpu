@@ -114,39 +114,44 @@ class LensSimulator:
     def _restore_2d_from_1d(self, img_1d: Array) -> Array:
         """
         Restore masked/unmasked flattened arrays to sub-grid image shape.
+        
+        This method handles both full-grid and masked-grid inputs, expanding 
+        masked pixels back to zero where necessary. It supports both single-channel 
+        (intensity) and multi-channel (e.g., RGB or plane-wise) images.
 
         Parameters
         ----------
         img_1d : Array
-            1D image array to be restored to 2D.
+            1D image array to be restored to 2D. Shape: (n_selected_pixels, [n_channels]).
 
         Returns
         -------
         img_2d : Array
-            Restored 2D image array.
+            Restored 2D image array. Shape: (N, M, [n_channels]).
         """
-        shape = self.sim_config.subgrid_shape
-        flat_indices = self.sim_config.flat_indices
-
-        N, M = shape
+        # Retrieve subgrid dimensions and mapping indices from config
+        N, M = self.sim_config.subgrid_shape
         n_pixels = N * M
+        flat_indices = self.sim_config.flat_indices
+        
+        # Capture trailing dimensions (e.g., n_channels) if present
+        # This allows handling both 1D and 2D/3D inputs generically.
+        extra_dims = img_1d.shape[1:]
 
+        # Case 1: Full grid (no masking applied)
+        # Directly reshape without allocating new memory for scatter operations.
         if flat_indices.shape[0] == n_pixels:
-            if img_1d.ndim > 1:
-                n_channels = img_1d.shape[-1]
-                return img_1d.reshape(N, M, n_channels)
-            else:
-                return img_1d.reshape(N, M)
+            return img_1d.reshape(N, M, *extra_dims)
 
-        if img_1d.ndim > 1:
-            n_channels = img_1d.shape[-1]
-            flat_img = jnp.zeros((n_pixels, n_channels), dtype=img_1d.dtype)
-            flat_img = flat_img.at[flat_indices].set(img_1d)
-            return flat_img.reshape(N, M, n_channels)
-        else:
-            flat_img = jnp.zeros(n_pixels, dtype=img_1d.dtype)
-            flat_img = flat_img.at[flat_indices].set(img_1d)
-            return flat_img.reshape(N, M)
+        # Case 2: Masked grid
+        # 1. Allocate a zero-filled array of the full grid size.
+        # 2. Scatter the valid 1D pixels into their corresponding 2D locations.
+        # 3. Reshape to the final 2D (or 3D) output format.
+        full_flat_shape = (n_pixels, *extra_dims)
+        flat_img = jnp.zeros(full_flat_shape, dtype=img_1d.dtype)
+        flat_img = flat_img.at[flat_indices].set(img_1d)
+        
+        return flat_img.reshape(N, M, *extra_dims)
 
     def simulate(
         self,
@@ -221,6 +226,13 @@ class LensSimulator:
             psf_kernel = self.psf_kernel
         else:
             psf_kernel = jnp.array(psf_kernel)
+
+        # When subgrid mask excludes pixels, use full 2D grid to avoid
+        # memory blow-up in _restore_2d_from_1d under batched (vmap) evaluation.
+        n_pixels_sub = self.sim_config.subgrid_shape[0] * self.sim_config.subgrid_shape[1]
+        if self.sim_config.flat_indices.shape[0] < n_pixels_sub:
+            xgrid_sub = self.sim_config.xgrid_sub
+            ygrid_sub = self.sim_config.ygrid_sub
 
         n_src = len(self.phys_model.source_light)
         n_lens_light = len(self.phys_model.lens_light)
@@ -399,8 +411,10 @@ class LensSimulator:
             - (image, None) if ret_each_plane=False
             - (source_plane_image, lens_plane_image, None) if ret_each_plane=True
         """
-        img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
-        img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
+        n_pixels_sub = self.sim_config.subgrid_shape[0] * self.sim_config.subgrid_shape[1]
+        if self.sim_config.flat_indices.shape[0] == n_pixels_sub:
+            img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
+            img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
 
         if not ret_each_plane:
             img_sub = jnp.sum(img_lens_sub, axis=-1) + jnp.sum(img_arc_sub, axis=-1)
@@ -456,14 +470,21 @@ class LensSimulator:
             - (image, intensity_vector) if ret_each_plane=False
             - (source_plane_image, lens_plane_image, intensity_vector) if ret_each_plane=True
         """
-        img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
-        img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
+        n_pixels_sub = self.sim_config.subgrid_shape[0] * self.sim_config.subgrid_shape[1]
+        if self.sim_config.flat_indices.shape[0] == n_pixels_sub:
+            img_lens_sub = self._restore_2d_from_1d(img_lens_sub)
+            img_arc_sub = self._restore_2d_from_1d(img_arc_sub)
+
+        # Only use masking if not all pixels are unmasked
+        flat_indices = self.sim_config.flat_indices_native
+        unmask_1d = flat_indices if flat_indices.shape[0] < image_map.size else None
 
         A_mat, D_vec = prepare_linear_system(
             img_lens_sub, img_arc_sub, psf_kernel,
             image_map, noise_map,
             self.sim_config.nsub, n_lens_light, n_src,
-            bin_image_general, jsp.signal.fftconvolve
+            bin_image_general, jsp.signal.fftconvolve,
+            unmask_1d=unmask_1d
         )
 
         X_vec, _ = self.linear_solver.solve(A_mat, D_vec)
