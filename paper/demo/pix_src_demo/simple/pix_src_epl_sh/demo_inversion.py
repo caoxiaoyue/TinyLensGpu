@@ -78,12 +78,12 @@ for LAMBDA in LAMBDA_LIST:
     # ------------------------------------------------------------------ #
     # Semi-linear inversion
     # ------------------------------------------------------------------ #
-    design_matrix, source_half_size = prob_model.sim_obj.design_matrix()
+    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
     F      = np.array(design_matrix)       # shape (Nd, Ns)
     d_vec  = np.array(prob_model.data_1d)  # shape (Nd,)
     sigma  = np.array(prob_model.noise_1d) # shape (Nd,)
 
-    reg_matrix = np.array(prob_model._regularization_matrix(source_half_size)[0])
+    reg_matrix = np.array(prob_model._regularization_matrix(source_bbox)[0])
     import jax.numpy as jnp
     sp, _, _ = prob_model._solve_source(
         jnp.asarray(F), jnp.asarray(reg_matrix), jnp.asarray(LAMBDA)
@@ -109,15 +109,14 @@ for LAMBDA in LAMBDA_LIST:
         'chi2_nu': chi2_nu
     })
 
-    source_image = source_pixels.reshape(40, 40)
-    source_half_size = float(source_half_size)
+    source_image = source_pixels.reshape(pix_src.ny, pix_src.nx)
 
     # ------------------------------------------------------------------ #
     # 4-panel figure
     # ------------------------------------------------------------------ #
     npix  = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
-    ext_s = [-source_half_size, source_half_size, -source_half_size, source_half_size]
+    ext_s = [float(source_bbox[0]), float(source_bbox[1]), float(source_bbox[2]), float(source_bbox[3])]
 
     fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
 

@@ -122,7 +122,7 @@ def test_light_returns_bilinear_interpolation_matching_input_shape():
     y = jnp.array([[0.25, -1.0, 1.0], [1.5, -1.25, 0.0]], dtype=jnp.float32)
     expected = 2.0 * x - 0.5 * y + 1.25
 
-    brightness = model.light(x, y, source_values, 2.0)
+    brightness = model.light(x, y, source_values, (-2.0, 2.0, -2.0, 2.0))
 
     assert brightness.shape == x.shape
     assert jnp.allclose(brightness, expected)
@@ -135,7 +135,7 @@ def test_light_exact_grid_points_return_input_values():
     _, x_grid, y_grid, source_values = _build_affine_source_grid()
     model = PixelizedSourceModel(nx=5, ny=5, lambda_reg=10.0)
 
-    brightness = model.light(x_grid, y_grid, source_values, 2.0)
+    brightness = model.light(x_grid, y_grid, source_values, (-2.0, 2.0, -2.0, 2.0))
 
     assert brightness.shape == source_values.shape
     assert jnp.allclose(brightness, source_values)

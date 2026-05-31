@@ -228,19 +228,19 @@ def profile_variant(label, output_path):
             x=prob_model.sim_obj.image_x_active_sub,
             y=prob_model.sim_obj.image_y_active_sub,
         )
-        source_half_size = prob_model.sim_obj.infer_source_half_size(beta_x, beta_y)
+        source_bbox = prob_model.sim_obj.infer_source_bbox(beta_x, beta_y)
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             prob_model.sim_obj.source_nx,
             prob_model.sim_obj.source_ny,
-            source_half_size,
+            *source_bbox,
         )
 
         def mapping_stage():
-            local_half_size = prob_model.sim_obj.infer_source_half_size(beta_x, beta_y)
+            local_bbox = prob_model.sim_obj.infer_source_bbox(beta_x, beta_y)
             local_x_axis, local_y_axis, _, _ = build_source_grid(
                 prob_model.sim_obj.source_nx,
                 prob_model.sim_obj.source_ny,
-                local_half_size,
+                *local_bbox,
             )
             return build_lens_mapping_matrix(beta_x, beta_y, local_x_axis, local_y_axis)
 
@@ -253,8 +253,8 @@ def profile_variant(label, output_path):
             design_matrix, _ = prob_model.sim_obj.design_matrix()
             return design_matrix
 
-        design_matrix, half_size = prob_model.sim_obj.design_matrix()
-        reg_matrix, _ = prob_model._regularization_matrix(half_size)
+        design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
+        reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
         lam = jnp.asarray(pix_src.lambda_reg.value)
         weighted_design = design_matrix / prob_model.noise_1d[:, None]
         rhs = weighted_design.T @ (prob_model.data_1d / prob_model.noise_1d)
@@ -263,7 +263,7 @@ def profile_variant(label, output_path):
         jax.block_until_ready(chol)
 
         def regmat_stage():
-            matrix, _ = prob_model._regularization_matrix(half_size)
+            matrix, _ = prob_model._regularization_matrix(source_bbox)
             return matrix
 
         def curvature_stage():

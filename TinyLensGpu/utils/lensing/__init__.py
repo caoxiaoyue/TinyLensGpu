@@ -5,6 +5,7 @@ from .mapping import (
     lens_mapping_operator_bilinear_rectangular_from,
     build_source_grid,
     build_lens_mapping_matrix,
+    infer_source_bbox,
 )
 from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .point_source_solver import (
@@ -23,6 +24,7 @@ __all__ = [
     'lens_mapping_operator_bilinear_rectangular_from',
     'build_source_grid',
     'build_lens_mapping_matrix',
+    'infer_source_bbox',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',
     'apply_psf_to_mapping_matrix',

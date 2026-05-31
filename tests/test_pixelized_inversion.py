@@ -183,15 +183,22 @@ def test_design_matrix_shape_matches_unmasked_pixels_and_source_grid() -> None:
 
 
 @pytest.mark.unit
-def test_infer_source_half_size_uses_lensed_coordinate_extent_with_floor() -> None:
-    """Test source half-size inference from ray-traced coordinates."""
+def test_infer_source_bbox_uses_lensed_coordinate_extent_with_floor() -> None:
+    """Test source bounding-box inference from ray-traced coordinates."""
     simulator = _simulator()
     beta_x = jnp.asarray([-0.2, 0.3, 0.1])
     beta_y = jnp.asarray([0.4, -0.1, 0.05])
     tiny_beta = jnp.asarray([0.0, 1.0e-14])
 
-    assert jnp.allclose(simulator.infer_source_half_size(beta_x, beta_y), 1.05 * 0.4)
-    assert simulator.infer_source_half_size(tiny_beta, tiny_beta) > 0.0
+    xmin, xmax, ymin, ymax = simulator.infer_source_bbox(beta_x, beta_y)
+    span_x, span_y = 0.5, 0.5
+    assert jnp.allclose(xmin, -0.2 - 0.05 * span_x)
+    assert jnp.allclose(xmax, 0.3 + 0.05 * span_x)
+    assert jnp.allclose(ymin, -0.1 - 0.05 * span_y)
+    assert jnp.allclose(ymax, 0.4 + 0.05 * span_y)
+    # Tiny values still produce a valid (non-degenerate) bbox
+    xmin_t, xmax_t, ymin_t, ymax_t = simulator.infer_source_bbox(tiny_beta, tiny_beta)
+    assert xmax_t > xmin_t and ymax_t > ymin_t
 
 
 @pytest.mark.unit
@@ -545,7 +552,7 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     dpix = 0.08
     source_nx = 15
     source_ny = 15
-    source_half_size = 0.6
+    source_bbox_test = (-0.6, 0.6, -0.6, 0.6)
 
     psf_kernel = _gaussian_psf_kernel(size=5, sigma_pixels=0.8)
 
@@ -591,8 +598,8 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     beta_x, beta_y = gt_phys.deflection(xgrid, ygrid)
     ideal_lensed_truth = np.asarray(gt_phys.source_surface_brightness(beta_x, beta_y))
 
-    source_x_axis = np.linspace(-source_half_size, source_half_size, source_nx)
-    source_y_axis = np.linspace(-source_half_size, source_half_size, source_ny)
+    source_x_axis = np.linspace(source_bbox_test[0], source_bbox_test[1], source_nx)
+    source_y_axis = np.linspace(source_bbox_test[2], source_bbox_test[3], source_ny)
     source_xx, source_yy = np.meshgrid(source_x_axis, source_y_axis, indexing="xy")
     source_pixels = np.asarray(gt_phys.source_surface_brightness(source_xx, source_yy)).ravel()
 
@@ -611,7 +618,7 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     # this is the same as the internal ray-tracing grid; for nsub>1 the
     # design_matrix path traces on the sub-grid and aggregates, so this
     # ideal check only validates the native-resolution interpolation.
-    mapping_matrix = simulator.build_mapping_matrix(source_half_size=source_half_size)
+    mapping_matrix = simulator.build_mapping_matrix(source_bbox=source_bbox_test)
     m_ideal = np.asarray(mapping_matrix @ jnp.asarray(source_pixels))
     expected_ideal = ideal_lensed_truth[~mask]
 
@@ -634,15 +641,15 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     blurred_truth = fftconvolve(ideal_lensed_masked, psf_kernel, mode="same")
     expected_blurred = blurred_truth[~mask]
 
-    design_matrix, inferred_half_size = simulator.design_matrix(
-        source_half_size=source_half_size,
+    design_matrix, inferred_bbox = simulator.design_matrix(
+        source_bbox=source_bbox_test,
         psf_kernel=jnp.asarray(psf_kernel),
     )
     m_blurred = np.asarray(design_matrix @ jnp.asarray(source_pixels))
 
     model_image = simulator.simulate(
         jnp.asarray(source_pixels),
-        source_half_size=source_half_size,
+        source_bbox=source_bbox_test,
         psf_kernel=jnp.asarray(psf_kernel),
     )
 
@@ -658,7 +665,7 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
         f"Blurred sim RMS too large (nsub={nsub}): {blurred_sim_rms / blurred_scale:.3e}"
     )
 
-    assert jnp.allclose(inferred_half_size, source_half_size)
+    assert jnp.allclose(jnp.array(inferred_bbox), jnp.array(source_bbox_test))
 
 
 @pytest.mark.unit
@@ -738,6 +745,223 @@ def test_pixelized_position_likelihood_penalizes_bad_model() -> None:
 
     assert penalty < 0.0
     assert log_ev_with < log_ev_without
+
+
+@pytest.mark.unit
+def test_source_grid_shape_invariant_under_mass_param_changes() -> None:
+    """Test that source grid shape remains fixed when mass params change."""
+    import jax
+    theta_e = ParamU("theta_E", 0.12, prior_type="uniform", prior_settings=[0.05, 0.20], limits=[0.0, 1.0])
+    sie = SIE(theta_E=theta_e, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    sie.theta_E.to_dynamic()
+    for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+
+    source = _pixelized_source()
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+    simulator = _simulator(phys_model=phys_model)
+
+    design_matrix_1, bbox_1 = simulator.design_matrix()
+    shape_1 = design_matrix_1.shape
+
+    sie.theta_E.value = 0.18
+    design_matrix_2, bbox_2 = simulator.design_matrix()
+    shape_2 = design_matrix_2.shape
+
+    assert shape_1 == shape_2
+    assert not jnp.allclose(jnp.array(bbox_1), jnp.array(bbox_2))
+    assert not jnp.allclose(design_matrix_1, design_matrix_2)
+    # theta_E increased → deflection angles larger → bbox must change
+    span_1_x = jnp.array(bbox_1[1] - bbox_1[0])
+    span_2_x = jnp.array(bbox_2[1] - bbox_2[0])
+    span_1_y = jnp.array(bbox_1[3] - bbox_1[2])
+    span_2_y = jnp.array(bbox_2[3] - bbox_2[2])
+    assert not jnp.allclose(span_2_x, span_1_x), (
+        f"Expected different bbox x-span for different theta_E: {span_2_x} == {span_1_x}"
+    )
+    assert not jnp.allclose(span_2_y, span_1_y), (
+        f"Expected different bbox y-span for different theta_E: {span_2_y} == {span_1_y}"
+    )
+
+
+@pytest.mark.unit
+def test_bilinear_interpolation_gradients_flow_through_beta() -> None:
+    """Test that build_lens_mapping_matrix is differentiable w.r.t. beta coordinates."""
+    import jax
+    from TinyLensGpu.utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid
+
+    source_x_axis, source_y_axis, _, _ = build_source_grid(5, 5, -1.0, 1.0, -1.0, 1.0)
+
+    def loss_fn(beta_x, beta_y):
+        mapping_matrix = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+        return jnp.sum(mapping_matrix ** 2)
+
+    beta_x = jnp.array([0.1, -0.3, 0.5])
+    beta_y = jnp.array([0.2, 0.4, -0.1])
+
+    grad_fn = jax.grad(loss_fn, argnums=(0, 1))
+    grad_x, grad_y = grad_fn(beta_x, beta_y)
+
+    assert jnp.all(jnp.isfinite(grad_x))
+    assert jnp.all(jnp.isfinite(grad_y))
+    # All beta points are in-bounds and should produce non-zero gradients
+    assert jnp.all(grad_x != 0.0), "all in-bounds beta points should contribute x-gradients"
+    assert jnp.all(grad_y != 0.0), "all in-bounds beta points should contribute y-gradients"
+
+
+@pytest.mark.unit
+def test_infer_source_bbox_asymmetric_offset_betas() -> None:
+    """Test bounding-box inference with betas fully offset from the origin."""
+    import jax
+    from TinyLensGpu.utils.lensing.mapping import infer_source_bbox
+
+    # Betas entirely in the first quadrant, no symmetry around origin
+    beta_x = jnp.asarray([0.5, 0.8, 1.2, 1.5])
+    beta_y = jnp.asarray([0.3, 0.6, 0.9, 1.1])
+
+    xmin, xmax, ymin, ymax = infer_source_bbox(beta_x, beta_y, padding=0.05)
+
+    span_x = 1.5 - 0.5  # = 1.0
+    span_y = 1.1 - 0.3  # = 0.8
+    assert jnp.allclose(xmin, 0.5 - 0.05 * span_x)
+    assert jnp.allclose(xmax, 1.5 + 0.05 * span_x)
+    assert jnp.allclose(ymin, 0.3 - 0.05 * span_y)
+    assert jnp.allclose(ymax, 1.1 + 0.05 * span_y)
+    # Bbox should be fully offset — min values should be far from origin
+    assert xmin > 0.0
+    assert ymin > 0.0
+
+    # Single-point source: should produce a valid (non-degenerate) bbox
+    single = jnp.asarray([0.7])
+    xmin_s, xmax_s, ymin_s, ymax_s = infer_source_bbox(single, single, padding=0.05)
+    assert xmax_s > xmin_s
+    assert ymax_s > ymin_s
+
+
+@pytest.mark.unit
+def test_infer_source_bbox_custom_padding() -> None:
+    """Test infer_source_bbox respects non-default padding values."""
+    from TinyLensGpu.utils.lensing.mapping import infer_source_bbox
+
+    beta_x = jnp.asarray([-1.0, 1.0])
+    beta_y = jnp.asarray([-1.0, 1.0])
+
+    # Default 5% padding
+    xmin_5, xmax_5, ymin_5, ymax_5 = infer_source_bbox(beta_x, beta_y)
+    assert jnp.allclose(xmin_5, -1.0 - 0.05 * 2.0)
+    assert jnp.allclose(xmax_5, 1.0 + 0.05 * 2.0)
+
+    # 20% padding
+    xmin_20, xmax_20, ymin_20, ymax_20 = infer_source_bbox(beta_x, beta_y, padding=0.20)
+    assert jnp.allclose(xmin_20, -1.0 - 0.20 * 2.0)
+    assert jnp.allclose(xmax_20, 1.0 + 0.20 * 2.0)
+
+    # Zero padding: bbox == data extent
+    xmin_0, xmax_0, ymin_0, ymax_0 = infer_source_bbox(beta_x, beta_y, padding=0.0)
+    assert jnp.allclose(xmin_0, -1.0)
+    assert jnp.allclose(xmax_0, 1.0)
+
+    # Floor still applies for point-like sources with zero padding
+    tiny = jnp.asarray([1.0e-10])
+    xmin_t, xmax_t, ymin_t, ymax_t = infer_source_bbox(tiny, tiny, padding=0.0)
+    assert xmax_t > xmin_t
+
+
+@pytest.mark.unit
+def test_detach_bbox_false_allows_gradient_through_bbox() -> None:
+    """Test that detach_bbox=False produces different gradients than detach_bbox=True.
+
+    When detach_bbox=False, the bounding-box bounds flow through to the grid
+    construction and regularization matrix, contributing additional gradient
+    components not present when detach_bbox=True.
+    """
+    import jax
+
+    theta_e = ParamU("theta_E", 0.12, prior_type="uniform",
+                     prior_settings=[0.05, 0.20], limits=[0.0, 1.0])
+    sie = SIE(theta_E=theta_e, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    sie.theta_E.to_dynamic()
+    for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+
+    source = _pixelized_source(lambda_value=0.1)
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+
+    def make_loss(detach_bbox):
+        sim = PixelizedLensSimulator(
+            phys_model, SimulatorConfig(
+                dpix=0.08, npix=10, psf_kernel=_delta_psf(), nsub=1,
+            ),
+            detach_bbox=detach_bbox,
+        )
+
+        def loss(theta_e_val):
+            sie.theta_E.value = theta_e_val
+            design_matrix, _ = sim.design_matrix()
+            return jnp.sum(design_matrix ** 2)
+
+        return loss
+
+    theta_e_val = jnp.array(0.12)
+    grad_detached = jax.grad(make_loss(detach_bbox=True))(theta_e_val)
+    grad_attached = jax.grad(make_loss(detach_bbox=False))(theta_e_val)
+
+    # Both should be finite and non-zero
+    assert jnp.isfinite(grad_detached).all()
+    assert jnp.isfinite(grad_attached).all()
+    assert grad_detached != 0.0
+    assert grad_attached != 0.0
+
+    # detach_bbox=False includes extra gradient components via bbox bounds,
+    # so the gradient magnitude should differ from the detached case
+    assert not jnp.allclose(grad_detached, grad_attached), (
+        "detach_bbox=True and detach_bbox=False produce identical gradients — "
+        "bbox gradient contribution is missing."
+    )
+
+
+@pytest.mark.unit
+def test_detach_bbox_gradients_flow_through_mass_params() -> None:
+    """Test that detach_bbox=True stops bbox gradients but preserves mass-param gradients.
+
+    With detach_bbox=True (default), the bounding-box bounds (xmin/xmax/ymin/ymax)
+    are detached via stop_gradient, but the mapping matrix still depends
+    differentiably on beta_x/beta_y which depend on mass parameters. This test
+    verifies that gradient flows from the design matrix back through the mass
+    model when detach_bbox is active.
+
+    Note: uses e1=0.1 (non-zero ellipticity) to avoid the singular gradient
+    of a perfectly circular SIS.
+    """
+    import jax
+
+    theta_e = ParamU("theta_E", 0.12, prior_type="uniform",
+                     prior_settings=[0.05, 0.20], limits=[0.0, 1.0])
+    sie = SIE(theta_E=theta_e, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    sie.theta_E.to_dynamic()
+    for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+
+    source = _pixelized_source(lambda_value=0.1)
+    phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+    simulator = PixelizedLensSimulator(phys_model, SimulatorConfig(
+        dpix=0.08, npix=10, psf_kernel=_delta_psf(), nsub=1,
+    ))
+
+    def loss_fn(theta_e_val):
+        sie.theta_E.value = theta_e_val
+        design_matrix, _ = simulator.design_matrix()
+        return jnp.sum(design_matrix ** 2)
+
+    theta_e_val = jnp.array(0.12)
+    grad = jax.grad(loss_fn)(theta_e_val)
+
+    assert jnp.isfinite(grad).all()
+    assert grad != 0.0, (
+        "Gradient through mass params is zero — detach_bbox may be "
+        "incorrectly applied or the loss function has no dependence on "
+        "the mass parameter through the design matrix."
+    )
 
 
 if __name__ == "__main__":

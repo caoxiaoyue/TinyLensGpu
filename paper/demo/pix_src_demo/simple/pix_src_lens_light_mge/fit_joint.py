@@ -269,8 +269,8 @@ with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
 
     # Get joint design matrix
-    design_matrix, src_half_size = prob_model.sim_obj.design_matrix()
-    reg_matrix, _ = prob_model._regularization_matrix(src_half_size)
+    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
+    reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
     lam = jnp.asarray(pix_src.lambda_reg.value)
 
     # Solve joint system
@@ -322,8 +322,8 @@ source_image = source_pixels_np.reshape(prob_model.sim_obj.source_ny, prob_model
 
 ext_i = [-npix * DPIX / 2,  npix * DPIX / 2,
          -npix * DPIX / 2,  npix * DPIX / 2]
-ext_s = [-float(src_half_size), float(src_half_size),
-         -float(src_half_size), float(src_half_size)]
+ext_s = [float(source_bbox[0]), float(source_bbox[1]),
+         float(source_bbox[2]), float(source_bbox[3])]
 
 fig, axes = plt.subplots(2, 4, figsize=(18, 9))
 vmax = np.nanpercentile(image_data[~mask], 99.5)

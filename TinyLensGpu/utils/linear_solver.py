@@ -69,7 +69,7 @@ def fnnls_jax(Z: Array, x: Array) -> Tuple[Array, float]:
         d_unscaled = d_scaled / safe_norms
         d = jnp.where(active, d_unscaled, 0.0)
         res = jnp.linalg.norm(x - Z @ d)
-        return d, res
+        return d.astype(dtype), res.astype(dtype)
 
     should_solve = jnp.any(active) & jnp.any(jnp.abs(ZTx) > 0)
     return jax.lax.cond(should_solve, solve_active_system, zero_solution, operand=None)

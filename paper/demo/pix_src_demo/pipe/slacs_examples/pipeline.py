@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import pickle
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -53,6 +54,8 @@ import caskade as ck
 import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
+NSRCX = 50
+NSRCY = 50
 DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4  # lower oversampling for pixelized stages (memory)
@@ -234,11 +237,14 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     print("\n" + "=" * 60)
     print(" Stage A : SIE + shear + MGE lens light + MGE source light")
     print("=" * 60)
+    t0 = time.time()
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=circular_mask)
     samples, weights, names, logz = _run_sampler(
         likelihood, n_live=300, n_eff=2000, tag="stage-A", vectorized=True,
     )
+    t1 = time.time()
     _print_summary("stage-A", samples, weights, names)
+    print(f"[stage-A] time taken: {t1 - t0:.2f} seconds")
 
     medians = _posterior_median(samples, weights, names)
     q50 = [medians[n] for n in names]
@@ -257,6 +263,7 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
         extra=dict(
             medians=medians,
             lens_light_model=lens_image_model,
+            time_taken=t1 - t0,
         ),
     )
 
@@ -413,6 +420,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
     print("\n" + "=" * 60)
     print(" Stage L : arc-masked MGE lens light refinement")
     print("=" * 60)
+    t0 = time.time()
     n_arc    = int((~feature_mask).sum())
     n_nonarc = feature_mask.size - n_arc
     print(f"[stage-L] arc pixels excluded     = {n_arc}    / {feature_mask.size}")
@@ -432,7 +440,9 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         tag="stage-L",
         vectorized=False,
     )
+    t1 = time.time()
     _print_summary("stage-L", samples, weights, names)
+    print(f"[stage-L] time taken: {t1 - t0:.2f} seconds")
 
     medians = _posterior_median(samples, weights, names)
     q50 = [medians[n] for n in names]
@@ -457,6 +467,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         extra=dict(
             medians=medians,
             lens_light_model=lens_image_model,
+            time_taken=t1 - t0,
         ),
     )
 
@@ -624,9 +635,9 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        design_matrix, src_half_size = likelihood.sim_obj.design_matrix()
+        design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
         lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
-        reg_matrix, _ = likelihood._regularization_matrix(src_half_size)
+        reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
         source_pixels, chol, curvature = likelihood._solve_source(
             design_matrix, reg_matrix, jnp.asarray(lam_val)
         )
@@ -648,7 +659,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
-    ext_s = [-float(src_half_size), float(src_half_size), -float(src_half_size), float(src_half_size)]
+    ext_s = [float(source_bbox[0]), float(source_bbox[1]), float(source_bbox[2]), float(source_bbox[3])]
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
 
     fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
@@ -690,16 +701,16 @@ def build_stage_m_likelihood(
         "lambda_reg",
         1.0,
         prior_type="log_uniform",
-        prior_settings=[1e-3, 1e3],
+        prior_settings=[1e-4, 1e4],
         limits=[1e-6, 1e6],
     )
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
+        nx=NSRCX,
+        ny=NSRCY,
         lambda_reg=lam,
-        regularization_type="first-order",
+        regularization_type="second-order",
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -727,6 +738,7 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
     print("\n" + "=" * 60)
     print(" Stage M : EPL + shear + pix source (lambda_reg free)")
     print("=" * 60)
+    t0 = time.time()
     lens_subtracted = image_data - lens_light_model
     passer = GaussianPriorPasser(samples_a, weights_a, names_a)
     likelihood = build_stage_m_likelihood(
@@ -741,9 +753,11 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
     samples, weights, names, logz = _run_sampler(
         likelihood, n_live=300, n_eff=800, tag="stage-M", vectorized=False,
     )
+    t1 = time.time()
     _print_summary("stage-M", samples, weights, names)
+    print(f"[stage-M] time taken: {t1 - t0:.2f} seconds")
     medians = _posterior_median(samples, weights, names)
-    _dump_stage("m", samples, weights, names, logz, extra=dict(medians=medians))
+    _dump_stage("m", samples, weights, names, logz, extra=dict(medians=medians, time_taken=t1 - t0))
     try:
         _plot_pix_stage("stage-M", likelihood, medians, names,
                         str(OUT_DIR / "stage_m_model.png"))
@@ -768,48 +782,57 @@ def main(skip_done: bool = False):
     print(f"[circular mask] excluded {n_excl} / {circular_mask.size} pixels (> {MASK_RADIUS} arcsec)")
 
     # ---- stage A ---------------------------------------------------- #
+    time_a = 0.0
     if skip_done and (OUT_DIR / "stage_a.pkl").exists():
         print("[stage-A] loading cached output/stage_a.pkl")
         d = _load_stage("a")
         samples_a, weights_a, names_a = d["samples"], d["weights"], d["param_names"]
         medians_a = d["extra"]["medians"]
         lens_light_model = d["extra"]["lens_light_model"]
+        time_a = d["extra"].get("time_taken", 0.0)
     else:
         samples_a, weights_a, names_a, medians_a, lens_light_model = run_stage_a(
             image_data, noise_map, psf_kernel, circular_mask=circular_mask,
         )
+        time_a = _load_stage("a")["extra"].get("time_taken", 0.0)
 
     # ---- stage B ---------------------------------------------------- #
     feature_mask = run_stage_b(image_data, noise_map, lens_light_model, circular_mask=circular_mask)
 
     # ---- stage L ---------------------------------------------------- #
+    time_l = 0.0
     if skip_done and (OUT_DIR / "stage_l.pkl").exists():
         print("[stage-L] loading cached output/stage_l.pkl")
         d = _load_stage("l")
         samples_l, weights_l, names_l = d["samples"], d["weights"], d["param_names"]
         medians_l = d["extra"]["medians"]
         lens_light_model = d["extra"]["lens_light_model"]
+        time_l = d["extra"].get("time_taken", 0.0)
     else:
         samples_l, weights_l, names_l, medians_l, lens_light_model = run_stage_l(
             image_data, noise_map, psf_kernel, feature_mask,
             circular_mask=circular_mask,
         )
+        time_l = _load_stage("l")["extra"].get("time_taken", 0.0)
 
     lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
     # ---- stage M ---------------------------------------------------- #
+    time_m = 0.0
     if skip_done and (OUT_DIR / "stage_m.pkl").exists():
         print("[stage-M] loading cached output/stage_m.pkl")
         d = _load_stage("m")
         samples_m, weights_m, names_m = d["samples"], d["weights"], d["param_names"]
         medians_m = d["extra"]["medians"]
+        time_m = d["extra"].get("time_taken", 0.0)
     else:
         samples_m, weights_m, names_m, medians_m = run_stage_m(
             image_data, noise_map, psf_kernel, feature_mask,
             lens_light_model, samples_a, weights_a, names_a,
             position_likelihood, circular_mask=circular_mask,
         )
+        time_m = _load_stage("m")["extra"].get("time_taken", 0.0)
 
     if not (OUT_DIR / "stage_m_model.png").exists():
         passer_m = GaussianPriorPasser(samples_a, weights_a, names_a)
@@ -831,6 +854,12 @@ def main(skip_done: bool = False):
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
+    print(f" Time summary:")
+    print(f"    Stage A: {time_a/60:.2f} min")
+    print(f"    Stage L: {time_l/60:.2f} min")
+    print(f"    Stage M: {time_m/60:.2f} min")
+    print(f"    Total:   {(time_a + time_l + time_m)/60:.2f} min\n")
+
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
               "center_x_mass", "center_y_mass", "gamma1", "gamma2"):
         if k in medians_m:

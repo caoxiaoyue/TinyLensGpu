@@ -84,15 +84,45 @@ def lens_mapping_operator_bilinear_rectangular_from(
     return weights, indices, valid
 
 
-def build_source_grid(nx, ny, half_size):
-    """Build a rectangular source-plane grid spanning [-half_size, +half_size].
+def build_source_grid(nx, ny, xmin, xmax, ymin, ymax):
+    """Build a rectangular source-plane grid spanning [xmin, xmax] x [ymin, ymax].
 
     Returns (x_axis, y_axis, xgrid, ygrid) with ``jnp.meshgrid(..., indexing='xy')`` layout.
     """
-    x_axis = jnp.linspace(-half_size, half_size, int(nx))
-    y_axis = jnp.linspace(-half_size, half_size, int(ny))
+    x_axis = jnp.linspace(xmin, xmax, int(nx))
+    y_axis = jnp.linspace(ymin, ymax, int(ny))
     xgrid, ygrid = jnp.meshgrid(x_axis, y_axis, indexing="xy")
     return x_axis, y_axis, xgrid, ygrid
+
+
+def infer_source_bbox(beta_x, beta_y, padding=0.05):
+    """Infer source-plane bounding box from ray-traced beta points.
+
+    Computes min/max of beta coordinates and adds a fractional padding
+    margin on each side (default 5%).  Ensures a minimum span of 1e-6
+    in each direction so that downstream grid construction is well-defined.
+    """
+    beta_x = jnp.ravel(jnp.asarray(beta_x))
+    beta_y = jnp.ravel(jnp.asarray(beta_y))
+    xmin = jnp.min(beta_x)
+    xmax = jnp.max(beta_x)
+    ymin = jnp.min(beta_y)
+    ymax = jnp.max(beta_y)
+    span_x = xmax - xmin
+    span_y = ymax - ymin
+    xmin = xmin - padding * span_x
+    xmax = xmax + padding * span_x
+    ymin = ymin - padding * span_y
+    ymax = ymax + padding * span_y
+    # Floor at ±0.5e-6 to keep the grid well-defined for point-like sources.
+    xmid = 0.5 * (xmin + xmax)
+    ymid = 0.5 * (ymin + ymax)
+    min_half = 0.5e-6
+    xmin = jnp.minimum(xmin, xmid - min_half)
+    xmax = jnp.maximum(xmax, xmid + min_half)
+    ymin = jnp.minimum(ymin, ymid - min_half)
+    ymax = jnp.maximum(ymax, ymid + min_half)
+    return xmin, xmax, ymin, ymax
 
 
 def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
@@ -123,4 +153,5 @@ __all__ = [
     "dense_mapping_from_weights_indices",
     "build_source_grid",
     "build_lens_mapping_matrix",
+    "infer_source_bbox",
 ]

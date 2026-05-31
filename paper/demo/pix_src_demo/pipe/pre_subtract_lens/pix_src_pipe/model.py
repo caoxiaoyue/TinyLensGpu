@@ -615,9 +615,9 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        design_matrix, src_half_size = likelihood.sim_obj.design_matrix()
+        design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
         lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
-        reg_matrix, _ = likelihood._regularization_matrix(src_half_size)
+        reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
         source_pixels, chol, curvature = likelihood._solve_source(
             design_matrix, reg_matrix, jnp.asarray(lam_val)
         )
@@ -639,7 +639,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
-    ext_s = [-float(src_half_size), float(src_half_size), -float(src_half_size), float(src_half_size)]
+    ext_s = [float(source_bbox[0]), float(source_bbox[1]), float(source_bbox[2]), float(source_bbox[3])]
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
 
     fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))

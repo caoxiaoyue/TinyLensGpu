@@ -11,7 +11,7 @@ from jax import Array
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
 from ...PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
-from ...utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid
+from ...utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid, infer_source_bbox
 from .config import SimulatorConfig
 from .parametric import bin_image_general
 from .results import SimulationResult
@@ -46,6 +46,11 @@ class PixelizedLensSimulator:
         May optionally include lens light components.
     sim_config : SimulatorConfig
         Image grid, PSF, mask, and subsampling (``nsub``) configuration.
+    detach_bbox : bool, optional
+        When ``True`` (default), ``stop_gradient`` is applied to the
+        source-plane bounding-box bounds so that min/max operations do
+        not produce unstable gradients.  Beta ray-tracing and bilinear
+        interpolation weights remain differentiable.
 
     Raises
     ------
@@ -54,10 +59,11 @@ class PixelizedLensSimulator:
         or a parametric source.
     """
 
-    def __init__(self, phys_model: PhysicalModel, sim_config: SimulatorConfig) -> None:
+    def __init__(self, phys_model: PhysicalModel, sim_config: SimulatorConfig, detach_bbox: bool = True) -> None:
         self.phys_model = phys_model
         self.sim_config = sim_config
         self.nsub = int(sim_config.nsub)
+        self.detach_bbox = detach_bbox
 
         n_pixelized = sum(_is_pixelized_source_model(s) for s in phys_model.source_light)
         if n_pixelized != len(phys_model.source_light):
@@ -132,17 +138,29 @@ class PixelizedLensSimulator:
         psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
         self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
-    def infer_source_half_size(self, beta_x: Array, beta_y: Array) -> Array:
-        """1.05 * max(|beta_x|, |beta_y|) floored at 1e-6."""
-        return jnp.maximum(1.05 * jnp.maximum(jnp.max(jnp.abs(beta_x)), jnp.max(jnp.abs(beta_y))), 1.0e-6)
+    def infer_source_bbox(self, beta_x: Array, beta_y: Array):
+        """Infer source-plane bounding box with 5% padding.
+
+        Returns (xmin, xmax, ymin, ymax).
+        """
+        return infer_source_bbox(beta_x, beta_y, padding=0.05)
 
     def build_mapping_matrix(
         self,
         *,
-        source_half_size: Array | float | None = None,
+        source_bbox: tuple | None = None,
         use_subgrid: bool = False,
     ) -> Array:
-        """Build Nd x Ns lens mapping matrix via bilinear interpolation."""
+        """Build Nd x Ns lens mapping matrix via bilinear interpolation.
+
+        Parameters
+        ----------
+        source_bbox : tuple, optional
+            (xmin, xmax, ymin, ymax) bounding box.  Auto-inferred from
+            ray-traced beta points when ``None``.
+        use_subgrid : bool, optional
+            Whether to use the sub-sampled image grid.
+        """
         if use_subgrid and self.nsub > 1:
             x_active = self.image_x_active_sub
             y_active = self.image_y_active_sub
@@ -151,10 +169,19 @@ class PixelizedLensSimulator:
             y_active = self.image_y_active
 
         beta_x, beta_y = self.phys_model.deflection(x=x_active, y=y_active)
-        if source_half_size is None:
-            source_half_size = self.infer_source_half_size(beta_x, beta_y)
+        if source_bbox is None:
+            source_bbox = self.infer_source_bbox(beta_x, beta_y)
 
-        source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
+        xmin, xmax, ymin, ymax = source_bbox
+        if self.detach_bbox:
+            xmin = jax.lax.stop_gradient(xmin)
+            xmax = jax.lax.stop_gradient(xmax)
+            ymin = jax.lax.stop_gradient(ymin)
+            ymax = jax.lax.stop_gradient(ymax)
+
+        source_x_axis, source_y_axis, _, _ = build_source_grid(
+            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax
+        )
         return build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
 
     def build_lens_light_matrix(
@@ -241,29 +268,38 @@ class PixelizedLensSimulator:
     def design_matrix(
         self,
         *,
-        source_half_size: Array | float | None = None,
+        source_bbox: tuple | None = None,
         psf_kernel: Array | None = None,
-    ) -> tuple[Array, Array]:
+    ) -> tuple[Array, tuple]:
         """Build Nd x (Ns+Nl) PSF-convolved joint design matrix M = [F | L].
 
         When lens_light is absent, returns the source-only matrix F with
         shape (Nd, Ns).  When lens_light is present, returns the joint
         matrix [F | L] with shape (Nd, Ns+Nl).
 
-        Returns (M, inferred_source_half_size).
+        Returns (M, source_bbox) where source_bbox is (xmin, xmax, ymin, ymax).
         """
         # --- Source mapping matrix F ---
         beta_x, beta_y = self.phys_model.deflection(
             x=self.image_x_active_sub, y=self.image_y_active_sub
         )
-        if source_half_size is None:
+        if source_bbox is None:
             # Use seed mask for bounding box inference (dual-masking strategy)
             beta_x_seed, beta_y_seed = self.phys_model.deflection(
                 x=self.image_x_seed, y=self.image_y_seed
             )
-            source_half_size = self.infer_source_half_size(beta_x_seed, beta_y_seed)
+            source_bbox = self.infer_source_bbox(beta_x_seed, beta_y_seed)
 
-        source_x_axis, source_y_axis, _, _ = build_source_grid(self.source_nx, self.source_ny, source_half_size)
+        xmin, xmax, ymin, ymax = source_bbox
+        if self.detach_bbox:
+            xmin = jax.lax.stop_gradient(xmin)
+            xmax = jax.lax.stop_gradient(xmax)
+            ymin = jax.lax.stop_gradient(ymin)
+            ymax = jax.lax.stop_gradient(ymax)
+
+        source_x_axis, source_y_axis, _, _ = build_source_grid(
+            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax
+        )
         mapping_matrix_sub = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
 
         if self.nsub > 1:
@@ -299,16 +335,16 @@ class PixelizedLensSimulator:
         if self.has_lens_light:
             L = self.build_lens_light_matrix(psf_kernel=psf_kernel)  # (N_d, Nl)
             M = jnp.concatenate([F, L], axis=1)  # (N_d, Ns+Nl)
-            return M, jnp.asarray(source_half_size)
+            return M, (xmin, xmax, ymin, ymax)
 
-        return F, jnp.asarray(source_half_size)
+        return F, (xmin, xmax, ymin, ymax)
 
     def simulate(
         self,
         source_pixels: Array,
         *,
         lens_light_amplitudes: Array | None = None,
-        source_half_size: Array | float | None = None,
+        source_bbox: tuple | None = None,
         psf_kernel: Array | None = None,
     ) -> Array:
         """Return full 2D model image for given source and lens-light parameters.
@@ -320,8 +356,8 @@ class PixelizedLensSimulator:
         lens_light_amplitudes : Array, optional
             Lens light linear amplitudes, shape (Nl,). Required when
             ``has_lens_light`` is True.
-        source_half_size : Array or float, optional
-            Override source-plane half-size.
+        source_bbox : tuple, optional
+            (xmin, xmax, ymin, ymax) bounding box.  Auto-inferred when ``None``.
         psf_kernel : Array, optional
             Override PSF kernel.
 
@@ -332,15 +368,15 @@ class PixelizedLensSimulator:
         """
         source_pixels = jnp.asarray(source_pixels)
 
-        # Infer source_half_size using seed mask coordinates (same as design_matrix)
-        if source_half_size is None:
+        # Infer bbox using seed mask coordinates (same as design_matrix)
+        if source_bbox is None:
             beta_x_seed, beta_y_seed = self.phys_model.deflection(
                 x=self.image_x_seed, y=self.image_y_seed
             )
-            source_half_size = self.infer_source_half_size(beta_x_seed, beta_y_seed)
+            source_bbox = self.infer_source_bbox(beta_x_seed, beta_y_seed)
 
         mapping_matrix_sub = self.build_mapping_matrix(
-            source_half_size=source_half_size, use_subgrid=True
+            source_bbox=source_bbox, use_subgrid=True
         )
         m_ideal_1d_sub = mapping_matrix_sub @ source_pixels
 

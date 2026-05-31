@@ -77,7 +77,6 @@ class DenseRegularizationBuilder:
         self._dx_operator, self._dy_operator = self._build_first_difference_operators()
         self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
         self._unit_coordinates = self._build_unit_coordinates()
-        self._unit_distances = self._build_unit_distances()
 
         # Precompute H_unit matrices on index space (half_size=1, spacing=2/(n-1)).
         # H(h) = H_unit / dx(h)^2  for first-order,  / dx(h)^4  for second-order.
@@ -94,14 +93,15 @@ class DenseRegularizationBuilder:
         self._H2_unit_x = sdx2.T @ sdx2
         self._H2_unit_y = sdy2.T @ sdy2
 
-    def matrix(self, half_size: float, *, kernel_scale: float | None = None):
-        """Return the dense regularization matrix for a physical grid size.
+    def matrix(self, xmin, xmax, ymin, ymax, *, kernel_scale: float | None = None):
+        """Return the dense regularization matrix for a rectangular source grid.
 
         Parameters
         ----------
-        half_size : float
-            Half-width of the square source plane. The physical grid spans
-            ``[-half_size, half_size]`` in each axis.
+        xmin, xmax : float
+            Source-plane x-axis bounds.
+        ymin, ymax : float
+            Source-plane y-axis bounds.
         kernel_scale : float, optional
             GP kernel correlation scale. Required for GP regularization and
             ignored for traditional finite-difference penalties.
@@ -111,7 +111,7 @@ class DenseRegularizationBuilder:
         tuple[jax.Array, jax.Array | None]
             ``(precision_matrix, logdet_covariance)`` for all regularization types.
             For finite-difference types, ``logdet_covariance`` is ``None`` (callers
-            use the precomputed analytical logdet scaling instead).
+            compute ``logdet`` via ``slogdet`` on the returned matrix).
             For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the
             Cholesky factorization — callers compute ``logdet(H) = -logdet_covariance``
             without an extra O(n³) ``slogdet`` call.
@@ -119,21 +119,19 @@ class DenseRegularizationBuilder:
         Raises
         ------
         ValueError
-            If ``half_size`` is non-positive, or a GP kernel scale is missing or
-            non-positive.
+            If the bounds produce a non-positive span, or a GP kernel scale is
+            missing or non-positive.
         """
-        half_size = jnp.asarray(half_size)
-
         if self.regularization_type == "zero-order":
             return self._identity, None
         if self.regularization_type == "first-order":
-            return self._first_order_matrix(half_size), None
+            return self._first_order_matrix(xmin, xmax, ymin, ymax), None
         if self.regularization_type == "second-order":
-            return self._second_order_matrix(half_size), None
+            return self._second_order_matrix(xmin, xmax, ymin, ymax), None
 
         if kernel_scale is None:
             raise ValueError("kernel_scale must be provided for GP regularization.")
-        return self._gp_matrix(half_size, kernel_scale)
+        return self._gp_matrix(xmin, xmax, ymin, ymax, kernel_scale)
 
     def _build_first_difference_operators(self):
         """Return first-order x/y finite-difference operators on index space.
@@ -246,25 +244,31 @@ class DenseRegularizationBuilder:
             axis=1,
         )
 
-    def _build_unit_distances(self):
-        """Return pairwise Euclidean distances on the unit half-size plane."""
-        delta = self._unit_coordinates[:, None, :] - self._unit_coordinates[None, :, :]
-        return jnp.sqrt(jnp.sum(delta**2, axis=-1))
+    def _first_order_matrix(self, xmin, xmax, ymin, ymax):
+        """Return first-order gradient regularization with per-axis pixel scaling.
 
-    def _first_order_matrix(self, half_size: float):
-        """Return spacing-scaled first-order gradient regularization."""
-        # H(h) = H_unit_x / (h/1)^2 + H_unit_y / (h/1)^2 = (H_unit_x + H_unit_y) / h^2
-        # because dx(h) = dx_unit * h and H_unit was built at half_size=1.
-        h2 = half_size * half_size
-        return (self._H1_unit_x + self._H1_unit_y) / h2
+        H = H1_unit_x / dx² + H1_unit_y / dy²
+        where dx = (xmax-xmin)/(nx-1), dy = (ymax-ymin)/(ny-1).
+        """
+        scale_x = 2.0 / (xmax - xmin)
+        scale_y = 2.0 / (ymax - ymin)
+        return self._H1_unit_x * (scale_x ** 2) + self._H1_unit_y * (scale_y ** 2)
 
-    def _second_order_matrix(self, half_size: float):
-        """Return spacing-scaled second-order curvature regularization."""
-        h4 = half_size ** 4
-        return (self._H2_unit_x + self._H2_unit_y) / h4
+    def _second_order_matrix(self, xmin, xmax, ymin, ymax):
+        """Return second-order curvature regularization with per-axis pixel scaling.
 
-    def _gp_matrix(self, half_size: float, kernel_scale: float):
+        H = H2_unit_x / dx⁴ + H2_unit_y / dy⁴
+        where dx = (xmax-xmin)/(nx-1), dy = (ymax-ymin)/(ny-1).
+        """
+        scale_x = 2.0 / (xmax - xmin)
+        scale_y = 2.0 / (ymax - ymin)
+        return self._H2_unit_x * (scale_x ** 4) + self._H2_unit_y * (scale_y ** 4)
+
+    def _gp_matrix(self, xmin, xmax, ymin, ymax, kernel_scale: float):
         """Return (precision, logdet_covariance) for a GP regularization matrix.
+
+        Builds physical pixel coordinates from the source-plane bounds and
+        computes pairwise Euclidean distances in physical space.
 
         Uses Cholesky decomposition to compute both the precision matrix K^{-1}
         and log|K| in a single O(n^3) factorization, avoiding a separate slogdet call.
@@ -275,7 +279,15 @@ class DenseRegularizationBuilder:
             ``(precision, logdet_covariance)`` where precision is ``K^{-1}`` of shape
             ``(n_pixels, n_pixels)`` and ``logdet_covariance`` is the scalar ``log|K|``.
         """
-        distances = self._unit_distances * half_size
+        x_scale = (xmax - xmin) / 2.0
+        y_scale = (ymax - ymin) / 2.0
+        x_shift = (xmax + xmin) / 2.0
+        y_shift = (ymax + ymin) / 2.0
+        x_phys = self._unit_coordinates[:, 0] * x_scale + x_shift
+        y_phys = self._unit_coordinates[:, 1] * y_scale + y_shift
+        delta_x = x_phys[:, None] - x_phys[None, :]
+        delta_y = y_phys[:, None] - y_phys[None, :]
+        distances = jnp.sqrt(delta_x ** 2 + delta_y ** 2)
         r = distances / kernel_scale
 
         if self.regularization_type == "exponential":

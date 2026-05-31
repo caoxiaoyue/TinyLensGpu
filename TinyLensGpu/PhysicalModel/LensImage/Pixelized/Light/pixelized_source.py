@@ -79,11 +79,23 @@ class PixelizedSourceModel(ck.Module):
         x: Array,
         y: Array,
         source_values: Array,
-        source_half_size: Array | float,
+        source_bbox: tuple,
     ) -> Array:
-        """Interpolate pixelized source brightness onto image-plane coordinates."""
-        half_size = jnp.asarray(source_half_size)
-        source_x_axis, source_y_axis, _, _ = build_source_grid(self.nx, self.ny, half_size)
+        """Interpolate pixelized source brightness onto image-plane coordinates.
+
+        Parameters
+        ----------
+        x, y : Array
+            Image-plane coordinates.
+        source_values : Array
+            Source pixel intensities, shape (Nx*Ny,).
+        source_bbox : tuple
+            (xmin, xmax, ymin, ymax) source-plane bounding box.
+        """
+        xmin, xmax, ymin, ymax = source_bbox
+        source_x_axis, source_y_axis, _, _ = build_source_grid(
+            self.nx, self.ny, xmin, xmax, ymin, ymax
+        )
         mapping_matrix = build_lens_mapping_matrix(x, y, source_x_axis, source_y_axis)
         brightness = mapping_matrix @ jnp.ravel(jnp.asarray(source_values))
         return brightness.reshape(jnp.shape(x))
