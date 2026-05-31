@@ -1,7 +1,7 @@
 """
 Shared four-stage inference pipeline for SLACS lens modeling.
 
-Stage a : SIE + shear + MGE lens light + MGE source light (uniform priors)
+Stage a : SIE + shear + two-MGE lens light + MGE source light (uniform priors)
 Stage b : build an arc feature mask from stage-a residuals
 Stage l : arc-masked MGE lens light refinement (Gaussian priors from stage a)
 Stage m : EPL + shear + pixelized source (Gaussian priors from stage a,
@@ -54,13 +54,13 @@ import caskade as ck
 import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
-NSRCX = 50
-NSRCY = 50
+NSRCX = 40
+NSRCY = 40
 DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4  # lower oversampling for pixelized stages (memory)
-N_GAUSSIANS_SRC = 20
-N_GAUSSIANS_LENS = 20
+N_GAUSSIANS_SRC = 10
+N_GAUSSIANS_LENS = 10
 MASK_RADIUS = 2.5
 OUT_DIR = Path("output")
 DATA_DIR = Path("data")
@@ -77,7 +77,7 @@ def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool
     loglike = make_likelihood(likelihood, vectorized=vectorized)
     sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
     if vectorized:
-        sampler_kwargs["n_batch"] = n_live
+        sampler_kwargs["n_batch"] = 100
     sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
     sampler.run(verbose=True, n_eff=n_eff)
 
@@ -191,33 +191,52 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=None):
         source_gaussians.append(gauss)
     cx_s.to_dynamic(); cy_s.to_dynamic(); e1_s.to_dynamic(); e2_s.to_dynamic()
 
-    # MGE lens light
-    cx_l = ParamU("center_x_lens", 0.0, prior_type="gaussian",
-                  prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    cy_l = ParamU("center_y_lens", 0.0, prior_type="gaussian",
-                  prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    e1_l = ParamU("e1_lens", 0.0, prior_type="gaussian",
-                  prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-    e2_l = ParamU("e2_lens", 0.0, prior_type="gaussian",
-                  prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    # Two-group MGE lens light (mirrors stage-l configuration)
+    # Group 1 geometry
+    cx_l1 = ParamU("center_x_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l1 = ParamU("center_y_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l1 = ParamU("e1_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l1 = ParamU("e2_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
+    # Group 2 geometry
+    cx_l2 = ParamU("center_x_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l2 = ParamU("center_y_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l2 = ParamU("e1_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l2 = ParamU("e2_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
     sigma_list_lens = generate_radial_basis_knots(
         dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
         log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
     )
+
     lens_gaussians = []
-    for i, sigma in enumerate(sigma_list_lens):
-        gauss = GaussianEllipse(
-            sigma=ParamU(f"sigma_lens_{i}", float(sigma)),
-            center_x=cx_l,
-            center_y=cy_l,
-            e1=e1_l,
-            e2=e2_l,
-            flux=ParamU(f"flux_lens_{i}", 1.0),
-        )
-        gauss.sigma.to_static(float(sigma))
-        gauss.flux.to_static(1.0)
-        lens_gaussians.append(gauss)
-    cx_l.to_dynamic(); cy_l.to_dynamic(); e1_l.to_dynamic(); e2_l.to_dynamic()
+    for group_id, center_x, center_y, e1, e2 in (
+        (1, cx_l1, cy_l1, e1_l1, e2_l1),
+        (2, cx_l2, cy_l2, e1_l2, e2_l2),
+    ):
+        for i, sigma in enumerate(sigma_list_lens):
+            gauss = GaussianEllipse(
+                sigma=ParamU(f"sigma_lens_{group_id}_{i}", float(sigma)),
+                center_x=center_x,
+                center_y=center_y,
+                e1=e1,
+                e2=e2,
+                flux=ParamU(f"flux_lens_{group_id}_{i}", 1.0),
+            )
+            gauss.sigma.to_static(float(sigma))
+            gauss.flux.to_static(1.0)
+            lens_gaussians.append(gauss)
+
+    for p in (cx_l1, cy_l1, e1_l1, e2_l1, cx_l2, cy_l2, e1_l2, e2_l2):
+        p.to_dynamic()
 
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -235,7 +254,7 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=None):
 def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     OUT_DIR.mkdir(exist_ok=True)
     print("\n" + "=" * 60)
-    print(" Stage A : SIE + shear + MGE lens light + MGE source light")
+    print(" Stage A : SIE + shear + two-MGE lens light + MGE source light")
     print("=" * 60)
     t0 = time.time()
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=circular_mask)
@@ -438,7 +457,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         n_live=200,
         n_eff=800,
         tag="stage-L",
-        vectorized=False,
+        vectorized=True,
     )
     t1 = time.time()
     _print_summary("stage-L", samples, weights, names)
