@@ -1,11 +1,13 @@
 """
-Fit lens mass + pixelized source with position likelihood constraint — operator backend.
+Fit lens mass + pixelized source with position likelihood constraint.
 
 Same setup as fit_lens_src.py, but adds a position likelihood penalty to
 quickly reject lens mass models whose deflections are inconsistent with the
 observed multiply-imaged positions.
 
-Uses the matrix-free operator backend with PCG solver.
+The image-plane positions used for the position likelihood are computed by
+solving the lens equation with the true SIE parameters and the true source
+position from sim_data.py, so they are physically meaningful.
 """
 
 import os
@@ -30,9 +32,7 @@ from nautilus import Sampler
 from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
-from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
-    PixelizedImageProbModelOperator,
-)
+from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -115,9 +115,9 @@ sie = SIE(
 pix_src = PixelizedSourceModel(
     nx=40,
     ny=40,
-    regularization_type="second-order",
+    regularization_type="first-order",
     lambda_reg=ParamU("lambda_reg", 1.0,
-                      prior_type="log_uniform", prior_settings=[1e-6, 1e6],
+                      prior_type="log_uniform", prior_settings=[1e-3, 1e3],
                       limits=[1e-6, 1e6]),
 )
 
@@ -135,7 +135,10 @@ sie.center_y.to_dynamic()
 pix_src.lambda_reg.to_dynamic()
 
 # ------------------------------------------------------------------ #
-# Position likelihood
+# Position likelihood: use the solved true image positions.
+# A correct lens mass model must map all these image-plane positions
+# back to the same source position; the penalty fires when the
+# max pairwise source-plane separation exceeds the threshold.
 # ------------------------------------------------------------------ #
 position_likelihood = {
     'positions': _img_positions.tolist(),
@@ -144,7 +147,7 @@ position_likelihood = {
 }
 
 # ------------------------------------------------------------------ #
-# Probability model — operator backend
+# Probability model
 # ------------------------------------------------------------------ #
 prob_model = PixelizedImageProbModelOperator(
     image_data=image_data,
@@ -153,7 +156,7 @@ prob_model = PixelizedImageProbModelOperator(
     dpix=DPIX,
     phys_model=phys_model,
     mask=mask,
-    nsub=4,
+    nsub=2,
     position_likelihood=position_likelihood,
 )
 
@@ -168,7 +171,7 @@ print(f"  {len(param_names)} dynamic parameters:")
 for s in prior_specs:
     print(f"    {s.name:15s}: {s.describe()}")
 
-loglike = make_likelihood(prob_model, vectorized=True)
+loglike = make_likelihood(prob_model, vectorized=False)
 
 # ------------------------------------------------------------------ #
 # Nautilus nested sampling
@@ -179,8 +182,7 @@ sampler = Sampler(
     loglike,
     n_dim=len(param_names),
     n_live=200,
-    n_batch=100,
-    vectorized=True,
+    vectorized=False,
 )
 
 t0 = time.time()
@@ -216,7 +218,7 @@ with gzip.open("output_pos_like/fit_results.pkl.gz", "wb") as f:
                  "image_positions": _img_positions}, f)
 
 # ------------------------------------------------------------------ #
-# Visualization: MAP source reconstruction (operator backend)
+# Visualization: MAP source reconstruction
 # ------------------------------------------------------------------ #
 print("[7] Generating MAP visualization ...")
 
@@ -225,50 +227,41 @@ import caskade as ck
 best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
-
-    # Get bbox and build regularization
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
-    reg_data, _, reg_matrix_dense = prob_model._regularization_data(
-        xmin, xmax, ymin, ymax
-    )
     lam = jnp.asarray(pix_src.lambda_reg.value)
 
-    # Precompute operator data once
+    # --- Operator backend: PCG solve without building dense design matrix ---
+    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
+    reg_data, _, reg_matrix_dense = prob_model._regularization_data(xmin, xmax, ymin, ymax)
     op_data = prob_model.sim_obj.precompute_operator_data(
-        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub)
+        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
     )
-
-    # Build preconditioner and solve source via PCG
     P, P_chol = prob_model.sim_obj.build_preconditioner(
         prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, reg_matrix_dense,
     )
     source_pixels, pcg_info = prob_model._solve_source(
         xmin, xmax, ymin, ymax, lam, reg_data, P_chol, op_data=op_data,
     )
-
-    # Forward model for residuals
     model_1d = prob_model.sim_obj.forward_model(
         source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
     )
 
-    # Effective degrees of freedom via logdet approximation
-    logdet_P = 2.0 * float(jnp.sum(jnp.log(jnp.diag(P_chol))))
-    # Approximate trace: N_eff ≈ N_s - lambda * Tr(P^-1 R)
+    # Effective degrees of freedom (operator approximation: N_eff ≈ Ns - λ Tr(P⁻¹R))
     inv_P_R = jsl.cho_solve((P_chol, True), reg_matrix_dense)
     N_eff = float(reg_matrix_dense.shape[0] - lam * jnp.trace(inv_P_R))
 
 source_pixels_np = np.array(source_pixels)
+model_1d_np      = np.array(model_1d)
 model_image      = np.zeros(image_data.shape)
-model_image[~mask] = np.array(model_1d)
+model_image[~mask] = model_1d_np
 resid_norm       = (image_data - model_image) / noise_map
 
-# Chi-square statistics
+# Total chi-square and reduced chi-square
 chi2             = float(np.sum(resid_norm[~mask]**2))
 N_d              = int((~mask).sum())
-dof              = N_d - N_eff if N_eff < N_d else 1
+dof              = N_d - N_eff
 chi2_nu          = chi2 / dof if dof > 0 else 0.0
 
-source_image     = source_pixels_np.reshape(pix_src.ny, pix_src.nx)
+source_image     = source_pixels_np.reshape(40, 40)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,
@@ -279,37 +272,33 @@ fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
 vmax = np.nanpercentile(image_data[~mask], 99.5)
 
 im0 = axes[0].imshow(image_data, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax,
-                     interpolation="nearest", aspect="equal")
+                     cmap="viridis", vmin=0, vmax=vmax)
 axes[0].set_title("Lensed arc (data)", fontsize=11)
 axes[0].set_xlabel("arcsec"); axes[0].set_ylabel("arcsec")
 plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
 im1 = axes[1].imshow(model_image, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax,
-                     interpolation="nearest", aspect="equal")
-axes[1].set_title("Pix-src model image\n(operator)", fontsize=11)
+                     cmap="viridis", vmin=0, vmax=vmax)
+axes[1].set_title("Pix-src model image", fontsize=11)
 axes[1].set_xlabel("arcsec")
 plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
 resid_display = np.where(mask, np.nan, resid_norm)
 im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
-                     cmap="RdBu_r", vmin=-5, vmax=5,
-                     interpolation="nearest", aspect="equal")
+                     cmap="RdBu_r", vmin=-5, vmax=5)
 axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
 axes[2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
 lam_med = q50_list[param_names.index("lambda_reg")]
-im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s,
-                     cmap="viridis", interpolation="nearest", aspect="equal")
+im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
 axes[3].set_title(f"Source reconstruction\n(λ={lam_med:.2e})", fontsize=11)
 axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
 plt.suptitle(
-    f"Fit: SIE + pix src + pos-like (operator)  "
-    f"(θ_E={q50_list[0]:.3f}\", e1={q50_list[1]:.3f}, λ={lam_med:.2e})",
+    f"Fit: SIE + pix src + pos-like  (θ_E={q50_list[0]:.3f}\", "
+    f"e1={q50_list[1]:.3f}, λ={lam_med:.2e})",
     fontsize=12,
 )
 plt.tight_layout()

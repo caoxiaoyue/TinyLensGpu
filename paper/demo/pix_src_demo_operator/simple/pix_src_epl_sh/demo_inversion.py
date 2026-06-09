@@ -20,7 +20,7 @@ os.chdir(Path(__file__).parent)
 import numpy as np
 import matplotlib.pyplot as plt
 
-from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
+from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.utils import load_lens_data
@@ -44,7 +44,8 @@ image_data, noise_map, psf_kernel, mask = load_lens_data(
 # ------------------------------------------------------------------ #
 # Physical model (lens mass fixed to truth)
 # ------------------------------------------------------------------ #
-sie = SIE(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+epl = EPL(theta_E=1.0, gamma=2.2, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+shear = Shear(gamma1=0.05, gamma2=0.05)
 
 results_summary = []
 
@@ -60,7 +61,7 @@ for LAMBDA in LAMBDA_LIST:
     )
 
     phys_model = PhysicalModel(
-        lens_mass=[sie],
+        lens_mass=[epl, shear],
         source_light=[pix_src],
         lens_light=[],
     )
@@ -156,7 +157,7 @@ for LAMBDA in LAMBDA_LIST:
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
     plt.suptitle(
-        f"Pixelized source inversion (SIE fixed, λ={LAMBDA})",
+        f"Pixelized source inversion (EPL+Shear fixed, λ={LAMBDA})",
         fontsize=12,
     )
     plt.tight_layout()
