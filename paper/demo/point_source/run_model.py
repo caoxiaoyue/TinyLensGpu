@@ -237,6 +237,11 @@ if __name__ == "__main__":
     ax.legend(loc="best")
     ax.set_aspect("equal")
     ax.grid(alpha=0.3)
+
+    # Overlay critical line
+    from TinyLensGpu.visualizer import overlay_critical_lines
+    overlay_critical_lines(ax, model.phys_model)
+
     fig.tight_layout()
     fig.savefig("output/point_source_positions.png", dpi=180)
     plt.close(fig)

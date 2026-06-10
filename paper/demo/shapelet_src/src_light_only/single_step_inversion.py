@@ -28,6 +28,7 @@ from TinyLensGpu.PhysicalModel import (
     build_shapelet_basis_matrix,
 )
 from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.visualizer import overlay_critical_and_caustics
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
 
@@ -170,6 +171,11 @@ def visualize(
     ax6.set_ylabel("Amplitude")
     ax6.set_title(f"Shapelet Coefficients (n_basis={len(X_vec)})")
 
+    overlay_critical_and_caustics(
+        image_axes=[axes[0], axes[1], axes[2]],
+        source_ax=axes[3],
+        lens_mass=prob_model.phys_model,
+    )
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)

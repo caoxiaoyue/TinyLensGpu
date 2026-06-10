@@ -46,7 +46,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
-from TinyLensGpu.visualizer import plot_model_results
+from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
 from TinyLensGpu.Inference import GaussianPriorPasser
 
@@ -291,6 +291,8 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
             likelihood, jnp.asarray(q50),
             save_path=str(OUT_DIR / "stage_a_model.png"),
             title="Stage A : MGE lens+source",
+            show_critical_lines=True,
+            show_caustics=True,
         )
     except Exception as err:
         print(f"[stage-A] plotting failed (non-fatal): {err}")
@@ -702,6 +704,11 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
+    overlay_critical_and_caustics(
+        image_axes=[axes[0], axes[1], axes[2]],
+        source_ax=axes[3],
+        lens_mass=likelihood.phys_model,
+    )
     plt.tight_layout()
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
     plt.close(fig)

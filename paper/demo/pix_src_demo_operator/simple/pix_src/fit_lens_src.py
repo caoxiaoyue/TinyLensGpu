@@ -35,6 +35,7 @@ from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator impor
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
 # ------------------------------------------------------------------ #
 # True parameters (for reference)
@@ -256,6 +257,12 @@ plt.suptitle(
     f"e1={q50_list[1]:.3f}, λ={lam_med:.2e})",
     fontsize=12,
 )
+overlay_critical_and_caustics(
+    image_axes=[axes[0], axes[1], axes[2]],
+    source_ax=axes[3],
+    lens_mass=prob_model.phys_model,
+)
+
 plt.tight_layout()
 plt.savefig("output/fit_map_visualization.png", dpi=150, bbox_inches="tight")
 print("  Saved output/fit_map_visualization.png")

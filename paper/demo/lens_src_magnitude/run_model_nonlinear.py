@@ -187,7 +187,9 @@ if __name__ == "__main__":
         likelihood, 
         jnp.array(q50_list), 
         save_path='output/model_visualization.png',
-        title="Lens Model Fit Results (Magnitude-based, Non-linear)"
+        title="Lens Model Fit Results (Magnitude-based, Non-linear)",
+        show_critical_lines=True,
+        show_caustics=True,
     )
 
     print("\n" + "="*60)

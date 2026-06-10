@@ -293,6 +293,14 @@ def plot_multiband_overview(model: MultiBandImageProbModel, theta: list[float], 
             ax.set_ylabel("Arcsec")
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
+    # Overlay critical lines on data and model panels
+    from TinyLensGpu.visualizer import overlay_critical_lines
+    ref_model = model.band_models[0]
+    lens_mass = ref_model.sim_obj.phys_model.lens_mass
+    for row in range(3):
+        for col in (0, 1):  # data and model columns only
+            overlay_critical_lines(axes[row, col], lens_mass, x_range=(-3.0, 3.0), y_range=(-3.0, 3.0))
+
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved 9-panel overview: {save_path}")

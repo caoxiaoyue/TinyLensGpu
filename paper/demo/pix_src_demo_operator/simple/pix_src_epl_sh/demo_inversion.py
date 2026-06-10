@@ -24,6 +24,7 @@ from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
 # ------------------------------------------------------------------ #
 # Configuration
@@ -159,6 +160,11 @@ for LAMBDA in LAMBDA_LIST:
     plt.suptitle(
         f"Pixelized source inversion (EPL+Shear fixed, λ={LAMBDA})",
         fontsize=12,
+    )
+    overlay_critical_and_caustics(
+        image_axes=[axes[0], axes[1], axes[2]],
+        source_ax=axes[3],
+        lens_mass=prob_model.phys_model,
     )
     plt.tight_layout()
 

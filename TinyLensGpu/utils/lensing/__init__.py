@@ -18,6 +18,12 @@ from .point_source_solver import (
     build_permutation_indices,
     min_assignment_chi2,
 )
+from .critical_line import (
+    compute_jacobian_det,
+    find_critical_lines,
+    find_caustics,
+    compute_critical_and_caustics,
+)
 
 __all__ = [
     'dense_mapping_from_weights_indices',
@@ -36,4 +42,8 @@ __all__ = [
     'select_unique_images_fixed',
     'build_permutation_indices',
     'min_assignment_chi2',
+    'compute_jacobian_det',
+    'find_critical_lines',
+    'find_caustics',
+    'compute_critical_and_caustics',
 ]

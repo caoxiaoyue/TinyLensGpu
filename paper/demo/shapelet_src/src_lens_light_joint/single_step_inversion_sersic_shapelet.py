@@ -32,7 +32,8 @@ from TinyLensGpu.PhysicalModel import (
     build_shapelet_basis_matrix,
 )
 from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
+from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.visualizer import overlay_critical_and_caustics, generate_radial_basis_knots
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
 
@@ -344,6 +345,11 @@ def visualize(data_dict: dict, results: dict, *, output_path: Path) -> None:
     )
     plt.colorbar(im8, ax=ax8, fraction=0.046, pad=0.04)
 
+    overlay_critical_and_caustics(
+        image_axes=[axes[0], axes[1], axes[2]],
+        source_ax=axes[3],
+        lens_mass=prob_model.phys_model,
+    )
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)

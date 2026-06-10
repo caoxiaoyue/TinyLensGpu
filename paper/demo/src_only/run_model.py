@@ -181,7 +181,9 @@ if __name__ == "__main__":
         likelihood, 
         jnp.array(q50_list), 
         save_path='output/model_visualization.png',
-        title="Lens Model Fit Results"
+        title="Lens Model Fit Results",
+        show_critical_lines=True,
+        show_caustics=True,
     )
 
     # 8. Model median (including linear parameters)
