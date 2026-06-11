@@ -26,9 +26,12 @@ class PixelizedSourceModel(ck.Module):
     ----------
     nx, ny : int
         Number of source pixels along x and y.
-    lambda_reg : float or ParamU or None, optional
-        Regularization strength. Wrapped as a ``ParamU`` with a log-uniform
-        prior over ``[1e-4, 1e4]`` when provided as a scalar.
+    log_lambda_reg : float or ParamU or None, optional
+        Natural-log of the regularization strength. Stored in log-space so
+        that the optimiser works with O(1) values even when the physical
+        λ is very small (e.g. 1e-6).  Wrapped as a ``ParamU`` with a
+        uniform prior over ``[log(1e-4), log(1e4)]`` when provided as a
+        scalar.
     regularization_type : str, optional
         Regularization family. Supported values are ``"zero-order"``,
         ``"first-order"``, ``"second-order"``, ``"exponential"``,
@@ -42,7 +45,7 @@ class PixelizedSourceModel(ck.Module):
         nx: int,
         ny: int,
         *,
-        lambda_reg: float | ParamU | None = None,
+        log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
         kernel_scale: float | ParamU | None = None,
     ) -> None:
@@ -56,10 +59,12 @@ class PixelizedSourceModel(ck.Module):
         object.__setattr__(self, "regularization_type", regularization_type)
         object.__setattr__(self, "is_pixelized_source", True)
 
-        self.lambda_reg = (
-            lambda_reg if isinstance(lambda_reg, ParamU)
-            else ParamU("lambda_reg", lambda_reg, prior_type="log_uniform",
-                        prior_settings=[1e-4, 1e4], limits=[1e-4, 1e4])
+        self.log_lambda_reg = (
+            log_lambda_reg if isinstance(log_lambda_reg, ParamU)
+            else ParamU("log_lambda_reg", log_lambda_reg,
+                        prior_type="uniform",
+                        prior_settings=[jnp.log(1e-4), jnp.log(1e4)],
+                        limits=[jnp.log(1e-4), jnp.log(1e4)])
         )
 
         if regularization_type in GP_REGULARIZATION_TYPES:

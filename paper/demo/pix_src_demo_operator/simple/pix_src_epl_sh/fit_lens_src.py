@@ -96,9 +96,9 @@ pix_src = PixelizedSourceModel(
     nx=40,
     ny=40,
     regularization_type="first-order",
-    lambda_reg=ParamU("lambda_reg", 1.0,
-                      prior_type="log_uniform", prior_settings=[1e-3, 1e3],
-                      limits=[1e-6, 1e6]),
+    log_lambda_reg=ParamU("log_lambda_reg", 0.0,
+                      prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                      limits=[-13.815510557964274, 13.815510557964274]),
 )
 
 phys_model = PhysicalModel(
@@ -116,7 +116,7 @@ epl.center_x.to_dynamic()
 epl.center_y.to_dynamic()
 shear.gamma1.to_dynamic()
 shear.gamma2.to_dynamic()
-pix_src.lambda_reg.to_dynamic()
+pix_src.log_lambda_reg.to_dynamic()
 
 # ------------------------------------------------------------------ #
 # Probability model (Bayesian evidence)
@@ -199,7 +199,7 @@ import caskade as ck
 best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
-    lam = jnp.asarray(pix_src.lambda_reg.value)
+    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
 
     # --- Operator backend: PCG solve without building dense design matrix ---
     xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
@@ -262,15 +262,15 @@ axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
 axes[2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
-lam_med = q50_list[param_names.index("lambda_reg")]
+lam_med = q50_list[param_names.index("log_lambda_reg")]
 im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[3].set_title(f"Source reconstruction\n(λ={lam_med:.2e})", fontsize=11)
+axes[3].set_title(f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e})", fontsize=11)
 axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
 plt.suptitle(
     f"Fit: EPL+Shear + pix src  (θ_E={q50_list[0]:.3f}\", "
-    f"γ={q50_list[1]:.3f}, λ={lam_med:.2e})",
+    f"γ={q50_list[1]:.3f}, λ={float(jnp.exp(lam_med)):.2e})",
     fontsize=12,
 )
 overlay_critical_and_caustics(

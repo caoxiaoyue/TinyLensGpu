@@ -58,7 +58,7 @@ for LAMBDA in LAMBDA_LIST:
         nx=40,
         ny=40,
         regularization_type="first-order",
-        lambda_reg=max(LAMBDA, 1e-8),
+        log_lambda_reg=jnp.log(max(LAMBDA, 1e-8)),
     )
 
     phys_model = PhysicalModel(

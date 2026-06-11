@@ -48,7 +48,7 @@ for LAMBDA in LAMBDA_LIST:
     pix_src = PixelizedSourceModel(
         nx=40, ny=40,
         regularization_type="first-order",
-        lambda_reg=LAMBDA,
+        log_lambda_reg=jnp.log(LAMBDA),
     )
     phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
 

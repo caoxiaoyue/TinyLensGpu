@@ -191,7 +191,8 @@ class PixelizedImageProbModel(ck.Module):
 
     def _log_evidence(self) -> Array:
         """Evaluate log evidence for current parameter values."""
-        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
+        log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
+        lambda_reg = jnp.exp(log_lambda_reg)
         design_matrix, source_bbox = self.sim_obj.design_matrix()
         reg_matrix, logdet_cov = self._regularization_matrix(source_bbox)
         linear_params, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
@@ -227,7 +228,7 @@ class PixelizedImageProbModel(ck.Module):
             -e_d
             - lambda_reg * e_s
             - 0.5 * logdet_a
-            + 0.5 * n_source * jnp.log(lambda_reg)
+            + 0.5 * n_source * log_lambda_reg
             + 0.5 * logdet_h
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
@@ -284,7 +285,7 @@ class PixelizedImageProbModel(ck.Module):
         """
         design_matrix, source_bbox = self.sim_obj.design_matrix()
         reg_matrix, _ = self._regularization_matrix(source_bbox)
-        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
+        lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         linear_params, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         n_source = self.sim_obj.n_source_pixels

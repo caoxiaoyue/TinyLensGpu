@@ -657,7 +657,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
         design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
-        lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
+        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
         source_pixels, chol, curvature = likelihood._solve_source(
             design_matrix, reg_matrix, jnp.asarray(lam_val)
@@ -724,18 +724,18 @@ def build_stage_m_likelihood(
 ):
     epl, shear = _epl_mass_from_stage_a(passer)
     lam = ParamU(
-        "lambda_reg",
+        "log_lambda_reg",
         1.0,
-        prior_type="log_uniform",
-        prior_settings=[1e-4, 1e4],
-        limits=[1e-6, 1e6],
+        prior_type="uniform",
+        prior_settings=[-9.210340371976182, 9.210340371976184],
+        limits=[-13.815510557964274, 13.815510557964274],
     )
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
         nx=NSRCX,
         ny=NSRCY,
-        lambda_reg=lam,
+        log_lambda_reg=lam,
         regularization_type="second-order",
     )
     phys = PhysicalModel(

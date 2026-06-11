@@ -524,17 +524,17 @@ def build_stage_b_likelihood(
     lens_light = _mge_lens_light_from_stage_a(passer)
 
     lam = ParamU(
-        "lambda_reg", 1.0,
-        prior_type="log_uniform",
-        prior_settings=[1e-3, 1e3],
-        limits=[1e-6, 1e6],
+        "log_lambda_reg", 0.0,
+        prior_type="uniform",
+        prior_settings=[-6.907755278982137, 6.907755278982137],
+        limits=[-13.815510557964274, 13.815510557964274],
     )
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
         nx=40,
         ny=40,
-        lambda_reg=lam,
+        log_lambda_reg=lam,
         regularization_type="first-order",
     )
     phys = PhysicalModel(
@@ -567,7 +567,7 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
         design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
-        lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
+        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
         source_pixels, chol, curvature = likelihood._solve_source(
             design_matrix, reg_matrix, jnp.asarray(lam_val)
@@ -647,9 +647,9 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     axes[0, 2].set_xlabel("arcsec")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-    lam_med = medians.get("lambda_reg", 1.0)
+    lam_med = medians.get("log_lambda_reg", 0.0)
     im3 = axes[0, 3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
-    axes[0, 3].set_title(f"Source reconstruction\n(lambda={lam_med:.2e})", fontsize=11)
+    axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
     axes[0, 3].set_xlabel("arcsec")
     axes[0, 3].set_ylabel("arcsec")
     plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)

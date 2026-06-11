@@ -152,9 +152,9 @@ pix_src = PixelizedSourceModel(
     nx=40,
     ny=40,
     regularization_type="first-order",
-    lambda_reg=ParamU("lambda_reg", 1.0,
-                      prior_type="log_uniform", prior_settings=[1e-3, 1e3],
-                      limits=[1e-6, 1e6]),
+    log_lambda_reg=ParamU("log_lambda_reg", 0.0,
+                      prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                      limits=[-13.815510557964274, 13.815510557964274]),
 )
 
 phys_model = PhysicalModel(
@@ -173,7 +173,7 @@ center_x_lens.to_dynamic()
 center_y_lens.to_dynamic()
 e1_lens.to_dynamic()
 e2_lens.to_dynamic()
-pix_src.lambda_reg.to_dynamic()
+pix_src.log_lambda_reg.to_dynamic()
 
 # ------------------------------------------------------------------ #
 # Position likelihood: penalize lens mass models whose deflections
@@ -272,7 +272,7 @@ with ck.ActiveContext(prob_model):
     # Get joint design matrix
     design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
     reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
-    lam = jnp.asarray(pix_src.lambda_reg.value)
+    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
 
     # Solve joint system
     linear_params, chol, curvature = prob_model._solve_source(
@@ -349,9 +349,9 @@ axes[0, 2].set_title(f"Norm. residual (sigma)\nchi^2/ν = {chi2_nu:.3f}", fontsi
 axes[0, 2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-lam_med = q50_list[param_names.index("lambda_reg")]
+lam_med = q50_list[param_names.index("log_lambda_reg")]
 im3 = axes[0, 3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[0, 3].set_title(f"Source reconstruction\n(lambda={lam_med:.2e})", fontsize=11)
+axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
 axes[0, 3].set_xlabel("arcsec"); axes[0, 3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
 

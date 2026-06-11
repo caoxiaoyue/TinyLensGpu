@@ -55,18 +55,18 @@ def _static_parametric_source() -> GaussianEllipse:
     return source
 
 
-def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> PixelizedSourceModel:
+def _pixelized_source(*, log_lambda_value: float = 0.0, with_gp: bool = False) -> PixelizedSourceModel:
     """Build a pixelized source with dynamic regularization parameters."""
-    lambda_reg = ParamU(
-        "lambda_reg",
-        lambda_value,
-        prior_type="log_uniform",
-        prior_settings=[1.0e-3, 1.0e3],
-        limits=[1.0e-6, 1.0e6],
+    log_lambda_reg = ParamU(
+        "log_lambda_reg",
+        log_lambda_value,
+        prior_type="uniform",
+        prior_settings=[jnp.log(1.0e-3), jnp.log(1.0e3)],
+        limits=[jnp.log(1.0e-6), jnp.log(1.0e6)],
     )
-    lambda_reg.to_dynamic()
+    log_lambda_reg.to_dynamic()
     if not with_gp:
-        return PixelizedSourceModel(nx=5, ny=5, lambda_reg=lambda_reg)
+        return PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=log_lambda_reg)
 
     kernel_scale = ParamU(
         "kernel_scale",
@@ -79,7 +79,7 @@ def _pixelized_source(*, lambda_value: float = 1.0, with_gp: bool = False) -> Pi
     return PixelizedSourceModel(
         nx=5,
         ny=5,
-        lambda_reg=lambda_reg,
+        log_lambda_reg=log_lambda_reg,
         kernel_scale=kernel_scale,
         regularization_type="gaussian",
     )
@@ -215,13 +215,13 @@ def test_bayesian_evidence_returns_finite_scalar_for_tiny_problem() -> None:
 @pytest.mark.unit
 def test_evidence_prefers_reasonable_regularization_over_extreme_values() -> None:
     """Test evidence ranking rejects strongly under- and over-smoothed solutions."""
-    reference = _prob_model(image_data=jnp.ones((10, 10)) * 0.05, source=_pixelized_source(lambda_value=1.0))
+    reference = _prob_model(image_data=jnp.ones((10, 10)) * 0.05, source=_pixelized_source(log_lambda_value=0.0))
     model_image, _ = reference.forward_model(return_source=True)
     noise_map = jnp.ones((10, 10)) * 0.05
 
-    reasonable = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(lambda_value=1.0))
-    under_smoothed = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(lambda_value=1.0e-8))
-    over_smoothed = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(lambda_value=1.0e8))
+    reasonable = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(log_lambda_value=0.0))
+    under_smoothed = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(log_lambda_value=jnp.log(1.0e-8)))
+    over_smoothed = _prob_model(image_data=model_image, noise_map=noise_map, source=_pixelized_source(log_lambda_value=jnp.log(1.0e8)))
 
     reasonable_log_evidence = reasonable()
 
@@ -279,7 +279,7 @@ def test_prior_transformation_sees_mass_and_regularization_parameters() -> None:
     """Test that prior extraction includes lens mass and lambda_reg parameters."""
     _, prior_specs = make_prior_transformation(_prob_model())
 
-    assert {spec.name for spec in prior_specs} == {"theta_E", "lambda_reg"}
+    assert {spec.name for spec in prior_specs} == {"theta_E", "log_lambda_reg"}
 
 
 @pytest.mark.unit
@@ -287,7 +287,7 @@ def test_prior_transformation_includes_gp_kernel_scale() -> None:
     """Test that GP pixelized sources expose their kernel-scale parameter."""
     _, prior_specs = make_prior_transformation(_prob_model(source=_pixelized_source(with_gp=True)))
 
-    assert {spec.name for spec in prior_specs} == {"theta_E", "lambda_reg", "kernel_scale"}
+    assert {spec.name for spec in prior_specs} == {"theta_E", "log_lambda_reg", "kernel_scale"}
 
 
 @pytest.mark.unit
@@ -603,7 +603,7 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     source_xx, source_yy = np.meshgrid(source_x_axis, source_y_axis, indexing="xy")
     source_pixels = np.asarray(gt_phys.source_surface_brightness(source_xx, source_yy)).ravel()
 
-    pixelized_src = PixelizedSourceModel(nx=source_nx, ny=source_ny, lambda_reg=1.0)
+    pixelized_src = PixelizedSourceModel(nx=source_nx, ny=source_ny, log_lambda_reg=jnp.log(1.0))
     test_phys = PhysicalModel(lens_mass=[sie], source_light=[pixelized_src], lens_light=[])
     config = SimulatorConfig(
         dpix=dpix,
@@ -884,7 +884,7 @@ def test_detach_bbox_false_allows_gradient_through_bbox() -> None:
     for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
         param.to_static()
 
-    source = _pixelized_source(lambda_value=0.1)
+    source = _pixelized_source(log_lambda_value=jnp.log(0.1))
     phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
 
     def make_loss(detach_bbox):
@@ -942,7 +942,7 @@ def test_detach_bbox_gradients_flow_through_mass_params() -> None:
     for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
         param.to_static()
 
-    source = _pixelized_source(lambda_value=0.1)
+    source = _pixelized_source(log_lambda_value=jnp.log(0.1))
     phys_model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
     simulator = PixelizedLensSimulator(phys_model, SimulatorConfig(
         dpix=0.08, npix=10, psf_kernel=_delta_psf(), nsub=1,

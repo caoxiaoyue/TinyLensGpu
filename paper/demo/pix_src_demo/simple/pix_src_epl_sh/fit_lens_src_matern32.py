@@ -127,9 +127,9 @@ pix_src = PixelizedSourceModel(
     nx=25,
     ny=25,
     regularization_type="matern32",
-    lambda_reg=ParamU("lambda_reg", 10.0,
-                      prior_type="log_uniform", prior_settings=[1e-2, 1e4],
-                      limits=[1e-2, 1e5]),
+    log_lambda_reg=ParamU("log_lambda_reg", 2.302585092994046,
+                      prior_type="uniform", prior_settings=[-4.605170185988091, 9.210340371976184],
+                      limits=[-4.605170185988091, 11.512925464970229]),
     kernel_scale=ParamU("kernel_scale", 0.3,
                         prior_type="log_uniform", prior_settings=[0.02, 2.0],
                         limits=[0.01, 5.0]),
@@ -149,7 +149,7 @@ epl.center_x.to_dynamic()
 epl.center_y.to_dynamic()
 shear.gamma1.to_dynamic()
 shear.gamma2.to_dynamic()
-pix_src.lambda_reg.to_dynamic()
+pix_src.log_lambda_reg.to_dynamic()
 pix_src.kernel_scale.to_dynamic()
 
 # ------------------------------------------------------------------ #
@@ -247,7 +247,7 @@ with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
     design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
     reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
-    lam = jnp.asarray(pix_src.lambda_reg.value)
+    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
     source_pixels, chol, curvature = prob_model._solve_source(
         design_matrix, reg_matrix, lam
     )
@@ -299,16 +299,16 @@ axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
 axes[2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
-lam_med = q50_list[param_names.index("lambda_reg")]
+lam_med = q50_list[param_names.index("log_lambda_reg")]
 ks_med  = q50_list[param_names.index("kernel_scale")]
 im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[3].set_title(f"Source reconstruction\n(λ={lam_med:.2e}, ℓ={ks_med:.2f}\")", fontsize=11)
+axes[3].set_title(f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e}, ℓ={ks_med:.2f}\")", fontsize=11)
 axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
 plt.suptitle(
     f"Fit: EPL+Shear + pix src (Matérn-3/2) + pos-like  (θ_E={q50_list[0]:.3f}\", "
-    f"γ={q50_list[1]:.3f}, λ={lam_med:.2e}, ℓ={ks_med:.2f}\")",
+    f"γ={q50_list[1]:.3f}, λ={float(jnp.exp(lam_med)):.2e}, ℓ={ks_med:.2f}\")",
     fontsize=12,
 )
 overlay_critical_and_caustics(

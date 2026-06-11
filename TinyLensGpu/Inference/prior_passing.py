@@ -72,9 +72,9 @@ _EMPIRICAL_WIDTHS: Dict[str, Dict[str, Tuple[str, float]]] = {
         "center_y":        ("absolute", 0.05),
     },
     "PixelizedSource": {
-        # lambda_reg is typically sampled in log space; the empirical width
-        # here is applied to the *linear* value (acts as a relative floor).
-        "lambda_reg":      ("relative", 1.0),
+        # log_lambda_reg is stored in log space; the empirical width
+        # here is applied to the log value (acts as an absolute floor).
+        "log_lambda_reg":      ("absolute", 1.0),
     },
 }
 

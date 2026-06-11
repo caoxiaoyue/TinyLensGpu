@@ -47,11 +47,12 @@ def _static_sie():
     return sie
 
 
-def _pix_src(lambda_val=1.0):
-    lam = ParamU("lambda_reg", lambda_val,
-                 prior_type="log_uniform", prior_settings=[1e-3, 1e3])
+def _pix_src(log_lambda_val=0.0):
+    lam = ParamU("log_lambda_reg", log_lambda_val,
+                 prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
     lam.to_dynamic()
-    return PixelizedSourceModel(nx=5, ny=5, lambda_reg=lam)
+    return PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=lam)
 
 
 def _phys_model(source=None):
@@ -436,7 +437,7 @@ def test_operator_forward_model_converges_pcg():
     )
 
     # Access internal _solve_source to inspect PCG convergence
-    lambda_reg = jnp.asarray(prob_op.source_model.lambda_reg.value)
+    lambda_reg = jnp.exp(jnp.asarray(prob_op.source_model.log_lambda_reg.value))
     xmin, xmax, ymin, ymax, _bx_sub, _by_sub = prob_op._get_bbox()
     reg_data, _, reg_matrix_dense = prob_op._regularization_data(
         xmin, xmax, ymin, ymax

@@ -69,12 +69,12 @@ def build_prob_model():
         nx=40,
         ny=40,
         regularization_type="first-order",
-        lambda_reg=ParamU(
-            "lambda_reg",
-            1.0,
-            prior_type="log_uniform",
-            prior_settings=[1e-3, 1e3],
-            limits=[1e-6, 1e6],
+        log_lambda_reg=ParamU(
+            "log_lambda_reg",
+            0.0,
+            prior_type="uniform",
+            prior_settings=[-6.907755278982137, 6.907755278982137],
+            limits=[-13.815510557964274, 13.815510557964274],
         ),
     )
     phys_model = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])
@@ -86,7 +86,7 @@ def build_prob_model():
     epl.center_y.to_dynamic()
     shear.gamma1.to_dynamic()
     shear.gamma2.to_dynamic()
-    pix_src.lambda_reg.to_dynamic()
+    pix_src.log_lambda_reg.to_dynamic()
     return PixelizedImageProbModel(
         image_data=image_data,
         noise_map=noise_map,

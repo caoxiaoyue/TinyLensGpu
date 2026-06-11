@@ -265,7 +265,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             exact dense-backend value.  Use the dense backend when exact
             evidence parity is required.
         """
-        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
+        log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
+        lambda_reg = jnp.exp(log_lambda_reg)
         xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
 
         # reg_data: compact descriptor for matrix-free PCG.
@@ -343,7 +344,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             -e_d
             - lambda_reg * e_s
             - 0.5 * logdet_P
-            + 0.5 * n_source * jnp.log(lambda_reg)
+            + 0.5 * n_source * log_lambda_reg
             + 0.5 * logdet_h
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
@@ -361,7 +362,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         self, *, return_source: bool = False, return_components: bool = False
     ):
         """Solve linear params and return the reconstructed model image."""
-        lambda_reg = jnp.asarray(self.source_model.lambda_reg.value)
+        lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
 
         reg_data, _, reg_matrix_dense = self._regularization_data(

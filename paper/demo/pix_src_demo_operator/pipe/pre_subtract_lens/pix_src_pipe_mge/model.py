@@ -636,7 +636,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
+        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         lam_j = jnp.asarray(lam_val)
 
         # --- Operator backend: PCG solve without building dense design matrix ---
@@ -730,18 +730,18 @@ def build_stage_m_likelihood(
 ):
     epl, shear = _epl_mass_from_stage_a(passer)
     lam = ParamU(
-        "lambda_reg",
-        1.0,
-        prior_type="log_uniform",
-        prior_settings=[1e-4, 1e3],
-        limits=[1e-6, 1e6],
+        "log_lambda_reg",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-9.210340371976182, 6.907755278982137],
+        limits=[-13.815510557964274, 13.815510557964274],
     )
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
         nx=40,
         ny=40,
-        lambda_reg=lam,
+        log_lambda_reg=lam,
         regularization_type="first-order",
     )
     phys = PhysicalModel(

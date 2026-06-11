@@ -59,7 +59,7 @@ for src_nx, src_ny in GRID_SIZES:
     pix_src = PixelizedSourceModel(
         nx=src_nx, ny=src_ny,
         regularization_type="first-order",
-        lambda_reg=1.0,
+        log_lambda_reg=jnp.log(1.0),
     )
     phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
 

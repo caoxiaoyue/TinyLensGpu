@@ -81,9 +81,9 @@ pix_src = PixelizedSourceModel(
     nx=40,
     ny=40,
     regularization_type="matern32",
-    lambda_reg=ParamU("lambda_reg", 1.0,
-                      prior_type="log_uniform", prior_settings=[1e-3, 1e3],
-                      limits=[1e-6, 1e6]),
+    log_lambda_reg=ParamU("log_lambda_reg", 0.0,
+                      prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                      limits=[-13.815510557964274, 13.815510557964274]),
     kernel_scale=ParamU("kernel_scale", 0.3,
                         prior_type="log_uniform", prior_settings=[0.01, 2.0],
                         limits=[1e-3, 10.0]),
@@ -100,7 +100,7 @@ sie.e1.to_dynamic()
 sie.e2.to_dynamic()
 sie.center_x.to_dynamic()
 sie.center_y.to_dynamic()
-pix_src.lambda_reg.to_dynamic()
+pix_src.log_lambda_reg.to_dynamic()
 pix_src.kernel_scale.to_dynamic()
 
 prob_model = PixelizedImageProbModelOperator(

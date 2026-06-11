@@ -663,7 +663,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        lam_val = likelihood.phys_model.source_light[0].lambda_reg.value
+        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         lam_j = jnp.asarray(lam_val)
 
         # --- Operator backend: PCG solve without building dense design matrix ---
@@ -786,18 +786,18 @@ def build_stage_m1_likelihood(
     sie, shear = _sie_mass_from_stage_a(medians_a)
 
     lam = ParamU(
-        "lambda_reg",
-        1.0,
-        prior_type="log_uniform",
-        prior_settings=[1e-6, 1e6],
-        limits=[1e-6, 1e6],
+        "log_lambda_reg",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-13.815510557964274, 13.815510557964274],
+        limits=[-13.815510557964274, 13.815510557964274],
     )
     lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
-        lambda_reg=lam,
+        nx=30,
+        ny=30,
+        log_lambda_reg=lam,
         regularization_type="first-order",
     )
     phys = PhysicalModel(
@@ -835,50 +835,51 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
 
     n_grid = 200
 
-    # --- Coarse grid: 200 log-spaced points over [1e-6, 1e6] ---
-    print("[stage-M1] Running coarse grid (200 pts, 1e-6 – 1e6) ...")
-    lam_grid_coarse = jnp.logspace(-6, 6, n_grid)
+    # --- Coarse grid: 200 linearly-spaced points in log-λ over [ln(1e-6), ln(1e6)] ---
+    log_lam_min, log_lam_max = jnp.log(1e-6), jnp.log(1e6)
+    print(f"[stage-M1] Running coarse grid (200 pts, λ in [{float(jnp.exp(log_lam_min)):.1e}, {float(jnp.exp(log_lam_max)):.1e}]) ...")
+    lam_grid_coarse = jnp.linspace(log_lam_min, log_lam_max, n_grid)  # in log-space
     log_ev_coarse = jnp.asarray(loglike_batch(lam_grid_coarse.reshape(-1, 1)))
 
     if not jnp.any(jnp.isfinite(log_ev_coarse)):
         raise RuntimeError(
-            "[stage-M1] All λ values in coarse grid produced non-finite log-evidence "
+            "[stage-M1] All log-λ values in coarse grid produced non-finite log-evidence "
             "— PCG solver likely failed globally. Check data, noise map, and PSF."
         )
 
     best_idx_coarse = int(jnp.argmax(log_ev_coarse))
-    lam_best_coarse = float(lam_grid_coarse[best_idx_coarse])
+    lam_best_coarse = float(lam_grid_coarse[best_idx_coarse])  # log-space
     log_ev_best_coarse = float(log_ev_coarse[best_idx_coarse])
-    print(f"[stage-M1] Coarse best: λ = {lam_best_coarse:.4e}  (log-ev = {log_ev_best_coarse:.2f})")
+    print(f"[stage-M1] Coarse best: λ = {float(jnp.exp(lam_best_coarse)):.4e}  (log-ev = {log_ev_best_coarse:.2f})")
 
-    # --- Refinement grid: 200 points around coarse optimum (±0.5 dex) ---
-    log_lam_best = jnp.log10(lam_best_coarse)
-    lam_grid_fine = jnp.logspace(log_lam_best - 0.5, log_lam_best + 0.5, n_grid)
-    print(f"[stage-M1] Running refinement grid (200 pts, {float(lam_grid_fine[0]):.4e} – {float(lam_grid_fine[-1]):.4e}) ...")
+    # --- Refinement grid: 200 points around coarse optimum (±0.5 dex in log10) ---
+    half_width = 0.5 * jnp.log(10)  # 0.5 dex in natural log
+    lam_grid_fine = jnp.linspace(lam_best_coarse - half_width, lam_best_coarse + half_width, n_grid)
+    print(f"[stage-M1] Running refinement grid (200 pts, λ in [{float(jnp.exp(lam_grid_fine[0])):.4e}, {float(jnp.exp(lam_grid_fine[-1])):.4e}]) ...")
     log_ev_fine = jnp.asarray(loglike_batch(lam_grid_fine.reshape(-1, 1)))
 
     best_idx_fine = int(jnp.argmax(log_ev_fine))
-    lam_best = float(lam_grid_fine[best_idx_fine])
+    lam_best = float(lam_grid_fine[best_idx_fine])  # log-space
     log_ev_best = float(log_ev_fine[best_idx_fine])
-    print(f"[stage-M1] Refined best: λ = {lam_best:.4e}  (log-ev = {log_ev_best:.2f})")
+    print(f"[stage-M1] Refined best: λ = {float(jnp.exp(lam_best)):.4e}  (log-ev = {log_ev_best:.2f})")
 
     if best_idx_fine == 0 or best_idx_fine == n_grid - 1:
         print(
             f"[stage-M1] WARNING: refinement optimum at grid edge "
-            f"(idx={best_idx_fine}, λ={lam_best:.4e}). "
+            f"(idx={best_idx_fine}, λ={float(jnp.exp(lam_best)):.4e}). "
             f"The true optimum may lie outside the ±0.5 dex refinement window. "
             f"Consider widening the refinement range or inspecting the coarse grid."
         )
 
-    # Print summary (super-resolved grid by taking best from fine)
+    # Print summary (display physical λ)
     print(f"\n[stage-M1] Grid search summary:")
-    print(f"    {'lambda_reg':25s} = {lam_best:+.4e}")
+    print(f"    {'lambda_reg':25s} = {float(jnp.exp(lam_best)):+.4e}")
 
-    # Persist grid results
+    # Persist grid results (store in log-space)
     _dump_stage(
-        "m1", None, None, ["lambda_reg"], log_ev_best,
+        "m1", None, None, ["log_lambda_reg"], log_ev_best,
         extra=dict(
-            lambda_best=lam_best,
+            lambda_best=lam_best,  # log-space
             lambda_grid_coarse=np.asarray(lam_grid_coarse, dtype=np.float64),
             log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
             lambda_grid_fine=np.asarray(lam_grid_fine, dtype=np.float64),
@@ -886,12 +887,12 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         ),
     )
 
-    # Diagnostic plot
+    # Diagnostic plot (exp the lambda values for physical-axis display)
     try:
         _plot_m1_grid(likelihood,
-                       lam_grid_coarse, log_ev_coarse,
-                       lam_grid_fine, log_ev_fine,
-                       lam_best, log_ev_best)
+                       jnp.exp(lam_grid_coarse), log_ev_coarse,
+                       jnp.exp(lam_grid_fine), log_ev_fine,
+                       float(jnp.exp(lam_best)), log_ev_best)
     except Exception as err:
         print(f"[stage-M1] grid plot failed (non-fatal): {err}")
 
@@ -909,12 +910,12 @@ def build_stage_m2_likelihood(
     epl, shear = _epl_mass_from_stage_a(passer)
 
     # ParamU(name, value) with non-None value is static by construction
-    lam = ParamU("lambda_reg", float(lambda_fixed))
+    lam = ParamU("log_lambda_reg", float(lambda_fixed))
 
     pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
-        lambda_reg=lam,
+        nx=30,
+        ny=30,
+        log_lambda_reg=lam,
         regularization_type="first-order",
     )
     phys = PhysicalModel(
@@ -941,7 +942,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
     print("\n" + "=" * 60)
     print(" Stage M2 : EPL + shear + pix source (λ fixed from M1)")
     print("=" * 60)
-    print(f"[stage-M2] lambda_reg fixed = {lambda_fixed:.4e}")
+    print(f"[stage-M2] lambda_reg fixed = {float(jnp.exp(lambda_fixed)):.4e}")
 
     lens_subtracted = image_data - lens_light_model
     passer = GaussianPriorPasser(samples_a, weights_a, names_a)
@@ -1064,7 +1065,7 @@ def main(skip_done: bool = False):
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
-    print(f"    M1 best lambda_reg     = {lambda_m1:.4e}")
+    print(f"    M1 best lambda_reg     = {float(jnp.exp(lambda_m1)):.4e}")
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
               "center_x_mass", "center_y_mass", "gamma1", "gamma2"):
         if k in medians_m2:
