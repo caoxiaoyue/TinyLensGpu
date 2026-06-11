@@ -38,7 +38,7 @@ from .param_u import ParamU
 # in TinyLensGpu), so the same table works for SIE, EPL, etc.
 _EMPIRICAL_WIDTHS: Dict[str, Dict[str, Tuple[str, float]]] = {
     "EPL": {
-        "theta_E":         ("relative", 0.25),
+        "theta_E":         ("relative", 0.1),
         "gamma":           ("absolute", 0.2),
         "e1":              ("absolute", 0.2),
         "e2":              ("absolute", 0.2),
@@ -46,7 +46,7 @@ _EMPIRICAL_WIDTHS: Dict[str, Dict[str, Tuple[str, float]]] = {
         "center_y":        ("absolute", 0.05),
     },
     "SIE": {
-        "theta_E":         ("relative", 0.25),
+        "theta_E":         ("relative", 0.1),
         "e1":              ("absolute", 0.2),
         "e2":              ("absolute", 0.2),
         "center_x":        ("absolute", 0.05),

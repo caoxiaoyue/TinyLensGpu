@@ -1,14 +1,16 @@
 """
-Four-stage inference pipeline for the pix_src_pipe demo.
+Five-stage inference pipeline for the pix_src_pipe demo.
 
-Stage a : SIE + shear + MGE lens light + MGE source light (uniform priors)
-Stage b : build an arc feature mask from stage-a residuals
-Stage l : arc-masked MGE lens light refinement (Gaussian priors from stage a)
-Stage m : EPL + shear + pixelized source (Gaussian priors from stage a,
-          + uniform prior on gamma, + log-uniform on lambda_reg)
+Stage a  : SIE + shear + MGE lens light + MGE source light (uniform priors)
+Stage b  : build an arc feature mask from stage-a residuals
+Stage l  : arc-masked MGE lens light refinement (Gaussian priors from stage a)
+Stage m1 : SIE + shear + pixelized source — GPU grid search for lambda_reg
+           (SIE+shear fixed at stage-A medians; only lambda_reg free)
+Stage m2 : EPL + shear + pixelized source — Nautilus nested sampling
+           (Gaussian priors from stage a on EPL+shear; lambda_reg fixed at M1 best)
 
 Each stage pickles its posterior samples/weights to
-``output/stage_{a,l,m}.pkl`` and is re-runnable via ``--skip-done``.
+``output/stage_{a,l,m1,m2}.pkl`` and is re-runnable via ``--skip-done``.
 """
 
 from __future__ import annotations
@@ -486,8 +488,33 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
-# Stage M — merged EPL + shear + pixelized source (replaces C + D)
+# Helpers for Stage M1 / M2
 # ------------------------------------------------------------------ #
+def _sie_mass_from_stage_a(medians_a: dict):
+    """SIE (+ shear) with all parameters FIXED at stage-A posterior medians.
+
+    All params are static — invisible to samplers/grid-search so only
+    ``lambda_reg`` remains free in stage M1.
+    """
+    sie = SIE(
+        theta_E=ParamU("theta_E", float(medians_a["theta_E"])),
+        e1=ParamU("e1_mass", float(medians_a["e1_mass"])),
+        e2=ParamU("e2_mass", float(medians_a["e2_mass"])),
+        center_x=ParamU("center_x_mass", float(medians_a["center_x_mass"])),
+        center_y=ParamU("center_y_mass", float(medians_a["center_y_mass"])),
+    )
+    for p in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
+        p.to_static()
+
+    shear = Shear(
+        gamma1=ParamU("gamma1", float(medians_a["gamma1"])),
+        gamma2=ParamU("gamma2", float(medians_a["gamma2"])),
+    )
+    shear.gamma1.to_static()
+    shear.gamma2.to_static()
+    return sie, shear
+
+
 def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
     """EPL (+ shear) with Gaussian priors inherited from stage-A posterior."""
     theta_E = passer.gaussian(
@@ -722,21 +749,167 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
 
 # ------------------------------------------------------------------ #
-# Stage M — EPL + shear + pixelized source (merged C + D)
+def _plot_m1_grid(likelihood, lam_coarse, log_ev_coarse,
+                   lam_fine, log_ev_fine, lam_best, log_ev_best):
+    """2-panel diagnostic: log-evidence vs lambda_reg for both grid stages."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5))
+
+    ax1.semilogx(np.asarray(lam_coarse), np.asarray(log_ev_coarse), 'b.-', markersize=2)
+    ax1.axvline(lam_best, color='r', linestyle='--', alpha=0.8,
+                label=f'best λ = {lam_best:.3e}')
+    ax1.set_xlabel('λ_reg'); ax1.set_ylabel('log-evidence')
+    ax1.set_title('Stage M1: Coarse grid (200 pts, 1e-6 – 1e6)')
+    ax1.legend(); ax1.grid(True, alpha=0.3)
+
+    ax2.semilogx(np.asarray(lam_fine), np.asarray(log_ev_fine), 'b.-', markersize=2)
+    ax2.axvline(lam_best, color='r', linestyle='--', alpha=0.8,
+                label=f'best λ = {lam_best:.3e}')
+    ax2.set_xlabel('λ_reg'); ax2.set_ylabel('log-evidence')
+    ax2.set_title('Stage M1: Refinement (±0.5 dex, 200 pts)')
+    ax2.legend(); ax2.grid(True, alpha=0.3)
+
+    plt.suptitle(f'Stage M1 — λ grid search  (best log-ev = {log_ev_best:.2f})', fontsize=11)
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "stage_m1_grid.png", dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[stage-M1] grid diagnostic saved to {OUT_DIR / 'stage_m1_grid.png'}")
+
+
 # ------------------------------------------------------------------ #
-def build_stage_m_likelihood(
+# Stage M1 — SIE + shear + pixelized source  (GPU grid search for λ)
+# ------------------------------------------------------------------ #
+def build_stage_m1_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, position_likelihood,
+    medians_a, position_likelihood,
 ):
-    epl, shear = _epl_mass_from_stage_a(passer)
+    """Build likelihood for M1: SIE+shear FIXED at stage-A medians, only λ free."""
+    sie, shear = _sie_mass_from_stage_a(medians_a)
+
     lam = ParamU(
         "lambda_reg",
         1.0,
         prior_type="log_uniform",
-        prior_settings=[1e-4, 1e3],
+        prior_settings=[1e-6, 1e6],
         limits=[1e-6, 1e6],
     )
     lam.to_dynamic()
+
+    pix_src = PixelizedSourceModel(
+        nx=40,
+        ny=40,
+        lambda_reg=lam,
+        regularization_type="first-order",
+    )
+    phys = PhysicalModel(
+        lens_mass=[sie, shear],
+        source_light=[pix_src],
+        lens_light=[],
+    )
+    return PixelizedImageProbModelOperator(
+        image_data=lens_subtracted_image,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=DPIX,
+        nsub=NSUB_PIX,
+        phys_model=phys,
+        mask=feature_mask,
+        position_likelihood=position_likelihood,
+    )
+
+
+def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
+                  lens_light_model, medians_a, position_likelihood):
+    """Stage M1: GPU-batch grid search for lambda_reg (coarse → refine)."""
+    print("\n" + "=" * 60)
+    print(" Stage M1 : SIE + shear + pix source  (GPU grid search for λ)")
+    print("=" * 60)
+
+    lens_subtracted = image_data - lens_light_model
+    likelihood = build_stage_m1_likelihood(
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
+        medians_a, position_likelihood,
+    )
+
+    # Batched log-evidence evaluator (jax.vmap + jit → GPU)
+    loglike_batch = make_likelihood(likelihood, vectorized=True)
+
+    n_grid = 200
+
+    # --- Coarse grid: 200 log-spaced points over [1e-6, 1e6] ---
+    print("[stage-M1] Running coarse grid (200 pts, 1e-6 – 1e6) ...")
+    lam_grid_coarse = jnp.logspace(-6, 6, n_grid)
+    log_ev_coarse = jnp.asarray(loglike_batch(lam_grid_coarse.reshape(-1, 1)))
+
+    if not jnp.any(jnp.isfinite(log_ev_coarse)):
+        raise RuntimeError(
+            "[stage-M1] All λ values in coarse grid produced non-finite log-evidence "
+            "— PCG solver likely failed globally. Check data, noise map, and PSF."
+        )
+
+    best_idx_coarse = int(jnp.argmax(log_ev_coarse))
+    lam_best_coarse = float(lam_grid_coarse[best_idx_coarse])
+    log_ev_best_coarse = float(log_ev_coarse[best_idx_coarse])
+    print(f"[stage-M1] Coarse best: λ = {lam_best_coarse:.4e}  (log-ev = {log_ev_best_coarse:.2f})")
+
+    # --- Refinement grid: 200 points around coarse optimum (±0.5 dex) ---
+    log_lam_best = jnp.log10(lam_best_coarse)
+    lam_grid_fine = jnp.logspace(log_lam_best - 0.5, log_lam_best + 0.5, n_grid)
+    print(f"[stage-M1] Running refinement grid (200 pts, {float(lam_grid_fine[0]):.4e} – {float(lam_grid_fine[-1]):.4e}) ...")
+    log_ev_fine = jnp.asarray(loglike_batch(lam_grid_fine.reshape(-1, 1)))
+
+    best_idx_fine = int(jnp.argmax(log_ev_fine))
+    lam_best = float(lam_grid_fine[best_idx_fine])
+    log_ev_best = float(log_ev_fine[best_idx_fine])
+    print(f"[stage-M1] Refined best: λ = {lam_best:.4e}  (log-ev = {log_ev_best:.2f})")
+
+    if best_idx_fine == 0 or best_idx_fine == n_grid - 1:
+        print(
+            f"[stage-M1] WARNING: refinement optimum at grid edge "
+            f"(idx={best_idx_fine}, λ={lam_best:.4e}). "
+            f"The true optimum may lie outside the ±0.5 dex refinement window. "
+            f"Consider widening the refinement range or inspecting the coarse grid."
+        )
+
+    # Print summary (super-resolved grid by taking best from fine)
+    print(f"\n[stage-M1] Grid search summary:")
+    print(f"    {'lambda_reg':25s} = {lam_best:+.4e}")
+
+    # Persist grid results
+    _dump_stage(
+        "m1", None, None, ["lambda_reg"], log_ev_best,
+        extra=dict(
+            lambda_best=lam_best,
+            lambda_grid_coarse=np.asarray(lam_grid_coarse, dtype=np.float64),
+            log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
+            lambda_grid_fine=np.asarray(lam_grid_fine, dtype=np.float64),
+            log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+        ),
+    )
+
+    # Diagnostic plot
+    try:
+        _plot_m1_grid(likelihood,
+                       lam_grid_coarse, log_ev_coarse,
+                       lam_grid_fine, log_ev_fine,
+                       lam_best, log_ev_best)
+    except Exception as err:
+        print(f"[stage-M1] grid plot failed (non-fatal): {err}")
+
+    return lam_best
+
+
+# ------------------------------------------------------------------ #
+# Stage M2 — EPL + shear + pixelized source  (λ fixed from M1)
+# ------------------------------------------------------------------ #
+def build_stage_m2_likelihood(
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
+    passer: GaussianPriorPasser, position_likelihood, lambda_fixed: float,
+):
+    """Build likelihood for M2: EPL+shear with Gaussian priors, λ FIXED at M1 best."""
+    epl, shear = _epl_mass_from_stage_a(passer)
+
+    # ParamU(name, value) with non-None value is static by construction
+    lam = ParamU("lambda_reg", float(lambda_fixed))
 
     pix_src = PixelizedSourceModel(
         nx=40,
@@ -761,32 +934,40 @@ def build_stage_m_likelihood(
     )
 
 
-def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
-                lens_light_model, samples_a, weights_a, names_a, position_likelihood):
+def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
+                  lens_light_model, samples_a, weights_a, names_a,
+                  position_likelihood, lambda_fixed: float):
+    """Stage M2: Nautilus sampling of EPL+shear with λ fixed at M1 optimum."""
     print("\n" + "=" * 60)
-    print(" Stage M : EPL + shear + pix source (lambda_reg free)")
+    print(" Stage M2 : EPL + shear + pix source (λ fixed from M1)")
     print("=" * 60)
+    print(f"[stage-M2] lambda_reg fixed = {lambda_fixed:.4e}")
+
     lens_subtracted = image_data - lens_light_model
     passer = GaussianPriorPasser(samples_a, weights_a, names_a)
-    likelihood = build_stage_m_likelihood(
+    likelihood = build_stage_m2_likelihood(
         lens_subtracted,
         noise_map,
         psf_kernel,
         feature_mask,
         passer,
         position_likelihood,
+        lambda_fixed,
     )
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=300, n_eff=800, tag="stage-M", vectorized=True,
+        likelihood, n_live=300, n_eff=800, tag="stage-M2", vectorized=True,
     )
-    _print_summary("stage-M", samples, weights, names)
+    _print_summary("stage-M2", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
-    _dump_stage("m", samples, weights, names, logz, extra=dict(medians=medians))
+    _dump_stage("m2", samples, weights, names, logz, extra=dict(
+        medians=medians,
+        lambda_fixed=lambda_fixed,
+    ))
     try:
-        _plot_pix_stage("stage-M", likelihood, medians, names,
-                        str(OUT_DIR / "stage_m_model.png"))
+        _plot_pix_stage("stage-M2", likelihood, medians, names,
+                        str(OUT_DIR / "stage_m2_model.png"))
     except Exception as err:
-        print(f"[stage-M] plotting failed (non-fatal): {err}")
+        print(f"[stage-M2] plotting failed (non-fatal): {err}")
     return samples, weights, names, medians
 
 
@@ -831,42 +1012,63 @@ def main(skip_done: bool = False):
     lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
-    # ---- stage M ---------------------------------------------------- #
-    if skip_done and (OUT_DIR / "stage_m.pkl").exists():
-        print("[stage-M] loading cached output/stage_m.pkl")
-        d = _load_stage("m")
-        samples_m, weights_m, names_m = d["samples"], d["weights"], d["param_names"]
-        medians_m = d["extra"]["medians"]
+    # ---- stage M1 --------------------------------------------------- #
+    lambda_m1 = None
+    if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
+        print("[stage-M1] loading cached output/stage_m1.pkl")
+        d = _load_stage("m1")
+        lambda_m1 = d["extra"]["lambda_best"]
     else:
-        samples_m, weights_m, names_m, medians_m = run_stage_m(
+        lambda_m1 = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, samples_a, weights_a, names_a,
-            position_likelihood,
+            lens_light_model, medians_a, position_likelihood,
         )
 
-    if not (OUT_DIR / "stage_m_model.png").exists():
-        passer_m = GaussianPriorPasser(samples_a, weights_a, names_a)
-        lkl_m = build_stage_m_likelihood(
+    if lambda_m1 is None:
+        raise RuntimeError(
+            "[stage-M1] Failed to determine lambda_reg — "
+            "stage_m1.pkl may be corrupted (missing 'lambda_best' in extra dict)."
+        )
+
+    # ---- stage M2 --------------------------------------------------- #
+    if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
+        print("[stage-M2] loading cached output/stage_m2.pkl")
+        d = _load_stage("m2")
+        samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
+        medians_m2 = d["extra"]["medians"]
+    else:
+        samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
+            image_data, noise_map, psf_kernel, feature_mask,
+            lens_light_model, samples_a, weights_a, names_a,
+            position_likelihood, lambda_m1,
+        )
+
+    # Re-plot M2 if the png is missing but posteriors exist
+    if not (OUT_DIR / "stage_m2_model.png").exists():
+        passer_m2 = GaussianPriorPasser(samples_a, weights_a, names_a)
+        lkl_m2 = build_stage_m2_likelihood(
             lens_subtracted,
             noise_map,
             psf_kernel,
             feature_mask,
-            passer_m,
+            passer_m2,
             position_likelihood,
+            lambda_m1,
         )
         try:
-            _plot_pix_stage("stage-M", lkl_m, medians_m, names_m,
-                            str(OUT_DIR / "stage_m_model.png"))
+            _plot_pix_stage("stage-M2", lkl_m2, medians_m2, names_m2,
+                            str(OUT_DIR / "stage_m2_model.png"))
         except Exception as err:
-            print(f"[stage-M] plotting failed (non-fatal): {err}")
+            print(f"[stage-M2] plotting failed (non-fatal): {err}")
 
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
+    print(f"    M1 best lambda_reg     = {lambda_m1:.4e}")
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
               "center_x_mass", "center_y_mass", "gamma1", "gamma2"):
-        if k in medians_m:
-            print(f"    final  {k:15s} = {medians_m[k]:+.4f}")
+        if k in medians_m2:
+            print(f"    final  {k:15s} = {medians_m2[k]:+.4f}")
 
 
 if __name__ == "__main__":

@@ -791,7 +791,7 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
         circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
-        likelihood, n_live=300, n_eff=800, tag="stage-M", vectorized=False,
+        likelihood, n_live=300, n_eff=600, tag="stage-M", vectorized=True,
     )
     t1 = time.time()
     _print_summary("stage-M", samples, weights, names)
