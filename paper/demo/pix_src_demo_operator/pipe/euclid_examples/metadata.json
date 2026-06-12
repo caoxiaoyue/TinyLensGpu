@@ -1,0 +1,27 @@
+{
+  "lens_id": "102018665_NEG576731213511114485",
+  "band": "VIS",
+  "source_fits": "/data/Raid0/userdir/yinyl/Euclid_Q1/lens/102018665_NEG576731213511114485/102018665_NEG576731213511114485.fits",
+  "source_extensions": {
+    "image.fits": "VIS_FLUX",
+    "noise.fits": "VIS_RMS",
+    "psf.fits": "VIS_PSF"
+  },
+  "image_shape": [
+    300,
+    300
+  ],
+  "noise_shape": [
+    300,
+    300
+  ],
+  "psf_shape": [
+    21,
+    21
+  ],
+  "image_dtype": ">f4",
+  "noise_dtype": ">f4",
+  "psf_dtype": ">f4",
+  "pixel_scale_arcsec": 0.100000000000008,
+  "data_modified": false
+}
