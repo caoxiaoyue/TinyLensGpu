@@ -17,7 +17,7 @@ TinyLensGpu is a JAX-powered, GPU-accelerated framework for galaxy–galaxy stro
 | ForwardSimulation | Ray-tracing + PSF convolution + (optional) linear intensity solving | `LensSimulator` |
 | Inference | Prior/likelihood wrappers + samplers/optimizers | `make_prior_transformation`, `make_likelihood`, Nautilus/Dynesty/SciPy optimizers |
 
-This repository snapshot focuses on the programmatic (pure-Python) workflow used in `paper/demo/**`.
+This repository snapshot focuses on the programmatic (pure-Python) workflow used in `examples/**`.
 
 ---
 
@@ -59,7 +59,7 @@ Set `XLA_PYTHON_CLIENT_PREALLOCATE=false` in your shell when working on memory-c
 
 ### 3.1 Configuration-driven workflow (YAML + runner)
 
-The YAML runner workflow is not included in the current codebase layout. Use the programmatic API and the runnable scripts under `paper/demo/**` as the source of truth.
+The YAML runner workflow is not included in the current codebase layout. Use the programmatic API and the runnable scripts under `examples/**` as the source of truth.
 
 ### 3.2 Programmatic workflow (direct module construction)
 
@@ -77,7 +77,7 @@ from nautilus import Sampler
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-# Load your FITS data (see paper/demo utilities for reference)
+# Load your FITS data (see examples utilities for reference)
 image_data = jnp.load("data/image.npy")
 noise_map = jnp.load("data/noise.npy")
 psf_kernel = jnp.load("data/psf.npy")
@@ -190,7 +190,7 @@ Continuous Integration example (GitHub Actions):
 ## 8. Resources
 
 - **README**: Project overview and citation instructions.
-- **paper/demo/**: End-to-end runnable examples (`lens_only`, `lens_src`, `lens_src_mge`, etc.).
+- **examples/**: End-to-end runnable examples (`lens_only`, `lens_src`, `lens_src_mge`, etc.).
 - **tests/**: Reference implementations for new components or regression reproduction.
 - **GitHub Issues**: https://github.com/caoxiaoyue/TinyLensGpu/issues
 

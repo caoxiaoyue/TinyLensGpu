@@ -6,7 +6,7 @@ Pix source: 40x40 grid, 1st-order regularization
             lambda_reg sampled with log-uniform prior
 
 Uses make_prior_transformation / make_likelihood from TinyLensGpu.Inference,
-following the same pattern as paper/demo/lens_src/run_model.py.
+following the same pattern as examples/lens_src/run_model.py.
 """
 
 import os

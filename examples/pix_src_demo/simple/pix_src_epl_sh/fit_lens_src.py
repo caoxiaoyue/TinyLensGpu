@@ -6,7 +6,7 @@ Pix source: 40x40 grid, 1st-order regularization
             lambda_reg sampled with log-uniform prior
 
 Uses make_prior_transformation / make_likelihood from TinyLensGpu.Inference,
-following the same pattern as paper/demo/lens_src/run_model.py.
+following the same pattern as examples/lens_src/run_model.py.
 """
 
 import os
@@ -31,7 +31,7 @@ from nautilus import Sampler
 from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
-from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
+from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
@@ -121,7 +121,7 @@ pix_src.log_lambda_reg.to_dynamic()
 # ------------------------------------------------------------------ #
 # Probability model (Bayesian evidence)
 # ------------------------------------------------------------------ #
-prob_model = PixelizedImageProbModelOperator(
+prob_model = PixelizedImageProbModel(
     image_data=image_data,
     noise_map=noise_map,
     psf_kernel=psf_kernel,
@@ -193,38 +193,30 @@ with gzip.open("output/fit_results.pkl.gz", "wb") as f:
 # ------------------------------------------------------------------ #
 print("[7] Generating MAP visualization ...")
 
-# Evaluate model at posterior median (operator backend — matrix-free visualization)
+# Evaluate model at posterior median
 import caskade as ck
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 
+# Feed posterior median into the model and do a MAP source solve
 best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
+    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
+    reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
     lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
-
-    # --- Operator backend: PCG solve without building dense design matrix ---
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
-    reg_data, _, reg_matrix_dense = prob_model._regularization_data(xmin, xmax, ymin, ymax)
-    op_data = prob_model.sim_obj.precompute_operator_data(
-        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
+    source_pixels, chol, curvature = prob_model._solve_source(
+        design_matrix, reg_matrix, lam
     )
-    P, P_chol = prob_model.sim_obj.build_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, reg_matrix_dense,
-    )
-    source_pixels, pcg_info = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam, reg_data, P_chol, op_data=op_data,
-    )
-    model_1d = prob_model.sim_obj.forward_model(
-        source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-    )
-
-    # Effective degrees of freedom (operator approximation: N_eff ≈ Ns - λ Tr(P⁻¹R))
-    inv_P_R = jsl.cho_solve((P_chol, True), reg_matrix_dense)
-    N_eff = float(reg_matrix_dense.shape[0] - lam * jnp.trace(inv_P_R))
+    
+    # Calculate effective degrees of freedom (N_d - N_eff)
+    inv_F = jsl.cho_solve((chol, True), jnp.eye(curvature.shape[0]))
+    ATA = curvature - lam * reg_matrix
+    N_eff = float(jnp.trace(inv_F @ ATA))
 
 source_pixels_np = np.array(source_pixels)
-model_1d_np      = np.array(model_1d)
+model_1d         = np.array(design_matrix @ source_pixels)
 model_image      = np.zeros(image_data.shape)
-model_image[~mask] = model_1d_np
+model_image[~mask] = model_1d
 resid_norm       = (image_data - model_image) / noise_map
 
 # Total chi-square and reduced chi-square
@@ -238,7 +230,8 @@ source_image     = source_pixels_np.reshape(40, 40)
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,
            -npix * DPIX / 2,  npix * DPIX / 2]
-ext_s  = [float(xmin), float(xmax), float(ymin), float(ymax)]
+ext_s  = [float(source_bbox[0]), float(source_bbox[1]),
+           float(source_bbox[2]), float(source_bbox[3])]
 
 fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
 vmax = np.nanpercentile(image_data[~mask], 99.5)

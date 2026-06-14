@@ -1,0 +1,47 @@
+schema: spec-driven
+
+# Project context - TinyLensGpu
+# This is shown to AI when creating artifacts.
+context: |
+  Tech stack: Python 3.10+, JAX (GPU), Caskade, NumPy, SciPy, Astropy
+  Domain: Astrophysics - gravitational lens modeling (strong lensing)
+  Architecture: 4-layer modular system (PhysicalModel → ForwardSimulation → ObservationModel → Inference)
+  Key frameworks: JAX for GPU acceleration, Caskade for modular composable models
+  Testing: pytest with markers (unit, integration, slow, performance, boundary)
+  Code style: No formatting configs exist (black, flake8, isort, ruff available but use defaults)
+  
+  Important conventions:
+  - All physical components inherit from caskade.Module
+  - Backend forced to 'jax' in TinyLensGpu/__init__.py
+  - JAX Array __bool__ monkey-patched for legacy compatibility
+  - Linear solvers: "nnls" (physical, non-negative) vs "normal" (faster, may produce negatives)
+  - nsub: 1 (fast) → 3+ (high accuracy) for sub-pixel integration
+  - Must set XLA_PYTHON_CLIENT_PREALLOCATE=false for memory-constrained GPUs
+  - First JIT call takes 10-15s (expected)
+  
+  Workflow:
+  1. load_lens_data() for FITS image/noise/PSF
+  2. Build ParamU parameters in SIE, Shear, SersicEllipse, etc.
+  3. Select modes: .to_dynamic(), .to_static(value), or linear
+  4. Assemble PhysicalModel(lens_mass, source_light, lens_light)
+  5. ImageProbModel with use_linear=True, solver_type="nnls"
+  6. make_prior_transformation + make_likelihood → Nautilus/Dynesty
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Keep proposals under 800 words
+    - Always include a "Non-goals" section
+    - Focus on GPU/JAX performance implications when relevant
+  specs:
+    - Include API signatures for new public functions
+    - Note JAX compatibility requirements (jit-friendly, no side effects)
+    - Document parameter shapes and dtypes
+  design:
+    - Include module placement in the 4-layer architecture
+    - Note Caskade integration points
+    - Consider memory efficiency for GPU execution
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Include test verification steps for each task
+    - Note if task requires GPU for testing

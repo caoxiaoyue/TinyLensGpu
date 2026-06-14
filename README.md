@@ -21,7 +21,7 @@ TinyLensGpu supports a range of modeling approaches, from classical parametric f
 
 ## Programmatic API
 
-TinyLensGpu ships with a fully programmatic modeling API (see `paper/demo/*/run_model.py`) that provides:
+TinyLensGpu ships with a fully programmatic modeling API (see `examples/*/run_model.py`) that provides:
 
 - **ParamU-powered components** – All physical components (SIE, Shear, Sérsic, Gaussian, MGE, Shapelet, Pixelized) expose priors, bounds, and modes (dynamic/static/linear/pointer) through `ParamU`.
 - **Direct Python configs** – Define complete models in Python; no YAML is required for new workflows.
@@ -29,7 +29,7 @@ TinyLensGpu ships with a fully programmatic modeling API (see `paper/demo/*/run_
 - **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
 - **Type hints & IDE support** – All builders expose precise signatures for faster iteration.
 
-See [doc/GUIDE.md](doc/GUIDE.md) and the demos in `paper/demo` for detailed usage patterns and migration notes.
+See [doc/GUIDE.md](doc/GUIDE.md) and the demos in `examples` for detailed usage patterns and migration notes.
 
 ## Installation
 
@@ -62,7 +62,7 @@ pip install -e ".[dev]"
 
 ## Quickstart
 
-Every demo under `paper/demo/*` follows the same recipe:
+Every demo under `examples/*` follows the same recipe:
 
 1. **Load data** – `load_lens_data` wraps FITS image/noise/PSF loading and basic masking.
 2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
@@ -126,12 +126,12 @@ sampler.run(verbose=True, n_eff=800)
 
 ## Running the Demos
 
-All demos live under `paper/demo/`. Sampling-based demos write results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Inversion-based demos (pixelated/shapelet) write figures and JSON files.
+All demos live under `examples/`. Sampling-based demos write results to `output/` (`result_samples.csv`, `result_summary.csv`, `results.pkl.gz`). Inversion-based demos (pixelated/shapelet) write figures and JSON files.
 
 ### Parametric lens light
 
 ```bash
-cd TinyLensGpu/paper/demo/lens_only
+cd TinyLensGpu/examples/lens_only
 python run_model.py           # lens-only Sérsic fitting
 
 cd ../lens_only_mge
@@ -147,7 +147,7 @@ python run_model.py           # non-vectorized baseline
 ### Parametric lens + source
 
 ```bash
-cd TinyLensGpu/paper/demo/lens_src
+cd TinyLensGpu/examples/lens_src
 python run_model.py           # SIE + Sérsic source
 
 cd ../lens_src_mge
@@ -157,7 +157,7 @@ python run_model.py           # lens/source fitting with MGE
 ### Source-only
 
 ```bash
-cd TinyLensGpu/paper/demo/src_only
+cd TinyLensGpu/examples/src_only
 python run_model.py           # source-only image likelihood
 
 cd ../src_only_poslike
@@ -167,14 +167,14 @@ python run_model.py           # source-only with position likelihood constraint
 ### Point source position modeling
 
 ```bash
-cd TinyLensGpu/paper/demo/point_source
+cd TinyLensGpu/examples/point_source
 python sim_data.py && python run_model.py
 ```
 
 ### Multi-band fitting
 
 ```bash
-cd TinyLensGpu/paper/demo/lens_src_multiband
+cd TinyLensGpu/examples/lens_src_multiband
 python sim_data.py && python run_model.py   # joint g/r/i fitting
 
 cd ../lens_src_multiband_galfitm
@@ -184,14 +184,14 @@ python sim_data.py && python run_model.py   # Chebyshev wavelength evolution
 ### Pixelated source modeling
 
 ```bash
-cd TinyLensGpu/paper/demo/pix_src
+cd TinyLensGpu/examples/pix_src
 python sim_data.py && python fit_lens_src.py
 ```
 
 ### Shapelet source modeling
 
 ```bash
-cd TinyLensGpu/paper/demo/shapelet_src/src_light_only
+cd TinyLensGpu/examples/shapelet_src/src_light_only
 python sim_data.py && python single_step_inversion.py
 
 cd ../src_lens_light_joint
@@ -220,7 +220,7 @@ pytest tests/test_point_source_model.py     # Point source position modeling
 ## Documentation
 
 - **[doc/GUIDE.md](doc/GUIDE.md)** – Authoritative guide for installation, quickstart, tests, and troubleshooting.
-- **paper/demo/** – Runnable examples; each subdirectory contains a `run_model.py` or `single_step_inversion.py` entry point.
+- **examples/** – Runnable examples; each subdirectory contains a `run_model.py` or `single_step_inversion.py` entry point.
 
 ## Citation
 
