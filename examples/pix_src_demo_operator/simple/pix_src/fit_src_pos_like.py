@@ -295,7 +295,7 @@ plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
 resid_display = np.where(mask, np.nan, resid_norm)
 im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
-                     cmap="RdBu_r", vmin=-5, vmax=5,
+                     cmap="RdBu_r", vmin=-3, vmax=3,
                      interpolation="nearest", aspect="equal")
 axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
 axes[2].set_xlabel("arcsec")

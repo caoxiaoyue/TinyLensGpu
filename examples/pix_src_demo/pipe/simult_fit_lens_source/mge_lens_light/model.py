@@ -409,16 +409,16 @@ def _build_arc_mask(image_data, noise_map, lens_light_model):
     # Quick-look figure
     ny_img, nx_img = image_data.shape
     extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2, -ny_img * DPIX / 2, ny_img * DPIX / 2]
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4))
     im0 = axes[0].imshow(residual, origin="lower", extent=extent, cmap="viridis")
     axes[0].set_title("residual = image - stage-A lens light")
     fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
     im1 = axes[1].imshow(snr_map, origin="lower", extent=extent, cmap="viridis",
                          vmin=-3, vmax=np.nanpercentile(snr_map, 99.5))
-    axes[1].set_title("S/N map")
+    axes[1].set_title("S/N map + arc mask boundary")
+    axes[1].contour(~arc_mask, levels=[0.5], origin="lower", extent=extent,
+                    colors="red", linewidths=1.5)
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
-    axes[2].imshow(~arc_mask, origin="lower", extent=extent, cmap="gray")
-    axes[2].set_title("arc region (True = kept)")
     plt.tight_layout()
     OUT_DIR.mkdir(exist_ok=True)
     plt.savefig(OUT_DIR / "stage_arc_mask.png", dpi=120, bbox_inches="tight")
@@ -642,7 +642,7 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
 
     resid_display = np.where(mask, np.nan, resid_norm)
     im2 = axes[0, 2].imshow(resid_display, origin="lower", extent=ext_i,
-                            cmap="RdBu_r", vmin=-5, vmax=5)
+                            cmap="RdBu_r", vmin=-3, vmax=3)
     axes[0, 2].set_title(f"Norm. residual\nchi^2/ν = {chi2_nu:.3f}", fontsize=11)
     axes[0, 2].set_xlabel("arcsec")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)

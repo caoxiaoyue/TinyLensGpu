@@ -384,17 +384,16 @@ def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
     # Quick-look figure
     ny_img, nx_img = image_data.shape
     extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2, -ny_img * DPIX / 2, ny_img * DPIX / 2]
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4))
     im0 = axes[0].imshow(residual, origin="lower", extent=extent, cmap="viridis")
     axes[0].set_title("residual = image - stage-A lens light")
     fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
     im1 = axes[1].imshow(snr_map, origin="lower", extent=extent, cmap="viridis",
                          vmin=-3, vmax=np.nanpercentile(snr_map, 99.5))
-    axes[1].set_title("S/N map")
+    axes[1].set_title("S/N map + arc mask boundary")
+    axes[1].contour(~feature_mask, levels=[0.5], origin="lower", extent=extent,
+                    colors="red", linewidths=1.5)
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
-    # Plot the kept region (the arc itself) for visualization
-    axes[2].imshow(~feature_mask, origin="lower", extent=extent, cmap="gray")
-    axes[2].set_title("arc region (True = kept)")
     plt.tight_layout()
     OUT_DIR.mkdir(exist_ok=True)
     plt.savefig(OUT_DIR / "stage_b_mask.png", dpi=120, bbox_inches="tight")
@@ -975,7 +974,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         (axes[0], data_masked,  "Data (lens-subtracted)", dict(vmin=0, vmax=vmax, cmap="viridis")),
         (axes[1], model_masked, "Model image",            dict(vmin=0, vmax=vmax, cmap="viridis")),
         (axes[2], resid_masked, f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
-                               dict(vmin=-5, vmax=5, cmap="RdBu_r")),
+                               dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]:
         im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
         # Lock the axes to the unmasked bounding box.  ``imshow``'s
