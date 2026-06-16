@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, Tuple, List, Callable, Optional
 import jax.numpy as jnp
 from jax import Array
-from jax.scipy.special import erfinv
+from jax.scipy.special import erfinv, erf
 import caskade as ck
 
 
@@ -17,28 +17,35 @@ import caskade as ck
 class PriorSpec:
     """
     Metadata for transforming unit-cube samples to parameter space.
-    
+
     Parameters
     ----------
     name : str
         Parameter name
-    prior_type : {'uniform', 'gaussian', 'log_uniform'}
+    prior_type : {'uniform', 'gaussian', 'log_uniform', 'truncated_gaussian'}
         Type of prior distribution
     settings : tuple of float
-        Prior parameters (min, max) for uniform/log_uniform or (mean, std) for gaussian
+        Prior parameters (min, max) for uniform/log_uniform,
+        (mean, std) for gaussian/truncated_gaussian
     limits : tuple of float, optional
-        Hard limits to clip parameter values
-    
+        Hard limits to clip parameter values.
+        For truncated_gaussian, these are the truncation bounds.
+
     Examples
     --------
     >>> # Uniform prior
     >>> spec = PriorSpec("slope", "uniform", (0.0, 2.0))
     >>> u = jnp.array([0.5])
     >>> spec.transform(u)  # Returns 1.0
+
+    >>> # Truncated Gaussian prior
+    >>> spec = PriorSpec("theta_E", "truncated_gaussian", (1.0, 0.2), limits=(0.5, 2.0))
+    >>> u = jnp.array([0.5])
+    >>> spec.transform(u)  # Returns value near the mean
     """
     
     name: str
-    prior_type: Literal["uniform", "gaussian", "log_uniform"]
+    prior_type: Literal["uniform", "gaussian", "log_uniform", "truncated_gaussian"]
     settings: Tuple[float, float]
     limits: Tuple[float, float] | None = None
     
@@ -65,6 +72,17 @@ class PriorSpec:
             val = jnp.exp(jnp.log(a) + u * (jnp.log(b) - jnp.log(a)))
         elif self.prior_type == "gaussian":
             val = a + b * jnp.sqrt(2.0) * erfinv(2.0 * u - 1.0)
+        elif self.prior_type == "truncated_gaussian":
+            mu, sigma = self.settings
+            low, high = self.limits
+            inv_sqrt2 = 1.0 / jnp.sqrt(2.0)
+            alpha = (low - mu) / sigma
+            beta = (high - mu) / sigma
+            Phi_alpha = 0.5 * (1.0 + erf(alpha * inv_sqrt2))
+            Phi_beta = 0.5 * (1.0 + erf(beta * inv_sqrt2))
+            inner = Phi_alpha + u * (Phi_beta - Phi_alpha)
+            inner = jnp.clip(inner, 1e-9, 1.0 - 1e-9)
+            val = mu + sigma * jnp.sqrt(2.0) * erfinv(2.0 * inner - 1.0)
         else:
             raise ValueError(f"Unsupported prior type: {self.prior_type}")
         
@@ -80,8 +98,16 @@ class PriorSpec:
             Human-readable prior description including optional hard limits.
         """
         a, b = self.settings
-        desc = f"N({a:.2f}, {b:.2f})" if self.prior_type == "gaussian" else f"[{a:.2f}, {b:.2f}]"
-        return f"{desc}, limits={self.limits}" if self.limits else desc
+        if self.prior_type == "gaussian":
+            desc = f"N({a:.2f}, {b:.2f})"
+        elif self.prior_type == "truncated_gaussian":
+            lo, hi = self.limits if self.limits else (float('-inf'), float('inf'))
+            desc = f"TN({a:.2f}, {b:.2f}, [{lo:.2f}, {hi:.2f}])"
+        else:
+            desc = f"[{a:.2f}, {b:.2f}]"
+        if self.limits and self.prior_type != "truncated_gaussian":
+            desc = f"{desc}, limits={self.limits}"
+        return desc
 
 
 def extract_prior_specs(module: ck.Module) -> List[PriorSpec]:
