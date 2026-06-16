@@ -14,9 +14,13 @@ Each stage pickles its posterior samples/weights to
 
 Usage::
 
-    # In a lens subdirectory (e.g. J0737+3216/)
-    python model.py          # full pipeline
-    python model.py --skip-done   # resume from cached posteriors
+    # From slacs_examples/
+    python model.py J0737+3216          # full pipeline
+    python model.py J0737+3216 --skip-done   # resume from cached posteriors
+
+    # Or from inside a lens subdirectory (e.g. J0737+3216/)
+    python ../model.py
+    python ../model.py --skip-done
 """
 
 from __future__ import annotations
