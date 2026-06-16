@@ -838,6 +838,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     noise_map  = np.asarray(likelihood.noise_map)
     mask       = ~np.asarray(likelihood.unmask, dtype=bool)  # True = excluded
 
+    has_pos_penalty = False
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
@@ -862,6 +863,23 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         # Effective degrees of freedom (operator approximation: N_eff ≈ Ns - λ Tr(P⁻¹R))
         inv_P_R = jsl.cho_solve((P_chol, True), reg_matrix_dense)
         N_eff = float(reg_matrix_dense.shape[0] - lambda_j * jnp.trace(inv_P_R))
+
+        has_pos_penalty = likelihood._has_pos_penalty
+        if has_pos_penalty:
+            pos_penalty = float(likelihood._position_likelihood_penalty_jax())
+            beta_x, beta_y = likelihood.phys_model.deflection(likelihood._pos_px, likelihood._pos_py)
+            dx = beta_x[:, None] - beta_x[None, :]
+            dy = beta_y[:, None] - beta_y[None, :]
+            dist = jnp.sqrt(dx * dx + dy * dy)
+            max_sep = float(jnp.max(dist))
+
+            print(f"[{tag}] Position likelihood penalty: {pos_penalty:.4e}")
+            print(f"[{tag}] Maximum source-plane separation of marked images: {max_sep:.4e} arcsec")
+
+            beta_x_np = np.array(beta_x)
+            beta_y_np = np.array(beta_y)
+            pos_px_np = np.array(likelihood._pos_px)
+            pos_py_np = np.array(likelihood._pos_py)
 
     model_1d = np.array(model_1d_j)
     model_image = np.zeros(image_data.shape)
@@ -890,10 +908,16 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                                dict(vmin=-5, vmax=5, cmap="RdBu_r")),
     ]:
         im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
+        if ax == axes[0] and has_pos_penalty:
+            ax.plot(pos_px_np, pos_py_np, 'rx', markersize=8, label='Marked pos')
+            ax.legend(loc='upper right', fontsize=8)
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("arcsec")
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
+    if has_pos_penalty:
+        axes[3].plot(beta_x_np, beta_y_np, 'rx', markersize=8, label='Traced pos')
+        axes[3].legend(loc='upper right', fontsize=8)
     axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
     axes[3].set_xlabel("arcsec")
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
@@ -932,7 +956,7 @@ def build_stage_m2_likelihood(
         nx=NSRCX,
         ny=NSRCY,
         log_lambda_reg=log_lam,
-        regularization_type="second-order",
+        regularization_type="first-order",
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],

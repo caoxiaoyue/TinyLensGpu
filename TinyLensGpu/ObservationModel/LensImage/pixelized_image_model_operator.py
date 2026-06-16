@@ -417,7 +417,6 @@ class PixelizedImageProbModelOperator(ck.Module):
             log_ev = log_ev + self._position_likelihood_penalty_jax()
         return log_ev
 
-    @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
         r"""Penalize image positions that don't map to the same source position."""
         beta_x, beta_y = self.phys_model.deflection(
