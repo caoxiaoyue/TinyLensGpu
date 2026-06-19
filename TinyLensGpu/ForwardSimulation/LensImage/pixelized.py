@@ -420,9 +420,18 @@ class PixelizedLensSimulator:
         if not return_image_2d:
             raise ValueError("Pixelized forward() always returns 2D images")
 
+        # Infer bbox from seed mask first so that mapping_matrix and
+        # simulate use the same source-plane grid.
+        beta_x_seed, beta_y_seed = self.phys_model.deflection(
+            x=self.image_x_seed, y=self.image_y_seed
+        )
+        source_bbox = self.infer_source_bbox(beta_x_seed, beta_y_seed)
+
         mapping_matrix = None
         if source_pixels is None:
-            mapping_matrix_sub = self.build_mapping_matrix(use_subgrid=(self.nsub > 1))
+            mapping_matrix_sub = self.build_mapping_matrix(
+                source_bbox=source_bbox, use_subgrid=(self.nsub > 1)
+            )
             if self.nsub > 1:
                 mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
             else:
@@ -432,10 +441,13 @@ class PixelizedLensSimulator:
         model_image = self.simulate(
             source_pixels,
             lens_light_amplitudes=lens_light_amplitudes,
+            source_bbox=source_bbox,
             psf_kernel=psf_kernel,
         )
         if return_mapping and mapping_matrix is None:
-            mapping_matrix_sub = self.build_mapping_matrix(use_subgrid=(self.nsub > 1))
+            mapping_matrix_sub = self.build_mapping_matrix(
+                source_bbox=source_bbox, use_subgrid=(self.nsub > 1)
+            )
             if self.nsub > 1:
                 mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
             else:
