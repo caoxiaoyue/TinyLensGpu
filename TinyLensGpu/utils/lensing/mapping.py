@@ -95,12 +95,13 @@ def build_source_grid(nx, ny, xmin, xmax, ymin, ymax):
     return x_axis, y_axis, xgrid, ygrid
 
 
-def infer_source_bbox(beta_x, beta_y, padding=0.05):
+def infer_source_bbox(beta_x, beta_y, padding=0.0):
     """Infer source-plane bounding box from ray-traced beta points.
 
     Computes min/max of beta coordinates and adds a fractional padding
-    margin on each side (default 5%).  Ensures a minimum span of 1e-6
-    in each direction so that downstream grid construction is well-defined.
+    margin on each side (default 0 — no padding).  Ensures a minimum
+    span of 1e-6 in each direction so that downstream grid construction
+    is well-defined.
     """
     beta_x = jnp.ravel(jnp.asarray(beta_x))
     beta_y = jnp.ravel(jnp.asarray(beta_y))

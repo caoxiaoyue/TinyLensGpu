@@ -330,7 +330,7 @@ class PixelizedLensOperator:
 
     def _infer_and_fix_bbox(self, beta_x_seed, beta_y_seed):
         xmin, xmax, ymin, ymax = infer_source_bbox(
-            beta_x_seed, beta_y_seed, padding=0.05
+            beta_x_seed, beta_y_seed
         )
         if self.detach_bbox:
             xmin = jax.lax.stop_gradient(xmin)

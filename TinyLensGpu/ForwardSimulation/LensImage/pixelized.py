@@ -138,12 +138,12 @@ class PixelizedLensSimulator:
         psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
         self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
-    def infer_source_bbox(self, beta_x: Array, beta_y: Array):
-        """Infer source-plane bounding box with 5% padding.
+    def infer_source_bbox(self, beta_x: Array, beta_y: Array, padding: float = 0.0):
+        """Infer source-plane bounding box.
 
         Returns (xmin, xmax, ymin, ymax).
         """
-        return infer_source_bbox(beta_x, beta_y, padding=0.05)
+        return infer_source_bbox(beta_x, beta_y, padding=padding)
 
     def build_mapping_matrix(
         self,
