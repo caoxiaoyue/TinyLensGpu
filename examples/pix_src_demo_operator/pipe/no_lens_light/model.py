@@ -618,6 +618,14 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     except Exception as err:
         print(f"[stage-M1] grid plot failed (non-fatal): {err}")
 
+    # Generate M1 pixelized source reconstruction plot
+    try:
+        medians_m1 = {**medians_a, "log_lambda_reg": log_lam_best}
+        _plot_pix_stage("stage-M1", likelihood, medians_m1, ["log_lambda_reg"],
+                        str(OUT_DIR / "stage_m1_model.png"))
+    except Exception as err:
+        print(f"[stage-M1] pix_stage plot failed (non-fatal): {err}")
+
     return log_lam_best
 
 
@@ -691,6 +699,17 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
 
     fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
+    # Compute bounding box of unmasked pixels for panels 1-3
+    rows_unmasked, cols_unmasked = np.where(~mask)
+    pad = 3  # pixels of padding
+    row_min = max(rows_unmasked.min() - pad, 0)
+    row_max = min(rows_unmasked.max() + pad, npix - 1)
+    col_min = max(cols_unmasked.min() - pad, 0)
+    col_max = min(cols_unmasked.max() + pad, npix - 1)
+    xlim_unmasked = (-npix * DPIX / 2 + col_min * DPIX,
+                     -npix * DPIX / 2 + (col_max + 1) * DPIX)
+    ylim_unmasked = (-npix * DPIX / 2 + row_min * DPIX,
+                     -npix * DPIX / 2 + (row_max + 1) * DPIX)
     for ax, img, title, kw in [
         (axes[0], image_data,  "Data (lens-subtracted)", dict(vmin=0, vmax=vmax, cmap="viridis")),
         (axes[1], model_image, "Model image",            dict(vmin=0, vmax=vmax, cmap="viridis")),
@@ -713,6 +732,10 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     axes[3].set_xlabel("arcsec")
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
     axes[0].set_ylabel("arcsec")
+    # Panels 1-3: zoom to unmasked pixel region
+    for ax in axes[:3]:
+        ax.set_xlim(*xlim_unmasked)
+        ax.set_ylim(*ylim_unmasked)
 
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
@@ -865,6 +888,20 @@ def main(skip_done: bool = False):
             "[stage-M1] Failed to determine lambda_reg — "
             "stage_m1.pkl may be corrupted (missing 'lambda_best' in extra dict)."
         )
+
+    # If M1 posteriors exist but the plot is missing, re-plot now
+    if (OUT_DIR / "stage_m1.pkl").exists() and not (OUT_DIR / "stage_m1_model.png").exists():
+        print("[stage-M1] stage_m1_model.png missing — re-plotting")
+        lkl_m1_replot = build_stage_m1_likelihood(
+            image_data, noise_map, psf_kernel, feature_mask,
+            medians_a, position_likelihood, circular_mask=circular_mask,
+        )
+        medians_m1_replot = {**medians_a, "log_lambda_reg": log_lambda_m1}
+        try:
+            _plot_pix_stage("stage-M1", lkl_m1_replot, medians_m1_replot, ["log_lambda_reg"],
+                            str(OUT_DIR / "stage_m1_model.png"))
+        except Exception as err:
+            print(f"[stage-M1] re-plotting failed (non-fatal): {err}")
 
     # ---- stage M2 --------------------------------------------------- #
     time_m2 = 0.0
