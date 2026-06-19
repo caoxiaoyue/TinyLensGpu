@@ -741,7 +741,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
     overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
+        image_axes=[axes[0], axes[1]],
         source_ax=axes[3],
         lens_mass=likelihood.phys_model,
     )
