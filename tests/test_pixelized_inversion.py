@@ -190,14 +190,18 @@ def test_infer_source_bbox_uses_lensed_coordinate_extent_with_floor() -> None:
     beta_y = jnp.asarray([0.4, -0.1, 0.05])
     tiny_beta = jnp.asarray([0.0, 1.0e-14])
 
-    xmin, xmax, ymin, ymax = simulator.infer_source_bbox(beta_x, beta_y, padding=0.05)
+    xmin, xmax, ymin, ymax = simulator.infer_source_bbox(
+        beta_x, beta_y, padding=0.05, outlier_frac=0.0
+    )
     span_x, span_y = 0.5, 0.5
     assert jnp.allclose(xmin, -0.2 - 0.05 * span_x)
     assert jnp.allclose(xmax, 0.3 + 0.05 * span_x)
     assert jnp.allclose(ymin, -0.1 - 0.05 * span_y)
     assert jnp.allclose(ymax, 0.4 + 0.05 * span_y)
     # Tiny values still produce a valid (non-degenerate) bbox
-    xmin_t, xmax_t, ymin_t, ymax_t = simulator.infer_source_bbox(tiny_beta, tiny_beta, padding=0.05)
+    xmin_t, xmax_t, ymin_t, ymax_t = simulator.infer_source_bbox(
+        tiny_beta, tiny_beta, padding=0.05, outlier_frac=0.0
+    )
     assert xmax_t > xmin_t and ymax_t > ymin_t
 
 
@@ -819,7 +823,9 @@ def test_infer_source_bbox_asymmetric_offset_betas() -> None:
     beta_x = jnp.asarray([0.5, 0.8, 1.2, 1.5])
     beta_y = jnp.asarray([0.3, 0.6, 0.9, 1.1])
 
-    xmin, xmax, ymin, ymax = infer_source_bbox(beta_x, beta_y, padding=0.05)
+    xmin, xmax, ymin, ymax = infer_source_bbox(
+        beta_x, beta_y, padding=0.05, outlier_frac=0.0
+    )
 
     span_x = 1.5 - 0.5  # = 1.0
     span_y = 1.1 - 0.3  # = 0.8
@@ -833,7 +839,9 @@ def test_infer_source_bbox_asymmetric_offset_betas() -> None:
 
     # Single-point source: should produce a valid (non-degenerate) bbox
     single = jnp.asarray([0.7])
-    xmin_s, xmax_s, ymin_s, ymax_s = infer_source_bbox(single, single, padding=0.05)
+    xmin_s, xmax_s, ymin_s, ymax_s = infer_source_bbox(
+        single, single, padding=0.05, outlier_frac=0.0
+    )
     assert xmax_s > xmin_s
     assert ymax_s > ymin_s
 
@@ -847,23 +855,31 @@ def test_infer_source_bbox_custom_padding() -> None:
     beta_y = jnp.asarray([-1.0, 1.0])
 
     # 5% padding (explicit)
-    xmin_5, xmax_5, ymin_5, ymax_5 = infer_source_bbox(beta_x, beta_y, padding=0.05)
+    xmin_5, xmax_5, ymin_5, ymax_5 = infer_source_bbox(
+        beta_x, beta_y, padding=0.05, outlier_frac=0.0
+    )
     assert jnp.allclose(xmin_5, -1.0 - 0.05 * 2.0)
     assert jnp.allclose(xmax_5, 1.0 + 0.05 * 2.0)
 
     # 20% padding
-    xmin_20, xmax_20, ymin_20, ymax_20 = infer_source_bbox(beta_x, beta_y, padding=0.20)
+    xmin_20, xmax_20, ymin_20, ymax_20 = infer_source_bbox(
+        beta_x, beta_y, padding=0.20, outlier_frac=0.0
+    )
     assert jnp.allclose(xmin_20, -1.0 - 0.20 * 2.0)
     assert jnp.allclose(xmax_20, 1.0 + 0.20 * 2.0)
 
     # Zero padding: bbox == data extent
-    xmin_0, xmax_0, ymin_0, ymax_0 = infer_source_bbox(beta_x, beta_y, padding=0.0)
+    xmin_0, xmax_0, ymin_0, ymax_0 = infer_source_bbox(
+        beta_x, beta_y, padding=0.0, outlier_frac=0.0
+    )
     assert jnp.allclose(xmin_0, -1.0)
     assert jnp.allclose(xmax_0, 1.0)
 
     # Floor still applies for point-like sources with zero padding
     tiny = jnp.asarray([1.0e-10])
-    xmin_t, xmax_t, ymin_t, ymax_t = infer_source_bbox(tiny, tiny, padding=0.0)
+    xmin_t, xmax_t, ymin_t, ymax_t = infer_source_bbox(
+        tiny, tiny, padding=0.0, outlier_frac=0.0
+    )
     assert xmax_t > xmin_t
 
 

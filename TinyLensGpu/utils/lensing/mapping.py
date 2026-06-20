@@ -95,20 +95,38 @@ def build_source_grid(nx, ny, xmin, xmax, ymin, ymax):
     return x_axis, y_axis, xgrid, ygrid
 
 
-def infer_source_bbox(beta_x, beta_y, padding=0.0):
+def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
     """Infer source-plane bounding box from ray-traced beta points.
 
-    Computes min/max of beta coordinates and adds a fractional padding
-    margin on each side (default 0 — no padding).  Ensures a minimum
-    span of 1e-6 in each direction so that downstream grid construction
-    is well-defined.
+    Computes robust quantile bounds of beta coordinates and adds a
+    fractional padding margin on each side (default 0 — no padding).
+    ``outlier_frac`` (default 0.01) is trimmed from each tail, so the
+    default uses the 1st and 99th percentiles instead of the absolute
+    min/max.  Set ``outlier_frac=0.0`` to recover the previous min/max
+    behaviour.  Ensures a minimum span of 1e-6 in each direction so that
+    downstream grid construction is well-defined.
     """
+    if not (0.0 <= outlier_frac < 0.5):
+        raise ValueError(
+            f"outlier_frac must be in [0, 0.5), got {outlier_frac}"
+        )
+
     beta_x = jnp.ravel(jnp.asarray(beta_x))
     beta_y = jnp.ravel(jnp.asarray(beta_y))
-    xmin = jnp.min(beta_x)
-    xmax = jnp.max(beta_x)
-    ymin = jnp.min(beta_y)
-    ymax = jnp.max(beta_y)
+
+    if outlier_frac == 0.0:
+        xmin = jnp.min(beta_x)
+        xmax = jnp.max(beta_x)
+        ymin = jnp.min(beta_y)
+        ymax = jnp.max(beta_y)
+    else:
+        q_low = float(outlier_frac)
+        q_high = 1.0 - float(outlier_frac)
+        xmin = jnp.quantile(beta_x, q_low)
+        xmax = jnp.quantile(beta_x, q_high)
+        ymin = jnp.quantile(beta_y, q_low)
+        ymax = jnp.quantile(beta_y, q_high)
+
     span_x = xmax - xmin
     span_y = ymax - ymin
     xmin = xmin - padding * span_x

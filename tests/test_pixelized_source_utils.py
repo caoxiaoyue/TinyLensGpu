@@ -162,7 +162,9 @@ class TestInferSourceBbox:
         beta_x = jnp.asarray([-1.0, 1.0])
         beta_y = jnp.asarray([-0.5, 0.5])
 
-        xmin, xmax, ymin, ymax = infer_source_bbox(beta_x, beta_y, padding=0.05)
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta_x, beta_y, padding=0.05, outlier_frac=0.0
+        )
 
         assert jnp.allclose(xmin, -1.0 - 0.05 * 2.0)
         assert jnp.allclose(xmax, 1.0 + 0.05 * 2.0)
@@ -174,7 +176,9 @@ class TestInferSourceBbox:
         beta_x = jnp.asarray([0.0, 3.0])
         beta_y = jnp.asarray([-0.2, 0.2])
 
-        xmin, xmax, ymin, ymax = infer_source_bbox(beta_x, beta_y, padding=0.05)
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta_x, beta_y, padding=0.05, outlier_frac=0.0
+        )
 
         assert jnp.allclose(xmin, 0.0 - 0.05 * 3.0)
         assert jnp.allclose(xmax, 3.0 + 0.05 * 3.0)
@@ -184,12 +188,54 @@ class TestInferSourceBbox:
     def test_single_point_floor(self):
         """Test that a single beta point produces non-degenerate bbox."""
         beta = jnp.asarray([5.0])
-        xmin, xmax, ymin, ymax = infer_source_bbox(beta, beta, padding=0.0)
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta, beta, padding=0.0, outlier_frac=0.0
+        )
         assert xmax > xmin, "bbox should have positive span even for single point"
         assert ymax > ymin
         # With zero span, floor sets span = 1e-6 around the point
         assert jnp.allclose(xmin, 5.0 - 0.5e-6)
         assert jnp.allclose(xmax, 5.0 + 0.5e-6)
+
+    def test_default_outlier_frac_ignores_extreme_points(self):
+        """Test that default outlier_frac=0.01 trims 1% from each tail."""
+        # 100 points linearly spaced in [0, 99]; 1% and 99% quantiles are 0.99 and 98.01
+        beta_x = jnp.arange(100.0)
+        beta_y = jnp.arange(100.0)
+
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta_x, beta_y, padding=0.0, outlier_frac=0.01
+        )
+
+        assert jnp.allclose(xmin, 0.99)
+        assert jnp.allclose(xmax, 98.01)
+        assert jnp.allclose(ymin, 0.99)
+        assert jnp.allclose(ymax, 98.01)
+
+    def test_outlier_frac_with_extreme_outliers(self):
+        """Test that extreme outliers do not expand the bbox when trimmed."""
+        # Bulk of points in [0, 10]; outliers at -1000 and +1000
+        beta_x = jnp.concatenate(
+            [jnp.linspace(0.0, 10.0, 100), jnp.asarray([-1000.0, 1000.0])]
+        )
+        beta_y = beta_x
+
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta_x, beta_y, padding=0.0, outlier_frac=0.01
+        )
+
+        # The outliers should be trimmed away; bbox should reflect the bulk.
+        assert xmin > 0.0
+        assert xmax < 10.0
+        assert ymin > 0.0
+        assert ymax < 10.0
+
+    @pytest.mark.parametrize("bad_frac", [-0.1, 0.5, 1.0])
+    def test_outlier_frac_out_of_range_raises(self, bad_frac):
+        """Test that outlier_frac outside [0, 0.5) raises ValueError."""
+        beta = jnp.asarray([1.0, 2.0])
+        with pytest.raises(ValueError, match="outlier_frac"):
+            infer_source_bbox(beta, beta, outlier_frac=bad_frac)
 
 
 @pytest.mark.unit

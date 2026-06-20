@@ -137,6 +137,8 @@ class SimulatorConfig:
         nsub: int = 1,
         mask: Optional[Array] = None,
         source_seed_mask: Optional[Array] = None,
+        source_bbox_padding: float = 0.0,
+        source_bbox_outlier_frac: float = 0.01,
     ) -> None:
         """
         Initialize a `SimulatorConfig` instance with validated configuration.
@@ -158,6 +160,13 @@ class SimulatorConfig:
             True values are masked out. If None, defaults to ``mask``.
             This mask should be a subset of ``mask`` (i.e. have the same or
             fewer unmasked pixels) and only cover the lensed arc region.
+        source_bbox_padding : float, optional
+            Fractional padding added to each side of the inferred source-plane
+            bounding box (default: 0.0 — no padding).
+        source_bbox_outlier_frac : float, optional
+            Fraction of extreme points trimmed from each tail when inferring
+            the source-plane bounding box (default: 0.01 — 1% each side).
+            Set to 0.0 to use absolute min/max.
         """
         self.dpix = dpix
         self.npix = npix
@@ -177,6 +186,9 @@ class SimulatorConfig:
         if source_seed_mask is None:
             source_seed_mask = self.mask
         self.source_seed_mask = jnp.array(source_seed_mask, dtype=bool)
+
+        self.source_bbox_padding = float(source_bbox_padding)
+        self.source_bbox_outlier_frac = float(source_bbox_outlier_frac)
 
         self.xgrid, self.ygrid, self.xgrid_sub, self.ygrid_sub = self.get_coords(
             self.npix, self.dpix, self.nsub

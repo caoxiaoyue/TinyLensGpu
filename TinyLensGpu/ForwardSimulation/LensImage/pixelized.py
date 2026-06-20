@@ -59,7 +59,12 @@ class PixelizedLensSimulator:
         or a parametric source.
     """
 
-    def __init__(self, phys_model: PhysicalModel, sim_config: SimulatorConfig, detach_bbox: bool = True) -> None:
+    def __init__(
+        self,
+        phys_model: PhysicalModel,
+        sim_config: SimulatorConfig,
+        detach_bbox: bool = True,
+    ) -> None:
         self.phys_model = phys_model
         self.sim_config = sim_config
         self.nsub = int(sim_config.nsub)
@@ -138,12 +143,41 @@ class PixelizedLensSimulator:
         psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
         self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
-    def infer_source_bbox(self, beta_x: Array, beta_y: Array, padding: float = 0.0):
+    def infer_source_bbox(
+        self,
+        beta_x: Array,
+        beta_y: Array,
+        padding: float | None = None,
+        outlier_frac: float | None = None,
+    ):
         """Infer source-plane bounding box.
+
+        Parameters
+        ----------
+        beta_x, beta_y : Array
+            Ray-traced source-plane coordinates.
+        padding : float or None, optional
+            Fractional padding.  When ``None``, uses
+            ``sim_config.source_bbox_padding``.
+        outlier_frac : float or None, optional
+            Fraction of extreme points trimmed from each tail.  When
+            ``None``, uses ``sim_config.source_bbox_outlier_frac``.
 
         Returns (xmin, xmax, ymin, ymax).
         """
-        return infer_source_bbox(beta_x, beta_y, padding=padding)
+        pad = (
+            self.sim_config.source_bbox_padding
+            if padding is None
+            else padding
+        )
+        frac = (
+            self.sim_config.source_bbox_outlier_frac
+            if outlier_frac is None
+            else outlier_frac
+        )
+        return infer_source_bbox(
+            beta_x, beta_y, padding=pad, outlier_frac=frac
+        )
 
     def build_mapping_matrix(
         self,
