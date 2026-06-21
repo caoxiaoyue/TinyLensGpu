@@ -24,6 +24,9 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import (
     PixelizedSourceModel,
 )
+from TinyLensGpu.utils.inversion.regularization import (
+    DenseRegularizationBuilder,
+)
 from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
     infer_source_bbox,
@@ -138,7 +141,7 @@ def _A_matvec_jit(
     psf_fft: Array,
     psf_fft_conj: Array,
     noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: tuple,          # RegData: (rx,ry,scale_x,scale_y,is_gp,gp_matrix)
+    reg_data: tuple,          # RegData: (rx, ry, scale_x, scale_y)
     lambda_reg: Array,
     nx: int,                  # static: source grid x-dim
     ny: int,                  # static: source grid y-dim
@@ -148,8 +151,8 @@ def _A_matvec_jit(
     All data passed as explicit arrays so JAX traces cleanly.
     ``psf_fft_conj`` is ``conj(FFT(PSF))`` for the adjoint convolution Bᵀ.
     ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-    tuple supporting both finite-difference (matrix-free Kronecker) and GP
-    (dense fallback) regularisation.  ``nx``, ``ny`` are static grid dimensions.
+    tuple holding compact Kronecker-sum descriptors for finite-difference
+    regularisation.  ``nx``, ``ny`` are static grid dimensions.
     """
     # ---- L(s) ----
     img_lensed = _apply_L_jit(
@@ -175,20 +178,11 @@ def _A_matvec_jit(
         H, W, n_source, nsub, agg_segment_ids,
     )  # (Ns,)
 
-    # ---- + λ R s  (matrix-free for FD, dense fallback for GP) ----
-    rx, ry, scale_x, scale_y, is_gp, gp_matrix = reg_data
-
-    def _fd_reg_matvec(s_vec: Array) -> Array:
-        s_2d = s_vec.reshape(ny, nx).T          # (nx, ny)
-        result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
-        return result_2d.T.ravel()               # back to (Ns,)
-
-    def _gp_reg_matvec(s_vec: Array) -> Array:
-        raw = gp_matrix @ s_vec  # (Ns,) for real GP, (1,) for FD placeholder
-        # Pad to n_source so both cond branches return (Ns,).
-        return jnp.pad(raw, (0, n_source - raw.shape[0]))
-
-    reg_term = jax.lax.cond(is_gp, _gp_reg_matvec, _fd_reg_matvec, s)
+    # ---- + λ R s  (matrix-free Kronecker-sum) ----
+    rx, ry, scale_x, scale_y = reg_data
+    s_2d = s.reshape(ny, nx).T          # (nx, ny)
+    result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
+    reg_term = result_2d.T.ravel()      # (Ns,)
     return src + lambda_reg * reg_term
 
 
@@ -460,7 +454,8 @@ class PixelizedLensOperator:
         ``functools.partial`` created once at ``__init__`` (static, stable).
 
         ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-        tuple (the compact regularisation descriptor) rather than a dense matrix.
+        tuple holding compact Kronecker-sum descriptors for the finite-difference
+        regularisation term.
         """
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
@@ -493,41 +488,61 @@ class PixelizedLensOperator:
         )
 
     # ------------------------------------------------------------------
-    # Preconditioner: P = Lᵀ W_eff L + λR  (explicit Ns×Ns)
+    # Block-diagonal preconditioner
     # ------------------------------------------------------------------
 
-    def build_preconditioner(
+    def build_block_diag_preconditioner(
         self,
         noise_1d: Array,
         xmin, xmax, ymin, ymax,
         lambda_reg: Array,
-        reg_matrix: Array,
-    ) -> tuple[Array, Array]:
-        r"""Build sparse preconditioner P and its Cholesky factor.
+        reg_builder: DenseRegularizationBuilder,
+        block_size: int = 8,
+    ) -> tuple[list[Array], list[Array]]:
+        r"""Build a block-diagonal preconditioner P and its Cholesky factors.
 
-        .. math::
-            P = L^T W_{\rm eff} L + \lambda R, \quad
-            W_{\rm eff} = \operatorname{diag}(B^T C^{-1} B)
+        Partitions the source grid into ``block_size × block_size`` blocks
+        (default 8×8), constructs the submatrix of
+        :math:`P = L^T W_{\rm eff} L + \lambda R` for each block, and
+        Cholesky-factors each one independently.
 
-        Returns ``(P, chol_lower)`` where ``P = chol_lower @ chol_lower.T``.
+        Only finite-difference regularization types are supported.
+
+        Parameters
+        ----------
+        noise_1d : Array
+            Per-pixel noise std at active pixels, shape ``(Nd,)``.
+        xmin, xmax, ymin, ymax : float
+            Source-plane bounding box.
+        lambda_reg : Array
+            Regularization strength λ (scalar or broadcastable).
+        reg_builder : DenseRegularizationBuilder
+            Source-plane regularization builder (provides per-block R).
+        block_size : int, optional
+            Source-grid block size in pixels (default 8).
+
+        Returns
+        -------
+        tuple[list[Array], list[Array]]
+            ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
+            lower-triangular Cholesky factor of the i-th block's P submatrix,
+            and ``block_masks[i]`` contains the global flat source indices
+            belonging to that block.
         """
         H, W = self.image_shape
         noise_1d_j = jnp.asarray(noise_1d)
-        reg_matrix_j = jnp.asarray(reg_matrix)
 
         # ---- W_eff = diag(Bᵀ C⁻¹ B) on full image ----
         w_map = jnp.zeros(H * W, dtype=noise_1d_j.dtype)
         w_map = w_map.at[self.flat_indices].set(1.0 / (noise_1d_j ** 2))
         w_map_2d = w_map.reshape(H, W)
 
-        # To strictly compute diag(Bᵀ C⁻¹ B) for an asymmetric PSF, we need the cross-correlation.
-        # This is equivalent to convolving w_map_2d with the flipped psf_sq.
         psf_sq = self.psf_kernel ** 2
         psf_sq_flipped = psf_sq[::-1, ::-1]
         w_eff_2d = jsp_signal.fftconvolve(w_map_2d, psf_sq_flipped, mode="same")
         w_eff_full = w_eff_2d.ravel()
 
-        # ---- Native-resolution weights/indices for P construction ----
+        # ---- Native-resolution weights/indices ----
         beta_x, beta_y = self.phys_model.deflection(
             x=self.image_x_active, y=self.image_y_active
         )
@@ -544,25 +559,116 @@ class PixelizedLensOperator:
             self.source_nx, self.source_ny,
         )
         Ns = self.n_source_pixels
+        nx, ny = self.source_nx, self.source_ny
         w_eff_active = w_eff_full[self.flat_indices]
 
-        # Vectorized scatter-add for Lᵀ diag(w_eff) L
-        flat_row = indices[:, :, None]
-        flat_col = indices[:, None, :]
-        flat_idx = (flat_row * Ns + flat_col).ravel()
+        # ---- Block partitioning ----
+        n_bx = (nx + block_size - 1) // block_size
+        n_by = (ny + block_size - 1) // block_size
 
-        w_prod = weights[:, :, None] * weights[:, None, :]
-        values = (w_eff_active[:, None, None] * w_prod).ravel()
+        # Source pixel → block mapping  (column-major: s = x + y * nx)
+        sx = jnp.arange(Ns) % nx
+        sy = jnp.arange(Ns) // nx
+        block_x = sx // block_size
+        block_y = sy // block_size
+        block_id = block_x + block_y * n_bx  # (Ns,)
 
-        P_flat = jnp.zeros(Ns * Ns, dtype=values.dtype)
-        P_flat = P_flat.at[flat_idx].add(values)
-        P = P_flat.reshape(Ns, Ns)
+        # Which blocks does each image pixel's bilinear stencil touch?
+        bid_per_neighbor = block_id[indices]  # (Nd, 4)
 
-        P = P + lambda_reg * reg_matrix_j
-        P = 0.5 * (P + P.T)
+        block_chols = []
+        block_masks = []
 
-        chol_lower = jnp.linalg.cholesky(P)
-        return P, chol_lower
+        # Per-block loop — block count is moderate (≤ 100), traced once
+        for by in range(n_by):
+            for bx in range(n_bx):
+                bid = bx + by * n_bx
+                x_s = bx * block_size
+                x_e = min(x_s + block_size, nx)
+                y_s = by * block_size
+                y_e = min(y_s + block_size, ny)
+                block_nx_b = x_e - x_s
+                block_ny_b = y_e - y_s
+                block_n = block_nx_b * block_ny_b
+
+                if block_n == 0:
+                    continue
+
+                # Global flat indices of source pixels in this block
+                bf = jnp.array(
+                    [x + y * nx for y in range(y_s, y_e) for x in range(x_s, x_e)],
+                    dtype=jnp.int32,
+                )
+
+                # ---- Build block using fully-traced operations (no boolean indexing) ----
+                # We process ALL image pixels, zeroing contributions from
+                # pixels whose bilinear stencil does not touch this block.
+                affected = jnp.any(bid_per_neighbor == bid, axis=1)  # (Nd,)
+                mask_w = affected[:, None].astype(weights.dtype)     # (Nd, 1)
+
+                aff_w = weights * mask_w                              # (Nd, 4)
+                aff_we = w_eff_active * affected.astype(w_eff_active.dtype)  # (Nd,)
+
+                # Which neighbors are in this block?  (Nd, 4)
+                in_block = bid_per_neighbor == bid
+
+                # Global → local index mapping for this block
+                g2l = -jnp.ones(Ns, dtype=jnp.int32)
+                for loc_i, g_idx in enumerate(bf):
+                    g2l = g2l.at[g_idx].set(loc_i)
+                loc_idx = g2l[indices]                # (Nd, 4)  ← all pixels
+
+                # ---- Scatter-add Lᵀ W_eff L into block-sized matrix ----
+                P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
+
+                wgt_i = aff_w[:, :, None]              # (Nd, 4, 1)
+                wgt_j = aff_w[:, None, :]              # (Nd, 1, 4)
+                w_prod = wgt_i * wgt_j * aff_we[:, None, None]  # (Nd, 4, 4)
+
+                loc_i = loc_idx[:, :, None]            # (Nd, 4, 1)
+                loc_j = loc_idx[:, None, :]            # (Nd, 1, 4)
+                in_i = in_block[:, :, None]            # (Nd, 4, 1)
+                in_j = in_block[:, None, :]            # (Nd, 1, 4)
+                valid = in_i & in_j                    # (Nd, 4, 4)
+
+                # Flatten all to Nd*16 and filter valid entries
+                loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
+                loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
+                valid_f = valid.ravel()
+
+                loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
+                loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
+                vals_f = jnp.where(valid_f, w_prod.ravel(), 0.0)
+
+                P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
+
+                # ---- + λ R_block ----
+                R_block = reg_builder.block_diag_R(
+                    x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
+                )
+                P_block = P_block + lambda_reg * R_block
+                P_block = 0.5 * (P_block + P_block.T)
+
+                # ---- Cholesky with diagonal jitter ----
+                jitter = 1e-8 * jnp.eye(block_n, dtype=P_block.dtype)
+                P_block = P_block + jitter
+
+                chol_block = jnp.linalg.cholesky(P_block)
+                block_chols.append(chol_block)
+                block_masks.append(bf)
+
+        return block_chols, block_masks
+
+    # ------------------------------------------------------------------
+    # Legacy: dense preconditioner  (for testing / small grids)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def logdet_block_diag(block_chols: list[Array]) -> Array:
+        """Compute ``log|P|`` from block-diagonal Cholesky factors."""
+        total = jnp.array(0.0, dtype=block_chols[0].dtype)
+        for chol in block_chols:
+            total = total + 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+        return total
 
     # ------------------------------------------------------------------
     # design_matrix — for parity testing only

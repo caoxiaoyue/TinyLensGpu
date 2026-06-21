@@ -44,7 +44,7 @@ class PCGInfo(NamedTuple):
 def pcg_solve(
     A_data: tuple,
     b: Array,
-    P_chol_lower: Array,
+    preconditioner,
     _A_jit_prebound,
     x0: Array | None = None,
     max_iter: int = 200,
@@ -61,7 +61,12 @@ def pcg_solve(
         ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
         tuple — compact descriptor for matrix-free or GP regularisation.
     b : Array, shape ``(N,)``
-    P_chol_lower : Array, shape ``(N, N)``
+    preconditioner : Array or tuple[list[Array], list[Array]]
+        Either a dense Cholesky lower factor ``P_chol_lower`` of shape
+        ``(N, N)`` (legacy), or a block-diagonal tuple
+        ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
+        Cholesky factor for the i-th block and ``block_masks[i]`` holds
+        the global flat source indices belonging to that block.
     _A_jit_prebound : callable (static)
         ``functools.partial`` of ``_A_matvec_jit`` with static ints bound.
         Created once at ``PixelizedLensOperator.__init__`` — its identity
@@ -89,9 +94,26 @@ def pcg_solve(
             noise_var=noise_var, reg_data=reg_data, lambda_reg=lambda_reg,
         )
 
-    def _preconditioner_solve(r: Array) -> Array:
-        w = jsl.solve_triangular(P_chol_lower, r, lower=True)
-        return jsl.solve_triangular(P_chol_lower.T, w, lower=False)
+    # Dispatch preconditioner type
+    if isinstance(preconditioner, tuple):
+        # Block-diagonal: (block_chols, block_masks)
+        block_chols, block_masks = preconditioner
+
+        def _preconditioner_solve(r: Array) -> Array:
+            z = jnp.zeros_like(r)
+            for chol, mask in zip(block_chols, block_masks):
+                r_block = r[mask]
+                w = jsl.solve_triangular(chol, r_block, lower=True)
+                z_block = jsl.solve_triangular(chol.T, w, lower=False)
+                z = z.at[mask].set(z_block)
+            return z
+    else:
+        # Dense Cholesky (legacy)
+        P_chol_lower = preconditioner
+
+        def _preconditioner_solve(r: Array) -> Array:
+            w = jsl.solve_triangular(P_chol_lower, r, lower=True)
+            return jsl.solve_triangular(P_chol_lower.T, w, lower=False)
 
     r = b - _A_vec(x)
     z = _preconditioner_solve(r)

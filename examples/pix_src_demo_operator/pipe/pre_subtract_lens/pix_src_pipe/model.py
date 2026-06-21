@@ -621,23 +621,41 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
         # --- Operator backend: PCG solve without building dense design matrix ---
         xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = likelihood._get_bbox()
-        reg_data, _, reg_matrix_dense = likelihood._regularization_data(xmin, xmax, ymin, ymax)
+        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax)
         op_data = likelihood.sim_obj.precompute_operator_data(
             xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
         )
-        P, P_chol = likelihood.sim_obj.build_preconditioner(
-            likelihood.noise_1d, xmin, xmax, ymin, ymax, lam_j, reg_matrix_dense,
+        block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
+            likelihood.noise_1d, xmin, xmax, ymin, ymax, lam_j, likelihood.reg_builder, block_size=likelihood.block_size,
         )
+        preconditioner = (block_chols, block_masks)
         source_pixels, pcg_info = likelihood._solve_source(
-            xmin, xmax, ymin, ymax, lam_j, reg_data, P_chol, op_data=op_data,
+            xmin, xmax, ymin, ymax, lam_j, reg_data, preconditioner, op_data=op_data,
         )
         model_1d_j = likelihood.sim_obj.forward_model(
             source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
         )
 
-        # Effective degrees of freedom (operator approximation: N_eff ≈ Ns - λ Tr(P⁻¹R))
-        inv_P_R = jsl.cho_solve((P_chol, True), reg_matrix_dense)
-        N_eff = float(reg_matrix_dense.shape[0] - lam_j * jnp.trace(inv_P_R))
+        # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
+        nx_s, ny_s = likelihood.sim_obj.source_nx, likelihood.sim_obj.source_ny
+        bs = likelihood.block_size
+        n_bx = (nx_s + bs - 1) // bs
+        n_by = (ny_s + bs - 1) // bs
+        trace_invPR = jnp.array(0.0, dtype=lam_j.dtype)
+        for by in range(n_by):
+            for bx in range(n_bx):
+                bid = bx + by * n_bx
+                x_s, x_e = bx * bs, min((bx + 1) * bs, nx_s)
+                y_s, y_e = by * bs, min((by + 1) * bs, ny_s)
+                if bid >= len(block_chols):
+                    break
+                R_block = likelihood.reg_builder.block_diag_R(
+                    x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
+                )
+                chol = block_chols[bid]
+                inv_block = jsl.cho_solve((chol, True), R_block)
+                trace_invPR = trace_invPR + jnp.trace(inv_block)
+        N_eff = float(likelihood.sim_obj.n_source_pixels - lam_j * trace_invPR)
 
     model_1d = np.array(model_1d_j)
     model_image = np.zeros(image_data.shape)

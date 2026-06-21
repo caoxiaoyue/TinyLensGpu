@@ -274,15 +274,16 @@ with ck.ActiveContext(prob_model):
     # NOTE: lens-light joint inversion is not supported by the operator backend.
     # Lens light and source are not separable in the forward model.
     xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
-    reg_data, _, reg_matrix_dense = prob_model._regularization_data(xmin, xmax, ymin, ymax)
+    reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
     op_data = prob_model.sim_obj.precompute_operator_data(
         xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
     )
-    P, P_chol = prob_model.sim_obj.build_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, reg_matrix_dense,
+    block_chols, block_masks = prob_model.sim_obj.build_block_diag_preconditioner(
+        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, prob_model.reg_builder, block_size=prob_model.block_size,
     )
+    preconditioner = (block_chols, block_masks)
     source_pixels, pcg_info = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam, reg_data, P_chol, op_data=op_data,
+        xmin, xmax, ymin, ymax, lam, reg_data, preconditioner, op_data=op_data,
     )
     model_1d = prob_model.sim_obj.forward_model(
         source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,

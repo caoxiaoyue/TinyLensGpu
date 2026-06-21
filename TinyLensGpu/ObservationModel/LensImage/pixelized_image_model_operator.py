@@ -28,7 +28,6 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
-    GP_REGULARIZATION_TYPES,
 )
 
 
@@ -71,6 +70,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         source_seed_mask: Union[np.ndarray, Array, None] = None,
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
+        block_size: int = 8,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
 
@@ -100,6 +100,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.reg_builder = DenseRegularizationBuilder(
             source_nx, source_ny, self.reg_type,
         )
+
+        # Block-diagonal preconditioner settings
+        self.block_size = int(block_size)
 
         # PCG settings
         self.pcg_max_iter = 200
@@ -186,29 +189,17 @@ class PixelizedImageProbModelOperator(ck.Module):
     def _regularization_data(
         self, xmin, xmax, ymin, ymax
     ) -> tuple:
-        """Return ``(reg_data, logdet_covariance, reg_matrix_dense)``.
+        """Return the compact :class:`RegData` tuple for the matrix-free PCG path.
 
-        ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-        tuple for the matrix-free PCG path.
-        ``reg_matrix_dense`` is the materialised ``(N_s, N_s)`` matrix still
-        needed by :meth:`~PixelizedLensOperator.build_preconditioner`.
+        Only finite-difference regularization types are supported by the
+        operator backend.  GP types should use the dense backend instead.
+
+        Returns
+        -------
+        RegData
+            Compact Kronecker-sum descriptors for the regularisation term.
         """
-        if self.reg_type in GP_REGULARIZATION_TYPES:
-            kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
-            precision, logdet_cov = self.reg_builder.matrix(
-                xmin, xmax, ymin, ymax,
-                kernel_scale=kernel_scale,
-            )
-            gp_mat = jnp.asarray(precision, dtype=self.image_data.dtype)
-            reg_data = self.reg_builder.make_reg_data(
-                xmin, xmax, ymin, ymax, gp_matrix=gp_mat,
-            )
-            return reg_data, logdet_cov, gp_mat
-
-        # Finite-difference types: compact reg_data + one-off dense matrix.
-        reg_data = self.reg_builder.make_reg_data(xmin, xmax, ymin, ymax)
-        reg_dense = self.reg_builder.to_dense_free(xmin, xmax, ymin, ymax)
-        return reg_data, None, reg_dense
+        return self.reg_builder.make_reg_data(xmin, xmax, ymin, ymax)
 
     # ------------------------------------------------------------------
     # Source solve via PCG
@@ -219,10 +210,13 @@ class PixelizedImageProbModelOperator(ck.Module):
         xmin, xmax, ymin, ymax,
         lambda_reg: Array,
         reg_data: tuple,
-        P_chol_lower: Array,
+        preconditioner,
         op_data=None,  # precomputed LensOperatorData
     ) -> tuple[Array, PCGInfo]:
         """Solve for MAP source pixels using PCG.
+
+        ``preconditioner`` may be a dense Cholesky factor (legacy) or a
+        block-diagonal ``(block_chols, block_masks)`` tuple.
 
         Returns ``(source_pixels, pcg_info)``.
         """
@@ -242,7 +236,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         source_pixels, pcg_info = pcg_solve(
             A_data,
             b,
-            P_chol_lower,
+            preconditioner,
             _A_jit_prebound,
             max_iter=self.pcg_max_iter,
             rtol=self.pcg_rtol,
@@ -254,27 +248,21 @@ class PixelizedImageProbModelOperator(ck.Module):
     # ------------------------------------------------------------------
 
     def _log_evidence(self) -> Array:
-        """Evaluate log evidence using PCG and preconditioner approximation.
+        """Evaluate log evidence using PCG and block-diagonal preconditioner.
 
         .. warning::
             This uses ``logdet(P)`` as a deterministic approximation to
-            ``logdet(A)``, where ``P`` is the preconditioner.  This is exact
-            only when ``P == A`` (effectively delta PSF, ``nsub=1``, and
-            matching boundary conventions).  For blurred or asymmetric PSFs,
-            ``nsub > 1``, or masked pixels, the evidence will deviate from the
-            exact dense-backend value.  Use the dense backend when exact
-            evidence parity is required.
+            ``logdet(A)``, where ``P`` is the block-diagonal preconditioner.
+            For blurred or asymmetric PSFs, ``nsub > 1``, or masked pixels,
+            the evidence will deviate from the exact dense-backend value.
+            Use the dense backend when exact evidence parity is required.
         """
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
         xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
 
-        # reg_data: compact descriptor for matrix-free PCG.
-        # logdet_cov: log|K| for GP types (None for FD).
-        # reg_matrix_dense: materialised R for build_preconditioner.
-        reg_data, logdet_cov, reg_matrix_dense = self._regularization_data(
-            xmin, xmax, ymin, ymax
-        )
+        # reg_data: compact Kronecker-sum descriptor for matrix-free PCG.
+        reg_data = self._regularization_data(xmin, xmax, ymin, ymax)
 
         # ---- Precompute lens-operator data ONCE ----
         # Reuse sub-grid betas from _get_bbox to avoid a second deflection call.
@@ -283,26 +271,26 @@ class PixelizedImageProbModelOperator(ck.Module):
             _betas_sub=(beta_x_sub, beta_y_sub),
         )
 
-        # Build preconditioner (also gives us logdet_P for free).
-        # Still needs the dense R to add to L^T W_eff L.
-        P, P_chol_lower = self.sim_obj.build_preconditioner(
+        # Build block-diagonal preconditioner
+        block_chols, block_masks = self.sim_obj.build_block_diag_preconditioner(
             self.noise_1d,
             xmin, xmax, ymin, ymax,
             lambda_reg,
-            reg_matrix_dense,
+            self.reg_builder,
+            block_size=self.block_size,
         )
+        preconditioner = (block_chols, block_masks)
 
         # Solve source via PCG (uses compact reg_data, matrix-free).
         source_pixels, pcg_info = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
-            P_chol_lower,
+            preconditioner,
             op_data=op_data,
         )
 
         # Penalize non-converged PCG solves.
-        # Only a successful solve (converged=True) is accepted.
         pcg_penalty = jnp.where(
             pcg_info.converged, 0.0, -1.0e10
         )
@@ -319,26 +307,19 @@ class PixelizedImageProbModelOperator(ck.Module):
         resid = self.data_1d - model_1d
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
 
-        # Regularisation energy — matrix-free for FD types.
-        if self.reg_type in GP_REGULARIZATION_TYPES:
-            e_s = 0.5 * jnp.dot(source_pixels, reg_matrix_dense @ source_pixels)
-        else:
-            e_s = 0.5 * jnp.dot(
-                source_pixels,
-                self.reg_builder.matvec_free(
-                    source_pixels, xmin, xmax, ymin, ymax,
-                ),
-            )
+        # Regularisation energy — matrix-free via Kronecker-sum matvec.
+        e_s = 0.5 * jnp.dot(
+            source_pixels,
+            self.reg_builder.matvec_free(
+                source_pixels, xmin, xmax, ymin, ymax,
+            ),
+        )
 
-        # logdet(P) from Cholesky: log|P| = 2 Σ log(diag(L_P))
-        logdet_P = 2.0 * jnp.sum(jnp.log(jnp.diag(P_chol_lower)))
+        # logdet(P) from block-diagonal Cholesky factors
+        logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
 
-        # logdet regularisation matrix
-        if self.reg_type in GP_REGULARIZATION_TYPES:
-            assert logdet_cov is not None
-            logdet_h = -logdet_cov
-        else:
-            logdet_h = self.reg_builder.logdet_free(xmin, xmax, ymin, ymax)
+        # logdet regularisation matrix — eigenvalue-based formula
+        logdet_h = self.reg_builder.logdet_free(xmin, xmax, ymin, ymax)
 
         log_evidence = (
             -e_d
@@ -365,9 +346,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
 
-        reg_data, _, reg_matrix_dense = self._regularization_data(
-            xmin, xmax, ymin, ymax
-        )
+        reg_data = self._regularization_data(xmin, xmax, ymin, ymax)
 
         # Precompute operator data once (reuse betas from _get_bbox).
         op_data = self.sim_obj.precompute_operator_data(
@@ -375,19 +354,21 @@ class PixelizedImageProbModelOperator(ck.Module):
             _betas_sub=(beta_x_sub, beta_y_sub),
         )
 
-        # Build preconditioner and solve
-        _, P_chol_lower = self.sim_obj.build_preconditioner(
+        # Build block-diagonal preconditioner and solve
+        block_chols, block_masks = self.sim_obj.build_block_diag_preconditioner(
             self.noise_1d,
             xmin, xmax, ymin, ymax,
             lambda_reg,
-            reg_matrix_dense,
+            self.reg_builder,
+            block_size=self.block_size,
         )
+        preconditioner = (block_chols, block_masks)
 
         source_pixels, _ = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
-            P_chol_lower,
+            preconditioner,
             op_data=op_data,
         )
 

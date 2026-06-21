@@ -90,18 +90,18 @@ for src_nx, src_ny in GRID_SIZES:
     builder = DenseRegularizationBuilder(src_nx, src_ny, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
-    reg_dense = builder.to_dense_free(xmif, xmaf, ymif, ymaf)
     lam = jnp.asarray(1.0)
-    _, P_chol = pm_op.sim_obj.build_preconditioner(
-        pm_op.noise_1d, xmi, xma, ymi, yma, lam, reg_dense,
+    block_chols, block_masks = pm_op.sim_obj.build_block_diag_preconditioner(
+        pm_op.noise_1d, xmi, xma, ymi, yma, lam, builder, block_size=pm_op.block_size,
     )
+    preconditioner = (block_chols, block_masks)
     A_data, _A_jit = pm_op.sim_obj.build_A_matvec(
         pm_op.noise_1d, xmi, xma, ymi, yma, lam, reg_data,
     )
     b = pm_op.sim_obj.build_rhs(
         pm_op.data_1d, pm_op.noise_1d, xmi, xma, ymi, yma,
     )
-    _, info = pcg_solve(A_data, b, P_chol, _A_jit, max_iter=200, rtol=1e-6)
+    _, info = pcg_solve(A_data, b, preconditioner, _A_jit, max_iter=200, rtol=1e-6)
     n_iter = int(info.n_iter)
 
     print(f"{src_nx}x{src_ny}  | {t_mat:12.4f} | {t_op:14.4f} | {ratio:7.2%} | {n_iter:10d}")

@@ -230,7 +230,7 @@ with ck.ActiveContext(prob_model):
 
     # Get bbox and build regularization
     xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
-    reg_data, _, reg_matrix_dense = prob_model._regularization_data(
+    reg_data = prob_model._regularization_data(
         xmin, xmax, ymin, ymax
     )
     lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
@@ -240,12 +240,14 @@ with ck.ActiveContext(prob_model):
         xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub)
     )
 
-    # Build preconditioner and solve source via PCG
-    P, P_chol = prob_model.sim_obj.build_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, reg_matrix_dense,
+    # Build block-diagonal preconditioner and solve source via PCG
+    block_chols, block_masks = prob_model.sim_obj.build_block_diag_preconditioner(
+        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam,
+        prob_model.reg_builder, block_size=prob_model.block_size,
     )
+    preconditioner = (block_chols, block_masks)
     source_pixels, pcg_info = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam, reg_data, P_chol, op_data=op_data,
+        xmin, xmax, ymin, ymax, lam, reg_data, preconditioner, op_data=op_data,
     )
 
     # Forward model for residuals
@@ -253,11 +255,26 @@ with ck.ActiveContext(prob_model):
         source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
     )
 
-    # Effective degrees of freedom via logdet approximation
-    logdet_P = 2.0 * float(jnp.sum(jnp.log(jnp.diag(P_chol))))
-    # Approximate trace: N_eff ≈ N_s - lambda * Tr(P^-1 R)
-    inv_P_R = jsl.cho_solve((P_chol, True), reg_matrix_dense)
-    N_eff = float(reg_matrix_dense.shape[0] - lam * jnp.trace(inv_P_R))
+    # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
+    nx_s, ny_s = pix_src.nx, pix_src.ny
+    bs = prob_model.block_size
+    n_bx = (nx_s + bs - 1) // bs
+    n_by = (ny_s + bs - 1) // bs
+    trace_invPR = jnp.array(0.0, dtype=lam.dtype)
+    for by in range(n_by):
+        for bx in range(n_bx):
+            bid = bx + by * n_bx
+            x_s, x_e = bx * bs, min((bx + 1) * bs, nx_s)
+            y_s, y_e = by * bs, min((by + 1) * bs, ny_s)
+            if bid >= len(block_chols):
+                break
+            R_block = prob_model.reg_builder.block_diag_R(
+                x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
+            )
+            chol = block_chols[bid]
+            inv_block = jsl.cho_solve((chol, True), R_block)
+            trace_invPR = trace_invPR + jnp.trace(inv_block)
+    N_eff = float(pix_src.nx * pix_src.ny - lam * trace_invPR)
 
 source_pixels_np = np.array(source_pixels)
 model_image      = np.zeros(image_data.shape)

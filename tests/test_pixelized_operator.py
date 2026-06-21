@@ -93,10 +93,6 @@ _DUMMY_REG_DATA = (
     jnp.eye(1),                     # ry
     jnp.array(1.0, dtype=jnp.float32),  # scale_x
     jnp.array(1.0, dtype=jnp.float32),  # scale_y
-    jnp.array(False, dtype=bool),   # is_gp
-    jnp.zeros((1, 1), dtype=jnp.float32),  # gp_matrix (compatible with 1-elem s)
-    jnp.array(1, dtype=jnp.int32),  # nx
-    jnp.array(1, dtype=jnp.int32),  # ny
 )
 
 
@@ -270,7 +266,7 @@ def test_operator_design_matrix_matches_matrix():
 
 @pytest.mark.unit
 def test_preconditioner_is_spd():
-    """The preconditioner P should be symmetric positive definite."""
+    """Each block of the block-diagonal preconditioner should be SPD."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf())
 
     sim_op = PixelizedLensOperator(phys, config)
@@ -280,22 +276,24 @@ def test_preconditioner_is_spd():
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
     builder = DenseRegularizationBuilder(5, 5, "first-order")
-    reg, _ = builder.matrix(
-        float(xmi), float(xma), float(ymi), float(yma),
+
+    block_chols, block_masks = sim_op.build_block_diag_preconditioner(
+        n_1d, xmi, xma, ymi, yma, lam, builder, block_size=3,
     )
 
-    P, chol = sim_op.build_preconditioner(n_1d, xmi, xma, ymi, yma, lam, reg)
+    # Each block should be SPD
+    for chol, mask in zip(block_chols, block_masks):
+        P_block = chol @ chol.T
+        # Check symmetry
+        np.testing.assert_allclose(np.array(P_block), np.array(P_block.T), atol=1e-6)
+        # Check positive eigenvalues
+        eigvals = jnp.linalg.eigvalsh(P_block)
+        assert jnp.all(eigvals > 1e-3), f"Block has non-positive eigenvalues: min={jnp.min(eigvals):.2e}"
 
-    # Check symmetry
-    np.testing.assert_allclose(np.array(P), np.array(P.T), atol=1e-6)
-
-    # Check Cholesky reconstructed P (allow numerical tolerance for float32)
-    P_recon = chol @ chol.T
-    np.testing.assert_allclose(np.array(P), np.array(P_recon), rtol=1e-3, atol=1e-2)
-
-    # Check eigenvalues are positive
-    eigvals = jnp.linalg.eigvalsh(P)
-    assert jnp.all(eigvals > 0)
+    # Verify all source pixels are covered exactly once
+    all_masked = jnp.concatenate([jnp.asarray(m) for m in block_masks])
+    all_sorted = jnp.sort(all_masked)
+    np.testing.assert_equal(np.array(all_sorted), np.arange(25))
 
 
 # ------------------------------------------------------------------
@@ -429,7 +427,7 @@ def test_matrix_vs_operator_source_consistency_blur_psf():
 
 @pytest.mark.unit
 def test_operator_forward_model_converges_pcg():
-    """Operator forward model should produce a converged PCG solve."""
+    """Operator forward model should produce a converged PCG solve with block-diag preconditioner."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf())
 
     prob_op = PixelizedImageProbModelOperator(
@@ -439,15 +437,15 @@ def test_operator_forward_model_converges_pcg():
     # Access internal _solve_source to inspect PCG convergence
     lambda_reg = jnp.exp(jnp.asarray(prob_op.source_model.log_lambda_reg.value))
     xmin, xmax, ymin, ymax, _bx_sub, _by_sub = prob_op._get_bbox()
-    reg_data, _, reg_matrix_dense = prob_op._regularization_data(
-        xmin, xmax, ymin, ymax
-    )
+    reg_data = prob_op._regularization_data(xmin, xmax, ymin, ymax)
 
-    P, P_chol = prob_op.sim_obj.build_preconditioner(
-        prob_op.noise_1d, xmin, xmax, ymin, ymax, lambda_reg, reg_matrix_dense,
+    block_chols, block_masks = prob_op.sim_obj.build_block_diag_preconditioner(
+        prob_op.noise_1d, xmin, xmax, ymin, ymax, lambda_reg,
+        prob_op.reg_builder, block_size=prob_op.block_size,
     )
+    preconditioner = (block_chols, block_masks)
     source_pixels, pcg_info = prob_op._solve_source(
-        xmin, xmax, ymin, ymax, lambda_reg, reg_data, P_chol,
+        xmin, xmax, ymin, ymax, lambda_reg, reg_data, preconditioner,
     )
 
     assert pcg_info.converged, (
@@ -610,18 +608,14 @@ def test_make_reg_data_rx_ry_shapes():
 
     assert rd.rx.shape == (nx, nx)
     assert rd.ry.shape == (ny, ny)
-    assert not bool(rd.is_gp)
 
 
 @pytest.mark.unit
-def test_make_reg_data_gp_mode():
-    """make_reg_data for GP types should set is_gp=True and store gp_matrix."""
+def test_make_reg_data_raises_for_gp():
+    """make_reg_data should raise ValueError for GP types (operator backend unsupported)."""
     builder = DenseRegularizationBuilder(5, 5, "exponential")
-    gp_mat = jnp.eye(25) * 2.0
-    rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0, gp_matrix=gp_mat)
-
-    assert bool(rd.is_gp)
-    np.testing.assert_allclose(np.array(rd.gp_matrix), np.array(gp_mat))
+    with pytest.raises(ValueError, match="Operator backend does not support GP"):
+        builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
 
 
 if __name__ == "__main__":

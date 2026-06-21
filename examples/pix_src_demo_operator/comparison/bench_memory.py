@@ -77,14 +77,14 @@ for src_nx, src_ny in GRID_SIZES:
 
     from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
     builder = DenseRegularizationBuilder(src_nx, src_ny, "first-order")
-    reg, _ = builder.matrix(float(xmi), float(xma), float(ymi), float(yma))
 
-    P, _ = pm_op.sim_obj.build_preconditioner(
-        pm_op.noise_1d, xmi, xma, ymi, yma, jnp.asarray(1.0), reg,
+    block_chols, block_masks = pm_op.sim_obj.build_block_diag_preconditioner(
+        pm_op.noise_1d, xmi, xma, ymi, yma, jnp.asarray(1.0), builder, block_size=pm_op.block_size,
     )
-    mem_p_matrix = Ns * Ns * 4 / (1024**2)
+    # Block-diagonal storage: sum of block_chol sizes
+    mem_p_matrix = sum(chol.size for chol in block_chols) * 4 / (1024**2)
 
-    # The operator path avoids the F matrix; only stores P (Ns x Ns)
+    # The operator path avoids the F matrix; only stores block-diagonal P chunks
     # Plus small arrays: weights (Nd, 4), indices (Nd, 4), etc.
     mem_weights = Nd * 4 * 4 / (1024**2)  # weights + indices
     mem_operator = mem_p_matrix + mem_weights

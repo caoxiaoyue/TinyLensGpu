@@ -6,10 +6,19 @@ finite-difference operators are precomputed on index space and scaled by the
 physical source-grid spacing when a matrix is requested.
 
 For matrix-free (operator) backends, the class also exposes
-:meth:`matvec_free`, :meth:`logdet_free`, and :meth:`to_dense_free` for
-finite-difference types, which exploit the Kronecker-sum structure of
-separable 2-D difference operators to avoid materialising the full Ns x Ns
-regularisation matrix.
+:meth:`matvec_free`, :meth:`logdet_free`, :meth:`to_dense_free`, and
+:meth:`make_reg_data` for finite-difference types, which exploit the
+Kronecker-sum structure of separable 2-D difference operators to avoid
+materialising the full Ns x Ns regularisation matrix.
+
+.. note::
+
+    GP-style regularization (``exponential``, ``gaussian``, ``matern*``) is
+    **not** supported by the operator backend.  GP types inherently require a
+    dense ``(Ns, Ns)`` precision matrix, so they gain no memory benefit from
+    matrix-free operators.  Use the dense backend
+    (:class:`~TinyLensGpu.ObservationModel.LensImage.pixelized_image_model.PixelizedImageProbModel`)
+    for GP regularization instead.
 """
 
 from __future__ import annotations
@@ -36,27 +45,25 @@ GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
 
 
 class RegData(NamedTuple):
-    """Compact regularisation data for matrix-free matvec / logdet.
+    """Compact finite-difference regularisation data for matrix-free matvec / logdet.
 
     Passed through ``A_data[7]`` in the PCG solver so that
     :func:`_A_matvec_jit` can apply the regularisation term without a dense
     ``(Ns, Ns)`` matrix.
 
-    For finite-difference types, ``rx`` / ``ry`` hold the 1-D product
-    matrices ``(nx, nx)`` / ``(ny, ny)`` and ``gp_matrix`` is a placeholder
-    with a shape compatible with the source vector.
-    For GP types, ``is_gp`` is ``True`` and ``gp_matrix`` holds the true
-    dense ``(Ns, Ns)`` precision matrix.
+    ``rx`` / ``ry`` hold the 1-D product matrices ``(nx, nx)`` / ``(ny, ny)``
+    and ``scale_x`` / ``scale_y`` are the physical pixel-area scaling factors.
 
     Note: ``nx`` / ``ny`` are *not* stored here; they are passed as static
     arguments to :func:`_A_matvec_jit` via the pre-bound partial.
+
+    Only finite-difference types are supported; GP types should use the dense
+    backend instead.
     """
     rx: "jax.Array"        # (nx, nx)  1-D x-regularisation product
     ry: "jax.Array"        # (ny, ny)  1-D y-regularisation product
     scale_x: "jax.Array"   # scalar  physical pixel-area scale for x
     scale_y: "jax.Array"   # scalar  physical pixel-area scale for y
-    is_gp: "jax.Array"     # bool scalar
-    gp_matrix: "jax.Array" # (Ns, Ns) dense GP precision, or (1, Ns) placeholder
 
 
 class DenseRegularizationBuilder:
@@ -258,19 +265,7 @@ class DenseRegularizationBuilder:
             return s
 
         # Physical pixel scales: dx = (xmax - xmin) / (nx - 1)
-        inv_dx = (self.nx - 1) / (xmax - xmin)
-        inv_dy = (self.ny - 1) / (ymax - ymin)
-
-        if self.regularization_type == "first-order":
-            rx, ry = self._Rx1, self._Ry1
-            scale_x = inv_dx ** 2
-            scale_y = inv_dy ** 2
-        elif self.regularization_type == "second-order":
-            rx, ry = self._Rx2, self._Ry2
-            scale_x = inv_dx ** 4
-            scale_y = inv_dy ** 4
-        else:
-            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
+        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
 
         # s has flat index ``i + j * nx`` (column-major on (nx, ny)).
         # Reshape to (ny, nx), transpose → (nx, ny) where axis 0 = x.
@@ -301,17 +296,7 @@ class DenseRegularizationBuilder:
         if self.regularization_type == "zero-order":
             return jnp.array(0.0, dtype=jnp.float32)
 
-        inv_dx = (self.nx - 1) / (xmax - xmin)
-        inv_dy = (self.ny - 1) / (ymax - ymin)
-
-        if self.regularization_type == "first-order":
-            scale_x = inv_dx ** 2
-            scale_y = inv_dy ** 2
-        elif self.regularization_type == "second-order":
-            scale_x = inv_dx ** 4
-            scale_y = inv_dy ** 4
-        else:
-            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
+        _, _, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
 
         # λ_{i,j} = μ_i * scale_x + ν_j * scale_y
         eig_grid = (self._Rx_eigvals[:, None] * scale_x
@@ -341,89 +326,148 @@ class DenseRegularizationBuilder:
         if self.regularization_type == "zero-order":
             return self._identity
 
-        inv_dx = (self.nx - 1) / (xmax - xmin)
-        inv_dy = (self.ny - 1) / (ymax - ymin)
-
-        if self.regularization_type == "first-order":
-            rx, ry = self._Rx1, self._Ry1
-            scale_x = inv_dx ** 2
-            scale_y = inv_dy ** 2
-        elif self.regularization_type == "second-order":
-            rx, ry = self._Rx2, self._Ry2
-            scale_x = inv_dx ** 4
-            scale_y = inv_dy ** 4
-        else:
-            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
+        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
 
         # R = I_ny ⊗ (rx * scale_x) + (ry * scale_y) ⊗ I_nx
         return jnp.kron(jnp.eye(self.ny, dtype=rx.dtype), rx * scale_x) \
              + jnp.kron(ry * scale_y, jnp.eye(self.nx, dtype=ry.dtype))
 
+    # ------------------------------------------------------------------
+    # Block-diagonal R  (used by block-diagonal preconditioner)
+    # ------------------------------------------------------------------
+
+    def _get_rx_ry_scales(
+        self, xmin: float, xmax: float, ymin: float, ymax: float,
+    ) -> tuple:
+        """Return ``(rx, ry, scale_x, scale_y)`` for the current FD type."""
+        inv_dx = (self.nx - 1) / (xmax - xmin)
+        inv_dy = (self.ny - 1) / (ymax - ymin)
+
+        if self.regularization_type == "zero-order":
+            rx = 0.5 * jnp.eye(self.nx, dtype=jnp.float32)
+            ry = 0.5 * jnp.eye(self.ny, dtype=jnp.float32)
+            scale_x = jnp.array(1.0, dtype=jnp.float32)
+            scale_y = jnp.array(1.0, dtype=jnp.float32)
+        elif self.regularization_type == "first-order":
+            rx = self._Rx1
+            ry = self._Ry1
+            scale_x = jnp.array(inv_dx ** 2, dtype=rx.dtype)
+            scale_y = jnp.array(inv_dy ** 2, dtype=ry.dtype)
+        elif self.regularization_type == "second-order":
+            rx = self._Rx2
+            ry = self._Ry2
+            scale_x = jnp.array(inv_dx ** 4, dtype=rx.dtype)
+            scale_y = jnp.array(inv_dy ** 4, dtype=ry.dtype)
+        else:
+            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
+        return rx, ry, scale_x, scale_y
+
+    def block_diag_R(
+        self,
+        x_start: int, x_end: int,
+        y_start: int, y_end: int,
+        xmin: float, xmax: float, ymin: float, ymax: float,
+    ) -> "jax.Array":
+        r"""Build the R submatrix for one block of the source grid.
+
+        The block covers source pixels with x-indices ``[x_start, x_end)``
+        and y-indices ``[y_start, y_end)``, using the column-major source
+        flat-index convention ``s = x + y * nx``.
+
+        The Kronecker-sum structure is exploited:
+        :math:`R_{\rm block} = I_{n_y^b} \otimes (R_x^{\rm sub} \cdot s_x)
+        + (R_y^{\rm sub} \cdot s_y) \otimes I_{n_x^b}`.
+
+        Only finite-difference types are supported.
+
+        Parameters
+        ----------
+        x_start, x_end : int
+            Column (x-axis) index range for the block.
+        y_start, y_end : int
+            Row (y-axis) index range for the block.
+        xmin, xmax, ymin, ymax : float
+            Source-plane bounds for FD scaling.
+
+        Returns
+        -------
+        Array
+            Dense submatrix of shape ``(block_n, block_n)`` where
+            ``block_n = (x_end - x_start) * (y_end - y_start)``.
+        """
+        block_nx = x_end - x_start
+        block_ny = y_end - y_start
+
+        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
+
+        rx_sub = rx[x_start:x_end, x_start:x_end] * scale_x  # (block_nx, block_nx)
+        ry_sub = ry[y_start:y_end, y_start:y_end] * scale_y  # (block_ny, block_ny)
+
+        # R_block = I_{block_ny} ⊗ rx_sub + ry_sub ⊗ I_{block_nx}
+        eye_y = jnp.eye(block_ny, dtype=rx_sub.dtype)
+        eye_x = jnp.eye(block_nx, dtype=ry_sub.dtype)
+        R_block = jnp.kron(eye_y, rx_sub) + jnp.kron(ry_sub, eye_x)
+        return R_block
+
+    def diag_R(
+        self,
+        xmin: float, xmax: float, ymin: float, ymax: float,
+    ) -> "jax.Array":
+        r"""Return the diagonal of the dense R matrix in :math:`O(N_s)`.
+
+        Uses the Kronecker-sum structure:
+        :math:`\operatorname{diag}(R)_k = s_x \cdot \operatorname{diag}(R_x)_{i}
+        + s_y \cdot \operatorname{diag}(R_y)_{j}`
+        where :math:`k = i + j \cdot n_x`.
+
+        For GP types, falls back to ``jnp.diag`` of the full matrix (caller
+        must supply ``gp_matrix`` via :meth:`matrix` — this method does not
+        accept it directly; the caller should pre-build the GP precision and
+        extract its diagonal).
+        """
+        if self.regularization_type in GP_REGULARIZATION_TYPES:
+            raise ValueError(
+                "diag_R is not supported for GP types. "
+                "Use jnp.diag on the full GP precision matrix instead."
+            )
+        if self.regularization_type == "zero-order":
+            return jnp.ones(self.n_pixels, dtype=jnp.float32)
+
+        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
+        diag_rx = jnp.diag(rx) * scale_x  # (nx,)
+        diag_ry = jnp.diag(ry) * scale_y  # (ny,)
+
+        # diag(R)[i + j * nx] = diag_rx[i] + diag_ry[j]
+        diag_r = diag_rx[:, None] + diag_ry[None, :]  # (nx, ny)
+        return diag_r.T.ravel()  # match column-major flat order
+
     def make_reg_data(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
-        gp_matrix: "jax.Array | None" = None,
     ) -> RegData:
         """Return a compact :class:`RegData` tuple for passing through ``A_data``.
+
+        Only supports finite-difference regularization types.  GP types are
+        not supported by the operator backend.
 
         Parameters
         ----------
         xmin, xmax, ymin, ymax : float
             Source-plane bounds.
-        gp_matrix : Array, optional
-            Dense ``(N_s, N_s)`` GP precision matrix.  Required when
-            ``regularization_type`` is a GP type; ignored otherwise.
+
+        Raises
+        ------
+        ValueError
+            If ``regularization_type`` is a GP type.
         """
         if self.regularization_type in GP_REGULARIZATION_TYPES:
-            if gp_matrix is None:
-                raise ValueError("gp_matrix is required for GP regularization types.")
-            gp_mat = jnp.asarray(gp_matrix)
-            # Placeholders — shapes must be valid so the FD branch inside
-            # lax.cond still traces successfully.
-            rx_ph = jnp.zeros((self.nx, self.nx), dtype=gp_mat.dtype)
-            ry_ph = jnp.zeros((self.ny, self.ny), dtype=gp_mat.dtype)
-            return RegData(
-                rx=rx_ph, ry=ry_ph,
-                scale_x=jnp.array(1.0, dtype=gp_mat.dtype),
-                scale_y=jnp.array(1.0, dtype=gp_mat.dtype),
-                is_gp=jnp.array(True, dtype=bool),
-                gp_matrix=gp_mat,
+            raise ValueError(
+                "Operator backend does not support GP regularization types. "
+                "Use the dense backend (PixelizedImageProbModel) for GP regularization."
             )
 
-        # Finite-difference types
-        inv_dx = (self.nx - 1) / (xmax - xmin)
-        inv_dy = (self.ny - 1) / (ymax - ymin)
-
-        if self.regularization_type == "zero-order":
-            # R = I  →  I = ½I ⊗ I_x + ½I_y ⊗ I  in the Kronecker form,
-            # so that rx @ s_2d + s_2d @ ry^T = ½s_2d + ½s_2d = s_2d.
-            rx = 0.5 * jnp.eye(self.nx, dtype=jnp.float32)
-            ry = 0.5 * jnp.eye(self.ny, dtype=jnp.float32)
-            scl_x = jnp.array(1.0, dtype=jnp.float32)
-            scl_y = jnp.array(1.0, dtype=jnp.float32)
-        elif self.regularization_type == "first-order":
-            rx = self._Rx1
-            ry = self._Ry1
-            scl_x = jnp.array(inv_dx ** 2, dtype=rx.dtype)
-            scl_y = jnp.array(inv_dy ** 2, dtype=ry.dtype)
-        elif self.regularization_type == "second-order":
-            rx = self._Rx2
-            ry = self._Ry2
-            scl_x = jnp.array(inv_dx ** 4, dtype=rx.dtype)
-            scl_y = jnp.array(inv_dy ** 4, dtype=ry.dtype)
-        else:
-            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
-
-        # Placeholder for gp_matrix — shape (1, Ns) so that gp_matrix @ s traces
-        # successfully even when is_gp=False (result is discarded by lax.cond).
-        gp_ph = jnp.zeros((1, self.n_pixels), dtype=rx.dtype)
-
-        return RegData(
-            rx=rx, ry=ry,
-            scale_x=scl_x, scale_y=scl_y,
-            is_gp=jnp.array(False, dtype=bool),
-            gp_matrix=gp_ph,
-        )
+        rx, ry, scl_x, scl_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
+        return RegData(rx=rx, ry=ry, scale_x=scl_x, scale_y=scl_y)
 
     def _build_first_difference_operators(self):
         """Return first-order x/y finite-difference operators on index space.
