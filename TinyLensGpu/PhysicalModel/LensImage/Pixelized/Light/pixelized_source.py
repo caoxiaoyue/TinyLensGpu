@@ -38,6 +38,15 @@ class PixelizedSourceModel(ck.Module):
         ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
     kernel_scale : float or ParamU or None, optional
         Kernel scale for GP-style regularization only.
+    adaptive_reg_alpha : float, optional
+        Adaptive regularization strength.  ``0.0`` (default) disables
+        adaptation and recovers uniform regularisation.  Larger values
+        (e.g. ``1.0``) make the per-pixel regularisation scale more
+        sensitive to the brightness-weighted ray count on the source
+        plane.
+    adaptive_reg_floor : float, optional
+        Minimum per-pixel regularisation scale, relative to the global
+        ``lambda_reg``.  Default ``0.1``; must be in ``(0, 1]``.
     """
 
     def __init__(
@@ -48,15 +57,24 @@ class PixelizedSourceModel(ck.Module):
         log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
         kernel_scale: float | ParamU | None = None,
+        adaptive_reg_alpha: float = 0.0,
+        adaptive_reg_floor: float = 0.1,
     ) -> None:
         super().__init__()
 
         if regularization_type not in VALID_REGULARIZATION_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
 
+        if not 0.0 <= float(adaptive_reg_alpha):
+            raise ValueError(f"adaptive_reg_alpha must be >= 0, got {adaptive_reg_alpha}")
+        if not 0.0 < float(adaptive_reg_floor) <= 1.0:
+            raise ValueError(f"adaptive_reg_floor must be in (0, 1], got {adaptive_reg_floor}")
+
         object.__setattr__(self, "nx", int(nx))
         object.__setattr__(self, "ny", int(ny))
         object.__setattr__(self, "regularization_type", regularization_type)
+        object.__setattr__(self, "adaptive_reg_alpha", float(adaptive_reg_alpha))
+        object.__setattr__(self, "adaptive_reg_floor", float(adaptive_reg_floor))
         object.__setattr__(self, "is_pixelized_source", True)
 
         self.log_lambda_reg = (

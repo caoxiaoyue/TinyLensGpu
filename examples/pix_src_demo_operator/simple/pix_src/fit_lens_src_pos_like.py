@@ -231,7 +231,7 @@ with ck.ActiveContext(prob_model):
     lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
 
     # --- Operator backend: PCG solve without building dense design matrix ---
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
+    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
     reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
     op_data = prob_model.sim_obj.precompute_operator_data(
         xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),

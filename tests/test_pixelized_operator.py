@@ -12,6 +12,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
     PixelizedLensOperator,
 )
 from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
@@ -47,12 +48,17 @@ def _static_sie():
     return sie
 
 
-def _pix_src(log_lambda_val=0.0):
+def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0):
     lam = ParamU("log_lambda_reg", log_lambda_val,
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
     lam.to_dynamic()
-    return PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=lam)
+    return PixelizedSourceModel(
+        nx=5,
+        ny=5,
+        log_lambda_reg=lam,
+        adaptive_reg_alpha=adaptive_reg_alpha,
+    )
 
 
 def _phys_model(source=None):
@@ -296,6 +302,29 @@ def test_preconditioner_is_spd():
     np.testing.assert_equal(np.array(all_sorted), np.arange(25))
 
 
+@pytest.mark.unit
+def test_preconditioner_stacks_equal_sized_blocks():
+    """Equal-sized block preconditioners should be stacked for vmapped solves."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    sim_op = PixelizedLensOperator(phys, config)
+    _, _, bx, by = sim_op._get_beta_sub_and_seed()
+    xmi, xma, ymi, yma = sim_op._infer_and_fix_bbox(bx, by)
+
+    n_1d = noise[~config.mask].ravel()
+    lam = jnp.asarray(1.0)
+    builder = DenseRegularizationBuilder(5, 5, "first-order")
+
+    block_chols, block_masks = sim_op.build_block_diag_preconditioner(
+        n_1d, xmi, xma, ymi, yma, lam, builder, block_size=5,
+    )
+
+    assert isinstance(block_chols, jnp.ndarray)
+    assert isinstance(block_masks, jnp.ndarray)
+    assert block_chols.shape == (1, 25, 25)
+    assert block_masks.shape == (1, 25)
+
+
 # ------------------------------------------------------------------
 # PixelizedImageProbModelOperator tests
 # ------------------------------------------------------------------
@@ -436,7 +465,8 @@ def test_operator_forward_model_converges_pcg():
 
     # Access internal _solve_source to inspect PCG convergence
     lambda_reg = jnp.exp(jnp.asarray(prob_op.source_model.log_lambda_reg.value))
-    xmin, xmax, ymin, ymax, _bx_sub, _by_sub = prob_op._get_bbox()
+    (xmin, xmax, ymin, ymax, _bx_sub, _by_sub,
+     _bx_seed, _by_seed) = prob_op._get_bbox()
     reg_data = prob_op._regularization_data(xmin, xmax, ymin, ymax)
 
     block_chols, block_masks = prob_op.sim_obj.build_block_diag_preconditioner(
@@ -453,6 +483,50 @@ def test_operator_forward_model_converges_pcg():
         f"iterations={pcg_info.n_iter}"
     )
     assert pcg_info.n_iter < prob_op.pcg_max_iter
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("adaptive_reg_alpha", [0.0, 1.0])
+def test_dense_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_alpha):
+    """Vectorized dense likelihood should compile for uniform and adaptive reg."""
+    source = _pix_src(adaptive_reg_alpha=adaptive_reg_alpha)
+    phys = _phys_model(source=source)
+    config = _sim_config()
+    sim = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+
+    prob_dense = PixelizedImageProbModel(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+    )
+    loglike = make_likelihood(prob_dense, vectorized=True)
+    values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
+
+    assert values.shape == (2,)
+    assert jnp.all(jnp.isfinite(values))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("adaptive_reg_alpha", [0.0, 1.0])
+def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_alpha):
+    """Vectorized operator likelihood should compile for uniform and adaptive reg."""
+    source = _pix_src(adaptive_reg_alpha=adaptive_reg_alpha)
+    phys = _phys_model(source=source)
+    config = _sim_config()
+    sim = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+    )
+    loglike = make_likelihood(prob_op, vectorized=True)
+    values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
+
+    assert values.shape == (2,)
+    assert jnp.all(jnp.isfinite(values))
 
 
 @pytest.mark.unit
@@ -597,6 +671,22 @@ def test_to_dense_free_matches_matrix():
         np.testing.assert_allclose(
             np.array(computed), np.array(expected), rtol=1e-4, atol=1e-4,
         ), f"Failed for {reg_type}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "bad_scale",
+    [
+        jnp.ones((25, 1)),
+        jnp.concatenate([jnp.ones(24), jnp.asarray([0.0])]),
+        jnp.concatenate([jnp.ones(24), jnp.asarray([-1.0])]),
+    ],
+)
+def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
+    """Invalid adaptive scale should fail before sqrt/logdet paths diverge."""
+    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    with pytest.raises(ValueError, match="scale"):
+        builder.matrix(-1.0, 1.0, -1.0, 1.0, scale=bad_scale)
 
 
 @pytest.mark.unit

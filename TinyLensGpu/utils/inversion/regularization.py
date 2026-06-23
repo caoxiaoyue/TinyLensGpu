@@ -54,6 +54,10 @@ class RegData(NamedTuple):
     ``rx`` / ``ry`` hold the 1-D product matrices ``(nx, nx)`` / ``(ny, ny)``
     and ``scale_x`` / ``scale_y`` are the physical pixel-area scaling factors.
 
+    ``scale`` is an optional per-pixel regularisation scale array of shape
+    ``(Ns,)`` for adaptive regularisation.  When ``None`` (default), uniform
+    regularisation is used.
+
     Note: ``nx`` / ``ny`` are *not* stored here; they are passed as static
     arguments to :func:`_A_matvec_jit` via the pre-bound partial.
 
@@ -64,6 +68,7 @@ class RegData(NamedTuple):
     ry: "jax.Array"        # (ny, ny)  1-D y-regularisation product
     scale_x: "jax.Array"   # scalar  physical pixel-area scale for x
     scale_y: "jax.Array"   # scalar  physical pixel-area scale for y
+    scale: "jax.Array | None" = None  # (Ns,) per-pixel reg scale, or None=uniform
 
 
 class DenseRegularizationBuilder:
@@ -198,7 +203,55 @@ class DenseRegularizationBuilder:
         L = L.at[n - 1, n - 1].add(1.0)
         return L
 
-    def matrix(self, xmin, xmax, ymin, ymax, *, kernel_scale: float | None = None):
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _check_scale(
+        self, scale: "jax.Array | None", expected_size: int | None = None,
+    ) -> "jax.Array | None":
+        """Return validated scale as ``(Ns,)`` or ``None`` for uniform scaling."""
+        if scale is None:
+            return None
+
+        scale_arr = jnp.asarray(scale)
+        expected_size = self.n_pixels if expected_size is None else int(expected_size)
+        if scale_arr.shape != (expected_size,):
+            raise ValueError(
+                "scale must have shape "
+                f"({expected_size},), got {scale_arr.shape}."
+            )
+
+        valid = jnp.all(jnp.isfinite(scale_arr) & (scale_arr > 0.0))
+        try:
+            is_valid = bool(valid)
+        except Exception:
+            # ``scale`` may be a tracer inside a JIT-compiled likelihood.  Its
+            # shape is still checked above; dynamic values are produced by
+            # bounded model code such as adaptive_reg_floor.
+            is_valid = True
+        if not is_valid:
+            raise ValueError("scale values must be finite and strictly positive.")
+        return scale_arr
+
+    def _apply_diag_scale(self, matrix: "jax.Array", scale: "jax.Array | None") -> "jax.Array":
+        """If *scale* is not None, return ``diag(sqrt(scale)) @ matrix @ diag(sqrt(scale))``.
+
+        Otherwise return *matrix* unchanged.
+        """
+        scale = self._check_scale(scale, int(matrix.shape[0]))
+        if scale is not None:
+            sqrt_scale = jnp.sqrt(scale)
+            # Explicitly form the rank-1 outer-product scaling matrix first,
+            # then apply it with a single element-wise multiply.  This avoids
+            # chained broadcast-multiplies that can produce NaN in XLA's GEMM
+            # fusion autotuner when the surrounding computation (kron + add)
+            # is fused into a single kernel.
+            scale_mat = sqrt_scale[:, None] * sqrt_scale[None, :]
+            matrix = matrix * scale_mat
+        return matrix
+
+    def matrix(self, xmin, xmax, ymin, ymax, *, kernel_scale: float | None = None, scale: "jax.Array | None" = None):
         """Return the dense regularization matrix for a rectangular source grid.
 
         Parameters
@@ -210,6 +263,11 @@ class DenseRegularizationBuilder:
         kernel_scale : float, optional
             GP kernel correlation scale. Required for GP regularization and
             ignored for traditional finite-difference penalties.
+        scale : Array or None, optional
+            Per-pixel regularization scale factor of shape ``(Ns,)``.
+            When provided, the returned matrix is
+            ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``.
+            When ``None`` (default), uniform regularisation is used.
 
         Returns
         -------
@@ -227,16 +285,28 @@ class DenseRegularizationBuilder:
             If the bounds produce a non-positive span, or a GP kernel scale is
             missing or non-positive.
         """
+        scale = self._check_scale(scale)
         if self.regularization_type == "zero-order":
-            return self._identity, None
+            mat = self._identity
+            return self._apply_diag_scale(mat, scale), None
         if self.regularization_type == "first-order":
-            return self._first_order_matrix(xmin, xmax, ymin, ymax), None
+            mat = self._first_order_matrix(xmin, xmax, ymin, ymax)
+            return self._apply_diag_scale(mat, scale), None
         if self.regularization_type == "second-order":
-            return self._second_order_matrix(xmin, xmax, ymin, ymax), None
+            mat = self._second_order_matrix(xmin, xmax, ymin, ymax)
+            return self._apply_diag_scale(mat, scale), None
 
         if kernel_scale is None:
             raise ValueError("kernel_scale must be provided for GP regularization.")
-        return self._gp_matrix(xmin, xmax, ymin, ymax, kernel_scale)
+        precision, logdet_cov = self._gp_matrix(xmin, xmax, ymin, ymax, kernel_scale)
+        if scale is not None:
+            precision = self._apply_diag_scale(precision, scale)
+            # logdet(diag(sqrt(scale)) @ precision @ diag(sqrt(scale)))
+            #  = logdet(precision) + sum(log(scale))
+            #  = -logdet_cov + sum(log(scale))
+            # So logdet_cov_new = logdet_cov - sum(log(scale))
+            logdet_cov = logdet_cov - jnp.sum(jnp.log(scale))
+        return precision, logdet_cov
 
     # ------------------------------------------------------------------
     # Matrix-free path  (used by operator / PCG backend)
@@ -244,6 +314,7 @@ class DenseRegularizationBuilder:
 
     def matvec_free(
         self, s: "jax.Array", xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
         r"""Matrix-free :math:`R @ s` for finite-difference regularisation.
 
@@ -256,13 +327,25 @@ class DenseRegularizationBuilder:
         to apply :math:`R` in :math:`O(N_s (n_x + n_y))` without
         materialising the dense :math:`(N_s, N_s)` matrix.
 
+        When *scale* is provided, applies
+        :math:`\text{diag}(\sqrt{\text{scale}}) \cdot R \cdot
+        \text{diag}(\sqrt{\text{scale}})`.
+
         Raises :exc:`ValueError` for GP types (caller should use the dense
         fallback).
         """
+        scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             raise ValueError("matvec_free is not supported for GP regularization types.")
         if self.regularization_type == "zero-order":
+            if scale is not None:
+                return scale * s
             return s
+
+        # Pre-scale: s' = sqrt(scale) * s
+        if scale is not None:
+            sqrt_scale = jnp.sqrt(scale)
+            s = sqrt_scale * s
 
         # Physical pixel scales: dx = (xmax - xmin) / (nx - 1)
         rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
@@ -271,10 +354,16 @@ class DenseRegularizationBuilder:
         # Reshape to (ny, nx), transpose → (nx, ny) where axis 0 = x.
         s_2d = s.reshape(self.ny, self.nx).T  # (nx, ny)
         result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
-        return result_2d.T.ravel()  # back to flat (Ns,)
+        result = result_2d.T.ravel()  # back to flat (Ns,)
+
+        # Post-scale: result = sqrt(scale) * (R @ (sqrt(scale) * s))
+        if scale is not None:
+            result = sqrt_scale * result
+        return result
 
     def logdet_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
         r"""Eigenvalue-based :math:`\log\det R` for finite-difference regularisation.
 
@@ -286,15 +375,23 @@ class DenseRegularizationBuilder:
         where :math:`\mu_i` and :math:`\nu_j` are the eigenvalues of the
         1-D product matrices :math:`R_x` and :math:`R_y`.
 
+        When *scale* is provided, returns
+        :math:`\log\det(\text{diag}(\sqrt{\text{scale}}) \cdot R \cdot
+        \text{diag}(\sqrt{\text{scale}})) = \log\det R + \sum_i \log(\text{scale}_i)`.
+
         Complexity :math:`O(n_x^3 + n_y^3)` for the initial eigendecomposition
         (done once in ``__init__``) and :math:`O(n_x n_y)` per call.
 
         Raises :exc:`ValueError` for GP types.
         """
+        scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             raise ValueError("logdet_free is not supported for GP regularization types.")
         if self.regularization_type == "zero-order":
-            return jnp.array(0.0, dtype=jnp.float32)
+            logdet_r = jnp.array(0.0, dtype=jnp.float32)
+            if scale is not None:
+                logdet_r = logdet_r + jnp.sum(jnp.log(scale))
+            return logdet_r
 
         _, _, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
 
@@ -303,19 +400,28 @@ class DenseRegularizationBuilder:
                     + self._Ry_eigvals[None, :] * scale_y)  # (nx, ny)
         # Guard against numerical zeros from the boundary treatment.
         eig_grid = jnp.maximum(eig_grid, 1e-30)
-        return jnp.sum(jnp.log(eig_grid))
+        logdet_r = jnp.sum(jnp.log(eig_grid))
+
+        if scale is not None:
+            logdet_r = logdet_r + jnp.sum(jnp.log(scale))
+        return logdet_r
 
     def to_dense_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
         """Materialise the dense ``(N_s, N_s)`` regularisation matrix.
 
         For finite-difference types this uses the Kronecker representation;
         for GP types it delegates to :meth:`matrix` (identical result).
 
+        When *scale* is provided, returns
+        ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``.
+
         Intended for one-shot use in :meth:`~PixelizedLensOperator.build_preconditioner`
         where an explicit ``R`` is still needed.
         """
+        scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             # GP types don't have a meaningful kernel_scale here; callers
             # should go through _regularization_data which supplies one.
@@ -324,13 +430,14 @@ class DenseRegularizationBuilder:
                 "Use matrix() with a kernel_scale instead."
             )
         if self.regularization_type == "zero-order":
-            return self._identity
+            return self._apply_diag_scale(self._identity, scale)
 
         rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
 
         # R = I_ny ⊗ (rx * scale_x) + (ry * scale_y) ⊗ I_nx
-        return jnp.kron(jnp.eye(self.ny, dtype=rx.dtype), rx * scale_x) \
-             + jnp.kron(ry * scale_y, jnp.eye(self.nx, dtype=ry.dtype))
+        mat = jnp.kron(jnp.eye(self.ny, dtype=rx.dtype), rx * scale_x) \
+            + jnp.kron(ry * scale_y, jnp.eye(self.nx, dtype=ry.dtype))
+        return self._apply_diag_scale(mat, scale)
 
     # ------------------------------------------------------------------
     # Block-diagonal R  (used by block-diagonal preconditioner)
@@ -367,6 +474,7 @@ class DenseRegularizationBuilder:
         x_start: int, x_end: int,
         y_start: int, y_end: int,
         xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
         r"""Build the R submatrix for one block of the source grid.
 
@@ -378,6 +486,10 @@ class DenseRegularizationBuilder:
         :math:`R_{\rm block} = I_{n_y^b} \otimes (R_x^{\rm sub} \cdot s_x)
         + (R_y^{\rm sub} \cdot s_y) \otimes I_{n_x^b}`.
 
+        When *scale* is provided, extracts the corresponding block of the
+        full scale array and applies
+        ``diag(sqrt(scale_block)) @ R_block @ diag(sqrt(scale_block))``.
+
         Only finite-difference types are supported.
 
         Parameters
@@ -388,6 +500,8 @@ class DenseRegularizationBuilder:
             Row (y-axis) index range for the block.
         xmin, xmax, ymin, ymax : float
             Source-plane bounds for FD scaling.
+        scale : Array or None, optional
+            Full per-pixel scale array of shape ``(Ns,)``.
 
         Returns
         -------
@@ -395,6 +509,7 @@ class DenseRegularizationBuilder:
             Dense submatrix of shape ``(block_n, block_n)`` where
             ``block_n = (x_end - x_start) * (y_end - y_start)``.
         """
+        scale = self._check_scale(scale)
         block_nx = x_end - x_start
         block_ny = y_end - y_start
 
@@ -407,11 +522,20 @@ class DenseRegularizationBuilder:
         eye_y = jnp.eye(block_ny, dtype=rx_sub.dtype)
         eye_x = jnp.eye(block_nx, dtype=ry_sub.dtype)
         R_block = jnp.kron(eye_y, rx_sub) + jnp.kron(ry_sub, eye_x)
+
+        if scale is not None:
+            # Extract scale values for this block (column-major flat indexing)
+            sx = jnp.arange(x_start, x_end)
+            sy = jnp.arange(y_start, y_end)
+            block_flat_idx = (sx[:, None] + sy[None, :] * self.nx).ravel(order='F')
+            scale_block = scale[block_flat_idx]
+            R_block = self._apply_diag_scale(R_block, scale_block)
         return R_block
 
     def diag_R(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
         r"""Return the diagonal of the dense R matrix in :math:`O(N_s)`.
 
@@ -420,18 +544,26 @@ class DenseRegularizationBuilder:
         + s_y \cdot \operatorname{diag}(R_y)_{j}`
         where :math:`k = i + j \cdot n_x`.
 
+        When *scale* is provided, returns the diagonal of
+        ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``, which simplifies to
+        ``scale * diag(R)`` (since D is diagonal).
+
         For GP types, falls back to ``jnp.diag`` of the full matrix (caller
         must supply ``gp_matrix`` via :meth:`matrix` — this method does not
         accept it directly; the caller should pre-build the GP precision and
         extract its diagonal).
         """
+        scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             raise ValueError(
                 "diag_R is not supported for GP types. "
                 "Use jnp.diag on the full GP precision matrix instead."
             )
         if self.regularization_type == "zero-order":
-            return jnp.ones(self.n_pixels, dtype=jnp.float32)
+            diag = jnp.ones(self.n_pixels, dtype=jnp.float32)
+            if scale is not None:
+                diag = scale * diag
+            return diag
 
         rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
         diag_rx = jnp.diag(rx) * scale_x  # (nx,)
@@ -439,27 +571,38 @@ class DenseRegularizationBuilder:
 
         # diag(R)[i + j * nx] = diag_rx[i] + diag_ry[j]
         diag_r = diag_rx[:, None] + diag_ry[None, :]  # (nx, ny)
-        return diag_r.T.ravel()  # match column-major flat order
+        diag_r = diag_r.T.ravel()  # match column-major flat order
+
+        if scale is not None:
+            diag_r = scale * diag_r
+        return diag_r
 
     def make_reg_data(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None,
     ) -> RegData:
         """Return a compact :class:`RegData` tuple for passing through ``A_data``.
 
         Only supports finite-difference regularization types.  GP types are
         not supported by the operator backend.
 
+        When *scale* is provided, it is stored in the returned :class:`RegData`
+        for use by the matrix-free matvec / logdet primitives.
+
         Parameters
         ----------
         xmin, xmax, ymin, ymax : float
             Source-plane bounds.
+        scale : Array or None, optional
+            Per-pixel regularization scale of shape ``(Ns,)``.
 
         Raises
         ------
         ValueError
             If ``regularization_type`` is a GP type.
         """
+        scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             raise ValueError(
                 "Operator backend does not support GP regularization types. "
@@ -467,7 +610,7 @@ class DenseRegularizationBuilder:
             )
 
         rx, ry, scl_x, scl_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-        return RegData(rx=rx, ry=ry, scale_x=scl_x, scale_y=scl_y)
+        return RegData(rx=rx, ry=ry, scale_x=scl_x, scale_y=scl_y, scale=scale)
 
     def _build_first_difference_operators(self):
         """Return first-order x/y finite-difference operators on index space.

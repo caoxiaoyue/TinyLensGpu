@@ -229,7 +229,7 @@ with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
 
     # Get bbox and build regularization
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
+    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
     reg_data = prob_model._regularization_data(
         xmin, xmax, ymin, ymax
     )

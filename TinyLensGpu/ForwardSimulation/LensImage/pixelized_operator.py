@@ -141,7 +141,7 @@ def _A_matvec_jit(
     psf_fft: Array,
     psf_fft_conj: Array,
     noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: tuple,          # RegData: (rx, ry, scale_x, scale_y)
+    reg_data: tuple,          # RegData: (rx, ry, scale_x, scale_y, scale)
     lambda_reg: Array,
     nx: int,                  # static: source grid x-dim
     ny: int,                  # static: source grid y-dim
@@ -152,7 +152,9 @@ def _A_matvec_jit(
     ``psf_fft_conj`` is ``conj(FFT(PSF))`` for the adjoint convolution Bᵀ.
     ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
     tuple holding compact Kronecker-sum descriptors for finite-difference
-    regularisation.  ``nx``, ``ny`` are static grid dimensions.
+    regularisation.  When ``reg_data.scale`` is not ``None``, adaptive
+    regularisation ``diag(√scale) · R · diag(√scale)`` is applied.
+    ``nx``, ``ny`` are static grid dimensions.
     """
     # ---- L(s) ----
     img_lensed = _apply_L_jit(
@@ -179,10 +181,16 @@ def _A_matvec_jit(
     )  # (Ns,)
 
     # ---- + λ R s  (matrix-free Kronecker-sum) ----
-    rx, ry, scale_x, scale_y = reg_data
-    s_2d = s.reshape(ny, nx).T          # (nx, ny)
+    rx, ry, scale_x, scale_y, scale = reg_data
+    s_work = s
+    if scale is not None:
+        sqrt_scale = jnp.sqrt(scale)
+        s_work = sqrt_scale * s_work
+    s_2d = s_work.reshape(ny, nx).T     # (nx, ny)
     result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
     reg_term = result_2d.T.ravel()      # (Ns,)
+    if scale is not None:
+        reg_term = sqrt_scale * reg_term
     return src + lambda_reg * reg_term
 
 
@@ -334,6 +342,17 @@ class PixelizedLensOperator:
             ymin = jax.lax.stop_gradient(ymin)
             ymax = jax.lax.stop_gradient(ymax)
         return xmin, xmax, ymin, ymax
+
+    def ray_trace_seed(self) -> tuple[Array, Array]:
+        """Ray-trace seed mask pixels to the source plane.
+
+        Returns ``(beta_x_seed, beta_y_seed)`` for all active pixels in the
+        source seed mask.
+        """
+        beta_x_seed, beta_y_seed = self.phys_model.deflection(
+            x=self.image_x_seed, y=self.image_y_seed
+        )
+        return beta_x_seed, beta_y_seed
 
     # ------------------------------------------------------------------
     # Precompute lens-operator data (called ONCE per bbox)
@@ -498,7 +517,8 @@ class PixelizedLensOperator:
         lambda_reg: Array,
         reg_builder: DenseRegularizationBuilder,
         block_size: int = 8,
-    ) -> tuple[list[Array], list[Array]]:
+        scale: Array | None = None,
+    ) -> tuple[Array | list[Array], Array | list[Array]]:
         r"""Build a block-diagonal preconditioner P and its Cholesky factors.
 
         Partitions the source grid into ``block_size × block_size`` blocks
@@ -520,14 +540,20 @@ class PixelizedLensOperator:
             Source-plane regularization builder (provides per-block R).
         block_size : int, optional
             Source-grid block size in pixels (default 8).
+        scale : Array or None, optional
+            Per-pixel regularization scale of shape ``(Ns,)``.  When
+            provided, each block's regularization submatrix incorporates
+            the corresponding subset of the scale array.
 
         Returns
         -------
-        tuple[list[Array], list[Array]]
+        tuple[Array | list[Array], Array | list[Array]]
             ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
             lower-triangular Cholesky factor of the i-th block's P submatrix,
             and ``block_masks[i]`` contains the global flat source indices
-            belonging to that block.
+            belonging to that block.  When all blocks have the same size the
+            result is stacked into arrays with shapes ``(n_blocks, b, b)`` and
+            ``(n_blocks, b)`` so the PCG preconditioner can be vmapped.
         """
         H, W = self.image_shape
         noise_1d_j = jnp.asarray(noise_1d)
@@ -631,31 +657,53 @@ class PixelizedLensOperator:
                 in_j = in_block[:, None, :]            # (Nd, 1, 4)
                 valid = in_i & in_j                    # (Nd, 4, 4)
 
-                # Flatten all to Nd*16 and filter valid entries
+                # Flatten all to Nd*16 and filter valid entries.
+                # Use multiplication instead of jnp.where for vals_f to
+                # avoid the two-branch primitive that can leak NaN from the
+                # dead branch into XLA's GEMM fusion autotuner comparisons.
                 loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
                 loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
                 valid_f = valid.ravel()
+                valid_f_float = valid_f.astype(w_prod.dtype)
 
                 loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
                 loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
-                vals_f = jnp.where(valid_f, w_prod.ravel(), 0.0)
+                vals_f = w_prod.ravel() * valid_f_float
 
                 P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
 
                 # ---- + λ R_block ----
                 R_block = reg_builder.block_diag_R(
                     x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
+                    scale=scale,
                 )
                 P_block = P_block + lambda_reg * R_block
                 P_block = 0.5 * (P_block + P_block.T)
 
-                # ---- Cholesky with diagonal jitter ----
-                jitter = 1e-8 * jnp.eye(block_n, dtype=P_block.dtype)
+                # ---- Cholesky with scale-adaptive diagonal jitter ----
+                # A fixed absolute jitter (e.g. 1e-8) is inadequate for the
+                # grid-search λ range [1e-8, 1e8]: at large λ the R_block
+                # entries can reach 10^12–10^16, making κ(P) ≫ 1/ε_f32 and
+                # causing Cholesky to produce NaN.  We use a jitter
+                # proportional to the mean diagonal magnitude so the
+                # conditioner number stays bounded regardless of λ.
+                #
+                # The symmetrisation at line 675 guarantees diag is real;
+                # abs guards against tiny negative rounding noise.
+                diag_P = jnp.diag(P_block)
+                diag_mean = jnp.mean(jnp.abs(diag_P))
+                jitter_scale = jnp.maximum(diag_mean, 1e-8)
+                jitter = 1e-6 * jitter_scale * jnp.eye(block_n, dtype=P_block.dtype)
                 P_block = P_block + jitter
 
                 chol_block = jnp.linalg.cholesky(P_block)
                 block_chols.append(chol_block)
                 block_masks.append(bf)
+
+        if block_chols:
+            block_sizes = {int(chol.shape[0]) for chol in block_chols}
+            if len(block_sizes) == 1:
+                return jnp.stack(block_chols, axis=0), jnp.stack(block_masks, axis=0)
 
         return block_chols, block_masks
 
@@ -663,8 +711,11 @@ class PixelizedLensOperator:
     # Legacy: dense preconditioner  (for testing / small grids)
     # ------------------------------------------------------------------
     @staticmethod
-    def logdet_block_diag(block_chols: list[Array]) -> Array:
+    def logdet_block_diag(block_chols: Array | list[Array]) -> Array:
         """Compute ``log|P|`` from block-diagonal Cholesky factors."""
+        if not isinstance(block_chols, (list, tuple)):
+            return 2.0 * jnp.sum(jnp.log(jnp.diagonal(block_chols, axis1=-2, axis2=-1)))
+
         total = jnp.array(0.0, dtype=block_chols[0].dtype)
         for chol in block_chols:
             total = total + 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))

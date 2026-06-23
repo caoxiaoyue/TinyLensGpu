@@ -61,12 +61,14 @@ def pcg_solve(
         ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
         tuple — compact descriptor for matrix-free or GP regularisation.
     b : Array, shape ``(N,)``
-    preconditioner : Array or tuple[list[Array], list[Array]]
+    preconditioner : Array or tuple[Array | list[Array], Array | list[Array]]
         Either a dense Cholesky lower factor ``P_chol_lower`` of shape
         ``(N, N)`` (legacy), or a block-diagonal tuple
         ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
         Cholesky factor for the i-th block and ``block_masks[i]`` holds
-        the global flat source indices belonging to that block.
+        the global flat source indices belonging to that block.  If all
+        blocks share a size, these may be stacked arrays with shapes
+        ``(n_blocks, b, b)`` and ``(n_blocks, b)``.
     _A_jit_prebound : callable (static)
         ``functools.partial`` of ``_A_matvec_jit`` with static ints bound.
         Created once at ``PixelizedLensOperator.__init__`` — its identity
@@ -99,14 +101,24 @@ def pcg_solve(
         # Block-diagonal: (block_chols, block_masks)
         block_chols, block_masks = preconditioner
 
-        def _preconditioner_solve(r: Array) -> Array:
-            z = jnp.zeros_like(r)
-            for chol, mask in zip(block_chols, block_masks):
-                r_block = r[mask]
+        if not isinstance(block_chols, (list, tuple)):
+            def _solve_one(chol: Array, r_block: Array) -> Array:
                 w = jsl.solve_triangular(chol, r_block, lower=True)
-                z_block = jsl.solve_triangular(chol.T, w, lower=False)
-                z = z.at[mask].set(z_block)
-            return z
+                return jsl.solve_triangular(chol.T, w, lower=False)
+
+            def _preconditioner_solve(r: Array) -> Array:
+                r_blocks = r[block_masks]
+                z_blocks = jax.vmap(_solve_one)(block_chols, r_blocks)
+                return jnp.zeros_like(r).at[block_masks].set(z_blocks)
+        else:
+            def _preconditioner_solve(r: Array) -> Array:
+                z = jnp.zeros_like(r)
+                for chol, mask in zip(block_chols, block_masks):
+                    r_block = r[mask]
+                    w = jsl.solve_triangular(chol, r_block, lower=True)
+                    z_block = jsl.solve_triangular(chol.T, w, lower=False)
+                    z = z.at[mask].set(z_block)
+                return z
     else:
         # Dense Cholesky (legacy)
         P_chol_lower = preconditioner

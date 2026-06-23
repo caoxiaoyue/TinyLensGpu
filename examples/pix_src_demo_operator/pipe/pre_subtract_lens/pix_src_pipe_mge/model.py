@@ -639,7 +639,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         lam_j = jnp.asarray(lam_val)
 
         # --- Operator backend: PCG solve without building dense design matrix ---
-        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = likelihood._get_bbox()
+        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = likelihood._get_bbox()
         reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax)
         op_data = likelihood.sim_obj.precompute_operator_data(
             xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),

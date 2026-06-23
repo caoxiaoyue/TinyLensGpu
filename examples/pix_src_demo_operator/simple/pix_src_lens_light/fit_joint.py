@@ -263,7 +263,7 @@ with ck.ActiveContext(prob_model):
     # --- Operator backend: PCG solve without building dense design matrix ---
     # NOTE: lens-light joint inversion is not supported by the operator backend.
     # Lens light and source are not separable in the forward model.
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = prob_model._get_bbox()
+    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
     reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
     op_data = prob_model.sim_obj.precompute_operator_data(
         xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),

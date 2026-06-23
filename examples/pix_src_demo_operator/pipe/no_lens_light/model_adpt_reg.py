@@ -13,13 +13,13 @@ Stage m2 : EPL + shear + pixelized source — Nautilus nested sampling
            (Gaussian priors from stage a on EPL+shear; lambda_reg fixed at M1 best)
 
 Each stage pickles its posterior samples/weights to
-``output/stage_{a,m1,m2}.pkl`` and is re-runnable via ``--skip-done``.
+``output_adpt_reg/stage_{a,m1,m2}.pkl`` and is re-runnable via ``--skip-done``.
 
 Usage::
 
     # From no_lens_light/
-    python model.py
-    python model.py --skip-done
+    python model_adpt_reg.py
+    python model_adpt_reg.py --skip-done
 """
 
 from __future__ import annotations
@@ -34,8 +34,17 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+# Disable NVIDIA TF32 (10-bit mantissa) for matmul.  The λ grid search
+# spans 16 decades [1e-8, 1e8]; at the extremes the preconditioner blocks
+# contain entries separated by 10^20, which TF32 truncation turns into
+# NaN inside XLA's GEMM fusion autotuner ("nan, expected 0").  Full
+# float32 avoids this entirely at a modest matmul throughput cost.
+os.environ.setdefault("NVIDIA_TF32_OVERRIDE", "0")
 
 os.chdir(Path(__file__).parent)
+
+import jax
+jax.config.update("jax_default_matmul_precision", "float32")
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -75,7 +84,9 @@ NSUB_PIX = 4
 N_GAUSSIANS_SRC = 10
 MASK_RADIUS = 2.5
 NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
-OUT_DIR = Path("output")
+ADAPTIVE_REG_ALPHA = 1.0    # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
+ADAPTIVE_REG_FLOOR = 0.1    # minimum per-pixel reg scale
+OUT_DIR = Path("output_adpt_reg")
 DATA_DIR = Path("data")
 
 
@@ -113,7 +124,7 @@ def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
     )
     with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
         pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to output/stage_{tag}.pkl")
+    print(f"[{tag}] posterior saved to output_adpt_reg/stage_{tag}.pkl")
 
 
 def _load_stage(tag: str):
@@ -488,6 +499,8 @@ def build_stage_m1_likelihood(
         ny=NSRCY,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
+        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
+        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -633,7 +646,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
 # Stage M2 — EPL + shear + pixelized source  (λ fixed from M1)
 # ------------------------------------------------------------------ #
 def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
-    """4-panel diagnostic: data | model | norm-residual | source."""
+    """5-panel diagnostic: data | model | norm-residual | source | reg-scale."""
     q50 = [medians[n] for n in param_names]
     image_data = np.asarray(likelihood.image_data)
     noise_map  = np.asarray(likelihood.noise_map)
@@ -645,14 +658,23 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         lambda_j = jnp.asarray(lam_val)
 
-        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = likelihood._get_bbox()
-        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax)
+        # Unpack 8-value _get_bbox (includes seed betas for adaptive reg)
+        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+         beta_x_seed, beta_y_seed) = likelihood._get_bbox()
+
+        # Compute adaptive regularization scale map
+        scale = likelihood._compute_reg_scale_from_betas(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
+
+        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
         op_data = likelihood.sim_obj.precompute_operator_data(
             xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
         )
         block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
             likelihood.noise_1d, xmin, xmax, ymin, ymax, lambda_j,
             likelihood.reg_builder, block_size=likelihood.block_size,
+            scale=scale,
         )
         preconditioner = (block_chols, block_masks)
         source_pixels, pcg_info = likelihood._solve_source(
@@ -678,6 +700,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                     break
                 R_block = likelihood.reg_builder.block_diag_R(
                     x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
+                    scale=scale,
                 )
                 chol = block_chols[bid]
                 inv_block = jsl.cho_solve((chol, True), R_block)
@@ -714,12 +737,17 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     ny = likelihood.phys_model.source_light[0].ny
     src_img = np.array(source_pixels).reshape(ny, nx)
 
+    # Scale map (2D source grid)
+    scale_img = np.array(scale).reshape(ny, nx) if scale is not None else np.ones((ny, nx))
+    lvl = likelihood.phys_model.source_light[0].adaptive_reg_alpha
+    flr = likelihood.phys_model.source_light[0].adaptive_reg_floor
+
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
     ext_s = [float(xmin), float(xmax), float(ymin), float(ymax)]
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
 
-    fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
+    fig, axes = plt.subplots(1, 5, figsize=(21, 4.2))
     # Compute bounding box of unmasked pixels for panels 1-3
     rows_unmasked, cols_unmasked = np.where(~mask)
     pad = 3  # pixels of padding
@@ -752,6 +780,15 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
     axes[3].set_xlabel("arcsec")
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+
+    # Panel 5: adaptive reg scale map
+    im4 = axes[4].imshow(scale_img, origin="lower", extent=ext_s,
+                         cmap="plasma", vmin=flr, vmax=1.0)
+    axes[4].set_title(f"Reg scale map\n(α={lvl:.1f}, floor={flr})", fontsize=11)
+    axes[4].set_xlabel("arcsec")
+    plt.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04,
+                 label=r"$\lambda_i / \lambda_{\rm global}$")
+
     axes[0].set_ylabel("arcsec")
     # Panels 1-3: zoom to unmasked pixel region
     for ax in axes[:3]:
@@ -788,6 +825,8 @@ def build_stage_m2_likelihood(
         ny=NSRCY,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
+        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
+        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -870,7 +909,7 @@ def main(skip_done: bool = False):
     # ---- stage A ---------------------------------------------------- #
     time_a = 0.0
     if skip_done and (OUT_DIR / "stage_a.pkl").exists():
-        print("[stage-A] loading cached output/stage_a.pkl")
+        print("[stage-A] loading cached output_adpt_reg/stage_a.pkl")
         d = _load_stage("a")
         samples_a, weights_a, names_a = d["samples"], d["weights"], d["param_names"]
         medians_a = d["extra"]["medians"]
@@ -892,7 +931,7 @@ def main(skip_done: bool = False):
     time_m1 = 0.0
     log_lambda_m1 = None
     if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
-        print("[stage-M1] loading cached output/stage_m1.pkl")
+        print("[stage-M1] loading cached output_adpt_reg/stage_m1.pkl")
         d = _load_stage("m1")
         log_lambda_m1 = d["extra"]["lambda_best"]
         time_m1 = d["extra"].get("time_taken", 0.0)
@@ -927,7 +966,7 @@ def main(skip_done: bool = False):
     # ---- stage M2 --------------------------------------------------- #
     time_m2 = 0.0
     if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
-        print("[stage-M2] loading cached output/stage_m2.pkl")
+        print("[stage-M2] loading cached output_adpt_reg/stage_m2.pkl")
         d = _load_stage("m2")
         samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
         medians_m2 = d["extra"]["medians"]
@@ -978,6 +1017,6 @@ def main(skip_done: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-done", action="store_true",
-                        help="Re-use cached posteriors in output/stage_*.pkl")
+                        help="Re-use cached posteriors in output_adpt_reg/stage_*.pkl")
     args = parser.parse_args()
     main(skip_done=args.skip_done)

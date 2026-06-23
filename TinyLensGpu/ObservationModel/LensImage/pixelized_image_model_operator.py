@@ -15,7 +15,9 @@ import functools
 from typing import Dict, Optional, Union
 
 import caskade as ck
+import jax
 import jax.numpy as jnp
+import jax.scipy.signal as jsp_signal
 import numpy as np
 from jax import Array, jit
 
@@ -28,6 +30,9 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
+)
+from TinyLensGpu.utils.lensing.mapping import (
+    lens_mapping_operator_bilinear_rectangular_from,
 )
 
 
@@ -170,36 +175,127 @@ class PixelizedImageProbModelOperator(ck.Module):
     def _get_bbox(self):
         """Infer source-plane bounding box from seed-region ray-tracing.
 
-        Returns ``(xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub)`` so
-        that callers can pass the pre-computed sub-grid deflection to
-        :meth:`PixelizedLensOperator.precompute_operator_data` and avoid a
-        redundant second deflection call.
+        Returns ``(xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+        beta_x_seed, beta_y_seed)`` so that callers can reuse the seed
+        betas for adaptive regularisation without a second deflection call.
         """
         beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed = \
             self.sim_obj._get_beta_sub_and_seed()
         xmin, xmax, ymin, ymax = self.sim_obj._infer_and_fix_bbox(
             beta_x_seed, beta_y_seed
         )
-        return xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub
+        return xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed
 
     # ------------------------------------------------------------------
     # Regularization matrix
     # ------------------------------------------------------------------
 
     def _regularization_data(
-        self, xmin, xmax, ymin, ymax
+        self, xmin, xmax, ymin, ymax, scale: Array | None = None,
     ) -> tuple:
         """Return the compact :class:`RegData` tuple for the matrix-free PCG path.
 
         Only finite-difference regularization types are supported by the
         operator backend.  GP types should use the dense backend instead.
 
+        If *scale* is ``None``, a uniform scale array of ones is used so
+        that the matrix-free operator path always has a concrete ``scale``
+        field (required for JIT compatibility).
+
         Returns
         -------
         RegData
             Compact Kronecker-sum descriptors for the regularisation term.
         """
-        return self.reg_builder.make_reg_data(xmin, xmax, ymin, ymax)
+        if scale is None:
+            scale = jnp.ones(self.sim_obj.n_source_pixels, dtype=jnp.float32)
+        return self.reg_builder.make_reg_data(xmin, xmax, ymin, ymax, scale=scale)
+
+    # ------------------------------------------------------------------
+    # Adaptive regularization scale map
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _smooth_scale_map(q_1d: Array, nx: int, ny: int) -> Array:
+        """Gaussian-smooth the scale map on the 2-D source grid.
+
+        Uses a 5x5 separable Gaussian kernel with sigma = 1 source pixel.
+        Assumes row-major flat layout ``(x + y * nx)``.
+        """
+        sigma = 1.0
+        ksize = 5
+        x_k = jnp.arange(ksize, dtype=jnp.float32) - (ksize - 1) / 2
+        kernel_1d = jnp.exp(-0.5 * (x_k / sigma) ** 2)
+        kernel_1d = kernel_1d / jnp.sum(kernel_1d)
+        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
+
+        # Row-major flat -> (ny, nx)
+        q_2d = q_1d.reshape(ny, nx)
+        q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
+        return q_smooth.ravel()  # back to (Ns,)
+
+    def _compute_reg_scale_from_betas(
+        self,
+        beta_x_seed: Array,
+        beta_y_seed: Array,
+        xmin, xmax, ymin, ymax,
+    ) -> Array:
+        """Compute per-source-pixel regularization scale factors.
+
+        Returns a ``(Ns,)`` array of scale factors in ``[floor, 1.0]``.
+        When ``adaptive_reg_alpha == 0`` returns ``jnp.ones(Ns)`` (uniform
+        regularisation, required for JIT compatibility in the operator path).
+        """
+        alpha_value = self.source_model.adaptive_reg_alpha
+        nx = self.sim_obj.source_nx
+        ny = self.sim_obj.source_ny
+        n_source = nx * ny
+
+        if alpha_value == 0.0:
+            return jnp.ones(n_source, dtype=jnp.float32)
+
+        floor = jnp.asarray(self.source_model.adaptive_reg_floor, dtype=jnp.float32)
+        alpha = jnp.asarray(alpha_value, dtype=jnp.float32)
+
+        # 1. Brightness at seed mask active pixels
+        brightness = jnp.maximum(
+            jnp.ravel(self.image_data)[self.sim_obj.seed_flat_indices], 0.0,
+        )
+
+        # 2. Bilinear weights mapping seed betas → source grid
+        data_mesh = jnp.stack(
+            [jnp.ravel(beta_x_seed), jnp.ravel(beta_y_seed)], axis=1,
+        )
+        weights, indices, valid = lens_mapping_operator_bilinear_rectangular_from(
+            data_mesh, xmin, xmax, ymin, ymax, nx, ny,
+        )
+
+        # 3. Brightness-weighted histogram via segment_sum
+        # w_bright shape is (N_seed, 4) since each seed pixel splits its brightness
+        # across 4 adjacent source pixels via bilinear interpolation.
+        w_bright = weights * (brightness[:, None] * valid[:, None].astype(weights.dtype))
+
+        # q Accumulate all scattered brightness fractions into their corresponding
+        # source pixels to build a rough initial source brightness map.
+        q = jax.ops.segment_sum(
+            w_bright.ravel(), indices.ravel(),
+            num_segments=n_source,
+        )  # (Ns,)
+
+        # 4. Normalize by mean positive count
+        q_pos = jnp.where(q > 0, q, 0.0)
+        q_sum = jnp.sum(q_pos)
+        q_count = jnp.maximum(jnp.sum(q > 0), 1.0)
+        q_mean = q_sum / q_count
+        q_norm = q / jnp.maximum(q_mean, 1e-10)
+
+        # 5. Smooth on source grid
+        q_smooth = self._smooth_scale_map(q_norm, nx, ny)
+
+        # 6. Compute scale
+        scale = 1.0 / (1.0 + alpha * q_smooth)
+        scale = jnp.maximum(scale, floor)
+        return scale
 
     # ------------------------------------------------------------------
     # Source solve via PCG
@@ -259,10 +355,16 @@ class PixelizedImageProbModelOperator(ck.Module):
         """
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
-        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
+        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+         beta_x_seed, beta_y_seed) = self._get_bbox()
+
+        # Compute adaptive regularization scale map (zero extra tracing)
+        scale = self._compute_reg_scale_from_betas(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
 
         # reg_data: compact Kronecker-sum descriptor for matrix-free PCG.
-        reg_data = self._regularization_data(xmin, xmax, ymin, ymax)
+        reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
 
         # ---- Precompute lens-operator data ONCE ----
         # Reuse sub-grid betas from _get_bbox to avoid a second deflection call.
@@ -278,6 +380,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             lambda_reg,
             self.reg_builder,
             block_size=self.block_size,
+            scale=scale,
         )
         preconditioner = (block_chols, block_masks)
 
@@ -311,7 +414,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         e_s = 0.5 * jnp.dot(
             source_pixels,
             self.reg_builder.matvec_free(
-                source_pixels, xmin, xmax, ymin, ymax,
+                source_pixels, xmin, xmax, ymin, ymax, scale=scale,
             ),
         )
 
@@ -319,7 +422,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
 
         # logdet regularisation matrix — eigenvalue-based formula
-        logdet_h = self.reg_builder.logdet_free(xmin, xmax, ymin, ymax)
+        logdet_h = self.reg_builder.logdet_free(xmin, xmax, ymin, ymax, scale=scale)
 
         log_evidence = (
             -e_d
@@ -344,9 +447,14 @@ class PixelizedImageProbModelOperator(ck.Module):
     ):
         """Solve linear params and return the reconstructed model image."""
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
-        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub = self._get_bbox()
+        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+         beta_x_seed, beta_y_seed) = self._get_bbox()
 
-        reg_data = self._regularization_data(xmin, xmax, ymin, ymax)
+        scale = self._compute_reg_scale_from_betas(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
+
+        reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
 
         # Precompute operator data once (reuse betas from _get_bbox).
         op_data = self.sim_obj.precompute_operator_data(
@@ -361,6 +469,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             lambda_reg,
             self.reg_builder,
             block_size=self.block_size,
+            scale=scale,
         )
         preconditioner = (block_chols, block_masks)
 

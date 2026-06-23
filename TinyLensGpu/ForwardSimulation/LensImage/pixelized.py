@@ -143,6 +143,18 @@ class PixelizedLensSimulator:
         psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
         self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
 
+    def ray_trace_seed(self) -> tuple[Array, Array]:
+        """Ray-trace seed mask pixels to the source plane.
+
+        Returns ``(beta_x_seed, beta_y_seed)`` for all active pixels in the
+        source seed mask.  These are the same coordinates used internally by
+        :meth:`design_matrix` for bounding-box inference.
+        """
+        beta_x_seed, beta_y_seed = self.phys_model.deflection(
+            x=self.image_x_seed, y=self.image_y_seed
+        )
+        return beta_x_seed, beta_y_seed
+
     def infer_source_bbox(
         self,
         beta_x: Array,

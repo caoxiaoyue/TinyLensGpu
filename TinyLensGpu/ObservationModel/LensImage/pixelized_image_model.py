@@ -8,8 +8,10 @@ from typing import Dict, Optional, Union
 
 import caskade as ck
 import functools
+import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
+import jax.scipy.signal as jsp_signal
 import numpy as np
 from jax import Array, jit
 
@@ -19,6 +21,10 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     GP_REGULARIZATION_TYPES,
+)
+from TinyLensGpu.utils.lensing.mapping import (
+    build_source_grid,
+    lens_mapping_operator_bilinear_rectangular_from,
 )
 from TinyLensGpu.utils.linear_solver import fnnls_jax
 
@@ -193,8 +199,19 @@ class PixelizedImageProbModel(ck.Module):
         """Evaluate log evidence for current parameter values."""
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
-        design_matrix, source_bbox = self.sim_obj.design_matrix()
-        reg_matrix, logdet_cov = self._regularization_matrix(source_bbox)
+
+        # Trace seed pixels once; reuse for bbox + adaptive scale map
+        beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
+        source_bbox = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
+        if self.sim_obj.detach_bbox:
+            source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
+        xmin, xmax, ymin, ymax = source_bbox
+        scale = self._compute_reg_scale_from_betas(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
+
+        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
+        reg_matrix, logdet_cov = self._regularization_matrix(source_bbox, scale=scale)
         linear_params, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
         n_source = self.sim_obj.n_source_pixels
@@ -244,7 +261,7 @@ class PixelizedImageProbModel(ck.Module):
 
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
 
-    def _regularization_matrix(self, source_bbox: tuple) -> tuple[Array, Array | None]:
+    def _regularization_matrix(self, source_bbox: tuple, scale: Array | None = None) -> tuple[Array, Array | None]:
         """Return (reg_matrix, logdet_covariance) for the configured regularization.
 
         For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the Cholesky
@@ -256,15 +273,101 @@ class PixelizedImageProbModel(ck.Module):
         if self.reg_type in GP_REGULARIZATION_TYPES:
             kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
             precision, logdet_cov = self.reg_builder.matrix(
-                xmin, xmax, ymin, ymax, kernel_scale=kernel_scale
+                xmin, xmax, ymin, ymax, kernel_scale=kernel_scale, scale=scale,
             )
             return jnp.asarray(precision, dtype=self.image_data.dtype), logdet_cov
-        reg_matrix_raw, _ = self.reg_builder.matrix(xmin, xmax, ymin, ymax)
+        reg_matrix_raw, _ = self.reg_builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
         reg_matrix = jnp.asarray(
             reg_matrix_raw,
             dtype=self.image_data.dtype,
         )
         return reg_matrix, None
+
+    # ------------------------------------------------------------------
+    # Adaptive regularization scale map
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _smooth_scale_map(q_1d: Array, nx: int, ny: int) -> Array:
+        """Gaussian-smooth the scale map on the 2-D source grid.
+
+        Uses a 5x5 separable Gaussian kernel with sigma = 1 source pixel.
+        Assumes row-major flat layout ``(x + y * nx)``.
+        """
+        sigma = 1.0
+        ksize = 5
+        x_k = jnp.arange(ksize, dtype=jnp.float32) - (ksize - 1) / 2
+        kernel_1d = jnp.exp(-0.5 * (x_k / sigma) ** 2)
+        kernel_1d = kernel_1d / jnp.sum(kernel_1d)
+        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
+
+        # Row-major flat -> (ny, nx)
+        q_2d = q_1d.reshape(ny, nx)
+        q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
+        return q_smooth.ravel()  # back to (Ns,)
+
+    def _compute_reg_scale_from_betas(
+        self,
+        beta_x_seed: Array,
+        beta_y_seed: Array,
+        xmin, xmax, ymin, ymax,
+    ) -> Array | None:
+        """Compute per-source-pixel regularization scale factors.
+
+        Returns ``None`` when ``adaptive_reg_alpha == 0`` (fast path — uniform
+        regularisation).  Otherwise returns a ``(Ns,)`` array of scale factors
+        in ``[floor, 1.0]``.
+        """
+        alpha = self.source_model.adaptive_reg_alpha
+        if alpha == 0.0:
+            return None
+
+        nx = self.sim_obj.source_nx
+        ny = self.sim_obj.source_ny
+        n_source = nx * ny
+        floor = jnp.asarray(self.source_model.adaptive_reg_floor, dtype=jnp.float32)
+        alpha = jnp.asarray(alpha, dtype=jnp.float32)
+
+        # 1. Brightness at seed mask active pixels
+        brightness = jnp.maximum(
+            jnp.ravel(self.image_data)[self.sim_obj.seed_flat_indices], 0.0,
+        )
+
+        # 2. Bilinear weights mapping seed betas → source grid
+        data_mesh = jnp.stack(
+            [jnp.ravel(beta_x_seed), jnp.ravel(beta_y_seed)], axis=1,
+        )
+        weights, indices, valid = lens_mapping_operator_bilinear_rectangular_from(
+            data_mesh, xmin, xmax, ymin, ymax, nx, ny,
+        )
+        # weights: (N_seed, 4), indices: (N_seed, 4), valid: (N_seed,)
+
+        # 3. Brightness-weighted histogram via segment_sum
+        # w_bright shape is (N_seed, 4) since each seed pixel splits its brightness 
+        # across 4 adjacent source pixels via bilinear interpolation.
+        w_bright = weights * (brightness[:, None] * valid[:, None].astype(weights.dtype))
+        
+        # q Accumulate all scattered brightness fractions into their corresponding 
+        # source pixels to build a rough initial source brightness map.
+        q = jax.ops.segment_sum(
+            w_bright.ravel(), indices.ravel(),
+            num_segments=n_source,
+        )  # (Ns,)
+
+        # 4. Normalize by mean positive count
+        q_pos = jnp.where(q > 0, q, 0.0)
+        q_sum = jnp.sum(q_pos)
+        q_count = jnp.maximum(jnp.sum(q > 0), 1.0)
+        q_mean = q_sum / q_count
+        q_norm = q / jnp.maximum(q_mean, 1e-10)
+
+        # 5. Smooth on source grid
+        q_smooth = self._smooth_scale_map(q_norm, nx, ny)
+
+        # 6. Compute scale
+        scale = 1.0 / (1.0 + alpha * q_smooth)
+        scale = jnp.maximum(scale, floor)
+        return scale
 
     @ck.forward
     def forward_model(self, *, return_source: bool = False, return_components: bool = False):
@@ -283,8 +386,16 @@ class PixelizedImageProbModel(ck.Module):
         Array or tuple
             Model image, optionally with source pixels and lens light.
         """
-        design_matrix, source_bbox = self.sim_obj.design_matrix()
-        reg_matrix, _ = self._regularization_matrix(source_bbox)
+        beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
+        source_bbox = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
+        if self.sim_obj.detach_bbox:
+            source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
+        xmin, xmax, ymin, ymax = source_bbox
+        scale = self._compute_reg_scale_from_betas(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
+        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
+        reg_matrix, _ = self._regularization_matrix(source_bbox, scale=scale)
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         linear_params, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
 
