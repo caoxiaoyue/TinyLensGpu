@@ -126,8 +126,108 @@ def _apply_Lt_jit(
     return result
 
 
+def _geom_mean(a: Array, b: Array) -> Array:
+    """Geometric mean, clipped away from zero."""
+    return jnp.sqrt(jnp.maximum(a, 1e-30) * jnp.maximum(b, 1e-30))
+
+
+def _geom_mean3(a: Array, b: Array, c: Array) -> Array:
+    """Geometric mean of three arrays."""
+    return jnp.exp(
+        (jnp.log(jnp.maximum(a, 1e-30))
+         + jnp.log(jnp.maximum(b, 1e-30))
+         + jnp.log(jnp.maximum(c, 1e-30))) / 3.0
+    )
+
+
+def _weighted_first_order_matvec_jit(
+    s: Array, scale: Array | None, scale_x: Array, scale_y: Array, nx: int, ny: int
+) -> Array:
+    """Edge-weighted first-order Laplacian ``R @ s``."""
+    s_2d = s.reshape(ny, nx)
+    scale_2d = scale.reshape(ny, nx) if scale is not None else None
+
+    out_x = jnp.zeros_like(s_2d)
+    out_y = jnp.zeros_like(s_2d)
+    if nx > 1:
+        if scale_2d is None:
+            w_x = jnp.ones((ny, nx - 1), dtype=s.dtype)
+        else:
+            w_x = _geom_mean(scale_2d[:, :-1], scale_2d[:, 1:])
+        diff_x = s_2d[:, 1:] - s_2d[:, :-1]
+        wdiff_x = w_x * diff_x
+        out_x = out_x.at[:, :-1].add(-wdiff_x)
+        out_x = out_x.at[:, 1:].add(wdiff_x)
+        out_x = out_x.at[:, -1].add(s_2d[:, -1])
+    if ny > 1:
+        if scale_2d is None:
+            w_y = jnp.ones((ny - 1, nx), dtype=s.dtype)
+        else:
+            w_y = _geom_mean(scale_2d[:-1, :], scale_2d[1:, :])
+        diff_y = s_2d[1:, :] - s_2d[:-1, :]
+        wdiff_y = w_y * diff_y
+        out_y = out_y.at[:-1, :].add(-wdiff_y)
+        out_y = out_y.at[1:, :].add(wdiff_y)
+        out_y = out_y.at[-1, :].add(s_2d[-1, :])
+    return (scale_x * out_x + scale_y * out_y).ravel()
+
+
+def _weighted_second_order_matvec_jit(
+    s: Array, scale: Array | None, scale_x: Array, scale_y: Array, nx: int, ny: int
+) -> Array:
+    """Edge-weighted second-order curvature ``R @ s``."""
+    s_2d = s.reshape(ny, nx)
+    scale_2d = scale.reshape(ny, nx) if scale is not None else None
+
+    out_x = jnp.zeros_like(s_2d)
+    out_y = jnp.zeros_like(s_2d)
+    if nx > 1:
+        if scale_2d is None:
+            w_near_x = jnp.ones((ny,), dtype=s.dtype)
+        else:
+            w_near_x = _geom_mean(scale_2d[:, -2], scale_2d[:, -1])
+        diff_near_x = s_2d[:, -1] - s_2d[:, -2]
+        out_x = out_x.at[:, -2].add(-w_near_x * diff_near_x)
+        out_x = out_x.at[:, -1].add(w_near_x * diff_near_x)
+    if nx > 2:
+        if scale_2d is None:
+            w_x2 = jnp.ones((ny, nx - 2), dtype=s.dtype)
+        else:
+            w_x2 = _geom_mean3(scale_2d[:, :-2], scale_2d[:, 1:-1], scale_2d[:, 2:])
+        c_x = s_2d[:, :-2] - 2.0 * s_2d[:, 1:-1] + s_2d[:, 2:]
+        wc_x = w_x2 * c_x
+        out_x = out_x.at[:, :-2].add(wc_x)
+        out_x = out_x.at[:, 1:-1].add(-2.0 * wc_x)
+        out_x = out_x.at[:, 2:].add(wc_x)
+    if nx > 1:
+        out_x = out_x.at[:, -1].add(s_2d[:, -1])
+
+    if ny > 1:
+        if scale_2d is None:
+            w_near_y = jnp.ones((nx,), dtype=s.dtype)
+        else:
+            w_near_y = _geom_mean(scale_2d[-2, :], scale_2d[-1, :])
+        diff_near_y = s_2d[-1, :] - s_2d[-2, :]
+        out_y = out_y.at[-2, :].add(-w_near_y * diff_near_y)
+        out_y = out_y.at[-1, :].add(w_near_y * diff_near_y)
+    if ny > 2:
+        if scale_2d is None:
+            w_y2 = jnp.ones((ny - 2, nx), dtype=s.dtype)
+        else:
+            w_y2 = _geom_mean3(scale_2d[:-2, :], scale_2d[1:-1, :], scale_2d[2:, :])
+        c_y = s_2d[:-2, :] - 2.0 * s_2d[1:-1, :] + s_2d[2:, :]
+        wc_y = w_y2 * c_y
+        out_y = out_y.at[:-2, :].add(wc_y)
+        out_y = out_y.at[1:-1, :].add(-2.0 * wc_y)
+        out_y = out_y.at[2:, :].add(wc_y)
+    if ny > 1:
+        out_y = out_y.at[-1, :].add(s_2d[-1, :])
+
+    return (scale_x * out_x + scale_y * out_y).ravel()
+
+
 @partial(jax.jit, static_argnames=("H", "W", "n_source", "nsub", "agg_n_active",
-                                   "nx", "ny"))
+                                   "nx", "ny", "reg_type"))
 def _A_matvec_jit(
     s: Array,
     weights: Array,
@@ -141,20 +241,20 @@ def _A_matvec_jit(
     psf_fft: Array,
     psf_fft_conj: Array,
     noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: tuple,          # RegData: (rx, ry, scale_x, scale_y, scale)
+    reg_data: tuple,          # RegData: (scale, scale_x, scale_y)
     lambda_reg: Array,
     nx: int,                  # static: source grid x-dim
     ny: int,                  # static: source grid y-dim
+    reg_type: str,            # static: "zero-order" / "first-order" / "second-order"
 ) -> Array:
     """JIT-compiled A(s) = Mᵀ C⁻¹ M s + λ R s.
 
     All data passed as explicit arrays so JAX traces cleanly.
     ``psf_fft_conj`` is ``conj(FFT(PSF))`` for the adjoint convolution Bᵀ.
     ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-    tuple holding compact Kronecker-sum descriptors for finite-difference
-    regularisation.  When ``reg_data.scale`` is not ``None``, adaptive
-    regularisation ``diag(√scale) · R · diag(√scale)`` is applied.
-    ``nx``, ``ny`` are static grid dimensions.
+    tuple holding the per-pixel adaptive ``scale`` array and physical spacing
+    factors for the edge-weighted finite-difference regularisation.
+    ``nx``, ``ny`` and ``reg_type`` are static grid dimensions / type.
     """
     # ---- L(s) ----
     img_lensed = _apply_L_jit(
@@ -180,17 +280,18 @@ def _A_matvec_jit(
         H, W, n_source, nsub, agg_segment_ids,
     )  # (Ns,)
 
-    # ---- + λ R s  (matrix-free Kronecker-sum) ----
-    rx, ry, scale_x, scale_y, scale = reg_data
-    s_work = s
-    if scale is not None:
-        sqrt_scale = jnp.sqrt(scale)
-        s_work = sqrt_scale * s_work
-    s_2d = s_work.reshape(ny, nx).T     # (nx, ny)
-    result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
-    reg_term = result_2d.T.ravel()      # (Ns,)
-    if scale is not None:
-        reg_term = sqrt_scale * reg_term
+    # ---- + λ R s  (edge-weighted matrix-free Laplacian) ----
+    scale, scale_x, scale_y = reg_data
+    if reg_type == "zero-order":
+        reg_term = scale * s if scale is not None else s
+    elif reg_type == "first-order":
+        reg_term = _weighted_first_order_matvec_jit(s, scale, scale_x, scale_y, nx, ny)
+    elif reg_type == "second-order":
+        reg_term = _weighted_second_order_matvec_jit(s, scale, scale_x, scale_y, nx, ny)
+    else:
+        # Unreachable: reg_type is a static arg validated in __init__ to be
+        # one of {zero, first, second}-order.  Kept for type-narrowing.
+        raise ValueError(f"Unsupported reg_type for operator backend: {reg_type!r}")
     return src + lambda_reg * reg_term
 
 
@@ -232,6 +333,14 @@ class PixelizedLensOperator:
 
         source = phys_model.source_light[0]
         self.source_model = source
+        _reg_type = str(source.regularization_type)
+        if _reg_type not in ("zero-order", "first-order", "second-order"):
+            raise ValueError(
+                f"PixelizedLensOperator only supports finite-difference "
+                f"regularization types (zero-order, first-order, second-order), "
+                f"got {_reg_type!r}. Use the dense backend for GP types."
+            )
+        self.reg_type = _reg_type
         self.source_nx = int(source.nx)
         self.source_ny = int(source.ny)
         self.n_source_pixels = self.source_nx * self.source_ny
@@ -315,6 +424,7 @@ class PixelizedLensOperator:
             agg_n_active=self._agg_n_active if self.nsub > 1 else 0,
             nx=self.source_nx,
             ny=self.source_ny,
+            reg_type=self.reg_type,
         )
 
     # ------------------------------------------------------------------
@@ -473,8 +583,8 @@ class PixelizedLensOperator:
         ``functools.partial`` created once at ``__init__`` (static, stable).
 
         ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-        tuple holding compact Kronecker-sum descriptors for the finite-difference
-        regularisation term.
+        tuple holding the per-pixel adaptive ``scale`` array and physical spacing
+        factors for the edge-weighted finite-difference regularisation term.
         """
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
@@ -715,6 +825,9 @@ class PixelizedLensOperator:
         """Compute ``log|P|`` from block-diagonal Cholesky factors."""
         if not isinstance(block_chols, (list, tuple)):
             return 2.0 * jnp.sum(jnp.log(jnp.diagonal(block_chols, axis1=-2, axis2=-1)))
+
+        if len(block_chols) == 0:
+            return jnp.array(0.0)
 
         total = jnp.array(0.0, dtype=block_chols[0].dtype)
         for chol in block_chols:

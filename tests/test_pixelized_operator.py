@@ -57,6 +57,7 @@ def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0):
         nx=5,
         ny=5,
         log_lambda_reg=lam,
+        regularization_type="first-order",
         adaptive_reg_alpha=adaptive_reg_alpha,
     )
 
@@ -92,11 +93,10 @@ def _make_test_data(psf=None, mask=None, nsub=1):
 # PCG solver tests
 # ------------------------------------------------------------------
 
-# Minimal RegData placeholder for tests that bypass regularisation.
-# Uses zero-order identity with 1×1 grid so all shapes are valid.
+# Minimal 3-tuple RegData placeholder for PCG tests that bypass regularisation
+# via a custom _simple_A.  Not consumed by the real _A_matvec_jit path.
 _DUMMY_REG_DATA = (
-    jnp.eye(1),                     # rx
-    jnp.eye(1),                     # ry
+    jnp.ones(1, dtype=jnp.float32),     # scale
     jnp.array(1.0, dtype=jnp.float32),  # scale_x
     jnp.array(1.0, dtype=jnp.float32),  # scale_y
 )
@@ -660,6 +660,27 @@ def test_logdet_free_raises_for_gp():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+def test_edge_weighted_constant_source_has_zero_internal_energy(reg_type):
+    """Edge-weighted FD regularisation must vanish on constant source pixels
+    that are not on the global boundary (boundary fallbacks are numerical
+    stabilisers and are excluded from this check).
+    """
+    nx, ny = 5, 5
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -1.0, 1.0, -1.0, 1.0
+    scale = jnp.linspace(0.5, 1.5, nx * ny)  # deliberately non-uniform
+    s = jnp.ones(nx * ny)
+
+    Rs = builder.matvec_free(s, xmin, xmax, ymin, ymax, scale=scale)
+    Rs_2d = np.array(Rs).reshape(ny, nx)
+
+    # Internal pixels (not on last row or last column) must be zero
+    internal = Rs_2d[:-1, :-1]
+    np.testing.assert_allclose(internal, 0.0, atol=1e-5)
+
+
+@pytest.mark.unit
 def test_to_dense_free_matches_matrix():
     """to_dense_free should match matrix() for FD types."""
     nx, ny = 4, 6
@@ -671,6 +692,31 @@ def test_to_dense_free_matches_matrix():
         np.testing.assert_allclose(
             np.array(computed), np.array(expected), rtol=1e-4, atol=1e-4,
         ), f"Failed for {reg_type}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+def test_diag_R_matches_dense_matrix_diagonal(reg_type):
+    """diag_R should match jnp.diag(matrix()) for non-square grids with
+    non-uniform adaptive scale — this catches coefficient errors and
+    scale_x/scale_y cross-contamination."""
+    nx, ny = 7, 5  # deliberately non-square so dx != dy
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -2.0, 3.0, -1.0, 4.0  # asymmetric, dx != dy
+    scale = jnp.linspace(0.3, 2.0, nx * ny)  # non-uniform
+
+    # Reference: extract diagonal from the full dense matrix.
+    R_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    expected = jnp.diag(R_dense)
+
+    computed = builder.diag_R(xmin, xmax, ymin, ymax, scale=scale)
+
+    # diag_R (analytic stencil) vs jnp.diag(matrix()) (dense matmul) differ only
+    # by float32 accumulation noise (~2.5e-4 relative at n=35); the analytic
+    # formula is verified bit-accurate against the dense path in float64.
+    np.testing.assert_allclose(
+        np.array(computed), np.array(expected), rtol=1e-3, atol=1e-3,
+    )
 
 
 @pytest.mark.unit
@@ -690,14 +736,15 @@ def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
 
 
 @pytest.mark.unit
-def test_make_reg_data_rx_ry_shapes():
-    """make_reg_data should return rx/ry with correct shapes."""
+def test_make_reg_data_shapes():
+    """make_reg_data should return scale and physical factors."""
     nx, ny = 5, 8
     builder = DenseRegularizationBuilder(nx, ny, "first-order")
     rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
 
-    assert rd.rx.shape == (nx, nx)
-    assert rd.ry.shape == (ny, ny)
+    assert rd.scale is None
+    assert rd.scale_x.shape == ()
+    assert rd.scale_y.shape == ()
 
 
 @pytest.mark.unit
@@ -706,6 +753,184 @@ def test_make_reg_data_raises_for_gp():
     builder = DenseRegularizationBuilder(5, 5, "exponential")
     with pytest.raises(ValueError, match="Operator backend does not support GP"):
         builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
+
+
+@pytest.mark.unit
+def test_make_reg_data_propagates_scale():
+    """make_reg_data should propagate a provided scale array into RegData."""
+    nx, ny = 5, 8
+    builder = DenseRegularizationBuilder(nx, ny, "first-order")
+    scale = jnp.linspace(0.5, 1.5, nx * ny)
+    rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0, scale=scale)
+    assert rd.scale is not None
+    assert rd.scale.shape == (nx * ny,)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+def test_matvec_free_nonuniform_scale_matches_dense(reg_type):
+    """matvec_free with non-uniform scale must match dense R(scale) @ s.
+
+    This directly validates the edge-weighting (geometric-mean) math, which
+    the uniform-scale matvec test cannot exercise: a bug in _geom_mean /
+    _geom_mean3 or in the scale_x/scale_y off-diagonal scaling would only
+    surface with a non-constant source and non-uniform scale.
+    """
+    nx, ny = 5, 7  # non-square so dx != dy
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -1.0, 2.0, -0.5, 1.5
+    scale = jnp.linspace(0.3, 2.0, nx * ny)  # non-uniform
+    s = jnp.linspace(-1.0, 1.0, nx * ny)     # non-constant
+
+    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax, scale=scale)
+    result_dense = reg_dense @ s
+
+    # Tolerance accommodates float32 accumulation noise from the different
+    # operation orderings of the matrix-free stencil vs the dense matmul
+    # (~3e-3 at n=35); a real weighting bug would produce O(1) errors.
+    np.testing.assert_allclose(
+        np.array(result_free), np.array(result_dense), rtol=5e-3, atol=5e-3,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+def test_logdet_free_block_diag_approximation(reg_type):
+    """logdet_free with block_size < grid_dim is a block-diagonal approximation.
+
+    The block-diagonal approximation uses principal submatrices ``R_ii`` of the
+    full R, dropping only the cross-block off-diagonal couplings.  By the
+    Hadamard-Fischer inequality, ``det(R) <= prod_i det(R_ii)``, so the
+    approximation (without jitter) is ``>=`` the exact ``slogdet(R)``
+    (biased high).  The per-block Cholesky jitter
+    (``1e-6 * max(diag_mean, 1.0) * I``) further increases each block's
+    determinant.  When ``block_size >= grid_dim`` the whole grid fits in one
+    block and the approximation is exact (up to jitter).
+
+    ``exact=True`` must match ``slogdet`` of the full R to float precision.
+    """
+    nx = ny = 9  # larger than default block_size=8
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
+    scale = jnp.linspace(0.3, 2.0, nx * ny)
+
+    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    logdet_slogdet = float(jnp.linalg.slogdet(reg_dense)[1])
+
+    # exact=True must match slogdet of the full R matrix.
+    logdet_exact = float(builder.logdet_free(
+        xmin, xmax, ymin, ymax, scale=scale, exact=True,
+    ))
+    np.testing.assert_allclose(logdet_exact, logdet_slogdet, rtol=1e-4, atol=1e-3)
+
+    # Multi-block: 9x9 grid with block_size=4 -> 3x3 = 9 blocks (approximate).
+    logdet_multiblock = float(builder.logdet_free(
+        xmin, xmax, ymin, ymax, scale=scale, block_size=4,
+    ))
+    # Single-block: block_size >= grid_dim -> exact (up to jitter).
+    logdet_single = float(builder.logdet_free(
+        xmin, xmax, ymin, ymax, scale=scale, block_size=16,
+    ))
+
+    # Single-block must match exact slogdet (jitter ~1e-6 * diag).
+    np.testing.assert_allclose(logdet_single, logdet_slogdet, rtol=1e-3, atol=1e-1)
+
+    # Multi-block must be >= exact: by Hadamard-Fischer, prod det(R_ii) >=
+    # det(R), and the per-block jitter only increases it further.
+    assert jnp.isfinite(logdet_multiblock)
+    assert logdet_multiblock >= logdet_slogdet - 1e-1, (
+        f"Multi-block logdet {logdet_multiblock:.4f} should be >= exact "
+        f"{logdet_slogdet:.4f} for {reg_type} (Hadamard-Fischer)"
+    )
+    rel_err = abs(logdet_multiblock - logdet_slogdet) / max(abs(logdet_slogdet), 1.0)
+    assert rel_err < 0.2, (
+        f"Multi-block logdet {logdet_multiblock:.4f} deviates from exact "
+        f"{logdet_slogdet:.4f} by {rel_err:.2%} for {reg_type}"
+    )
+
+
+@pytest.mark.unit
+def test_operator_rejects_gp_regularization_type():
+    """PixelizedLensOperator should reject GP regularization at construction.
+
+    GP types require a dense (Ns, Ns) precision matrix and gain nothing from
+    the matrix-free operator backend; they must use the dense backend.
+    """
+    gp_source = PixelizedSourceModel(
+        nx=5, ny=5, regularization_type="gaussian",
+    )
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()],
+        source_light=[gp_source],
+        lens_light=[],
+    )
+    config = _sim_config()
+    with pytest.raises(ValueError, match="finite-difference"):
+        PixelizedLensOperator(phys, config)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("nx,ny", [(2, 5), (5, 2)])
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+def test_matvec_free_degenerate_grid_matches_dense(nx, ny, reg_type):
+    """matvec_free must match dense R @ s on degenerate (thin) grids.
+
+    For nx=2 the second-order full-curvature stencil (nx > 2) is skipped and
+    only the near-boundary first-gradient fallback runs.  This guards the
+    ``if self.nx > 2`` / ``if self.ny > 2`` boundary branches.
+    """
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -1.0, 1.0, -0.5, 1.5
+
+    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
+    s = jnp.linspace(-1.0, 1.0, nx * ny)
+
+    result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax)
+    result_dense = reg_dense @ s
+
+    np.testing.assert_allclose(
+        np.array(result_free), np.array(result_dense), rtol=1e-4, atol=1e-4,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+@pytest.mark.parametrize("use_scale", [False, True])
+def test_block_diag_R_is_principal_submatrix(reg_type, use_scale):
+    """block_diag_R must equal the principal submatrix R[bf, bf] of the full R.
+
+    This guards against the regression where cross-block stencil rows (edges
+    or curvatures straddling the block boundary) were dropped, missing their
+    diagonal contributions to in-block pixels.  The principal submatrix
+    includes those contributions by construction.
+    """
+    nx, ny = 10, 9  # non-square, multiple blocks with block_size=4
+    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
+    scale = jnp.linspace(0.3, 2.0, nx * ny) if use_scale else None
+
+    R_full, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+
+    # Check several blocks: interior, edge, and corner blocks
+    for x_s, x_e, y_s, y_e in [(2, 6, 2, 6), (0, 4, 0, 4), (6, 10, 5, 9)]:
+        bf = jnp.asarray(
+            [x + y * nx for y in range(y_s, y_e) for x in range(x_s, x_e)],
+            dtype=jnp.int32,
+        )
+        R_principal = R_full[jnp.ix_(bf, bf)]
+        R_block = builder.block_diag_R(
+            x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax, scale=scale,
+        )
+        # Tolerance accommodates float32 accumulation noise from the different
+        # operation orderings of the stencil scatter vs the dense matmul.
+        # Uniform scale is exact (rtol=0); adaptive scale differs only by
+        # rounding (~0.04 for second-order at n=16 block).
+        np.testing.assert_allclose(
+            np.array(R_block), np.array(R_principal), rtol=1e-3, atol=0.1,
+            err_msg=f"block ({x_s}:{x_e}, {y_s}:{y_e}) mismatch for "
+                    f"{reg_type}, use_scale={use_scale}",
+        )
 
 
 if __name__ == "__main__":

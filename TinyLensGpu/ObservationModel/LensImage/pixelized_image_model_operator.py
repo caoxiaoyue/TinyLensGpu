@@ -198,17 +198,19 @@ class PixelizedImageProbModelOperator(ck.Module):
         Only finite-difference regularization types are supported by the
         operator backend.  GP types should use the dense backend instead.
 
-        If *scale* is ``None``, a uniform scale array of ones is used so
-        that the matrix-free operator path always has a concrete ``scale``
-        field (required for JIT compatibility).
+        If *scale* is ``None``, uniform edge weights of 1 are used
+        (fast-path in the operator matvec); ``None`` is passed through
+        rather than materialising an array of ones, avoiding O(Ns)
+        wasted work.
 
         Returns
         -------
         RegData
-            Compact Kronecker-sum descriptors for the regularisation term.
+            Per-pixel adaptive ``scale`` array and physical spacing factors for
+            the edge-weighted regularisation term.
         """
-        if scale is None:
-            scale = jnp.ones(self.sim_obj.n_source_pixels, dtype=jnp.float32)
+        # Pass None through — all operator/matvec paths now handle scale=None
+        # with uniform-weight fast-paths, avoiding O(Ns) wasted work.
         return self.reg_builder.make_reg_data(xmin, xmax, ymin, ymax, scale=scale)
 
     # ------------------------------------------------------------------
@@ -220,7 +222,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Gaussian-smooth the scale map on the 2-D source grid.
 
         Uses a 5x5 separable Gaussian kernel with sigma = 1 source pixel.
-        Assumes row-major flat layout ``(x + y * nx)``.
+        Assumes column-major flat layout (x varies fastest, index = x + y * nx).
         """
         sigma = 1.0
         ksize = 5
@@ -229,8 +231,11 @@ class PixelizedImageProbModelOperator(ck.Module):
         kernel_1d = kernel_1d / jnp.sum(kernel_1d)
         kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
 
-        # Row-major flat -> (ny, nx)
+        # Column-major flat -> (ny, nx)
         q_2d = q_1d.reshape(ny, nx)
+        # NOTE: jax.scipy.signal.convolve2d only supports mode in
+        # {full, same, valid} and boundary="fill" (zero padding).  Reflective
+        # boundaries would require explicit jnp.pad(..., mode='reflect') first.
         q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
         return q_smooth.ravel()  # back to (Ns,)
 
@@ -243,16 +248,19 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Compute per-source-pixel regularization scale factors.
 
         Returns a ``(Ns,)`` array of scale factors in ``[floor, 1.0]``.
-        When ``adaptive_reg_alpha == 0`` returns ``jnp.ones(Ns)`` (uniform
-        regularisation, required for JIT compatibility in the operator path).
+        When ``adaptive_reg_alpha == 0`` returns ``None`` (uniform
+        regularisation), enabling fast-paths in the operator backend.
         """
         alpha_value = self.source_model.adaptive_reg_alpha
         nx = self.sim_obj.source_nx
         ny = self.sim_obj.source_ny
         n_source = nx * ny
 
-        if alpha_value == 0.0:
-            return jnp.ones(n_source, dtype=jnp.float32)
+        # Note: alpha_value is a plain Python float from the model config.
+        # If it ever becomes a traced (caskade.Param) value, this check must
+        # switch to jnp.isclose / jax.lax.cond for JIT compatibility.
+        if abs(alpha_value) < 1e-10:
+            return None
 
         floor = jnp.asarray(self.source_model.adaptive_reg_floor, dtype=jnp.float32)
         alpha = jnp.asarray(alpha_value, dtype=jnp.float32)
@@ -348,10 +356,11 @@ class PixelizedImageProbModelOperator(ck.Module):
 
         .. warning::
             This uses ``logdet(P)`` as a deterministic approximation to
-            ``logdet(A)``, where ``P`` is the block-diagonal preconditioner.
-            For blurred or asymmetric PSFs, ``nsub > 1``, or masked pixels,
-            the evidence will deviate from the exact dense-backend value.
-            Use the dense backend when exact evidence parity is required.
+            ``logdet(A)``, where ``P`` is the block-diagonal preconditioner,
+            and a block-diagonal approximation (with the same partition) for
+            ``logdet(R)``.  For blurred or asymmetric PSFs, ``nsub > 1``, or
+            masked pixels, the evidence will deviate from the exact dense-backend
+            value.  Use the dense backend when exact evidence parity is required.
         """
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
@@ -363,7 +372,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
         )
 
-        # reg_data: compact Kronecker-sum descriptor for matrix-free PCG.
+        # reg_data: compact edge-weighted Laplacian descriptor for matrix-free PCG.
         reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
 
         # ---- Precompute lens-operator data ONCE ----
@@ -410,7 +419,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         resid = self.data_1d - model_1d
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
 
-        # Regularisation energy — matrix-free via Kronecker-sum matvec.
+        # Regularisation energy — matrix-free via edge-weighted Laplacian matvec.
         e_s = 0.5 * jnp.dot(
             source_pixels,
             self.reg_builder.matvec_free(
@@ -421,8 +430,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         # logdet(P) from block-diagonal Cholesky factors
         logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
 
-        # logdet regularisation matrix — eigenvalue-based formula
-        logdet_h = self.reg_builder.logdet_free(xmin, xmax, ymin, ymax, scale=scale)
+        # logdet regularisation matrix — deterministic block-diagonal approximation
+        logdet_h = self.reg_builder.logdet_free(
+            xmin, xmax, ymin, ymax, scale=scale, block_size=self.block_size,
+        )
 
         log_evidence = (
             -e_d
@@ -473,7 +484,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         )
         preconditioner = (block_chols, block_masks)
 
-        source_pixels, _ = self._solve_source(
+        source_pixels, pcg_info = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
@@ -485,6 +496,13 @@ class PixelizedImageProbModelOperator(ck.Module):
             source_pixels, xmin, xmax, ymin, ymax,
             op_data=op_data,
         )
+        # Zero out the model image AND the source pixels when PCG fails to
+        # converge — prevents silently returning partially-converged garbage.
+        # Gating both keeps the (image, source) pair internally consistent for
+        # callers that destructure ``forward_model(return_source=True)``.
+        converged = pcg_info.converged
+        model_1d = jnp.where(converged, model_1d, jnp.zeros_like(model_1d))
+        source_pixels = jnp.where(converged, source_pixels, jnp.zeros_like(source_pixels))
 
         H, W = self.sim_obj.image_shape
         model_image = jnp.zeros(H * W, dtype=model_1d.dtype)

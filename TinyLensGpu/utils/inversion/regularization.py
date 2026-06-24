@@ -7,9 +7,10 @@ physical source-grid spacing when a matrix is requested.
 
 For matrix-free (operator) backends, the class also exposes
 :meth:`matvec_free`, :meth:`logdet_free`, :meth:`to_dense_free`, and
-:meth:`make_reg_data` for finite-difference types, which exploit the
-Kronecker-sum structure of separable 2-D difference operators to avoid
-materialising the full Ns x Ns regularisation matrix.
+:meth:`make_reg_data` for finite-difference types, which apply
+edge-weighted graph-Laplacian stencils directly (and a block-diagonal
+logdet approximation) to avoid materialising the full Ns x Ns
+regularisation matrix.
 
 .. note::
 
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 
@@ -47,28 +49,18 @@ GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
 class RegData(NamedTuple):
     """Compact finite-difference regularisation data for matrix-free matvec / logdet.
 
-    Passed through ``A_data[7]`` in the PCG solver so that
-    :func:`_A_matvec_jit` can apply the regularisation term without a dense
-    ``(Ns, Ns)`` matrix.
-
-    ``rx`` / ``ry`` hold the 1-D product matrices ``(nx, nx)`` / ``(ny, ny)``
-    and ``scale_x`` / ``scale_y`` are the physical pixel-area scaling factors.
-
-    ``scale`` is an optional per-pixel regularisation scale array of shape
-    ``(Ns,)`` for adaptive regularisation.  When ``None`` (default), uniform
-    regularisation is used.
-
-    Note: ``nx`` / ``ny`` are *not* stored here; they are passed as static
-    arguments to :func:`_A_matvec_jit` via the pre-bound partial.
+    The operator backend now uses **edge-weighted** finite-difference
+    regularisation ``R = G_x^T W_x G_x + G_y^T W_y G_y`` (with physical
+    scaling).  ``scale`` is the per-pixel adaptive factor from which edge
+    weights are derived as geometric means.  ``scale_x`` / ``scale_y`` are the
+    physical pixel-area scaling factors ``1/dx^2`` or ``1/dx^4``.
 
     Only finite-difference types are supported; GP types should use the dense
     backend instead.
     """
-    rx: "jax.Array"        # (nx, nx)  1-D x-regularisation product
-    ry: "jax.Array"        # (ny, ny)  1-D y-regularisation product
-    scale_x: "jax.Array"   # scalar  physical pixel-area scale for x
-    scale_y: "jax.Array"   # scalar  physical pixel-area scale for y
-    scale: "jax.Array | None" = None  # (Ns,) per-pixel reg scale, or None=uniform
+    scale: "jax.Array | None"  # (Ns,) per-pixel adaptive scale; None = uniform
+    scale_x: "jax.Array"       # scalar physical x-scaling factor
+    scale_y: "jax.Array"       # scalar physical y-scaling factor
 
 
 class DenseRegularizationBuilder:
@@ -137,72 +129,6 @@ class DenseRegularizationBuilder:
         self._H2_unit_x = sdx2.T @ sdx2
         self._H2_unit_y = sdy2.T @ sdy2
 
-        # ----- 1-D operator products & eigendecompositions for matrix-free path -----
-        self._Rx1: "jax.Array | None" = None
-        self._Ry1: "jax.Array | None" = None
-        self._Rx2: "jax.Array | None" = None
-        self._Ry2: "jax.Array | None" = None
-        self._Rx_eigvals: "jax.Array | None" = None
-        self._Ry_eigvals: "jax.Array | None" = None
-
-        if self.regularization_type not in GP_REGULARIZATION_TYPES:
-            if self.regularization_type in ("first-order", "second-order"):
-                Dx1d = self._build_1d_first_diff(self.nx)
-                Dy1d = self._build_1d_first_diff(self.ny)
-                self._Rx1 = Dx1d.T @ Dx1d
-                self._Ry1 = Dy1d.T @ Dy1d
-
-            if self.regularization_type == "second-order":
-                Lx1d = self._build_1d_curvature_diff(self.nx)
-                Ly1d = self._build_1d_curvature_diff(self.ny)
-                self._Rx2 = Lx1d.T @ Lx1d
-                self._Ry2 = Ly1d.T @ Ly1d
-
-            # Precompute eigenvalues once (used by logdet_free at each evidence eval).
-            if self.regularization_type == "first-order":
-                self._Rx_eigvals = jnp.linalg.eigvalsh(self._Rx1)  # type: ignore[arg-type]
-                self._Ry_eigvals = jnp.linalg.eigvalsh(self._Ry1)  # type: ignore[arg-type]
-            elif self.regularization_type == "second-order":
-                self._Rx_eigvals = jnp.linalg.eigvalsh(self._Rx2)  # type: ignore[arg-type]
-                self._Ry_eigvals = jnp.linalg.eigvalsh(self._Ry2)  # type: ignore[arg-type]
-            # zero-order: eigenvalues stay None (logdet=0, matvec=identity)
-
-    # ------------------------------------------------------------------
-    # 1-D difference operator builders (used by matrix-free path)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_1d_first_diff(n: int) -> "jax.Array":
-        """Build 1-D first-difference operator ``(n, n)``.
-
-        Interior rows use ``[-1, 1]``; the last row is a zero-order
-        fallback ``[1]`` on the diagonal (Suyu et al. convention).
-        """
-        D = jnp.zeros((n, n))
-        interior = jnp.arange(n - 1)
-        D = D.at[interior, interior].add(-1.0)
-        D = D.at[interior, interior + 1].add(1.0)
-        D = D.at[n - 1, n - 1].add(1.0)
-        return D
-
-    @staticmethod
-    def _build_1d_curvature_diff(n: int) -> "jax.Array":
-        """Build 1-D curvature (second-difference) operator ``(n, n)``.
-
-        Full-curvature rows use ``[1, -2, 1]``, the penultimate row
-        falls back to a first-gradient ``[-1, 1]``, and the outermost
-        row is a zero-order diagonal ``[1]``.
-        """
-        L = jnp.zeros((n, n))
-        full = jnp.arange(n - 2)
-        L = L.at[full, full].add(1.0)
-        L = L.at[full, full + 1].add(-2.0)
-        L = L.at[full, full + 2].add(1.0)
-        L = L.at[n - 2, n - 2].add(-1.0)
-        L = L.at[n - 2, n - 1].add(1.0)
-        L = L.at[n - 1, n - 1].add(1.0)
-        return L
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -225,7 +151,7 @@ class DenseRegularizationBuilder:
         valid = jnp.all(jnp.isfinite(scale_arr) & (scale_arr > 0.0))
         try:
             is_valid = bool(valid)
-        except Exception:
+        except jax.errors.TracerBoolConversionError:
             # ``scale`` may be a tracer inside a JIT-compiled likelihood.  Its
             # shape is still checked above; dynamic values are produced by
             # bounded model code such as adaptive_reg_floor.
@@ -237,7 +163,8 @@ class DenseRegularizationBuilder:
     def _apply_diag_scale(self, matrix: "jax.Array", scale: "jax.Array | None") -> "jax.Array":
         """If *scale* is not None, return ``diag(sqrt(scale)) @ matrix @ diag(sqrt(scale))``.
 
-        Otherwise return *matrix* unchanged.
+        Otherwise return *matrix* unchanged.  Kept only for GP regularisation;
+        finite-difference types now use edge-weighted Laplacians instead.
         """
         scale = self._check_scale(scale, int(matrix.shape[0]))
         if scale is not None:
@@ -250,6 +177,204 @@ class DenseRegularizationBuilder:
             scale_mat = sqrt_scale[:, None] * sqrt_scale[None, :]
             matrix = matrix * scale_mat
         return matrix
+
+    # ------------------------------------------------------------------
+    # Edge-weight helpers for finite-difference adaptive regularisation
+    # ------------------------------------------------------------------
+
+    def _scale_to_2d(self, scale: "jax.Array | None") -> "jax.Array | None":
+        """Return ``scale`` reshaped to ``(ny, nx)``, or ``None`` if uniform."""
+        if scale is None:
+            return None
+        return scale.reshape(self.ny, self.nx)
+
+    @staticmethod
+    def _geom_mean(a: "jax.Array", b: "jax.Array") -> "jax.Array":
+        """Geometric mean, computed in log-space to avoid float32 overflow.
+
+        ``sqrt(a*b)`` overflows when ``a*b`` exceeds the float32 max even if
+        both ``a`` and ``b`` are individually representable; the log-space
+        form ``exp(0.5*(log a + log b))`` is stable.  Inputs are clipped away
+        from zero to keep ``log`` finite.
+        """
+        return jnp.exp(
+            0.5 * (jnp.log(jnp.maximum(a, 1e-30)) + jnp.log(jnp.maximum(b, 1e-30)))
+        )
+
+    @staticmethod
+    def _geom_mean3(a: "jax.Array", b: "jax.Array", c: "jax.Array") -> "jax.Array":
+        """Geometric mean of three arrays."""
+        return jnp.exp(
+            (jnp.log(jnp.maximum(a, 1e-30))
+             + jnp.log(jnp.maximum(b, 1e-30))
+             + jnp.log(jnp.maximum(c, 1e-30))) / 3.0
+        )
+
+    def _edge_weights_first_order(
+        self, scale_2d: "jax.Array | None"
+    ) -> tuple["jax.Array", "jax.Array"]:
+        """Return ``(w_x, w_y)`` edge weights for first-order regularisation.
+
+        ``w_x`` has shape ``(ny, nx-1)``; ``w_y`` has shape ``(ny-1, nx)``.
+        When ``scale_2d`` is ``None`` (uniform), all weights are 1.
+        """
+        if scale_2d is None:
+            w_x = jnp.ones((self.ny, max(self.nx - 1, 1)), dtype=jnp.float32)
+            w_y = jnp.ones((max(self.ny - 1, 1), self.nx), dtype=jnp.float32)
+            return w_x, w_y
+        w_x = self._geom_mean(scale_2d[:, :-1], scale_2d[:, 1:])
+        w_y = self._geom_mean(scale_2d[:-1, :], scale_2d[1:, :])
+        return w_x, w_y
+
+    def _edge_weights_second_order(
+        self, scale_2d: "jax.Array | None"
+    ) -> tuple["jax.Array", "jax.Array", "jax.Array", "jax.Array"]:
+        """Return curvature stencil weights for second-order regularisation.
+
+        Returns ``(w_x2, w_y2, w_x2_near, w_y2_near)`` where:
+        - ``w_x2`` : ``(ny, nx-2)`` full-curvature horizontal weights.
+        - ``w_y2`` : ``(ny-2, nx)`` full-curvature vertical weights.
+        - ``w_x2_near`` : ``(ny,)`` near-boundary horizontal first-gradient weights.
+        - ``w_y2_near`` : ``(nx,)`` near-boundary vertical first-gradient weights.
+        """
+        if scale_2d is None:
+            w_x2 = jnp.ones((self.ny, max(self.nx - 2, 1)), dtype=jnp.float32)
+            w_y2 = jnp.ones((max(self.ny - 2, 1), self.nx), dtype=jnp.float32)
+            w_x2_near = jnp.ones((self.ny,), dtype=jnp.float32)
+            w_y2_near = jnp.ones((self.nx,), dtype=jnp.float32)
+            return w_x2, w_y2, w_x2_near, w_y2_near
+        w_x2 = self._geom_mean3(
+            scale_2d[:, :-2], scale_2d[:, 1:-1], scale_2d[:, 2:]
+        )
+        w_y2 = self._geom_mean3(
+            scale_2d[:-2, :], scale_2d[1:-1, :], scale_2d[2:, :]
+        )
+        w_x2_near = self._geom_mean(scale_2d[:, -2], scale_2d[:, -1])
+        w_y2_near = self._geom_mean(scale_2d[-2, :], scale_2d[-1, :])
+        return w_x2, w_y2, w_x2_near, w_y2_near
+
+    def _weighted_first_order_matvec(
+        self,
+        s: "jax.Array",
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array",
+        scale_y: "jax.Array",
+    ) -> "jax.Array":
+        """Matrix-free ``R @ s`` for edge-weighted first-order regularisation."""
+        s_2d = s.reshape(self.ny, self.nx)
+        w_x, w_y = self._edge_weights_first_order(scale_2d)
+
+        out_x = jnp.zeros_like(s_2d)
+        out_y = jnp.zeros_like(s_2d)
+        if self.nx > 1:
+            diff_x = s_2d[:, 1:] - s_2d[:, :-1]
+            wdiff_x = w_x * diff_x
+            out_x = out_x.at[:, :-1].add(-wdiff_x)
+            out_x = out_x.at[:, 1:].add(wdiff_x)
+            # boundary zero-order fallback on last column
+            out_x = out_x.at[:, -1].add(s_2d[:, -1])
+        if self.ny > 1:
+            diff_y = s_2d[1:, :] - s_2d[:-1, :]
+            wdiff_y = w_y * diff_y
+            out_y = out_y.at[:-1, :].add(-wdiff_y)
+            out_y = out_y.at[1:, :].add(wdiff_y)
+            # boundary zero-order fallback on last row
+            out_y = out_y.at[-1, :].add(s_2d[-1, :])
+        return (scale_x * out_x + scale_y * out_y).ravel()
+
+    def _weighted_second_order_matvec(
+        self,
+        s: "jax.Array",
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array",
+        scale_y: "jax.Array",
+    ) -> "jax.Array":
+        """Matrix-free ``R @ s`` for edge-weighted second-order regularisation."""
+        s_2d = s.reshape(self.ny, self.nx)
+        w_x2, w_y2, w_x2_near, w_y2_near = self._edge_weights_second_order(scale_2d)
+
+        out_x = jnp.zeros_like(s_2d)
+        out_y = jnp.zeros_like(s_2d)
+        if self.nx > 1:
+            # near-boundary first-gradient fallback (always present for nx>=2)
+            diff_near_x = s_2d[:, -1] - s_2d[:, -2]
+            out_x = out_x.at[:, -2].add(-w_x2_near * diff_near_x)
+            out_x = out_x.at[:, -1].add(w_x2_near * diff_near_x)
+        if self.nx > 2:
+            # full curvature rows
+            c_x = s_2d[:, :-2] - 2.0 * s_2d[:, 1:-1] + s_2d[:, 2:]
+            wc_x = w_x2 * c_x
+            out_x = out_x.at[:, :-2].add(wc_x)
+            out_x = out_x.at[:, 1:-1].add(-2.0 * wc_x)
+            out_x = out_x.at[:, 2:].add(wc_x)
+        if self.ny > 1:
+            diff_near_y = s_2d[-1, :] - s_2d[-2, :]
+            out_y = out_y.at[-2, :].add(-w_y2_near * diff_near_y)
+            out_y = out_y.at[-1, :].add(w_y2_near * diff_near_y)
+        if self.ny > 2:
+            c_y = s_2d[:-2, :] - 2.0 * s_2d[1:-1, :] + s_2d[2:, :]
+            wc_y = w_y2 * c_y
+            out_y = out_y.at[:-2, :].add(wc_y)
+            out_y = out_y.at[1:-1, :].add(-2.0 * wc_y)
+            out_y = out_y.at[2:, :].add(wc_y)
+        # outer boundary zero-order fallback
+        if self.nx > 1:
+            out_x = out_x.at[:, -1].add(s_2d[:, -1])
+        if self.ny > 1:
+            out_y = out_y.at[-1, :].add(s_2d[-1, :])
+        return (scale_x * out_x + scale_y * out_y).ravel()
+
+    def _weighted_first_order_dense(
+        self, xmin: float, xmax: float, ymin: float, ymax: float,
+        scale: "jax.Array | None",
+    ) -> "jax.Array":
+        """Dense edge-weighted first-order regularisation matrix."""
+        scale_2d = self._scale_to_2d(scale)
+        w_x, w_y = self._edge_weights_first_order(scale_2d)
+        scale_x = ((self.nx - 1) / (xmax - xmin)) ** 2
+        scale_y = ((self.ny - 1) / (ymax - ymin)) ** 2
+
+        wx_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        wy_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        if self.nx > 1:
+            interior_x = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[:, :-1].ravel()
+            wx_full = wx_full.at[interior_x].set(w_x.ravel())
+        if self.ny > 1:
+            interior_y = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[:-1, :].ravel()
+            wy_full = wy_full.at[interior_y].set(w_y.ravel())
+
+        R = scale_x * ((wx_full[:, None] * self._dx_operator).T @ self._dx_operator)
+        R = R + scale_y * ((wy_full[:, None] * self._dy_operator).T @ self._dy_operator)
+        return 0.5 * (R + R.T)
+
+    def _weighted_second_order_dense(
+        self, xmin: float, xmax: float, ymin: float, ymax: float,
+        scale: "jax.Array | None",
+    ) -> "jax.Array":
+        """Dense edge-weighted second-order regularisation matrix."""
+        scale_2d = self._scale_to_2d(scale)
+        w_x2, w_y2, w_x2_near, w_y2_near = self._edge_weights_second_order(scale_2d)
+        scale_x = ((self.nx - 1) / (xmax - xmin)) ** 4
+        scale_y = ((self.ny - 1) / (ymax - ymin)) ** 4
+
+        wlx_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        wly_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        if self.nx > 2:
+            full_x = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[:, :-2].ravel()
+            wlx_full = wlx_full.at[full_x].set(w_x2.ravel())
+        if self.nx > 1:
+            near_x = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[:, -2].ravel()
+            wlx_full = wlx_full.at[near_x].set(w_x2_near)
+        if self.ny > 2:
+            full_y = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[:-2, :].ravel()
+            wly_full = wly_full.at[full_y].set(w_y2.ravel())
+        if self.ny > 1:
+            near_y = jnp.arange(self.n_pixels).reshape(self.ny, self.nx)[-2, :].ravel()
+            wly_full = wly_full.at[near_y].set(w_y2_near)
+
+        R = scale_x * ((wlx_full[:, None] * self._lx_operator).T @ self._lx_operator)
+        R = R + scale_y * ((wly_full[:, None] * self._ly_operator).T @ self._ly_operator)
+        return 0.5 * (R + R.T)
 
     def matrix(self, xmin, xmax, ymin, ymax, *, kernel_scale: float | None = None, scale: "jax.Array | None" = None):
         """Return the dense regularization matrix for a rectangular source grid.
@@ -264,10 +389,11 @@ class DenseRegularizationBuilder:
             GP kernel correlation scale. Required for GP regularization and
             ignored for traditional finite-difference penalties.
         scale : Array or None, optional
-            Per-pixel regularization scale factor of shape ``(Ns,)``.
-            When provided, the returned matrix is
-            ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``.
-            When ``None`` (default), uniform regularisation is used.
+            Per-pixel adaptive scale factor of shape ``(Ns,)``.  For
+            finite-difference types this is converted into edge weights via the
+            geometric mean; the returned matrix is the weighted graph
+            Laplacian ``G_x^T W_x G_x + G_y^T W_y G_y`` (with physical spacing).
+            When ``None`` (default), uniform edge weights of 1 are used.
 
         Returns
         -------
@@ -288,13 +414,13 @@ class DenseRegularizationBuilder:
         scale = self._check_scale(scale)
         if self.regularization_type == "zero-order":
             mat = self._identity
-            return self._apply_diag_scale(mat, scale), None
+            if scale is not None:
+                mat = mat * scale[:, None]
+            return mat, None
         if self.regularization_type == "first-order":
-            mat = self._first_order_matrix(xmin, xmax, ymin, ymax)
-            return self._apply_diag_scale(mat, scale), None
+            return self._weighted_first_order_dense(xmin, xmax, ymin, ymax, scale), None
         if self.regularization_type == "second-order":
-            mat = self._second_order_matrix(xmin, xmax, ymin, ymax)
-            return self._apply_diag_scale(mat, scale), None
+            return self._weighted_second_order_dense(xmin, xmax, ymin, ymax, scale), None
 
         if kernel_scale is None:
             raise ValueError("kernel_scale must be provided for GP regularization.")
@@ -316,20 +442,19 @@ class DenseRegularizationBuilder:
         self, s: "jax.Array", xmin: float, xmax: float, ymin: float, ymax: float,
         *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
-        r"""Matrix-free :math:`R @ s` for finite-difference regularisation.
+        r"""Matrix-free :math:`R @ s` for edge-weighted finite-difference regularisation.
 
-        Exploits the Kronecker-sum structure
+        Applies the weighted graph Laplacian
 
         .. math::
-            R = I_{ny} \otimes \frac{R_x}{\Delta x^2}
-              + \frac{R_y}{\Delta y^2} \otimes I_{nx}
+            R = \frac{1}{\Delta x^2} G_x^T W_x G_x
+              + \frac{1}{\Delta y^2} G_y^T W_y G_y
 
-        to apply :math:`R` in :math:`O(N_s (n_x + n_y))` without
-        materialising the dense :math:`(N_s, N_s)` matrix.
+        (or the analogous second-order curvature form) in :math:`O(N_s)`
+        without materialising the dense :math:`(N_s, N_s)` matrix.
 
-        When *scale* is provided, applies
-        :math:`\text{diag}(\sqrt{\text{scale}}) \cdot R \cdot
-        \text{diag}(\sqrt{\text{scale}})`.
+        Edge weights are derived from *scale* as geometric means of adjacent
+        pixel scales.
 
         Raises :exc:`ValueError` for GP types (caller should use the dense
         fallback).
@@ -337,50 +462,403 @@ class DenseRegularizationBuilder:
         scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
             raise ValueError("matvec_free is not supported for GP regularization types.")
+
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
+
         if self.regularization_type == "zero-order":
             if scale is not None:
                 return scale * s
             return s
+        if self.regularization_type == "first-order":
+            return self._weighted_first_order_matvec(s, scale_2d, scale_x, scale_y)
+        if self.regularization_type == "second-order":
+            return self._weighted_second_order_matvec(s, scale_2d, scale_x, scale_y)
+        raise RuntimeError(f"Unhandled regularization type: {self.regularization_type!r}")
 
-        # Pre-scale: s' = sqrt(scale) * s
-        if scale is not None:
-            sqrt_scale = jnp.sqrt(scale)
-            s = sqrt_scale * s
+    def _weighted_first_order_block(
+        self,
+        x_s: int, x_e: int, y_s: int, y_e: int,
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array", scale_y: "jax.Array",
+    ) -> "jax.Array":
+        """Principal submatrix of edge-weighted first-order R for one block.
 
-        # Physical pixel scales: dx = (xmax - xmin) / (nx - 1)
-        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
+        Constructs the exact principal submatrix ``R[bf, bf]`` directly from
+        stencils, without materialising the full ``(Ns, Ns)`` R.  Edges that
+        straddle the block boundary (one endpoint inside, one outside)
+        contribute their diagonal term to the in-block pixel; the off-diagonal
+        entry is outside the submatrix and dropped.
+        """
+        block_nx = x_e - x_s
+        block_ny = y_e - y_s
+        block_n = block_nx * block_ny
+        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
 
-        # s has flat index ``i + j * nx`` (column-major on (nx, ny)).
-        # Reshape to (ny, nx), transpose → (nx, ny) where axis 0 = x.
-        s_2d = s.reshape(self.ny, self.nx).T  # (nx, ny)
-        result_2d = rx @ s_2d * scale_x + s_2d @ ry.T * scale_y
-        result = result_2d.T.ravel()  # back to flat (Ns,)
+        # --- Horizontal edges: (x, y) -> (x+1, y) for x in [0, nx-2] ---
+        # Each edge contributes w to both endpoint diagonals and -w to the
+        # off-diagonal.  For the principal submatrix, the off-diagonal is
+        # kept only when BOTH endpoints are in the block; a straddling edge
+        # (one endpoint outside) contributes only w to the in-block diagonal.
+        x_h_start = max(0, x_s - 1)
+        x_h_end = min(self.nx - 2, x_e - 1)
+        for x in range(x_h_start, x_h_end + 1):
+            left_in = x >= x_s
+            right_in = x + 1 < x_e
+            if not (left_in or right_in):
+                continue
+            yy = jnp.arange(y_s, y_e)
+            if scale_2d is None:
+                w = jnp.ones_like(yy, dtype=jnp.float32) * scale_x
+            else:
+                w = self._geom_mean(scale_2d[yy, x], scale_2d[yy, x + 1]) * scale_x
+            if left_in and right_in:
+                k1 = (x - x_s) + (yy - y_s) * block_nx
+                k2 = k1 + 1
+                R = R.at[k1, k1].add(w)
+                R = R.at[k1, k2].add(-w)
+                R = R.at[k2, k1].add(-w)
+                R = R.at[k2, k2].add(w)
+            elif left_in:
+                k1 = (x - x_s) + (yy - y_s) * block_nx
+                R = R.at[k1, k1].add(w)
+            else:
+                k2 = (x + 1 - x_s) + (yy - y_s) * block_nx
+                R = R.at[k2, k2].add(w)
 
-        # Post-scale: result = sqrt(scale) * (R @ (sqrt(scale) * s))
-        if scale is not None:
-            result = sqrt_scale * result
-        return result
+        # Global boundary fallback (last column, x = nx-1): diagonal scale_x
+        if x_e == self.nx and block_ny > 0:
+            yy = jnp.arange(y_s, y_e)
+            k = (block_nx - 1) + (yy - y_s) * block_nx
+            R = R.at[k, k].add(scale_x)
+
+        # --- Vertical edges: (x, y) -> (x, y+1) for y in [0, ny-2] ---
+        y_v_start = max(0, y_s - 1)
+        y_v_end = min(self.ny - 2, y_e - 1)
+        for y in range(y_v_start, y_v_end + 1):
+            top_in = y >= y_s
+            bot_in = y + 1 < y_e
+            if not (top_in or bot_in):
+                continue
+            xx = jnp.arange(x_s, x_e)
+            if scale_2d is None:
+                w = jnp.ones_like(xx, dtype=jnp.float32) * scale_y
+            else:
+                w = self._geom_mean(scale_2d[y, xx], scale_2d[y + 1, xx]) * scale_y
+            if top_in and bot_in:
+                k1 = (xx - x_s) + (y - y_s) * block_nx
+                k2 = k1 + block_nx
+                R = R.at[k1, k1].add(w)
+                R = R.at[k1, k2].add(-w)
+                R = R.at[k2, k1].add(-w)
+                R = R.at[k2, k2].add(w)
+            elif top_in:
+                k1 = (xx - x_s) + (y - y_s) * block_nx
+                R = R.at[k1, k1].add(w)
+            else:
+                k2 = (xx - x_s) + (y + 1 - y_s) * block_nx
+                R = R.at[k2, k2].add(w)
+
+        # Global boundary fallback (last row, y = ny-1): diagonal scale_y
+        if y_e == self.ny and block_nx > 0:
+            xx = jnp.arange(x_s, x_e)
+            k = (xx - x_s) + (block_ny - 1) * block_nx
+            R = R.at[k, k].add(scale_y)
+
+        return 0.5 * (R + R.T)
+
+    def _weighted_second_order_block(
+        self,
+        x_s: int, x_e: int, y_s: int, y_e: int,
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array", scale_y: "jax.Array",
+    ) -> "jax.Array":
+        """Principal submatrix of edge-weighted second-order R for one block.
+
+        Constructs the exact principal submatrix ``R[bf, bf]`` directly from
+        curvature stencils, without materialising the full ``(Ns, Ns)`` R.
+        Stencils that straddle the block boundary contribute only the
+        sub-entries whose both indices are in-block.
+        """
+        block_nx = x_e - x_s
+        block_ny = y_e - y_s
+        block_n = block_nx * block_ny
+        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+
+        # --- Horizontal full-curvature: [1, -2, 1] at (x, y), x in [0, nx-3] ---
+        # Contribution: w * [[1, -2, 1], [-2, 4, -2], [1, -2, 1]] at (x, x+1, x+2)
+        # For the principal submatrix, keep only entries where both indices
+        # are in-block.  Stencils straddling the block boundary contribute
+        # partial submatrices.
+        x_fc_start = max(0, x_s - 2)
+        x_fc_end = min(self.nx - 3, x_e - 1)
+        for x in range(x_fc_start, x_fc_end + 1):
+            p0_in = x >= x_s
+            p1_in = x + 1 >= x_s and x + 1 < x_e
+            p2_in = x + 2 >= x_s and x + 2 < x_e
+            if not (p0_in or p1_in or p2_in):
+                continue
+            yy = jnp.arange(y_s, y_e)
+            if scale_2d is None:
+                w = jnp.ones_like(yy, dtype=jnp.float32) * scale_x
+            else:
+                w = self._geom_mean3(
+                    scale_2d[yy, x], scale_2d[yy, x + 1], scale_2d[yy, x + 2]
+                ) * scale_x
+            # Build local index arrays for the in-block subset
+            if p0_in and p1_in and p2_in:
+                k0 = (x - x_s) + (yy - y_s) * block_nx
+                k1 = k0 + 1
+                k2 = k0 + 2
+                R = R.at[k0, k0].add(w)
+                R = R.at[k0, k1].add(-2.0 * w)
+                R = R.at[k0, k2].add(w)
+                R = R.at[k1, k0].add(-2.0 * w)
+                R = R.at[k1, k1].add(4.0 * w)
+                R = R.at[k1, k2].add(-2.0 * w)
+                R = R.at[k2, k0].add(w)
+                R = R.at[k2, k1].add(-2.0 * w)
+                R = R.at[k2, k2].add(w)
+            elif p1_in and p2_in:
+                # p0 outside, p1 and p2 inside
+                k1 = (x + 1 - x_s) + (yy - y_s) * block_nx
+                k2 = k1 + 1
+                R = R.at[k1, k1].add(4.0 * w)
+                R = R.at[k1, k2].add(-2.0 * w)
+                R = R.at[k2, k1].add(-2.0 * w)
+                R = R.at[k2, k2].add(w)
+            elif p0_in and p1_in:
+                # p0 and p1 inside, p2 outside
+                k0 = (x - x_s) + (yy - y_s) * block_nx
+                k1 = k0 + 1
+                R = R.at[k0, k0].add(w)
+                R = R.at[k0, k1].add(-2.0 * w)
+                R = R.at[k1, k0].add(-2.0 * w)
+                R = R.at[k1, k1].add(4.0 * w)
+            elif p2_in:
+                # only p2 inside
+                k2 = (x + 2 - x_s) + (yy - y_s) * block_nx
+                R = R.at[k2, k2].add(w)
+            elif p1_in:
+                # only p1 inside (block_nx == 1 case)
+                k1 = (x + 1 - x_s) + (yy - y_s) * block_nx
+                R = R.at[k1, k1].add(4.0 * w)
+            elif p0_in:
+                # only p0 inside
+                k0 = (x - x_s) + (yy - y_s) * block_nx
+                R = R.at[k0, k0].add(w)
+
+        # --- Horizontal near-boundary first-gradient: [-1, 1] at (nx-2, y) ---
+        # Contribution: w_near * [[1, -1], [-1, 1]] at (nx-2, nx-1)
+        if self.nx >= 2:
+            near_x = self.nx - 2
+            p0_in = near_x >= x_s and near_x < x_e
+            p1_in = near_x + 1 >= x_s and near_x + 1 < x_e
+            if (p0_in or p1_in) and block_ny > 0:
+                yy = jnp.arange(y_s, y_e)
+                if scale_2d is None:
+                    w = jnp.ones_like(yy, dtype=jnp.float32) * scale_x
+                else:
+                    w = self._geom_mean(
+                        scale_2d[yy, near_x], scale_2d[yy, near_x + 1]
+                    ) * scale_x
+                if p0_in and p1_in:
+                    k0 = (near_x - x_s) + (yy - y_s) * block_nx
+                    k1 = k0 + 1
+                    R = R.at[k0, k0].add(w)
+                    R = R.at[k0, k1].add(-w)
+                    R = R.at[k1, k0].add(-w)
+                    R = R.at[k1, k1].add(w)
+                elif p0_in:
+                    k0 = (near_x - x_s) + (yy - y_s) * block_nx
+                    R = R.at[k0, k0].add(w)
+                elif p1_in:
+                    k1 = (near_x + 1 - x_s) + (yy - y_s) * block_nx
+                    R = R.at[k1, k1].add(w)
+
+        # --- Horizontal outer boundary fallback: [1] at (nx-1, y) ---
+        if x_e == self.nx and block_ny > 0:
+            yy = jnp.arange(y_s, y_e)
+            k = (block_nx - 1) + (yy - y_s) * block_nx
+            R = R.at[k, k].add(scale_x)
+
+        # --- Vertical full-curvature: [1, -2, 1] at (x, y), y in [0, ny-3] ---
+        y_fc_start = max(0, y_s - 2)
+        y_fc_end = min(self.ny - 3, y_e - 1)
+        for y in range(y_fc_start, y_fc_end + 1):
+            p0_in = y >= y_s
+            p1_in = y + 1 >= y_s and y + 1 < y_e
+            p2_in = y + 2 >= y_s and y + 2 < y_e
+            if not (p0_in or p1_in or p2_in):
+                continue
+            xx = jnp.arange(x_s, x_e)
+            if scale_2d is None:
+                w = jnp.ones_like(xx, dtype=jnp.float32) * scale_y
+            else:
+                w = self._geom_mean3(
+                    scale_2d[y, xx], scale_2d[y + 1, xx], scale_2d[y + 2, xx]
+                ) * scale_y
+            if p0_in and p1_in and p2_in:
+                k0 = (xx - x_s) + (y - y_s) * block_nx
+                k1 = k0 + block_nx
+                k2 = k1 + block_nx
+                R = R.at[k0, k0].add(w)
+                R = R.at[k0, k1].add(-2.0 * w)
+                R = R.at[k0, k2].add(w)
+                R = R.at[k1, k0].add(-2.0 * w)
+                R = R.at[k1, k1].add(4.0 * w)
+                R = R.at[k1, k2].add(-2.0 * w)
+                R = R.at[k2, k0].add(w)
+                R = R.at[k2, k1].add(-2.0 * w)
+                R = R.at[k2, k2].add(w)
+            elif p1_in and p2_in:
+                k1 = (xx - x_s) + (y + 1 - y_s) * block_nx
+                k2 = k1 + block_nx
+                R = R.at[k1, k1].add(4.0 * w)
+                R = R.at[k1, k2].add(-2.0 * w)
+                R = R.at[k2, k1].add(-2.0 * w)
+                R = R.at[k2, k2].add(w)
+            elif p0_in and p1_in:
+                k0 = (xx - x_s) + (y - y_s) * block_nx
+                k1 = k0 + block_nx
+                R = R.at[k0, k0].add(w)
+                R = R.at[k0, k1].add(-2.0 * w)
+                R = R.at[k1, k0].add(-2.0 * w)
+                R = R.at[k1, k1].add(4.0 * w)
+            elif p2_in:
+                k2 = (xx - x_s) + (y + 2 - y_s) * block_nx
+                R = R.at[k2, k2].add(w)
+            elif p1_in:
+                k1 = (xx - x_s) + (y + 1 - y_s) * block_nx
+                R = R.at[k1, k1].add(4.0 * w)
+            elif p0_in:
+                k0 = (xx - x_s) + (y - y_s) * block_nx
+                R = R.at[k0, k0].add(w)
+
+        # --- Vertical near-boundary first-gradient: [-1, 1] at (x, ny-2) ---
+        if self.ny >= 2:
+            near_y = self.ny - 2
+            p0_in = near_y >= y_s and near_y < y_e
+            p1_in = near_y + 1 >= y_s and near_y + 1 < y_e
+            if (p0_in or p1_in) and block_nx > 0:
+                xx = jnp.arange(x_s, x_e)
+                if scale_2d is None:
+                    w = jnp.ones_like(xx, dtype=jnp.float32) * scale_y
+                else:
+                    w = self._geom_mean(
+                        scale_2d[near_y, xx], scale_2d[near_y + 1, xx]
+                    ) * scale_y
+                if p0_in and p1_in:
+                    k0 = (xx - x_s) + (near_y - y_s) * block_nx
+                    k1 = k0 + block_nx
+                    R = R.at[k0, k0].add(w)
+                    R = R.at[k0, k1].add(-w)
+                    R = R.at[k1, k0].add(-w)
+                    R = R.at[k1, k1].add(w)
+                elif p0_in:
+                    k0 = (xx - x_s) + (near_y - y_s) * block_nx
+                    R = R.at[k0, k0].add(w)
+                elif p1_in:
+                    k1 = (xx - x_s) + (near_y + 1 - y_s) * block_nx
+                    R = R.at[k1, k1].add(w)
+
+        # --- Vertical outer boundary fallback: [1] at (x, ny-1) ---
+        if y_e == self.ny and block_nx > 0:
+            xx = jnp.arange(x_s, x_e)
+            k = (xx - x_s) + (block_ny - 1) * block_nx
+            R = R.at[k, k].add(scale_y)
+
+        return 0.5 * (R + R.T)
+
+    def _logdet_block_diag(
+        self,
+        xmin: float, xmax: float, ymin: float, ymax: float,
+        scale: "jax.Array | None",
+        block_size: int,
+    ) -> "jax.Array":
+        r"""Block-diagonal approximation of :math:`\log\det R`.
+
+        Partitions the source grid into ``block_size x block_size`` blocks,
+        builds the principal submatrix of R for each block directly from
+        stencils (including cross-block edge contributions to in-block pixel
+        diagonals), adds a small diagonal jitter, and accumulates the Cholesky
+        log-determinants.  Deterministic, no Hutchinson trace.  Does NOT
+        materialise the full ``(Ns, Ns)`` R matrix.
+
+        .. note::
+
+            By the Hadamard-Fischer inequality, for SPD ``R`` partitioned into
+            principal blocks ``R_ii``, ``det(R) <= prod_i det(R_ii)``; hence the
+            block-diagonal approximation (without jitter) is ``>=`` the exact
+            ``slogdet(R)`` (biased high).  The per-block jitter further
+            increases each ``det(R_ii)``, so the net approximation is always
+            ``>=`` the exact value.  Use :meth:`logdet_free` with
+            ``exact=True`` when an exact logdet is required.
+        """
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
+
+        n_bx = (self.nx + block_size - 1) // block_size
+        n_by = (self.ny + block_size - 1) // block_size
+        logdet = jnp.array(0.0, dtype=jnp.float32)
+
+        for by in range(n_by):
+            for bx in range(n_bx):
+                x_s = bx * block_size
+                x_e = min(x_s + block_size, self.nx)
+                y_s = by * block_size
+                y_e = min(y_s + block_size, self.ny)
+
+                if self.regularization_type == "zero-order":
+                    if scale_2d is not None:
+                        block_scale = scale_2d[y_s:y_e, x_s:x_e].ravel()
+                    else:
+                        block_scale = jnp.ones(
+                            (y_e - y_s) * (x_e - x_s), dtype=jnp.float32,
+                        )
+                    R_block = jnp.diag(block_scale)
+                elif self.regularization_type == "first-order":
+                    R_block = self._weighted_first_order_block(
+                        x_s, x_e, y_s, y_e, scale_2d, scale_x, scale_y
+                    )
+                else:
+                    R_block = self._weighted_second_order_block(
+                        x_s, x_e, y_s, y_e, scale_2d, scale_x, scale_y
+                    )
+
+                diag_mean = jnp.mean(jnp.abs(jnp.diag(R_block)))
+                jitter_scale = jnp.maximum(diag_mean, 1.0)
+                jitter = 1e-6 * jitter_scale * jnp.eye(
+                    R_block.shape[0], dtype=R_block.dtype,
+                )
+                chol = jnp.linalg.cholesky(R_block + jitter)
+                logdet = logdet + 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+
+        return logdet
 
     def logdet_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
-        *, scale: "jax.Array | None" = None,
+        *, scale: "jax.Array | None" = None, block_size: int = 8,
+        exact: bool = False,
     ) -> "jax.Array":
-        r"""Eigenvalue-based :math:`\log\det R` for finite-difference regularisation.
+        r"""Log-determinant of the finite-difference regularisation matrix.
 
-        Uses the Kronecker-sum eigenvalue formula
-
-        .. math::
-            \lambda_{ij} = \frac{\mu_i}{\Delta x^2} + \frac{\nu_j}{\Delta y^2}
-
-        where :math:`\mu_i` and :math:`\nu_j` are the eigenvalues of the
-        1-D product matrices :math:`R_x` and :math:`R_y`.
-
-        When *scale* is provided, returns
-        :math:`\log\det(\text{diag}(\sqrt{\text{scale}}) \cdot R \cdot
-        \text{diag}(\sqrt{\text{scale}})) = \log\det R + \sum_i \log(\text{scale}_i)`.
-
-        Complexity :math:`O(n_x^3 + n_y^3)` for the initial eigendecomposition
-        (done once in ``__init__``) and :math:`O(n_x n_y)` per call.
+        Parameters
+        ----------
+        scale : Array or None, optional
+            Per-pixel adaptive scale of shape ``(Ns,)``.  Edge weights are
+            derived as geometric means of adjacent pixel scales.
+        block_size : int, optional
+            Block size for the approximate path (default 8).
+        exact : bool, optional
+            When ``True``, compute the exact ``slogdet`` of the full
+            ``(Ns, Ns)`` R matrix (O(Ns^3), memory O(Ns^2)).  When ``False``
+            (default), use a block-diagonal approximation that drops the
+            cross-block off-diagonal couplings — faster and lighter, but
+            systematically biased high by the Hadamard-Fischer inequality
+            (``prod det(R_ii) >= det(R)``).  The operator evidence backend
+            uses ``exact=False`` for speed; callers that need exact logdet
+            (e.g. for validation) should pass ``exact=True``.
 
         Raises :exc:`ValueError` for GP types.
         """
@@ -392,82 +870,53 @@ class DenseRegularizationBuilder:
             if scale is not None:
                 logdet_r = logdet_r + jnp.sum(jnp.log(scale))
             return logdet_r
-
-        _, _, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-
-        # λ_{i,j} = μ_i * scale_x + ν_j * scale_y
-        eig_grid = (self._Rx_eigvals[:, None] * scale_x
-                    + self._Ry_eigvals[None, :] * scale_y)  # (nx, ny)
-        # Guard against numerical zeros from the boundary treatment.
-        eig_grid = jnp.maximum(eig_grid, 1e-30)
-        logdet_r = jnp.sum(jnp.log(eig_grid))
-
-        if scale is not None:
-            logdet_r = logdet_r + jnp.sum(jnp.log(scale))
-        return logdet_r
+        if exact:
+            R_full, _ = self.matrix(xmin, xmax, ymin, ymax, scale=scale)
+            _, logdet_r = jnp.linalg.slogdet(R_full)
+            return logdet_r
+        return self._logdet_block_diag(xmin, xmax, ymin, ymax, scale, block_size)
 
     def to_dense_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
         *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
-        """Materialise the dense ``(N_s, N_s)`` regularisation matrix.
+        """Materialise the dense ``(N_s, N_s)`` edge-weighted regularisation matrix.
 
-        For finite-difference types this uses the Kronecker representation;
-        for GP types it delegates to :meth:`matrix` (identical result).
-
-        When *scale* is provided, returns
-        ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``.
-
-        Intended for one-shot use in :meth:`~PixelizedLensOperator.build_preconditioner`
-        where an explicit ``R`` is still needed.
+        For finite-difference types this is a thin wrapper around :meth:`matrix`;
+        for GP types it raises (use :meth:`matrix` with a ``kernel_scale``).
         """
         scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
-            # GP types don't have a meaningful kernel_scale here; callers
-            # should go through _regularization_data which supplies one.
             raise ValueError(
                 "to_dense_free is not directly supported for GP types. "
                 "Use matrix() with a kernel_scale instead."
             )
-        if self.regularization_type == "zero-order":
-            return self._apply_diag_scale(self._identity, scale)
-
-        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-
-        # R = I_ny ⊗ (rx * scale_x) + (ry * scale_y) ⊗ I_nx
-        mat = jnp.kron(jnp.eye(self.ny, dtype=rx.dtype), rx * scale_x) \
-            + jnp.kron(ry * scale_y, jnp.eye(self.nx, dtype=ry.dtype))
-        return self._apply_diag_scale(mat, scale)
+        mat, _ = self.matrix(xmin, xmax, ymin, ymax, scale=scale)
+        return mat
 
     # ------------------------------------------------------------------
     # Block-diagonal R  (used by block-diagonal preconditioner)
     # ------------------------------------------------------------------
 
-    def _get_rx_ry_scales(
+    def _get_scales(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
-    ) -> tuple:
-        """Return ``(rx, ry, scale_x, scale_y)`` for the current FD type."""
+    ) -> tuple["jax.Array", "jax.Array"]:
+        """Return ``(scale_x, scale_y)`` physical spacing factors for the current FD type.
+
+        - zero-order  : ``(1, 1)``
+        - first-order : ``(1/dx^2, 1/dy^2)``
+        - second-order: ``(1/dx^4, 1/dy^4)``
+        """
         inv_dx = (self.nx - 1) / (xmax - xmin)
         inv_dy = (self.ny - 1) / (ymax - ymin)
 
         if self.regularization_type == "zero-order":
-            rx = 0.5 * jnp.eye(self.nx, dtype=jnp.float32)
-            ry = 0.5 * jnp.eye(self.ny, dtype=jnp.float32)
-            scale_x = jnp.array(1.0, dtype=jnp.float32)
-            scale_y = jnp.array(1.0, dtype=jnp.float32)
-        elif self.regularization_type == "first-order":
-            rx = self._Rx1
-            ry = self._Ry1
-            scale_x = jnp.array(inv_dx ** 2, dtype=rx.dtype)
-            scale_y = jnp.array(inv_dy ** 2, dtype=ry.dtype)
-        elif self.regularization_type == "second-order":
-            rx = self._Rx2
-            ry = self._Ry2
-            scale_x = jnp.array(inv_dx ** 4, dtype=rx.dtype)
-            scale_y = jnp.array(inv_dy ** 4, dtype=ry.dtype)
-        else:
-            raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
-        return rx, ry, scale_x, scale_y
+            return jnp.array(1.0, dtype=jnp.float32), jnp.array(1.0, dtype=jnp.float32)
+        if self.regularization_type == "first-order":
+            return jnp.array(inv_dx ** 2, dtype=jnp.float32), jnp.array(inv_dy ** 2, dtype=jnp.float32)
+        if self.regularization_type == "second-order":
+            return jnp.array(inv_dx ** 4, dtype=jnp.float32), jnp.array(inv_dy ** 4, dtype=jnp.float32)
+        raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
 
     def block_diag_R(
         self,
@@ -476,21 +925,16 @@ class DenseRegularizationBuilder:
         xmin: float, xmax: float, ymin: float, ymax: float,
         *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
-        r"""Build the R submatrix for one block of the source grid.
+        r"""Principal submatrix of the edge-weighted R for one block of the grid.
 
         The block covers source pixels with x-indices ``[x_start, x_end)``
-        and y-indices ``[y_start, y_end)``, using the column-major source
-        flat-index convention ``s = x + y * nx``.
-
-        The Kronecker-sum structure is exploited:
-        :math:`R_{\rm block} = I_{n_y^b} \otimes (R_x^{\rm sub} \cdot s_x)
-        + (R_y^{\rm sub} \cdot s_y) \otimes I_{n_x^b}`.
-
-        When *scale* is provided, extracts the corresponding block of the
-        full scale array and applies
-        ``diag(sqrt(scale_block)) @ R_block @ diag(sqrt(scale_block))``.
-
-        Only finite-difference types are supported.
+        and y-indices ``[y_start, y_end)``.  The returned matrix is the exact
+        principal submatrix ``R[bf, bf]`` of the full edge-weighted R, including
+        diagonal contributions from cross-block stencil rows (edges/curvatures
+        that straddle the block boundary still contribute to in-block pixel
+        diagonals).  Constructed directly from stencils — does NOT materialise
+        the full ``(Ns, Ns)`` R matrix.  Only finite-difference types are
+        supported.
 
         Parameters
         ----------
@@ -510,48 +954,32 @@ class DenseRegularizationBuilder:
             ``block_n = (x_end - x_start) * (y_end - y_start)``.
         """
         scale = self._check_scale(scale)
-        block_nx = x_end - x_start
-        block_ny = y_end - y_start
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
 
-        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-
-        rx_sub = rx[x_start:x_end, x_start:x_end] * scale_x  # (block_nx, block_nx)
-        ry_sub = ry[y_start:y_end, y_start:y_end] * scale_y  # (block_ny, block_ny)
-
-        # R_block = I_{block_ny} ⊗ rx_sub + ry_sub ⊗ I_{block_nx}
-        eye_y = jnp.eye(block_ny, dtype=rx_sub.dtype)
-        eye_x = jnp.eye(block_nx, dtype=ry_sub.dtype)
-        R_block = jnp.kron(eye_y, rx_sub) + jnp.kron(ry_sub, eye_x)
-
-        if scale is not None:
-            # Extract scale values for this block (column-major flat indexing)
-            sx = jnp.arange(x_start, x_end)
-            sy = jnp.arange(y_start, y_end)
-            block_flat_idx = (sx[:, None] + sy[None, :] * self.nx).ravel(order='F')
-            scale_block = scale[block_flat_idx]
-            R_block = self._apply_diag_scale(R_block, scale_block)
-        return R_block
+        if self.regularization_type == "zero-order":
+            block_scale = scale_2d[y_start:y_end, x_start:x_end].ravel() if scale_2d is not None else jnp.ones((y_end - y_start) * (x_end - x_start), dtype=jnp.float32)
+            return jnp.diag(block_scale)
+        if self.regularization_type == "first-order":
+            return self._weighted_first_order_block(
+                x_start, x_end, y_start, y_end, scale_2d, scale_x, scale_y
+            )
+        if self.regularization_type == "second-order":
+            return self._weighted_second_order_block(
+                x_start, x_end, y_start, y_end, scale_2d, scale_x, scale_y
+            )
+        raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
 
     def diag_R(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
         *, scale: "jax.Array | None" = None,
     ) -> "jax.Array":
-        r"""Return the diagonal of the dense R matrix in :math:`O(N_s)`.
+        r"""Return the diagonal of the edge-weighted R matrix in :math:`O(N_s)`.
 
-        Uses the Kronecker-sum structure:
-        :math:`\operatorname{diag}(R)_k = s_x \cdot \operatorname{diag}(R_x)_{i}
-        + s_y \cdot \operatorname{diag}(R_y)_{j}`
-        where :math:`k = i + j \cdot n_x`.
-
-        When *scale* is provided, returns the diagonal of
-        ``diag(sqrt(scale)) @ R @ diag(sqrt(scale))``, which simplifies to
-        ``scale * diag(R)`` (since D is diagonal).
-
-        For GP types, falls back to ``jnp.diag`` of the full matrix (caller
-        must supply ``gp_matrix`` via :meth:`matrix` — this method does not
-        accept it directly; the caller should pre-build the GP precision and
-        extract its diagonal).
+        For finite-difference types the diagonal is computed from the weighted
+        Laplacian stencil.  For GP types, use ``jnp.diag`` on the full GP
+        precision matrix instead.
         """
         scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
@@ -560,47 +988,67 @@ class DenseRegularizationBuilder:
                 "Use jnp.diag on the full GP precision matrix instead."
             )
         if self.regularization_type == "zero-order":
-            diag = jnp.ones(self.n_pixels, dtype=jnp.float32)
             if scale is not None:
-                diag = scale * diag
-            return diag
+                return scale
+            return jnp.ones(self.n_pixels, dtype=jnp.float32)
 
-        rx, ry, scale_x, scale_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-        diag_rx = jnp.diag(rx) * scale_x  # (nx,)
-        diag_ry = jnp.diag(ry) * scale_y  # (ny,)
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
 
-        # diag(R)[i + j * nx] = diag_rx[i] + diag_ry[j]
-        diag_r = diag_rx[:, None] + diag_ry[None, :]  # (nx, ny)
-        diag_r = diag_r.T.ravel()  # match column-major flat order
+        # Separate x/y accumulators so scale_x only scales x-edge contributions
+        # and scale_y only scales y-edge contributions.  Mixing them would be
+        # wrong when dx != dy (non-square grids).
+        diag_x = jnp.zeros((self.ny, self.nx), dtype=jnp.float32)
+        diag_y = jnp.zeros((self.ny, self.nx), dtype=jnp.float32)
 
-        if scale is not None:
-            diag_r = scale * diag_r
-        return diag_r
+        if self.regularization_type == "first-order":
+            w_x, w_y = self._edge_weights_first_order(scale_2d)
+            if self.nx > 1:
+                # each interior pixel has left and right horizontal edges
+                diag_x = diag_x.at[:, 1:-1].add(w_x[:, :-1] + w_x[:, 1:])
+                diag_x = diag_x.at[:, 0].add(w_x[:, 0])
+                diag_x = diag_x.at[:, -1].add(w_x[:, -1] + 1.0)  # boundary fallback
+            if self.ny > 1:
+                diag_y = diag_y.at[1:-1, :].add(w_y[:-1, :] + w_y[1:, :])
+                diag_y = diag_y.at[0, :].add(w_y[0, :])
+                diag_y = diag_y.at[-1, :].add(w_y[-1, :] + 1.0)
+        elif self.regularization_type == "second-order":
+            w_x2, w_y2, w_x2_near, w_y2_near = self._edge_weights_second_order(scale_2d)
+            if self.nx > 2:
+                # Curvature stencil [1, -2, 1]: each curvature centre contributes
+                #  1²=1 to the left-wing pixel, (-2)²=4 to the centre pixel,
+                #  and 1²=1 to the right-wing pixel.
+                diag_x = diag_x.at[:, :-2].add(w_x2)            # left wing:  +1
+                diag_x = diag_x.at[:, 1:-1].add(4.0 * w_x2)     # centre:     (-2)²=4
+                diag_x = diag_x.at[:, 2:].add(w_x2)             # right wing: +1
+            if self.nx > 1:
+                # near-boundary first-gradient: each of the two pixels gets
+                #  (±1)²·w = 1·w from this edge (the edge contributes w to
+                #  EACH pixel's diagonal, not 2w).
+                diag_x = diag_x.at[:, -2].add(w_x2_near)
+                diag_x = diag_x.at[:, -1].add(w_x2_near + 1.0)  # outer boundary
+            if self.ny > 2:
+                diag_y = diag_y.at[:-2, :].add(w_y2)
+                diag_y = diag_y.at[1:-1, :].add(4.0 * w_y2)
+                diag_y = diag_y.at[2:, :].add(w_y2)
+            if self.ny > 1:
+                diag_y = diag_y.at[-2, :].add(w_y2_near)
+                diag_y = diag_y.at[-1, :].add(w_y2_near + 1.0)
+
+        diag_2d = scale_x * diag_x + scale_y * diag_y
+
+        return diag_2d.ravel()
 
     def make_reg_data(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
         *, scale: "jax.Array | None" = None,
     ) -> RegData:
-        """Return a compact :class:`RegData` tuple for passing through ``A_data``.
+        """Return a compact :class:`RegData` tuple for the operator backend.
 
-        Only supports finite-difference regularization types.  GP types are
-        not supported by the operator backend.
-
-        When *scale* is provided, it is stored in the returned :class:`RegData`
-        for use by the matrix-free matvec / logdet primitives.
-
-        Parameters
-        ----------
-        xmin, xmax, ymin, ymax : float
-            Source-plane bounds.
-        scale : Array or None, optional
-            Per-pixel regularization scale of shape ``(Ns,)``.
-
-        Raises
-        ------
-        ValueError
-            If ``regularization_type`` is a GP type.
+        Carries the per-pixel adaptive ``scale`` array and the physical spacing
+        factors; the JIT matvec computes edge weights from ``scale`` on the fly.
+        Only finite-difference types are supported.
         """
         scale = self._check_scale(scale)
         if self.regularization_type in GP_REGULARIZATION_TYPES:
@@ -608,9 +1056,8 @@ class DenseRegularizationBuilder:
                 "Operator backend does not support GP regularization types. "
                 "Use the dense backend (PixelizedImageProbModel) for GP regularization."
             )
-
-        rx, ry, scl_x, scl_y = self._get_rx_ry_scales(xmin, xmax, ymin, ymax)
-        return RegData(rx=rx, ry=ry, scale_x=scl_x, scale_y=scl_y, scale=scale)
+        scl_x, scl_y = self._get_scales(xmin, xmax, ymin, ymax)
+        return RegData(scale=scale, scale_x=scl_x, scale_y=scl_y)
 
     def _build_first_difference_operators(self):
         """Return first-order x/y finite-difference operators on index space.
@@ -722,26 +1169,6 @@ class DenseRegularizationBuilder:
             [source_x_mesh.reshape(-1), source_y_mesh.reshape(-1)],
             axis=1,
         )
-
-    def _first_order_matrix(self, xmin, xmax, ymin, ymax):
-        """Return first-order gradient regularization with per-axis pixel scaling.
-
-        H = H1_unit_x / dx² + H1_unit_y / dy²
-        where dx = (xmax-xmin)/(nx-1), dy = (ymax-ymin)/(ny-1).
-        """
-        scale_x = 2.0 / (xmax - xmin)
-        scale_y = 2.0 / (ymax - ymin)
-        return self._H1_unit_x * (scale_x ** 2) + self._H1_unit_y * (scale_y ** 2)
-
-    def _second_order_matrix(self, xmin, xmax, ymin, ymax):
-        """Return second-order curvature regularization with per-axis pixel scaling.
-
-        H = H2_unit_x / dx⁴ + H2_unit_y / dy⁴
-        where dx = (xmax-xmin)/(nx-1), dy = (ymax-ymin)/(ny-1).
-        """
-        scale_x = 2.0 / (xmax - xmin)
-        scale_y = 2.0 / (ymax - ymin)
-        return self._H2_unit_x * (scale_x ** 4) + self._H2_unit_y * (scale_y ** 4)
 
     def _gp_matrix(self, xmin, xmax, ymin, ymax, kernel_scale: float):
         """Return (precision, logdet_covariance) for a GP regularization matrix.
