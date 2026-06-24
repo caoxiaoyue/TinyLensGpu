@@ -84,8 +84,8 @@ NSUB_PIX = 4
 N_GAUSSIANS_SRC = 10
 MASK_RADIUS = 2.5
 NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
-ADAPTIVE_REG_ALPHA = 1.0    # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
-ADAPTIVE_REG_FLOOR = 0.1    # minimum per-pixel reg scale
+ADAPTIVE_REG_ALPHA = 2.0    # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
+ADAPTIVE_REG_FLOOR = 0.01    # minimum per-pixel reg scale
 OUT_DIR = Path("output_adpt_reg")
 DATA_DIR = Path("data")
 
@@ -138,7 +138,7 @@ def _posterior_median(samples, weights, param_names):
     q = np.array([0.5])
     for i, name in enumerate(param_names):
         out[name] = float(weighted_quantile(
-            np.asarray(samples[:, i]), weights, q))
+            np.asarray(samples[:, i]), weights, q)[0])
     return out
 
 

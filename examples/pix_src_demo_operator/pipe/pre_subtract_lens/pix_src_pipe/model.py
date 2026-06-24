@@ -110,7 +110,7 @@ def _posterior_median(samples, weights, param_names):
     q = np.array([0.5])
     for i, name in enumerate(param_names):
         out[name] = float(weighted_quantile(
-            np.asarray(samples[:, i]), weights, q))
+            np.asarray(samples[:, i]), weights, q)[0])
     return out
 
 
