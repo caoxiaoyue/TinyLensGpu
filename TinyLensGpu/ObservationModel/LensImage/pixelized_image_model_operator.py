@@ -75,7 +75,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         source_seed_mask: Union[np.ndarray, Array, None] = None,
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
-        block_size: int = 8,
+        block_size: int = 10,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
 

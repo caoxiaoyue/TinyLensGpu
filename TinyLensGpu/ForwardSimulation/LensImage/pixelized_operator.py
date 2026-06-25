@@ -626,15 +626,20 @@ class PixelizedLensOperator:
         xmin, xmax, ymin, ymax,
         lambda_reg: Array,
         reg_builder: DenseRegularizationBuilder,
-        block_size: int = 8,
+        block_size: int = 10,
         scale: Array | None = None,
     ) -> tuple[Array | list[Array], Array | list[Array]]:
         r"""Build a block-diagonal preconditioner P and its Cholesky factors.
 
         Partitions the source grid into ``block_size × block_size`` blocks
-        (default 8×8), constructs the submatrix of
+        (default 10×10), constructs the submatrix of
         :math:`P = L^T W_{\rm eff} L + \lambda R` for each block, and
         Cholesky-factors each one independently.
+
+        When the source grid is uniformly divisible by ``block_size``, uses
+        ``jax.lax.scan`` to avoid Python-loop unrolling during JIT tracing
+        (significant compilation speedup).  Otherwise falls back to the
+        legacy Python-loop path.
 
         Only finite-difference regularization types are supported.
 
@@ -649,7 +654,7 @@ class PixelizedLensOperator:
         reg_builder : DenseRegularizationBuilder
             Source-plane regularization builder (provides per-block R).
         block_size : int, optional
-            Source-grid block size in pixels (default 8).
+            Source-grid block size in pixels (default 10).
         scale : Array or None, optional
             Per-pixel regularization scale of shape ``(Ns,)``.  When
             provided, each block's regularization submatrix incorporates
@@ -712,17 +717,50 @@ class PixelizedLensOperator:
         # Which blocks does each image pixel's bilinear stencil touch?
         bid_per_neighbor = block_id[indices]  # (Nd, 4)
 
+        # Dispatch: scan for uniform grids, legacy loop otherwise
+        is_uniform = (nx % block_size == 0) and (ny % block_size == 0)
+        if is_uniform:
+            chols, masks = self._build_block_diag_precond_scan(
+                weights, indices, bid_per_neighbor, w_eff_active,
+                lambda_reg, reg_builder, block_size,
+                xmin, xmax, ymin, ymax, scale,
+                n_bx, n_by, nx,
+            )
+        else:
+            chols, masks = self._build_block_diag_precond_legacy(
+                weights, indices, bid_per_neighbor, w_eff_active,
+                lambda_reg, reg_builder, block_size,
+                xmin, xmax, ymin, ymax, scale,
+                n_bx, n_by, nx,
+            )
+
+        # Stack if uniform
+        if isinstance(chols, (list, tuple)) and chols:
+            block_sizes = {int(chol.shape[0]) for chol in chols}
+            if len(block_sizes) == 1:
+                return jnp.stack(chols, axis=0), jnp.stack(masks, axis=0)
+
+        return chols, masks
+
+    def _build_block_diag_precond_legacy(
+        self,
+        weights, indices, bid_per_neighbor, w_eff_active,
+        lambda_reg, reg_builder, block_size,
+        xmin, xmax, ymin, ymax, scale,
+        n_bx, n_by, nx,
+    ):
+        """Legacy Python-loop block-diagonal preconditioner (non-uniform grids)."""
+        Ns = self.n_source_pixels
         block_chols = []
         block_masks = []
 
-        # Per-block loop — block count is moderate (≤ 100), traced once
         for by in range(n_by):
             for bx in range(n_bx):
                 bid = bx + by * n_bx
                 x_s = bx * block_size
                 x_e = min(x_s + block_size, nx)
                 y_s = by * block_size
-                y_e = min(y_s + block_size, ny)
+                y_e = min(y_s + block_size, self.source_ny)
                 block_nx_b = x_e - x_s
                 block_ny_b = y_e - y_s
                 block_n = block_nx_b * block_ny_b
@@ -730,47 +768,36 @@ class PixelizedLensOperator:
                 if block_n == 0:
                     continue
 
-                # Global flat indices of source pixels in this block
                 bf = jnp.array(
-                    [x + y * nx for y in range(y_s, y_e) for x in range(x_s, x_e)],
+                    [x + y * nx
+                     for y in range(y_s, y_e)
+                     for x in range(x_s, x_e)],
                     dtype=jnp.int32,
                 )
 
-                # ---- Build block using fully-traced operations (no boolean indexing) ----
-                # We process ALL image pixels, zeroing contributions from
-                # pixels whose bilinear stencil does not touch this block.
-                affected = jnp.any(bid_per_neighbor == bid, axis=1)  # (Nd,)
-                mask_w = affected[:, None].astype(weights.dtype)     # (Nd, 1)
-
-                aff_w = weights * mask_w                              # (Nd, 4)
-                aff_we = w_eff_active * affected.astype(w_eff_active.dtype)  # (Nd,)
-
-                # Which neighbors are in this block?  (Nd, 4)
+                affected = jnp.any(bid_per_neighbor == bid, axis=1)
+                mask_w = affected[:, None].astype(weights.dtype)
+                aff_w = weights * mask_w
+                aff_we = w_eff_active * affected.astype(w_eff_active.dtype)
                 in_block = bid_per_neighbor == bid
 
-                # Global → local index mapping for this block
                 g2l = -jnp.ones(Ns, dtype=jnp.int32)
                 for loc_i, g_idx in enumerate(bf):
                     g2l = g2l.at[g_idx].set(loc_i)
-                loc_idx = g2l[indices]                # (Nd, 4)  ← all pixels
+                loc_idx = g2l[indices]
 
-                # ---- Scatter-add Lᵀ W_eff L into block-sized matrix ----
                 P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
 
-                wgt_i = aff_w[:, :, None]              # (Nd, 4, 1)
-                wgt_j = aff_w[:, None, :]              # (Nd, 1, 4)
-                w_prod = wgt_i * wgt_j * aff_we[:, None, None]  # (Nd, 4, 4)
+                wgt_i = aff_w[:, :, None]
+                wgt_j = aff_w[:, None, :]
+                w_prod = wgt_i * wgt_j * aff_we[:, None, None]
 
-                loc_i = loc_idx[:, :, None]            # (Nd, 4, 1)
-                loc_j = loc_idx[:, None, :]            # (Nd, 1, 4)
-                in_i = in_block[:, :, None]            # (Nd, 4, 1)
-                in_j = in_block[:, None, :]            # (Nd, 1, 4)
-                valid = in_i & in_j                    # (Nd, 4, 4)
+                loc_i = loc_idx[:, :, None]
+                loc_j = loc_idx[:, None, :]
+                in_i = in_block[:, :, None]
+                in_j = in_block[:, None, :]
+                valid = in_i & in_j
 
-                # Flatten all to Nd*16 and filter valid entries.
-                # Use multiplication instead of jnp.where for vals_f to
-                # avoid the two-branch primitive that can leak NaN from the
-                # dead branch into XLA's GEMM fusion autotuner comparisons.
                 loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
                 loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
                 valid_f = valid.ravel()
@@ -782,7 +809,6 @@ class PixelizedLensOperator:
 
                 P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
 
-                # ---- + λ R_block ----
                 R_block = reg_builder.block_diag_R(
                     x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
                     scale=scale,
@@ -790,32 +816,119 @@ class PixelizedLensOperator:
                 P_block = P_block + lambda_reg * R_block
                 P_block = 0.5 * (P_block + P_block.T)
 
-                # ---- Cholesky with scale-adaptive diagonal jitter ----
-                # A fixed absolute jitter (e.g. 1e-8) is inadequate for the
-                # grid-search λ range [1e-8, 1e8]: at large λ the R_block
-                # entries can reach 10^12–10^16, making κ(P) ≫ 1/ε_f32 and
-                # causing Cholesky to produce NaN.  We use a jitter
-                # proportional to the mean diagonal magnitude so the
-                # conditioner number stays bounded regardless of λ.
-                #
-                # The symmetrisation at line 675 guarantees diag is real;
-                # abs guards against tiny negative rounding noise.
                 diag_P = jnp.diag(P_block)
                 diag_mean = jnp.mean(jnp.abs(diag_P))
                 jitter_scale = jnp.maximum(diag_mean, 1e-8)
-                jitter = 1e-6 * jitter_scale * jnp.eye(block_n, dtype=P_block.dtype)
+                jitter = 1e-6 * jitter_scale * jnp.eye(
+                    block_n, dtype=P_block.dtype,
+                )
                 P_block = P_block + jitter
 
                 chol_block = jnp.linalg.cholesky(P_block)
                 block_chols.append(chol_block)
                 block_masks.append(bf)
 
-        if block_chols:
-            block_sizes = {int(chol.shape[0]) for chol in block_chols}
-            if len(block_sizes) == 1:
-                return jnp.stack(block_chols, axis=0), jnp.stack(block_masks, axis=0)
-
         return block_chols, block_masks
+
+    def _build_block_diag_precond_scan(
+        self,
+        weights, indices, bid_per_neighbor, w_eff_active,
+        lambda_reg, reg_builder, block_size,
+        xmin, xmax, ymin, ymax, scale,
+        n_bx, n_by, nx,
+    ):
+        """``lax.scan``-based block-diagonal preconditioner (uniform grids).
+
+        Compiles the block body once and executes it dynamically, avoiding
+        the ~100× loop unrolling that dominates JIT compilation time.
+        """
+        bs = block_size
+        block_n = bs * bs
+        Ns = self.n_source_pixels
+
+        # Precompute scan inputs: (bid, x_s, y_s) for each block
+        bx_arr = jnp.arange(n_bx, dtype=jnp.int32)
+        by_arr = jnp.arange(n_by, dtype=jnp.int32)
+        bxs, bys = jnp.meshgrid(bx_arr, by_arr, indexing="xy")
+        bids = (bxs + bys * n_bx).ravel().astype(jnp.int32)
+        x_starts = (bxs * bs).ravel().astype(jnp.int32)
+        y_starts = (bys * bs).ravel().astype(jnp.int32)
+        scan_inputs = jnp.stack([bids, x_starts, y_starts], axis=-1)
+
+        # Pre-compute local index template (column-major): [0, 1, ..., block_n-1]
+        local_i = jnp.arange(block_n, dtype=jnp.int32)
+        loc_x_template = local_i % bs
+        loc_y_template = local_i // bs
+
+        def scan_body(carry, xs):
+            bid = xs[0]
+            x_s = xs[1]
+            y_s = xs[2]
+
+            # Flat source indices for this block (column-major, vectorized)
+            bf = (x_s + loc_x_template) + (y_s + loc_y_template) * nx  # (block_n,)
+
+            # Affected pixels mask
+            affected = jnp.any(bid_per_neighbor == bid, axis=1)  # (Nd,)
+            mask_w = affected[:, None].astype(weights.dtype)
+            aff_w = weights * mask_w
+            aff_we = w_eff_active * affected.astype(w_eff_active.dtype)
+            in_block = bid_per_neighbor == bid  # (Nd, 4)
+
+            # Global → local index mapping (vectorized, no Python loop)
+            g2l = -jnp.ones(Ns, dtype=jnp.int32)
+            g2l = g2l.at[bf].set(jnp.arange(block_n, dtype=jnp.int32))
+            loc_idx = g2l[indices]  # (Nd, 4)
+
+            # ---- Scatter-add Lᵀ W_eff L into block-sized matrix ----
+            P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
+
+            wgt_i = aff_w[:, :, None]              # (Nd, 4, 1)
+            wgt_j = aff_w[:, None, :]              # (Nd, 1, 4)
+            w_prod = wgt_i * wgt_j * aff_we[:, None, None]  # (Nd, 4, 4)
+
+            loc_i = loc_idx[:, :, None]            # (Nd, 4, 1)
+            loc_j = loc_idx[:, None, :]            # (Nd, 1, 4)
+            in_i = in_block[:, :, None]            # (Nd, 4, 1)
+            in_j = in_block[:, None, :]            # (Nd, 1, 4)
+            valid = in_i & in_j                    # (Nd, 4, 4)
+
+            loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
+            loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
+            valid_f = valid.ravel()
+            valid_f_float = valid_f.astype(w_prod.dtype)
+
+            loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
+            loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
+            vals_f = w_prod.ravel() * valid_f_float
+
+            P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
+
+            # ---- + λ R_block (vectorized stencil methods) ----
+            R_block = reg_builder.block_diag_R_vec(
+                x_s, x_s + bs, y_s, y_s + bs,
+                xmin, xmax, ymin, ymax,
+                scale=scale, block_size=bs,
+            )
+            P_block = P_block + lambda_reg * R_block
+            P_block = 0.5 * (P_block + P_block.T)
+
+            # ---- Cholesky with scale-adaptive diagonal jitter ----
+            diag_P = jnp.diag(P_block)
+            diag_mean = jnp.mean(jnp.abs(diag_P))
+            jitter_scale = jnp.maximum(diag_mean, 1e-8)
+            jitter = 1e-6 * jitter_scale * jnp.eye(
+                block_n, dtype=P_block.dtype,
+            )
+            P_block = P_block + jitter
+
+            chol_block = jnp.linalg.cholesky(P_block)
+            return carry, (chol_block, bf)
+
+        init_carry = jnp.array(0, dtype=jnp.int32)
+        _, (chols, masks) = jax.lax.scan(scan_body, init_carry, scan_inputs)
+        # Convert to lists for uniform post-processing
+        return list(chols), list(masks)
 
     # ------------------------------------------------------------------
     # Legacy: dense preconditioner  (for testing / small grids)

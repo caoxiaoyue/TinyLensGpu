@@ -567,6 +567,122 @@ class DenseRegularizationBuilder:
 
         return 0.5 * (R + R.T)
 
+    def _weighted_first_order_block_vec(
+        self,
+        x_s: "jax.Array", x_e: "jax.Array",
+        y_s: "jax.Array", y_e: "jax.Array",
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array", scale_y: "jax.Array",
+        block_size: int,
+    ) -> "jax.Array":
+        """Vectorized :meth:`_weighted_first_order_block` for ``lax.scan``.
+
+        Uses fixed-size arrays and boolean masks instead of Python loops,
+        so it is safe inside a ``jax.lax.scan`` body where ``x_s, x_e,
+        y_s, y_e`` are traced integers.  Assumes all blocks have uniform
+        ``block_size × block_size`` dimensions.
+        """
+        bs = block_size
+        block_n = bs * bs
+        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+
+        # ---- Horizontal edges ----
+        x_h_start = jnp.maximum(0, x_s - 1)
+        x_h_end = jnp.minimum(self.nx - 2, x_e - 1)
+        max_h = bs + 1
+        h_off = jnp.arange(max_h, dtype=jnp.int32)
+        x_pos = x_h_start + h_off
+        h_active = h_off <= (x_h_end - x_h_start)
+
+        left_in = (x_pos >= x_s) & h_active
+        right_in = (x_pos + 1 < x_e) & h_active
+        both_in = left_in & right_in
+        left_only = left_in & ~right_in
+        right_only = ~left_in & right_in
+
+        yy_off = jnp.arange(bs, dtype=jnp.int32)
+        yy = y_s + yy_off
+
+        if scale_2d is None:
+            w = jnp.ones((bs, max_h), dtype=jnp.float32) * scale_x
+        else:
+            y_bc = jnp.clip(yy[:, None], 0, self.ny - 1)
+            x_bc = jnp.clip(x_pos[None, :], 0, self.nx - 2)
+            x2_bc = jnp.clip(x_pos[None, :] + 1, 0, self.nx - 1)
+            s1 = scale_2d[y_bc, x_bc]
+            s2 = scale_2d[y_bc, x2_bc]
+            w = self._geom_mean(s1, s2) * scale_x
+
+        # Local indices: k1 = (x - x_s) + (y - y_s) * bs
+        k1 = (x_pos[None, :] - x_s) + (yy[:, None] - y_s) * bs
+        k2 = k1 + 1
+
+        def _scatter_add(R, ki, kj, vals, mask):
+            mf = (jnp.ones_like(vals) * mask).ravel().astype(vals.dtype)
+            return R.at[ki.ravel(), kj.ravel()].add(vals.ravel() * mf)
+
+        # Case 1: both endpoints in block
+        R = _scatter_add(R, k1, k1, w, both_in[None, :])
+        R = _scatter_add(R, k1, k2, -w, both_in[None, :])
+        R = _scatter_add(R, k2, k1, -w, both_in[None, :])
+        R = _scatter_add(R, k2, k2, w, both_in[None, :])
+        # Case 2: left only
+        R = _scatter_add(R, k1, k1, w, left_only[None, :])
+        # Case 3: right only
+        R = _scatter_add(R, k2, k2, w, right_only[None, :])
+
+        # Boundary fallback: if x_e == self.nx → add scale_x on last column
+        is_last_col = (x_e == self.nx).astype(jnp.float32)
+        k_bx = (bs - 1) + yy_off * bs
+        R = R.at[k_bx, k_bx].add(scale_x * is_last_col)
+
+        # ---- Vertical edges ----
+        y_v_start = jnp.maximum(0, y_s - 1)
+        y_v_end = jnp.minimum(self.ny - 2, y_e - 1)
+        max_v = bs + 1
+        v_off = jnp.arange(max_v, dtype=jnp.int32)
+        y_pos = y_v_start + v_off
+        v_active = v_off <= (y_v_end - y_v_start)
+
+        top_in = (y_pos >= y_s) & v_active
+        bot_in = (y_pos + 1 < y_e) & v_active
+        both_in_v = top_in & bot_in
+        top_only = top_in & ~bot_in
+        bot_only = ~top_in & bot_in
+
+        xx_off = jnp.arange(bs, dtype=jnp.int32)
+        xx = x_s + xx_off
+
+        if scale_2d is None:
+            w_v = jnp.ones((bs, max_v), dtype=jnp.float32) * scale_y
+        else:
+            y_bc_v = jnp.clip(y_pos[None, :], 0, self.ny - 2)
+            x_bc_v = jnp.clip(xx[:, None], 0, self.nx - 1)
+            y2_bc_v = jnp.clip(y_pos[None, :] + 1, 0, self.ny - 1)
+            s1_v = scale_2d[y_bc_v, x_bc_v]
+            s2_v = scale_2d[y2_bc_v, x_bc_v]
+            w_v = self._geom_mean(s1_v, s2_v) * scale_y
+
+        k1_v = (xx[:, None] - x_s) + (y_pos[None, :] - y_s) * bs
+        k2_v = k1_v + bs
+
+        # Case 1: both endpoints in block
+        R = _scatter_add(R, k1_v, k1_v, w_v, both_in_v[None, :])
+        R = _scatter_add(R, k1_v, k2_v, -w_v, both_in_v[None, :])
+        R = _scatter_add(R, k2_v, k1_v, -w_v, both_in_v[None, :])
+        R = _scatter_add(R, k2_v, k2_v, w_v, both_in_v[None, :])
+        # Case 2: top only
+        R = _scatter_add(R, k1_v, k1_v, w_v, top_only[None, :])
+        # Case 3: bottom only
+        R = _scatter_add(R, k2_v, k2_v, w_v, bot_only[None, :])
+
+        # Boundary fallback: if y_e == self.ny → add scale_y on last row
+        is_last_row = (y_e == self.ny).astype(jnp.float32)
+        k_by = xx_off + (bs - 1) * bs
+        R = R.at[k_by, k_by].add(scale_y * is_last_row)
+
+        return 0.5 * (R + R.T)
+
     def _weighted_second_order_block(
         self,
         x_s: int, x_e: int, y_s: int, y_e: int,
@@ -770,6 +886,223 @@ class DenseRegularizationBuilder:
 
         return 0.5 * (R + R.T)
 
+    def _weighted_second_order_block_vec(
+        self,
+        x_s: "jax.Array", x_e: "jax.Array",
+        y_s: "jax.Array", y_e: "jax.Array",
+        scale_2d: "jax.Array | None",
+        scale_x: "jax.Array", scale_y: "jax.Array",
+        block_size: int,
+    ) -> "jax.Array":
+        """Vectorized :meth:`_weighted_second_order_block` for ``lax.scan``.
+
+        Uses fixed-size arrays and boolean masks instead of Python loops,
+        safe inside a ``jax.lax.scan`` body.  Assumes uniform
+        ``block_size × block_size`` blocks.
+        """
+        bs = block_size
+        block_n = bs * bs
+        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+        yy_off = jnp.arange(bs, dtype=jnp.int32)
+        xx_off = jnp.arange(bs, dtype=jnp.int32)
+
+        def _scatter_add(R, ki, kj, vals, mask):
+            mf = (jnp.ones_like(vals) * mask).ravel().astype(vals.dtype)
+            return R.at[ki.ravel(), kj.ravel()].add(vals.ravel() * mf)
+
+        # ---- Horizontal full-curvature [1, -2, 1] ----
+        max_h = bs + 2
+        h_off = jnp.arange(max_h, dtype=jnp.int32)
+        x_pos = jnp.maximum(0, x_s - 2) + h_off
+        h_active = h_off <= (jnp.minimum(self.nx - 3, x_e - 1) - jnp.maximum(0, x_s - 2))
+
+        p0_in = (x_pos >= x_s) & (x_pos < x_e) & h_active
+        p1_in = (x_pos + 1 >= x_s) & (x_pos + 1 < x_e) & h_active
+        p2_in = (x_pos + 2 >= x_s) & (x_pos + 2 < x_e) & h_active
+        any_in = p0_in | p1_in | p2_in
+
+        p012 = p0_in & p1_in & p2_in
+        p12 = (~p0_in) & p1_in & p2_in & any_in
+        p01 = p0_in & p1_in & (~p2_in) & any_in
+        p2 = (~p0_in) & (~p1_in) & p2_in & any_in
+        p1 = (~p0_in) & p1_in & (~p2_in) & any_in
+        p0 = p0_in & (~p1_in) & (~p2_in) & any_in
+
+        yy = y_s + yy_off
+        y_mask = jnp.ones((bs, 1), dtype=jnp.float32)
+
+        if scale_2d is None:
+            w = jnp.ones((bs, max_h), dtype=jnp.float32) * scale_x
+        else:
+            y_bc = jnp.clip(yy[:, None], 0, self.ny - 1)
+            x_bc = jnp.clip(x_pos[None, :], 0, self.nx - 3)
+            x1_bc = jnp.clip(x_pos[None, :] + 1, 0, self.nx - 1)
+            x2_bc = jnp.clip(x_pos[None, :] + 2, 0, self.nx - 1)
+            w = self._geom_mean3(
+                scale_2d[y_bc, x_bc],
+                scale_2d[y_bc, x1_bc],
+                scale_2d[y_bc, x2_bc],
+            ) * scale_x
+
+        k0 = (x_pos[None, :] - x_s) + (yy[:, None] - y_s) * bs
+        k1 = k0 + 1
+        k2 = k0 + 2
+
+        # p012: full 3x3 kernel
+        R = _scatter_add(R, k0, k0, w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k0, k1, -2.0 * w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k0, k2, w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k1, k0, -2.0 * w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k1, k1, 4.0 * w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k1, k2, -2.0 * w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k2, k0, w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k2, k1, -2.0 * w, p012[None, :] * y_mask)
+        R = _scatter_add(R, k2, k2, w, p012[None, :] * y_mask)
+        # p12: right 2×2 sub-kernel
+        R = _scatter_add(R, k1, k1, 4.0 * w, p12[None, :] * y_mask)
+        R = _scatter_add(R, k1, k2, -2.0 * w, p12[None, :] * y_mask)
+        R = _scatter_add(R, k2, k1, -2.0 * w, p12[None, :] * y_mask)
+        R = _scatter_add(R, k2, k2, w, p12[None, :] * y_mask)
+        # p01: left 2×2 sub-kernel
+        R = _scatter_add(R, k0, k0, w, p01[None, :] * y_mask)
+        R = _scatter_add(R, k0, k1, -2.0 * w, p01[None, :] * y_mask)
+        R = _scatter_add(R, k1, k0, -2.0 * w, p01[None, :] * y_mask)
+        R = _scatter_add(R, k1, k1, 4.0 * w, p01[None, :] * y_mask)
+        # p2 only
+        R = _scatter_add(R, k2, k2, w, p2[None, :] * y_mask)
+        # p1 only
+        R = _scatter_add(R, k1, k1, 4.0 * w, p1[None, :] * y_mask)
+        # p0 only
+        R = _scatter_add(R, k0, k0, w, p0[None, :] * y_mask)
+
+        # Horizontal near-boundary [-1, 1] at (nx-2, nx-1)
+        near_x = self.nx - 2
+        np0_in = (near_x >= x_s) & (near_x < x_e)
+        np1_in = (near_x + 1 >= x_s) & (near_x + 1 < x_e)
+        near_any = np0_in | np1_in
+        if self.nx >= 2:
+            if scale_2d is None:
+                w_near = jnp.ones(bs, dtype=jnp.float32) * scale_x
+            else:
+                y_bc_n = jnp.clip(yy, 0, self.ny - 1)
+                w_near = self._geom_mean(
+                    scale_2d[y_bc_n, jnp.clip(near_x, 0, self.nx - 1)],
+                    scale_2d[y_bc_n, jnp.clip(near_x + 1, 0, self.nx - 1)],
+                ) * scale_x
+            nk0 = (near_x - x_s) + yy_off * bs
+            nk1 = nk0 + 1
+            both_n = (np0_in & np1_in).astype(jnp.float32)
+            p0_n = (np0_in & ~np1_in).astype(jnp.float32)
+            p1_n = (~np0_in & np1_in).astype(jnp.float32)
+            R = R.at[nk0, nk0].add(w_near * both_n)
+            R = R.at[nk0, nk1].add(-w_near * both_n)
+            R = R.at[nk1, nk0].add(-w_near * both_n)
+            R = R.at[nk1, nk1].add(w_near * both_n)
+            R = R.at[nk0, nk0].add(w_near * p0_n)
+            R = R.at[nk1, nk1].add(w_near * p1_n)
+
+        # Horizontal outer boundary fallback [1] at (nx-1, y)
+        is_last_col = (x_e == self.nx).astype(jnp.float32)
+        k_lc = (bs - 1) + yy_off * bs
+        R = R.at[k_lc, k_lc].add(scale_x * is_last_col)
+
+        # ---- Vertical full-curvature [1, -2, 1] ----
+        max_v = bs + 2
+        v_off = jnp.arange(max_v, dtype=jnp.int32)
+        y_pos = jnp.maximum(0, y_s - 2) + v_off
+        v_active = v_off <= (jnp.minimum(self.ny - 3, y_e - 1) - jnp.maximum(0, y_s - 2))
+
+        q0_in = (y_pos >= y_s) & (y_pos < y_e) & v_active
+        q1_in = (y_pos + 1 >= y_s) & (y_pos + 1 < y_e) & v_active
+        q2_in = (y_pos + 2 >= y_s) & (y_pos + 2 < y_e) & v_active
+        q_any = q0_in | q1_in | q2_in
+
+        q012 = q0_in & q1_in & q2_in
+        q12 = (~q0_in) & q1_in & q2_in & q_any
+        q01 = q0_in & q1_in & (~q2_in) & q_any
+        q2 = (~q0_in) & (~q1_in) & q2_in & q_any
+        q1 = (~q0_in) & q1_in & (~q2_in) & q_any
+        q0 = q0_in & (~q1_in) & (~q2_in) & q_any
+
+        xx = x_s + xx_off
+        x_mask = jnp.ones((bs, 1), dtype=jnp.float32)
+
+        if scale_2d is None:
+            w_v = jnp.ones((bs, max_v), dtype=jnp.float32) * scale_y
+        else:
+            y_bc_v = jnp.clip(y_pos[None, :], 0, self.ny - 3)
+            y1_bc_v = jnp.clip(y_pos[None, :] + 1, 0, self.ny - 1)
+            y2_bc_v = jnp.clip(y_pos[None, :] + 2, 0, self.ny - 1)
+            x_bc_v = jnp.clip(xx[:, None], 0, self.nx - 1)
+            w_v = self._geom_mean3(
+                scale_2d[y_bc_v, x_bc_v],
+                scale_2d[y1_bc_v, x_bc_v],
+                scale_2d[y2_bc_v, x_bc_v],
+            ) * scale_y
+
+        vk0 = (xx[:, None] - x_s) + (y_pos[None, :] - y_s) * bs
+        vk1 = vk0 + bs
+        vk2 = vk1 + bs
+
+        # q012: full 3×3 kernel
+        R = _scatter_add(R, vk0, vk0, w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk0, vk1, -2.0 * w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk0, vk2, w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk0, -2.0 * w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk1, 4.0 * w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk2, -2.0 * w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk2, vk0, w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk2, vk1, -2.0 * w_v, q012[None, :] * x_mask)
+        R = _scatter_add(R, vk2, vk2, w_v, q012[None, :] * x_mask)
+        # q12
+        R = _scatter_add(R, vk1, vk1, 4.0 * w_v, q12[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk2, -2.0 * w_v, q12[None, :] * x_mask)
+        R = _scatter_add(R, vk2, vk1, -2.0 * w_v, q12[None, :] * x_mask)
+        R = _scatter_add(R, vk2, vk2, w_v, q12[None, :] * x_mask)
+        # q01
+        R = _scatter_add(R, vk0, vk0, w_v, q01[None, :] * x_mask)
+        R = _scatter_add(R, vk0, vk1, -2.0 * w_v, q01[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk0, -2.0 * w_v, q01[None, :] * x_mask)
+        R = _scatter_add(R, vk1, vk1, 4.0 * w_v, q01[None, :] * x_mask)
+        # q2 only
+        R = _scatter_add(R, vk2, vk2, w_v, q2[None, :] * x_mask)
+        # q1 only
+        R = _scatter_add(R, vk1, vk1, 4.0 * w_v, q1[None, :] * x_mask)
+        # q0 only
+        R = _scatter_add(R, vk0, vk0, w_v, q0[None, :] * x_mask)
+
+        # Vertical near-boundary [-1, 1] at (ny-2, ny-1)
+        near_y = self.ny - 2
+        nq0_in = (near_y >= y_s) & (near_y < y_e)
+        nq1_in = (near_y + 1 >= y_s) & (near_y + 1 < y_e)
+        if self.ny >= 2:
+            if scale_2d is None:
+                w_near_v = jnp.ones(bs, dtype=jnp.float32) * scale_y
+            else:
+                x_bc_vn = jnp.clip(xx, 0, self.nx - 1)
+                w_near_v = self._geom_mean(
+                    scale_2d[jnp.clip(near_y, 0, self.ny - 1), x_bc_vn],
+                    scale_2d[jnp.clip(near_y + 1, 0, self.ny - 1), x_bc_vn],
+                ) * scale_y
+            vnk0 = (xx - x_s) + (near_y - y_s) * bs
+            vnk1 = vnk0 + bs
+            both_nv = (nq0_in & nq1_in).astype(jnp.float32)
+            q0_nv = (nq0_in & ~nq1_in).astype(jnp.float32)
+            q1_nv = (~nq0_in & nq1_in).astype(jnp.float32)
+            R = R.at[vnk0, vnk0].add(w_near_v * both_nv)
+            R = R.at[vnk0, vnk1].add(-w_near_v * both_nv)
+            R = R.at[vnk1, vnk0].add(-w_near_v * both_nv)
+            R = R.at[vnk1, vnk1].add(w_near_v * both_nv)
+            R = R.at[vnk0, vnk0].add(w_near_v * q0_nv)
+            R = R.at[vnk1, vnk1].add(w_near_v * q1_nv)
+
+        # Vertical outer boundary fallback [1] at (ny-1, y)
+        is_last_row = (y_e == self.ny).astype(jnp.float32)
+        k_lr = xx_off + (bs - 1) * bs
+        R = R.at[k_lr, k_lr].add(scale_y * is_last_row)
+
+        return 0.5 * (R + R.T)
+
     def _logdet_block_diag(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,
@@ -778,28 +1111,32 @@ class DenseRegularizationBuilder:
     ) -> "jax.Array":
         r"""Block-diagonal approximation of :math:`\log\det R`.
 
-        Partitions the source grid into ``block_size x block_size`` blocks,
-        builds the principal submatrix of R for each block directly from
-        stencils (including cross-block edge contributions to in-block pixel
-        diagonals), adds a small diagonal jitter, and accumulates the Cholesky
-        log-determinants.  Deterministic, no Hutchinson trace.  Does NOT
-        materialise the full ``(Ns, Ns)`` R matrix.
-
-        .. note::
-
-            By the Hadamard-Fischer inequality, for SPD ``R`` partitioned into
-            principal blocks ``R_ii``, ``det(R) <= prod_i det(R_ii)``; hence the
-            block-diagonal approximation (without jitter) is ``>=`` the exact
-            ``slogdet(R)`` (biased high).  The per-block jitter further
-            increases each ``det(R_ii)``, so the net approximation is always
-            ``>=`` the exact value.  Use :meth:`logdet_free` with
-            ``exact=True`` when an exact logdet is required.
+        When the source grid is uniformly divisible by ``block_size``, uses
+        ``jax.lax.scan`` to avoid Python-loop unrolling during JIT tracing.
+        Otherwise falls back to the legacy Python-loop path.
         """
-        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
-        scale_2d = self._scale_to_2d(scale)
-
         n_bx = (self.nx + block_size - 1) // block_size
         n_by = (self.ny + block_size - 1) // block_size
+        is_uniform = (self.nx % block_size == 0) and (self.ny % block_size == 0)
+
+        if is_uniform:
+            return self._logdet_block_diag_scan(
+                xmin, xmax, ymin, ymax, scale, block_size, n_bx, n_by,
+            )
+        return self._logdet_block_diag_legacy(
+            xmin, xmax, ymin, ymax, scale, block_size, n_bx, n_by,
+        )
+
+    def _logdet_block_diag_legacy(
+        self,
+        xmin: float, xmax: float, ymin: float, ymax: float,
+        scale: "jax.Array | None",
+        block_size: int,
+        n_bx: int, n_by: int,
+    ) -> "jax.Array":
+        """Legacy Python-loop path for non-uniform source grids."""
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
         logdet = jnp.array(0.0, dtype=jnp.float32)
 
         for by in range(n_by):
@@ -836,9 +1173,51 @@ class DenseRegularizationBuilder:
 
         return logdet
 
+    def _logdet_block_diag_scan(
+        self,
+        xmin: float, xmax: float, ymin: float, ymax: float,
+        scale: "jax.Array | None",
+        block_size: int,
+        n_bx: int, n_by: int,
+    ) -> "jax.Array":
+        """``lax.scan``-based logdet for uniform source grids."""
+        # Precompute block start positions
+        bx_arr = jnp.arange(n_bx, dtype=jnp.int32)
+        by_arr = jnp.arange(n_by, dtype=jnp.int32)
+        bxs, bys = jnp.meshgrid(bx_arr, by_arr, indexing="xy")
+        x_starts = (bxs * block_size).ravel().astype(jnp.int32)
+        y_starts = (bys * block_size).ravel().astype(jnp.int32)
+        scan_inputs = jnp.stack([x_starts, y_starts], axis=-1)
+
+        def scan_body(carry, xs):
+            logdet = carry
+            x_s = xs[0]
+            y_s = xs[1]
+            x_e = x_s + block_size
+            y_e = y_s + block_size
+
+            R_block = self.block_diag_R_vec(
+                x_s, x_e, y_s, y_e,
+                xmin, xmax, ymin, ymax,
+                scale=scale, block_size=block_size,
+            )
+
+            diag_mean = jnp.mean(jnp.abs(jnp.diag(R_block)))
+            jitter_scale = jnp.maximum(diag_mean, 1.0)
+            jitter = 1e-6 * jitter_scale * jnp.eye(
+                block_size * block_size, dtype=R_block.dtype,
+            )
+            chol = jnp.linalg.cholesky(R_block + jitter)
+            block_logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+            return logdet + block_logdet, ()
+
+        init_logdet = jnp.array(0.0, dtype=jnp.float32)
+        final_logdet, _ = jax.lax.scan(scan_body, init_logdet, scan_inputs)
+        return final_logdet
+
     def logdet_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,
-        *, scale: "jax.Array | None" = None, block_size: int = 8,
+        *, scale: "jax.Array | None" = None, block_size: int = 10,
         exact: bool = False,
     ) -> "jax.Array":
         r"""Log-determinant of the finite-difference regularisation matrix.
@@ -849,7 +1228,7 @@ class DenseRegularizationBuilder:
             Per-pixel adaptive scale of shape ``(Ns,)``.  Edge weights are
             derived as geometric means of adjacent pixel scales.
         block_size : int, optional
-            Block size for the approximate path (default 8).
+            Block size for the approximate path (default 10).
         exact : bool, optional
             When ``True``, compute the exact ``slogdet`` of the full
             ``(Ns, Ns)`` R matrix (O(Ns^3), memory O(Ns^2)).  When ``False``
@@ -967,6 +1346,45 @@ class DenseRegularizationBuilder:
         if self.regularization_type == "second-order":
             return self._weighted_second_order_block(
                 x_start, x_end, y_start, y_end, scale_2d, scale_x, scale_y
+            )
+        raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
+
+    def block_diag_R_vec(
+        self,
+        x_start: "jax.Array", x_end: "jax.Array",
+        y_start: "jax.Array", y_end: "jax.Array",
+        xmin: float, xmax: float, ymin: float, ymax: float,
+        *, scale: "jax.Array | None" = None, block_size: int = 10,
+    ) -> "jax.Array":
+        """Vectorized :meth:`block_diag_R` for ``lax.scan`` bodies.
+
+        Dispatches to the vectorized stencil methods.  Assumes all blocks
+        have uniform ``block_size × block_size`` dimensions.
+        """
+        scale = self._check_scale(scale)
+        scale_x, scale_y = self._get_scales(xmin, xmax, ymin, ymax)
+        scale_2d = self._scale_to_2d(scale)
+
+        if self.regularization_type == "zero-order":
+            block_scale = (
+                jax.lax.dynamic_slice(
+                    scale_2d,
+                    (y_start, x_start),
+                    (block_size, block_size),
+                ).ravel()
+                if scale_2d is not None
+                else jnp.ones(block_size * block_size, dtype=jnp.float32)
+            )
+            return jnp.diag(block_scale)
+        if self.regularization_type == "first-order":
+            return self._weighted_first_order_block_vec(
+                x_start, x_end, y_start, y_end,
+                scale_2d, scale_x, scale_y, block_size,
+            )
+        if self.regularization_type == "second-order":
+            return self._weighted_second_order_block_vec(
+                x_start, x_end, y_start, y_end,
+                scale_2d, scale_x, scale_y, block_size,
             )
         raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
 

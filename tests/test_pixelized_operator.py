@@ -530,6 +530,38 @@ def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_alpha
 
 
 @pytest.mark.unit
+def test_operator_zero_order_adaptive_reg_jit_scan_path():
+    """Zero-order adaptive regularization should compile on the scan preconditioner path."""
+    lam = ParamU("log_lambda_reg", 0.0,
+                 prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
+    lam.to_dynamic()
+    source = PixelizedSourceModel(
+        nx=8,
+        ny=8,
+        log_lambda_reg=lam,
+        regularization_type="zero-order",
+        adaptive_reg_alpha=1.0,
+    )
+    phys = _phys_model(source=source)
+    config = _sim_config()
+    sim = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 64))
+    mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        block_size=4,
+    )
+    loglike = make_likelihood(prob_op, vectorized=True)
+    values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
+
+    assert values.shape == (2,)
+    assert jnp.all(jnp.isfinite(values))
+
+
+@pytest.mark.unit
 def test_nonsymmetric_psf_A_matvec_matches_explicit():
     """Operator A_matvec must match explicit A for a non-centrosymmetric PSF.
 
@@ -810,7 +842,7 @@ def test_logdet_free_block_diag_approximation(reg_type):
 
     ``exact=True`` must match ``slogdet`` of the full R to float precision.
     """
-    nx = ny = 9  # larger than default block_size=8
+    nx = ny = 9  # smaller than default block_size=10
     builder = DenseRegularizationBuilder(nx, ny, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
     scale = jnp.linspace(0.3, 2.0, nx * ny)
