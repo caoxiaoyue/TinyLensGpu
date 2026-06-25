@@ -6,7 +6,8 @@ TinyLensGpu is a GPU-accelerated software for galaxy-galaxy strong gravitational
 
 ## Architecture
 
-The system is organized into 4 layers:
+The system is organized into 4 layers. Each of `PhysicalModel`, `ForwardSimulation`, and
+`ObservationModel` contains a `LensImage/` subpackage (implemented).
 
 ### 1. PhysicalModel (`TinyLensGpu/PhysicalModel/`)
 Mass and light components implemented as `caskade.Module` subclasses.
@@ -46,14 +47,27 @@ Likelihood and probability models for comparing predictions with observations.
 - `BandImageData` - Data container for multi-band observations
 
 ### 4. Inference (`TinyLensGpu/Inference/`)
-Prior definitions, likelihood builders, and sampler interfaces.
+Prior definitions, likelihood builders, and sampler/optimizer interfaces.
 
 **Key classes/functions:**
 - `ParamU` - Parameter with prior metadata (extends caskade.Param)
-- `make_prior_transformation` - Generate prior transformation for samplers
-- `make_likelihood` - Build likelihood function for samplers
+- `make_prior_transformation` - Generate prior transformation for samplers (in `build_prior`)
+- `make_likelihood` - Build likelihood function for samplers (in `build_likelihood`)
+- `PriorSpec` / `extract_prior_specs` - Prior spec dataclass + traversal (in `build_prior`)
 - `EllipticityConstraint` - Ellipticity constraints
-- `GaussianPriorPasser` - Gaussian prior passing utility
+- `GaussianPriorPasser` - SLaM-style conservative Gaussian prior passing from a posterior
+- `nautilus_posterior_summary` - Posterior summary from a finished nautilus sampler
+- `AbstractInference` - Abstract base (ABC) shared by all samplers and optimizers (`base.py`)
+
+**NestedSampler subpackage** (wrappers subclass `AbstractInference`; `__init__.py` is empty, use deep imports):
+- `NautilusSampler` - Nautilus nested sampling (supports vectorized JAX vmap likelihood)
+- `DynestySampler` - Dynesty nested sampling
+- `UltraNestSampler` - UltraNest reactive nested sampling (requires `ultranest` extra)
+
+**Optimizer subpackage** (wrappers subclass `AbstractInference` via `BaseOptimizer`; minimize negative log-likelihood):
+- `DifferentialEvolutionOptimizer` - scipy `differential_evolution`
+- `BasinHoppingOptimizer` - scipy `basinhopping` (L-BFGS-B local minimizer)
+- `DirectOptimizer` - scipy `direct` (DIviding RECTangles)
 
 ## Data Flow
 
@@ -62,7 +76,9 @@ Prior definitions, likelihood builders, and sampler interfaces.
 3. **Select modes** - `.to_dynamic()` (sampled), `.to_static(value)` (fixed), linear (solved)
 4. **Assemble** - `PhysicalModel(lens_mass=[...], source_light=[...], lens_light=[...])`
 5. **Likelihood** - `ImageProbModel(..., use_linear=True, solver_type="nnls")`
-6. **Sample** - `make_prior_transformation(prob_model)` → `make_likelihood(prob_model, vectorized=True)` → Nautilus/Dynesty
+6. **Sample/Optimize** - `make_prior_transformation(prob_model)` → `make_likelihood(prob_model, vectorized=True)`
+   → `NautilusSampler`/`DynestySampler`/`UltraNestSampler` or
+   `BasinHoppingOptimizer`/`DifferentialEvolutionOptimizer`/`DirectOptimizer`
 
 ## Key Parameters
 
@@ -74,10 +90,13 @@ Prior definitions, likelihood builders, and sampler interfaces.
 
 ## Testing
 
-- 90+ tests covering all major functionality
-- Test markers: `unit`, `integration`, `slow`, `performance`, `boundary`
+- ~320 tests across 17 modules in `tests/`
+- Test markers: `unit`, `integration`, `slow`, `performance`, `boundary` (registered in `pytest.ini`;
+  `boundary` is registered but currently unused by any test)
 - Run: `pytest`, `pytest -m "not slow"`, `pytest -m integration`
-- Fixtures in `tests/conftest.py`: sample_image_data, sample_noise_map, sample_psf_kernel, coordinate_grids
+- Fixtures in `tests/conftest.py`: `sample_image_data`, `sample_noise_map`, `sample_psf_kernel`, `coordinate_grids`
+- Some test modules (`test_light_profile.py`, `test_mass_profile.py`) are gated on optional `lenstronomy`;
+  `test_bspline_multipole.py` is gated on `scipy` (skipped by default in a standard install)
 
 ## JAX & GPU Quirks
 
@@ -88,9 +107,11 @@ Prior definitions, likelihood builders, and sampler interfaces.
 
 ## Dependencies
 
-Core: `jax[cuda12]`, `caskade[jax]`, `numpy<2.0`, `scipy`, `astropy`, `matplotlib`, `jaxnnls`
-Samplers: `nautilus-sampler`, `dynesty`
-Dev: `pytest`, `mypy`, `black`, `flake8`, `isort`, `ruff`
+Core (`install_requires`): `jax[cuda12]`, `caskade[jax]`, `numpy<2.0`, `scipy`, `astropy`,
+`matplotlib`, `corner`, `pyyaml`, `numba`, `nautilus-sampler`, `dynesty`, `jaxnnls`
+Extras: `ultranest` (UltraNest sampler); `dev` (pytest, mypy, black, flake8, isort, ruff, pre-commit);
+`docs` (sphinx); `notebooks` (jupyter); `all` (union)
+Optional test-only: `lenstronomy` (migration comparison tests, skipped if absent)
 
 ## Entry Points
 

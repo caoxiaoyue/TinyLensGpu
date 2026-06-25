@@ -3,11 +3,12 @@ schema: spec-driven
 # Project context - TinyLensGpu
 # This is shown to AI when creating artifacts.
 context: |
-  Tech stack: Python 3.10+, JAX (GPU), Caskade, NumPy, SciPy, Astropy
+  Tech stack: Python 3.10+, JAX (GPU), Caskade, NumPy<2.0, SciPy, Astropy, numba
   Domain: Astrophysics - gravitational lens modeling (strong lensing)
   Architecture: 4-layer modular system (PhysicalModel → ForwardSimulation → ObservationModel → Inference)
   Key frameworks: JAX for GPU acceleration, Caskade for modular composable models
-  Testing: pytest with markers (unit, integration, slow, performance, boundary)
+  Testing: pytest with markers (unit, integration, slow, performance, boundary);
+    ~320 tests across 17 modules; `boundary` marker registered but currently unused
   Code style: No formatting configs exist (black, flake8, isort, ruff available but use defaults)
   
   Important conventions:
@@ -18,6 +19,9 @@ context: |
   - nsub: 1 (fast) → 3+ (high accuracy) for sub-pixel integration
   - Must set XLA_PYTHON_CLIENT_PREALLOCATE=false for memory-constrained GPUs
   - First JIT call takes 10-15s (expected)
+  - Each architectural layer has LensImage/ (implemented) subpackages
+  - Inference layer has NestedSampler/ and Optimizer/ subpackages wrapping nautilus, dynesty,
+    ultranest, and scipy global optimizers behind a shared AbstractInference interface
   
   Workflow:
   1. load_lens_data() for FITS image/noise/PSF
@@ -25,7 +29,8 @@ context: |
   3. Select modes: .to_dynamic(), .to_static(value), or linear
   4. Assemble PhysicalModel(lens_mass, source_light, lens_light)
   5. ImageProbModel with use_linear=True, solver_type="nnls"
-  6. make_prior_transformation + make_likelihood → Nautilus/Dynesty
+  6. make_prior_transformation + make_likelihood → NautilusSampler/DynestySampler/UltraNestSampler
+     or BasinHoppingOptimizer/DifferentialEvolutionOptimizer/DirectOptimizer
 
 # Per-artifact rules
 rules:
