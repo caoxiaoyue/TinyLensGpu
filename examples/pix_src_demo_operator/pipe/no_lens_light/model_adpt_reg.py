@@ -84,8 +84,10 @@ NSUB_PIX = 4
 N_GAUSSIANS_SRC = 10
 MASK_RADIUS = 2.5
 NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
-ADAPTIVE_REG_ALPHA = 2.0    # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
-ADAPTIVE_REG_FLOOR = 0.01    # minimum per-pixel reg scale
+ADAPTIVE_REG_ALPHA = 2.0          # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
+ADAPTIVE_REG_FLOOR = 0.01          # minimum per-pixel reg scale
+ADAPTIVE_REG_MODE = "brightness_weighted" #"brightness_only"  # "brightness_only" (default) | "brightness_weighted"
+ADAPTIVE_REG_SMOOTH_SIGMA = 1.0    # Gaussian sigma for brightness-map smoothing (src pixels)
 OUT_DIR = Path("output_adpt_reg")
 DATA_DIR = Path("data")
 
@@ -501,6 +503,8 @@ def build_stage_m1_likelihood(
         regularization_type="first-order",
         adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
         adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
+        adaptive_reg_mode=ADAPTIVE_REG_MODE,
+        adaptive_reg_smooth_sigma=ADAPTIVE_REG_SMOOTH_SIGMA,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -827,6 +831,8 @@ def build_stage_m2_likelihood(
         regularization_type="first-order",
         adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
         adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
+        adaptive_reg_mode=ADAPTIVE_REG_MODE,
+        adaptive_reg_smooth_sigma=ADAPTIVE_REG_SMOOTH_SIGMA,
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],

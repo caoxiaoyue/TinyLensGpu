@@ -26,11 +26,13 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
+import math
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
+import jax.scipy.signal as jsp_signal
 
 VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
     "zero-order", "first-order", "second-order",
@@ -177,6 +179,100 @@ class DenseRegularizationBuilder:
             scale_mat = sqrt_scale[:, None] * sqrt_scale[None, :]
             matrix = matrix * scale_mat
         return matrix
+
+    # ------------------------------------------------------------------
+    # Shared adaptive-regularisation utilities (static, mode-agnostic)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def smooth_scale_map(
+        q_1d: "jax.Array", nx: int, ny: int, sigma: float = 1.0,
+    ) -> "jax.Array":
+        """Gaussian-smooth a source-plane map with configurable kernel width.
+
+        Uses a separable Gaussian kernel with the given *sigma* (in source
+        pixels).  The kernel size is auto-adapted as
+        ``max(5, 2·ceil(3·sigma) + 1)`` to avoid truncation.
+        Assumes column-major flat layout ``(x + y * nx)``.
+
+        Parameters
+        ----------
+        q_1d : Array, shape (Ns,)
+            Flat source-plane map to smooth.
+        nx, ny : int
+            Source grid dimensions.
+        sigma : float, optional
+            Gaussian sigma in source pixels (default 1.0).
+
+        Returns
+        -------
+        Array, shape (Ns,)
+            Smoothed map in the same flat layout.
+        """
+        ksize = max(5, 2 * int(math.ceil(3.0 * sigma)) + 1)
+        x_k = jnp.arange(ksize, dtype=jnp.float32) - (ksize - 1) / 2
+        kernel_1d = jnp.exp(-0.5 * (x_k / sigma) ** 2)
+        kernel_1d = kernel_1d / jnp.sum(kernel_1d)
+        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
+
+        q_2d = q_1d.reshape(ny, nx)
+        q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
+        return q_smooth.ravel()
+
+    @staticmethod
+    def _normalize_brightness(
+        b_raw: "jax.Array", eps: float = 1e-10,
+    ) -> "jax.Array":
+        r"""Normalize raw brightness to unit mean over all source pixels.
+
+        ``b_norm = b_raw / max(mean(b_raw), eps)`` using the global mean
+        (Option B).  No hard threshold — dark pixels naturally produce
+        ``b_norm ≈ 0`` while bright pixels obtain ``b_norm ≫ 1``.
+
+        Parameters
+        ----------
+        b_raw : Array, shape (Ns,)
+            Raw brightness estimate (already smoothed).
+        eps : float, optional
+            Small protection against division by zero (default 1e-10).
+
+        Returns
+        -------
+        Array, shape (Ns,)
+            Normalized brightness with global mean ≈ 1.
+        """
+        b_mean = jnp.mean(b_raw)
+        return b_raw / jnp.maximum(b_mean, eps)
+
+    @staticmethod
+    def _compute_scale_formula(
+        b_norm: "jax.Array",
+        alpha: "jax.Array",
+        floor: "jax.Array",
+    ) -> "jax.Array":
+        r"""Compute per-pixel scale from normalized brightness.
+
+        ``scale_i = floor + (1 - floor) / (1 + alpha * b_norm_i)``
+
+        This formula is continuously differentiable for all finite inputs.
+        At ``b_norm = 0``, ``scale = 1``.  As ``b_norm → ∞``,
+        ``scale → floor`` asymptotically.
+
+        Parameters
+        ----------
+        b_norm : Array, shape (Ns,)
+            Normalized brightness (non-negative).
+        alpha : Array
+            Adaptive strength scalar.
+        floor : Array
+            Minimum scale scalar in ``(0, 1]``.
+
+        Returns
+        -------
+        Array, shape (Ns,)
+            Per-pixel regularization scale in ``[floor, 1.0]``.
+        """
+        return floor + (1.0 - floor) / (1.0 + alpha * b_norm)
 
     # ------------------------------------------------------------------
     # Edge-weight helpers for finite-difference adaptive regularisation

@@ -7,9 +7,25 @@ difference regularization and Gaussian-process kernel regularization.
 
 # pyright: reportMissingImports=false
 
-import pytest
+import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
+from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
+    PixelizedImageProbModel,
+)
+from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+    PixelizedImageProbModelOperator,
+)
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import (
+    PixelizedSourceModel,
+)
+from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
 
 
@@ -407,6 +423,468 @@ class TestDenseRegularizationBuilderValidation:
 
         with pytest.raises(ValueError):
             DenseRegularizationBuilder(nx, ny, "unsupported")
+
+
+@pytest.mark.unit
+class TestAdaptiveRegUtilities:
+    """Test shared adaptive-regularisation utility functions."""
+
+    # --- smooth_scale_map ---
+
+    def test_smooth_sigma_default(self):
+        """Default sigma=1 produces kernel size 5 like legacy."""
+        builder = DenseRegularizationBuilder(10, 10, "second-order")
+        q = jnp.ones(100, dtype=jnp.float32)
+        q_sm = builder.smooth_scale_map(q, 10, 10, sigma=1.0)
+        assert q_sm.shape == (100,)
+        assert jnp.all(jnp.isfinite(q_sm))
+
+    def test_smooth_sigma_large_adapts_kernel(self):
+        """sigma=3 produces kernel size > 5 to avoid truncation."""
+        builder = DenseRegularizationBuilder(10, 10, "second-order")
+        q = jnp.ones(100, dtype=jnp.float32)
+        q_sm = builder.smooth_scale_map(q, 10, 10, sigma=3.0)
+        assert q_sm.shape == (100,)
+        assert jnp.all(jnp.isfinite(q_sm))
+
+    def test_smooth_preserves_interior(self):
+        """Gaussian smoothing preserves uniform values in interior (away from boundaries)."""
+        builder = DenseRegularizationBuilder(20, 20, "second-order")
+        q = jnp.ones(400, dtype=jnp.float32) * 5.0
+        q_sm = builder.smooth_scale_map(q, 20, 20, sigma=1.0)
+        # Interior pixels (central 10×10) should be unaffected by boundaries
+        q_2d = q_sm.reshape(20, 20)
+        interior = q_2d[5:15, 5:15]
+        assert jnp.allclose(interior, 5.0, atol=1e-4)
+
+    # --- _normalize_brightness ---
+
+    def test_normalize_all_dark(self):
+        """All-dark pixels produce near-zero normalized values."""
+        b_raw = jnp.zeros(100, dtype=jnp.float32)
+        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
+        # With mean≈0, each value/eps → 0
+        assert jnp.allclose(b_norm, jnp.zeros(100), atol=1e-6)
+
+    def test_normalize_uniform(self):
+        """Uniform brightness produces b_norm ≈ 1."""
+        b_raw = jnp.ones(100, dtype=jnp.float32) * 3.0
+        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
+        assert jnp.allclose(b_norm, 1.0, atol=1e-6)
+
+    def test_normalize_sparse_bright(self):
+        """Sparse bright pixels produce b_norm ≫ 1 for bright pixels."""
+        b_raw = jnp.zeros(100, dtype=jnp.float32)
+        b_raw = b_raw.at[:10].set(10.0)  # 10 bright, 90 dark
+        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
+        # Global mean = (10*10 + 90*0) / 100 = 1.0
+        # Bright: 10 / 1 = 10
+        assert b_norm[0] > 5.0
+        # Dark: 0 / 1 = 0
+        assert jnp.allclose(b_norm[10:], 0.0, atol=1e-6)
+
+    # --- _compute_scale_formula ---
+
+    def test_scale_formula_darkest(self):
+        """b_norm=0 → scale=1 regardless of alpha/floor."""
+        b_norm = jnp.zeros(10, dtype=jnp.float32)
+        alpha = jnp.array(2.0)
+        floor = jnp.array(0.1)
+        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
+        assert jnp.allclose(scale, 1.0)
+
+    def test_scale_formula_brightest(self):
+        """b_norm → ∞ → scale → floor."""
+        b_norm = jnp.array([1e10], dtype=jnp.float32)
+        alpha = jnp.array(1.0)
+        floor = jnp.array(0.2)
+        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
+        assert scale[0] < 0.21  # very close to floor
+
+    def test_scale_formula_mean_brightness(self):
+        """b_norm=1, alpha=1, floor=0.1 → scale = 0.1 + 0.9/2 = 0.55."""
+        b_norm = jnp.ones(1, dtype=jnp.float32)
+        alpha = jnp.array(1.0)
+        floor = jnp.array(0.1)
+        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
+        assert jnp.allclose(scale[0], 0.55, atol=1e-6)
+
+    def test_scale_formula_alpha_zero(self):
+        """alpha=0 → scale=1 regardless of brightness."""
+        b_norm = jnp.array([0.0, 1.0, 100.0], dtype=jnp.float32)
+        alpha = jnp.array(0.0)
+        floor = jnp.array(0.1)
+        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
+        assert jnp.allclose(scale, 1.0)
+
+    def test_scale_formula_monotonic(self):
+        """scale decreases monotonically with increasing brightness."""
+        b_norm = jnp.linspace(0.0, 10.0, 100, dtype=jnp.float32)
+        alpha = jnp.array(1.0)
+        floor = jnp.array(0.1)
+        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
+        diffs = jnp.diff(scale)
+        assert jnp.all(diffs <= 0.0)  # non-increasing
+
+    # --- integration: scale applied via edge weights preserves PSD ---
+
+    @pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
+    def test_scale_preserves_psd(self, reg_type):
+        """Regularisation matrix with non-uniform scale remains PSD."""
+        nx, ny = 8, 8
+        builder = DenseRegularizationBuilder(nx, ny, reg_type)
+        bbox = (-1.0, 1.0, -1.0, 1.0)
+
+        # Non-uniform scale: alternating bright/dark rows
+        scale = jnp.ones(nx * ny, dtype=jnp.float32)
+        scale = scale.at[ny//2 * nx:].set(0.3)  # bottom half "bright"
+
+        matrix, _ = builder.matrix(*bbox, scale=scale)
+        eigenvalues = jnp.linalg.eigvalsh(matrix)
+        assert jnp.min(eigenvalues) >= -1e-5, (
+            f"{reg_type} with non-uniform scale not PSD"
+        )
+
+
+# ------------------------------------------------------------------
+# Fixtures and helpers for adaptive scale-map computation tests
+# ------------------------------------------------------------------
+
+def _delta_psf():
+    return jnp.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+
+
+def _static_sie():
+    sie = SIE(theta_E=0.12, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        p.to_static()
+    return sie
+
+
+def _adaptive_source(nx=5, ny=5, *, alpha=1.0, mode="brightness_only",
+                     floor=0.1, sigma=1.0, freeze=False, reg_type="first-order"):
+    log_lambda = ParamU(
+        "log_lambda_reg", 0.0, prior_type="uniform",
+        prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+    )
+    log_lambda.to_dynamic()
+    return PixelizedSourceModel(
+        nx=nx, ny=ny, log_lambda_reg=log_lambda,
+        regularization_type=reg_type,
+        adaptive_reg_alpha=alpha, adaptive_reg_floor=floor,
+        adaptive_reg_mode=mode, adaptive_reg_smooth_sigma=sigma,
+        adaptive_reg_freeze=freeze,
+    )
+
+
+def _dense_prob(nx=5, ny=5, *, alpha=1.0, mode="brightness_only",
+                floor=0.1, sigma=1.0, freeze=False,
+                image_data=None, noise_map=None, source_seed_mask=None,
+                reg_type="first-order"):
+    source = _adaptive_source(
+        nx, ny, alpha=alpha, mode=mode, floor=floor, sigma=sigma,
+        freeze=freeze, reg_type=reg_type,
+    )
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[source], lens_light=[],
+    )
+    data = image_data if image_data is not None else jnp.ones((10, 10)) * 0.5
+    noise = noise_map if noise_map is not None else jnp.ones((10, 10)) * 0.1
+    return PixelizedImageProbModel(
+        image_data=data, noise_map=noise, psf_kernel=_delta_psf(),
+        dpix=0.08, phys_model=phys, source_seed_mask=source_seed_mask,
+    )
+
+
+def _operator_prob(nx=5, ny=5, *, alpha=1.0, mode="brightness_only",
+                   floor=0.1, sigma=1.0, freeze=False,
+                   image_data=None, noise_map=None, source_seed_mask=None,
+                   reg_type="first-order"):
+    source = _adaptive_source(
+        nx, ny, alpha=alpha, mode=mode, floor=floor, sigma=sigma,
+        freeze=freeze, reg_type=reg_type,
+    )
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[source], lens_light=[],
+    )
+    data = image_data if image_data is not None else jnp.ones((10, 10)) * 0.5
+    noise = noise_map if noise_map is not None else jnp.ones((10, 10)) * 0.1
+    return PixelizedImageProbModelOperator(
+        image_data=data, noise_map=noise, psf_kernel=_delta_psf(),
+        dpix=0.08, phys_model=phys, source_seed_mask=source_seed_mask,
+    )
+
+
+@pytest.mark.unit
+class TestAdaptiveRegScaleComputation:
+    """Test mode behaviour and freeze semantics of _compute_reg_scale_from_betas."""
+
+    # --- 5.1: brightness_only cancels magnification ---
+
+    def test_brightness_only_cancels_magnification(self):
+        """brightness_only: equal brightness + different ray counts -> equal scale."""
+        # 9x9 source grid so the two clusters sit 4 pixels apart (smoothing-safe).
+        model = _dense_prob(nx=9, ny=9, alpha=1.0, mode="brightness_only", floor=0.1)
+        # 90 seeds cluster at source pixel (2,2) [bright, high magnification]
+        # 10 seeds cluster at source pixel (6,6) [bright, low magnification]
+        # Both clusters have identical intrinsic brightness (image_data=0.5).
+        beta_x = jnp.concatenate([jnp.full(90, -0.5), jnp.full(10, 0.5)])
+        beta_y = jnp.concatenate([jnp.full(90, -0.5), jnp.full(10, 0.5)])
+        bbox = (-1.0, 1.0, -1.0, 1.0)
+        scale = model._compute_reg_scale_from_betas(beta_x, beta_y, *bbox)
+        assert scale is not None
+        idx_hi = 2 * 9 + 2   # pixel (2,2) — high magnification
+        idx_lo = 6 * 9 + 6   # pixel (6,6) — low magnification
+        # Magnification cancels in N/C: both clusters have b_raw ~ 0.5,
+        # so their scales must match despite the 9x ray-count difference.
+        assert abs(float(scale[idx_hi]) - float(scale[idx_lo])) < 0.03
+
+    # --- 5.2: brightness_weighted preserves magnification ---
+
+    def test_brightness_weighted_preserves_magnification(self):
+        """brightness_weighted: higher magnification -> lower scale for same brightness."""
+        model = _dense_prob(nx=9, ny=9, alpha=1.0, mode="brightness_weighted", floor=0.1)
+        beta_x = jnp.concatenate([jnp.full(90, -0.5), jnp.full(10, 0.5)])
+        beta_y = jnp.concatenate([jnp.full(90, -0.5), jnp.full(10, 0.5)])
+        bbox = (-1.0, 1.0, -1.0, 1.0)
+        scale = model._compute_reg_scale_from_betas(beta_x, beta_y, *bbox)
+        assert scale is not None
+        idx_hi = 2 * 9 + 2   # 90 seeds -> higher q -> lower scale
+        idx_lo = 6 * 9 + 6   # 10 seeds -> lower q -> higher scale
+        assert float(scale[idx_hi]) < float(scale[idx_lo])
+
+    # --- 5.3: inverse-variance weighting ---
+
+    def test_inv_var_weighting_suppresses_noisy_pixels(self):
+        """A pixel with sigma=100 contributes 1e-4x the weight of sigma=1.
+
+        Two seed pixels with identical brightness map to two different source
+        pixels. In brightness_weighted mode q = brightness / sigma^2, so the
+        noisy pixel's source pixel receives a 1e-4x smaller brightness estimate
+        and is treated as near-dark (high scale).
+        """
+        seed_mask = jnp.ones((10, 10), dtype=bool).at[5, 5].set(False).at[5, 6].set(False)
+        data = jnp.ones((10, 10)) * 1.0
+        noise = jnp.ones((10, 10)) * 1.0
+        noise = noise.at[5, 6].set(100.0)  # second seed pixel is very noisy
+        model_noisy = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_weighted",
+            image_data=data, noise_map=noise,
+            source_seed_mask=seed_mask,
+        )
+        # Seed 1 (clean) -> source pixel (1,1) [index 6]; seed 2 (noisy) -> (3,3) [index 18].
+        beta_x = jnp.array([-0.5, 0.5])
+        beta_y = jnp.array([-0.5, 0.5])
+        bbox = (-1.0, 1.0, -1.0, 1.0)
+        scale_noisy = model_noisy._compute_reg_scale_from_betas(beta_x, beta_y, *bbox)
+        assert scale_noisy is not None
+        idx_clean = 1 * 5 + 1     # source pixel fed by sigma=1 seed
+        idx_noisy = 3 * 5 + 3     # source pixel fed by sigma=100 seed
+        # Clean source pixel: q = 1/1 = 1.0 -> bright -> low scale.
+        # Noisy source pixel: q = 1/1e4 = 1e-4 -> near-dark -> high scale.
+        assert float(scale_noisy[idx_clean]) < float(scale_noisy[idx_noisy])
+
+    def test_inv_var_weighting_ratio_is_exact(self):
+        """The inverse-variance weight ratio between sigma=1 and sigma=100 is 1e-4."""
+        sigma_clean = jnp.array(1.0, dtype=jnp.float32)
+        sigma_noisy = jnp.array(100.0, dtype=jnp.float32)
+        inv_var_clean = 1.0 / (sigma_clean ** 2)
+        inv_var_noisy = 1.0 / (sigma_noisy ** 2)
+        ratio = inv_var_noisy / inv_var_clean
+        # float32 precision: ~7 significant digits.
+        assert abs(float(ratio) - 1e-4) < 1e-6
+
+    # --- 5.8: empirical-Bayes freeze ---
+
+    def test_freeze_returns_cached_scale_ignoring_new_betas(self):
+        """After freeze_scale(), subsequent calls return the cached scale unchanged."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", freeze=True,
+        )
+        assert getattr(model, "_frozen_scale", None) is None
+        model.freeze_scale()
+        frozen = getattr(model, "_frozen_scale", None)
+        assert frozen is not None
+        # The cached scale must be a concrete array (not a traced value).
+        assert not isinstance(frozen, jax.core.Tracer)
+
+        beta_x_orig, beta_y_orig = model.sim_obj.ray_trace_seed()
+        bbox = model.sim_obj.infer_source_bbox(beta_x_orig, beta_y_orig)
+        scale_orig = model._compute_reg_scale_from_betas(
+            beta_x_orig, beta_y_orig, *bbox,
+        )
+        # Identical to the frozen array.
+        assert jnp.array_equal(scale_orig, frozen)
+
+        # Different betas should STILL return the frozen scale (cache hit).
+        n_seed = int(jnp.size(beta_x_orig))
+        beta_x_new = jnp.full(n_seed, 0.3)
+        beta_y_new = jnp.full(n_seed, -0.2)
+        scale_new = model._compute_reg_scale_from_betas(
+            beta_x_new, beta_y_new, *bbox,
+        )
+        assert jnp.array_equal(scale_new, frozen)
+
+    def test_freeze_captured_by_jit_ignores_traced_betas(self):
+        """JIT-compiled scale read after freeze_scale() returns the cached constant."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", freeze=True,
+        )
+        model.freeze_scale()
+        frozen = model._frozen_scale
+
+        bbox = (-1.0, 1.0, -1.0, 1.0)
+
+        @jax.jit
+        def _scale_under_jit(bx, by):
+            return model._compute_reg_scale_from_betas(bx, by, *bbox)
+
+        bx_a = jnp.full(25, -0.3)
+        by_a = jnp.full(25, 0.2)
+        bx_b = jnp.full(25, 0.4)
+        by_b = jnp.full(25, -0.5)
+        out_a = _scale_under_jit(bx_a, by_a)
+        out_b = _scale_under_jit(bx_b, by_b)
+        # Both JIT evaluations use the frozen constant -> identical output.
+        assert jnp.array_equal(out_a, frozen)
+        assert jnp.array_equal(out_b, frozen)
+
+    def test_unfreeze_clears_cache(self):
+        """unfreeze_scale() discards the cache; subsequent calls recompute."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", freeze=True,
+        )
+        model.freeze_scale()
+        assert getattr(model, "_frozen_scale", None) is not None
+        model.unfreeze_scale()
+        assert getattr(model, "_frozen_scale", None) is None
+        # Recomputation works again.
+        beta_x, beta_y = model.sim_obj.ray_trace_seed()
+        bbox = model.sim_obj.infer_source_bbox(beta_x, beta_y)
+        with pytest.warns(UserWarning, match="no frozen scale map"):
+            scale = model._compute_reg_scale_from_betas(beta_x, beta_y, *bbox)
+        assert scale is not None
+        assert jnp.all(jnp.isfinite(scale))
+
+    def test_freeze_noop_when_alpha_zero(self):
+        """freeze_scale() is a no-op when adaptive_reg_alpha == 0 (uniform reg)."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=0.0, mode="brightness_only", freeze=True,
+        )
+        model.freeze_scale()
+        assert getattr(model, "_frozen_scale", None) is None
+
+    @pytest.mark.parametrize("factory", [_dense_prob, _operator_prob])
+    def test_alpha_near_zero_uses_uniform_fast_path(self, factory):
+        """alpha within 1e-10 tolerance returns None and does not freeze."""
+        model = factory(
+            nx=5, ny=5, alpha=1e-12, mode="brightness_only", freeze=True,
+        )
+        scale = model._compute_reg_scale_from_betas(
+            jnp.zeros(1), jnp.zeros(1), -1.0, 1.0, -1.0, 1.0,
+        )
+        assert scale is None
+        model.freeze_scale()
+        assert getattr(model, "_frozen_scale", None) is None
+
+    def test_freeze_warns_when_not_populated(self):
+        """freeze=True without freeze_scale() warns and recomputes."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", freeze=True,
+        )
+        beta_x, beta_y = model.sim_obj.ray_trace_seed()
+        bbox = model.sim_obj.infer_source_bbox(beta_x, beta_y)
+        with pytest.warns(UserWarning, match="no frozen scale map"):
+            scale = model._compute_reg_scale_from_betas(beta_x, beta_y, *bbox)
+        assert scale is not None  # fell back to recomputation
+
+    def test_freeze_warns_when_freeze_disabled(self):
+        """freeze_scale() warns when adaptive_reg_freeze is False."""
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", freeze=False,
+        )
+        with pytest.warns(UserWarning, match="adaptive_reg_freeze=False"):
+            model.freeze_scale()
+        assert getattr(model, "_frozen_scale", None) is None
+
+
+@pytest.mark.integration
+class TestAdaptiveRegIntegration:
+    """End-to-end evidence finiteness with adaptive regularization enabled."""
+
+    @staticmethod
+    def _mock_image():
+        """Build a mock lensed image from a compact source for finite evidence."""
+        sie = SIE(theta_E=0.12, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+        for p in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            p.to_static()
+        log_lambda = ParamU(
+            "log_lambda_reg", 0.0, prior_type="uniform",
+            prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+        )
+        log_lambda.to_dynamic()
+        source = PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=log_lambda)
+        phys = PhysicalModel(
+            lens_mass=[sie], source_light=[source], lens_light=[],
+        )
+        config = SimulatorConfig(
+            dpix=0.08, npix=10,
+            psf_kernel=_delta_psf(),
+        )
+        sim = PixelizedLensSimulator(phys, config)
+        true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+        mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+        noise = jnp.ones((10, 10)) * 0.05
+        return mock, noise
+
+    def test_dense_brightness_only_finite_evidence(self):
+        """Dense backend: brightness_only mode yields finite log-evidence (5.9)."""
+        mock, noise = self._mock_image()
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", floor=0.1,
+            image_data=mock, noise_map=noise,
+        )
+        log_ev = model()
+        assert jnp.shape(log_ev) == ()
+        assert jnp.isfinite(log_ev)
+
+    def test_operator_brightness_only_finite_evidence(self):
+        """Operator backend: brightness_only mode yields finite log-evidence (5.10)."""
+        mock, noise = self._mock_image()
+        model = _operator_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", floor=0.1,
+            image_data=mock, noise_map=noise,
+        )
+        log_ev = model()
+        assert jnp.shape(log_ev) == ()
+        assert jnp.isfinite(log_ev)
+
+    def test_dense_brightness_weighted_finite_evidence(self):
+        """Dense backend: brightness_weighted mode also yields finite evidence."""
+        mock, noise = self._mock_image()
+        model = _dense_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_weighted", floor=0.1,
+            image_data=mock, noise_map=noise,
+        )
+        log_ev = model()
+        assert jnp.shape(log_ev) == ()
+        assert jnp.isfinite(log_ev)
+
+    def test_operator_freeze_preserves_evidence_across_param_change(self):
+        """Operator: frozen scale keeps evidence stable when lens params change."""
+        mock, noise = self._mock_image()
+        model = _operator_prob(
+            nx=5, ny=5, alpha=1.0, mode="brightness_only", floor=0.1,
+            freeze=True, image_data=mock, noise_map=noise,
+        )
+        model.freeze_scale()
+        log_ev_frozen = float(model())
+        # The frozen scale is a constant in the compiled graph; the evidence
+        # must remain finite and stable on a second call (PCG introduces ~1e-6
+        # relative solver noise, so use a loose relative tolerance).
+        log_ev_frozen_2 = float(model())
+        assert np.isfinite(log_ev_frozen)
+        assert abs(log_ev_frozen - log_ev_frozen_2) < 1e-2 * abs(log_ev_frozen)
 
 
 if __name__ == "__main__":

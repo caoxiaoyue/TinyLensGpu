@@ -12,14 +12,17 @@ inversion is not yet supported.
 from __future__ import annotations
 
 import functools
+import logging
+import warnings
 from typing import Dict, Optional, Union
 
 import caskade as ck
 import jax
 import jax.numpy as jnp
-import jax.scipy.signal as jsp_signal
 import numpy as np
 from jax import Array, jit
+
+logger = logging.getLogger(__name__)
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
@@ -217,58 +220,90 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Adaptive regularization scale map
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _smooth_scale_map(q_1d: Array, nx: int, ny: int) -> Array:
-        """Gaussian-smooth the scale map on the 2-D source grid.
-
-        Uses a 5x5 separable Gaussian kernel with sigma = 1 source pixel.
-        Assumes column-major flat layout (x varies fastest, index = x + y * nx).
-        """
-        sigma = 1.0
-        ksize = 5
-        x_k = jnp.arange(ksize, dtype=jnp.float32) - (ksize - 1) / 2
-        kernel_1d = jnp.exp(-0.5 * (x_k / sigma) ** 2)
-        kernel_1d = kernel_1d / jnp.sum(kernel_1d)
-        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
-
-        # Column-major flat -> (ny, nx)
-        q_2d = q_1d.reshape(ny, nx)
-        # NOTE: jax.scipy.signal.convolve2d only supports mode in
-        # {full, same, valid} and boundary="fill" (zero padding).  Reflective
-        # boundaries would require explicit jnp.pad(..., mode='reflect') first.
-        q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
-        return q_smooth.ravel()  # back to (Ns,)
-
     def _compute_reg_scale_from_betas(
         self,
         beta_x_seed: Array,
         beta_y_seed: Array,
         xmin, xmax, ymin, ymax,
-    ) -> Array:
+    ) -> Array | None:
         """Compute per-source-pixel regularization scale factors.
 
-        Returns a ``(Ns,)`` array of scale factors in ``[floor, 1.0]``.
-        When ``adaptive_reg_alpha == 0`` returns ``None`` (uniform
-        regularisation), enabling fast-paths in the operator backend.
+        Supports two brightness-estimation modes (configured via
+        ``source_model.adaptive_reg_mode``):
+
+        * ``"brightness_only"`` (default) — inverse-variance-weighted
+          normalized convolution ``N/C``; magnification cancels in the
+          ratio, yielding a pure brightness proxy.
+        * ``"brightness_weighted"`` — inverse-variance-weighted
+          brightness×ray-count product; magnification dependence is
+          preserved for comparison or legacy use.
+
+        Both modes share the same downstream pipeline: configurable
+        Gaussian smoothing via :meth:`DenseRegularizationBuilder.smooth_scale_map`,
+        global-mean normalization, and a continuously-differentiable
+        scale formula.
+
+        Returns ``None`` when ``adaptive_reg_alpha == 0`` (fast path).
+
+        When ``adaptive_reg_freeze`` is ``True``, the caller MUST first
+        populate ``self._frozen_scale`` via :meth:`freeze_scale` (eagerly,
+        before JIT tracing).  At trace time this method picks the cached
+        branch and the JIT compiler captures the frozen array as a
+        constant.  If freeze is requested but no scale has been stored,
+        a warning is emitted and the scale is recomputed on every call.
         """
-        alpha_value = self.source_model.adaptive_reg_alpha
+        alpha_val = self.source_model.adaptive_reg_alpha
+        # Note: alpha_val is a plain Python float from the model config.
+        # If it ever becomes a traced (caskade.Param) value, this check must
+        # switch to jnp.isclose / jax.lax.cond for JIT compatibility.
+        if abs(alpha_val) < 1e-10:
+            return None
+
+        # --- freeze: trace-time check for a cached scale map ---
+        # If freeze_scale() was called eagerly before JIT tracing, the
+        # cached concrete array is captured by the compiler as a constant
+        # and the (traced) betas below become dead args.
+        if self.source_model.adaptive_reg_freeze:
+            frozen = getattr(self, '_frozen_scale', None)
+            if frozen is not None:
+                return frozen
+            warnings.warn(
+                "adaptive_reg_freeze=True but no frozen scale map has been "
+                "stored; call .freeze_scale() before JIT tracing (e.g. before "
+                "make_likelihood / sampling). Falling back to per-call "
+                "recomputation.",
+                stacklevel=2,
+            )
+
+        return self._compute_scale_core(beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax)
+
+    def _compute_scale_core(
+        self,
+        beta_x_seed: Array,
+        beta_y_seed: Array,
+        xmin, xmax, ymin, ymax,
+    ) -> Array:
+        """Core brightness → scale computation (no freeze / alpha-0 fast path).
+
+        Shared by :meth:`_compute_reg_scale_from_betas` (JIT path) and
+        :meth:`freeze_scale` (eager path) so the freeze-eager call does
+        not re-enter the freeze cache check.
+        """
         nx = self.sim_obj.source_nx
         ny = self.sim_obj.source_ny
         n_source = nx * ny
-
-        # Note: alpha_value is a plain Python float from the model config.
-        # If it ever becomes a traced (caskade.Param) value, this check must
-        # switch to jnp.isclose / jax.lax.cond for JIT compatibility.
-        if abs(alpha_value) < 1e-10:
-            return None
-
         floor = jnp.asarray(self.source_model.adaptive_reg_floor, dtype=jnp.float32)
-        alpha = jnp.asarray(alpha_value, dtype=jnp.float32)
+        alpha = jnp.asarray(self.source_model.adaptive_reg_alpha, dtype=jnp.float32)
+        mode = self.source_model.adaptive_reg_mode
+        sigma = float(self.source_model.adaptive_reg_smooth_sigma)
 
-        # 1. Brightness at seed mask active pixels
+        # 1. Brightness and inverse-variance at seed mask pixels
+        seed_flat = self.sim_obj.seed_flat_indices
         brightness = jnp.maximum(
-            jnp.ravel(self.image_data)[self.sim_obj.seed_flat_indices], 0.0,
+            jnp.ravel(self.image_data)[seed_flat], 0.0,
         )
+        noise_at_seed = jnp.ravel(self.noise_map)[seed_flat]
+        inv_var = 1.0 / (noise_at_seed ** 2)
 
         # 2. Bilinear weights mapping seed betas → source grid
         data_mesh = jnp.stack(
@@ -277,33 +312,86 @@ class PixelizedImageProbModelOperator(ck.Module):
         weights, indices, valid = lens_mapping_operator_bilinear_rectangular_from(
             data_mesh, xmin, xmax, ymin, ymax, nx, ny,
         )
+        valid_f = valid[:, None].astype(weights.dtype)
 
-        # 3. Brightness-weighted histogram via segment_sum
-        # w_bright shape is (N_seed, 4) since each seed pixel splits its brightness
-        # across 4 adjacent source pixels via bilinear interpolation.
-        w_bright = weights * (brightness[:, None] * valid[:, None].astype(weights.dtype))
+        if mode == "brightness_only":
+            # Inverse-variance-weighted normalized convolution: N / C
+            w_num = weights * (brightness[:, None] * inv_var[:, None] * valid_f)
+            w_den = weights * (inv_var[:, None] * valid_f)
 
-        # q Accumulate all scattered brightness fractions into their corresponding
-        # source pixels to build a rough initial source brightness map.
-        q = jax.ops.segment_sum(
-            w_bright.ravel(), indices.ravel(),
-            num_segments=n_source,
-        )  # (Ns,)
+            N = jax.ops.segment_sum(
+                w_num.ravel(), indices.ravel(), num_segments=n_source,
+            )
+            C = jax.ops.segment_sum(
+                w_den.ravel(), indices.ravel(), num_segments=n_source,
+            )
 
-        # 4. Normalize by mean positive count
-        q_pos = jnp.where(q > 0, q, 0.0)
-        q_sum = jnp.sum(q_pos)
-        q_count = jnp.maximum(jnp.sum(q > 0), 1.0)
-        q_mean = q_sum / q_count
-        q_norm = q / jnp.maximum(q_mean, 1e-10)
+            N_sm = self.reg_builder.smooth_scale_map(N, nx, ny, sigma=sigma)
+            C_sm = self.reg_builder.smooth_scale_map(C, nx, ny, sigma=sigma)
+            b_raw = N_sm / (C_sm + 1e-10)
+        else:
+            # brightness_weighted: inv-var-weighted brightness × ray-count
+            w_bright = weights * (brightness[:, None] * inv_var[:, None] * valid_f)
+            q = jax.ops.segment_sum(
+                w_bright.ravel(), indices.ravel(), num_segments=n_source,
+            )
+            b_raw = self.reg_builder.smooth_scale_map(q, nx, ny, sigma=sigma)
 
-        # 5. Smooth on source grid
-        q_smooth = self._smooth_scale_map(q_norm, nx, ny)
+        # 3. Shared downstream: normalize → scale formula
+        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
+        scale = DenseRegularizationBuilder._compute_scale_formula(
+            b_norm, alpha, floor,
+        )
 
-        # 6. Compute scale
-        scale = 1.0 / (1.0 + alpha * q_smooth)
-        scale = jnp.maximum(scale, floor)
         return scale
+
+    # ------------------------------------------------------------------
+    # Empirical-Bayes freeze API
+    # ------------------------------------------------------------------
+
+    def freeze_scale(self) -> None:
+        """Eagerly compute and cache the adaptive scale map.
+
+        Implements the empirical-Bayes freeze: the scale map is evaluated
+        once at the current lens-parameter values and reused for all
+        subsequent evidence evaluations.  This prevents the adaptive
+        prior from drifting during lens-parameter sampling.
+
+        MUST be called before the likelihood is JIT-traced (i.e. before
+        :func:`make_likelihood` / sampler startup) so that the JIT
+        compiler captures the frozen array as a closure constant.  Calling
+        it after tracing has no effect on the compiled graph.
+
+        No-op when ``adaptive_reg_alpha == 0`` (uniform regularization)
+        or ``adaptive_reg_freeze == False``.
+        """
+        if abs(self.source_model.adaptive_reg_alpha) < 1e-10:
+            return
+        if not self.source_model.adaptive_reg_freeze:
+            warnings.warn(
+                "freeze_scale() called but adaptive_reg_freeze=False; "
+                "the cached scale will not be used.",
+                stacklevel=2,
+            )
+            return
+        (xmin, xmax, ymin, ymax, _beta_x_sub, _beta_y_sub,
+         beta_x_seed, beta_y_seed) = self._get_bbox()
+        # Bypass the freeze cache check in _compute_reg_scale_from_betas by
+        # calling the core directly — otherwise the first eager evaluation
+        # would re-enter the freeze branch and spuriously warn.
+        scale = self._compute_scale_core(
+            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
+        )
+        object.__setattr__(self, '_frozen_scale', scale)
+
+    def unfreeze_scale(self) -> None:
+        """Discard the cached adaptive scale map.
+
+        Subsequent evidence evaluations recompute the scale on every call.
+        Safe to call when no scale is cached.
+        """
+        if hasattr(self, '_frozen_scale'):
+            object.__delattr__(self, '_frozen_scale')
 
     # ------------------------------------------------------------------
     # Source solve via PCG
