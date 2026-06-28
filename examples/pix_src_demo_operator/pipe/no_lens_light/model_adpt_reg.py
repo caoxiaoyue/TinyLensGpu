@@ -80,8 +80,7 @@ import caskade as ck
 import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
-NSRCX = 80
-NSRCY = 80
+NSRC = 100
 DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4
@@ -165,12 +164,17 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _source_axes_from_bbox(source_bbox, nx=NSRCX, ny=NSRCY):
+def _source_axes_from_bbox(source_bbox, n=NSRC):
     xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
     return (
-        np.linspace(xmin, xmax, int(nx), dtype=np.float64),
-        np.linspace(ymin, ymax, int(ny), dtype=np.float64),
+        np.linspace(xmin, xmax, int(n), dtype=np.float64),
+        np.linspace(ymin, ymax, int(n), dtype=np.float64),
     )
+
+
+def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
+    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
+    return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
 
 
 def _make_s0_scale(
@@ -205,10 +209,15 @@ def _validate_s0_package(s0_package):
 
     nx = int(s0_package["nx"])
     ny = int(s0_package["ny"])
-    if nx != NSRCX or ny != NSRCY:
+    if nx != ny:
+        raise ValueError(
+            f"S0 grid shape ({ny}, {nx}) is rectangular; regenerate S0 with "
+            "a square pixelized source grid."
+        )
+    if nx != NSRC or ny != NSRC:
         raise ValueError(
             f"S0 grid shape ({ny}, {nx}) does not match configured "
-            f"({NSRCY}, {NSRCX})."
+            f"({NSRC}, {NSRC})."
         )
     source_pixels = np.asarray(s0_package["source_pixels"])
     if source_pixels.shape != (nx * ny,):
@@ -221,6 +230,11 @@ def _validate_s0_package(s0_package):
         raise ValueError("S0 source_bbox must contain four finite values.")
     if not (bbox[0] < bbox[1] and bbox[2] < bbox[3]):
         raise ValueError("S0 source_bbox must satisfy xmin < xmax and ymin < ymax.")
+    if not _is_square_bbox(bbox):
+        raise ValueError(
+            "S0 source_bbox is rectangular; regenerate S0 with a square "
+            "pixelized source bbox."
+        )
 
     scale_map = s0_package.get("scale_map")
     if scale_map is None:
@@ -343,15 +357,15 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
                 f"n_iter={int(pcg_info.n_iter)})."
             )
     source_bbox = (float(xmin), float(xmax), float(ymin), float(ymax))
-    x_axis, y_axis = _source_axes_from_bbox(source_bbox, NSRCX, NSRCY)
+    x_axis, y_axis = _source_axes_from_bbox(source_bbox, NSRC)
     return dict(
         source_pixels=np.asarray(source_pixels, dtype=np.float64),
-        source_image=np.asarray(source_pixels, dtype=np.float64).reshape(NSRCY, NSRCX),
+        source_image=np.asarray(source_pixels, dtype=np.float64).reshape(NSRC, NSRC),
         source_bbox=source_bbox,
         source_x_axis=x_axis,
         source_y_axis=y_axis,
-        nx=NSRCX,
-        ny=NSRCY,
+        nx=NSRC,
+        ny=NSRC,
     )
 
 
@@ -689,8 +703,8 @@ def build_stage_m0_likelihood(
     log_lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(
-        nx=NSRCX,
-        ny=NSRCY,
+        nx=NSRC,
+        ny=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
         adaptive_reg_alpha=0.0,
@@ -832,8 +846,8 @@ def build_stage_m1_likelihood(
     floor.to_dynamic()
 
     pix_src = PixelizedSourceModel(
-        nx=NSRCX,
-        ny=NSRCY,
+        nx=NSRC,
+        ny=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
         adaptive_reg_alpha=alpha,
@@ -1104,8 +1118,8 @@ def build_stage_m2_likelihood(
     floor.to_static()
 
     pix_src = PixelizedSourceModel(
-        nx=NSRCX,
-        ny=NSRCY,
+        nx=NSRC,
+        ny=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
         adaptive_reg_alpha=alpha,

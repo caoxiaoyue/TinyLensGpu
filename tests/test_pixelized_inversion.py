@@ -127,6 +127,11 @@ def _prob_model(
     )
 
 
+def _assert_square_bbox(source_bbox) -> None:
+    xmin, xmax, ymin, ymax = source_bbox
+    assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+
 @pytest.mark.unit
 def test_pixelized_simulator_returns_full_2d_image_matching_data_shape() -> None:
     """Test that simulate returns a full image-plane array, not only unmasked pixels."""
@@ -203,6 +208,25 @@ def test_infer_source_bbox_uses_lensed_coordinate_extent_with_floor() -> None:
         tiny_beta, tiny_beta, padding=0.05, outlier_frac=0.0
     )
     assert xmax_t > xmin_t and ymax_t > ymin_t
+
+
+@pytest.mark.unit
+def test_pixelized_simulator_infers_square_source_bbox_for_asymmetric_betas() -> None:
+    """Test dense pixelized simulator expands asymmetric bbox spans to square."""
+    simulator = _simulator()
+    beta_x = jnp.asarray([0.0, 3.0])
+    beta_y = jnp.asarray([-0.2, 0.2])
+
+    source_bbox = simulator.infer_source_bbox(
+        beta_x, beta_y, padding=0.0, outlier_frac=0.0
+    )
+
+    _assert_square_bbox(source_bbox)
+    xmin, xmax, ymin, ymax = source_bbox
+    assert jnp.allclose(xmin, 0.0)
+    assert jnp.allclose(xmax, 3.0)
+    assert jnp.allclose(ymin, -1.5)
+    assert jnp.allclose(ymax, 1.5)
 
 
 @pytest.mark.unit

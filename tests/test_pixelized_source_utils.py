@@ -1,9 +1,8 @@
 """
 TDD specifications for pixelized source grid and lens mapping utilities.
 
-These tests describe the expected public behavior for rectangular source-grid
-helpers used by pixelized reconstructions. The implementation is intentionally
-not provided here.
+These tests describe mapping helpers and square bbox inference used by
+pixelized reconstructions.
 """
 
 # pyright: reportMissingImports=false
@@ -15,6 +14,8 @@ from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
     infer_source_bbox,
+    infer_square_source_bbox,
+    make_square_bbox,
 )
 
 
@@ -236,6 +237,75 @@ class TestInferSourceBbox:
         beta = jnp.asarray([1.0, 2.0])
         with pytest.raises(ValueError, match="outlier_frac"):
             infer_source_bbox(beta, beta, outlier_frac=bad_frac)
+
+
+@pytest.mark.unit
+class TestInferSquareSourceBbox:
+    """Test square source-plane bbox construction."""
+
+    def test_make_square_bbox_expands_shorter_span_around_center(self):
+        """Test direct bbox square expansion preserves centers."""
+        xmin, xmax, ymin, ymax = make_square_bbox(0.0, 3.0, -0.2, 0.2)
+
+        assert jnp.allclose(xmax - xmin, 3.0)
+        assert jnp.allclose(ymax - ymin, 3.0)
+        assert jnp.allclose(0.5 * (xmin + xmax), 1.5)
+        assert jnp.allclose(0.5 * (ymin + ymax), 0.0)
+
+    def test_asymmetric_span_square_option(self):
+        """Test infer_source_bbox(square=True) expands shorter side."""
+        beta_x = jnp.asarray([0.0, 3.0])
+        beta_y = jnp.asarray([-0.2, 0.2])
+
+        xmin, xmax, ymin, ymax = infer_source_bbox(
+            beta_x, beta_y, padding=0.0, outlier_frac=0.0, square=True
+        )
+
+        assert jnp.allclose(xmin, 0.0)
+        assert jnp.allclose(xmax, 3.0)
+        assert jnp.allclose(ymin, -1.5)
+        assert jnp.allclose(ymax, 1.5)
+        assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+    def test_offset_extent_keeps_centers(self):
+        """Test square bbox preserves centers for offset beta clouds."""
+        beta_x = jnp.asarray([0.5, 1.5])
+        beta_y = jnp.asarray([0.3, 1.1])
+
+        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+            beta_x, beta_y, padding=0.05, outlier_frac=0.0
+        )
+
+        original_x_center = 1.0
+        original_y_center = 0.7
+        assert jnp.allclose(0.5 * (xmin + xmax), original_x_center)
+        assert jnp.allclose(0.5 * (ymin + ymax), original_y_center)
+        assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+    def test_padding_and_outlier_rules_apply_before_square_expansion(self):
+        """Test square inference still honors existing quantile and padding behavior."""
+        beta_x = jnp.arange(100.0)
+        beta_y = 0.5 * jnp.arange(100.0)
+
+        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+            beta_x, beta_y, padding=0.1, outlier_frac=0.01
+        )
+
+        assert jnp.allclose(0.5 * (xmin + xmax), 49.5)
+        assert jnp.allclose(0.5 * (ymin + ymax), 24.75)
+        assert jnp.allclose(xmax - xmin, ymax - ymin)
+        assert jnp.allclose(xmax - xmin, (98.01 - 0.99) * 1.2)
+
+    def test_point_like_extent_is_positive_and_square(self):
+        """Test point-like beta coordinates produce non-degenerate square bbox."""
+        beta = jnp.asarray([5.0])
+        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+            beta, beta, padding=0.0, outlier_frac=0.0
+        )
+
+        assert xmax > xmin
+        assert ymax > ymin
+        assert jnp.allclose(xmax - xmin, ymax - ymin)
 
 
 @pytest.mark.unit

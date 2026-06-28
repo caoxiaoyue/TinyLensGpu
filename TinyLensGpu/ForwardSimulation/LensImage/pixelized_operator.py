@@ -29,7 +29,7 @@ from TinyLensGpu.utils.inversion.regularization import (
 )
 from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
-    infer_source_bbox,
+    infer_square_source_bbox,
     lens_mapping_operator_bilinear_rectangular_from,
 )
 
@@ -300,7 +300,7 @@ def _A_matvec_jit(
 # ==================================================================
 
 class PixelizedLensOperator:
-    """Matrix-free forward simulator for a single pixelized source.
+    """Matrix-free forward simulator for a single square pixelized source grid.
 
     Parameters
     ----------
@@ -309,7 +309,7 @@ class PixelizedLensOperator:
     sim_config : SimulatorConfig
         Image grid, PSF, mask, and subsampling configuration.
     detach_bbox : bool, optional
-        When True (default), stop_gradient is applied to bbox bounds.
+        When True (default), stop_gradient is applied to square bbox bounds.
     """
 
     def __init__(
@@ -441,7 +441,7 @@ class PixelizedLensOperator:
         return beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed
 
     def _infer_and_fix_bbox(self, beta_x_seed, beta_y_seed):
-        xmin, xmax, ymin, ymax = infer_source_bbox(
+        xmin, xmax, ymin, ymax = infer_square_source_bbox(
             beta_x_seed, beta_y_seed,
             padding=self.sim_config.source_bbox_padding,
             outlier_frac=self.sim_config.source_bbox_outlier_frac,

@@ -38,6 +38,14 @@ def test_construction_wraps_log_lambda_reg_as_paramu():
 
 
 @pytest.mark.unit
+def test_construction_rejects_rectangular_source_shape():
+    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+
+    with pytest.raises(ValueError, match="square source grid"):
+        PixelizedSourceModel(nx=40, ny=50, log_lambda_reg=jnp.log(10.0))
+
+
+@pytest.mark.unit
 def test_adaptive_hyperparams_can_be_paramu_and_dynamic():
     from TinyLensGpu.Inference.build_prior import extract_prior_specs
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel

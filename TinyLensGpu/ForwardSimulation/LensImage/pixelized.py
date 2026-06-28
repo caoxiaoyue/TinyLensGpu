@@ -11,7 +11,11 @@ from jax import Array
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
 from ...PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
-from ...utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid, infer_source_bbox
+from ...utils.lensing.mapping import (
+    build_lens_mapping_matrix,
+    build_source_grid,
+    infer_square_source_bbox,
+)
 from .config import SimulatorConfig
 from .parametric import bin_image_general
 from .results import SimulationResult
@@ -162,7 +166,7 @@ class PixelizedLensSimulator:
         padding: float | None = None,
         outlier_frac: float | None = None,
     ):
-        """Infer source-plane bounding box.
+        """Infer a square source-plane bounding box.
 
         Parameters
         ----------
@@ -187,7 +191,7 @@ class PixelizedLensSimulator:
             if outlier_frac is None
             else outlier_frac
         )
-        return infer_source_bbox(
+        return infer_square_source_bbox(
             beta_x, beta_y, padding=pad, outlier_frac=frac
         )
 

@@ -95,7 +95,25 @@ def build_source_grid(nx, ny, xmin, xmax, ymin, ymax):
     return x_axis, y_axis, xgrid, ygrid
 
 
-def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
+def make_square_bbox(xmin, xmax, ymin, ymax):
+    """Expand bbox bounds to a square while preserving each axis center.
+
+    The shorter span is expanded to match the longer span.  Inputs may be
+    Python scalars or JAX scalar arrays; the returned values are JAX-compatible
+    scalar arrays.
+    """
+    xmin = jnp.asarray(xmin)
+    xmax = jnp.asarray(xmax)
+    ymin = jnp.asarray(ymin)
+    ymax = jnp.asarray(ymax)
+    xmid = 0.5 * (xmin + xmax)
+    ymid = 0.5 * (ymin + ymax)
+    side = jnp.maximum(xmax - xmin, ymax - ymin)
+    half = 0.5 * side
+    return xmid - half, xmid + half, ymid - half, ymid + half
+
+
+def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01, square=False):
     """Infer source-plane bounding box from ray-traced beta points.
 
     Computes robust quantile bounds of beta coordinates and adds a
@@ -104,7 +122,9 @@ def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
     default uses the 1st and 99th percentiles instead of the absolute
     min/max.  Set ``outlier_frac=0.0`` to recover the previous min/max
     behaviour.  Ensures a minimum span of 1e-6 in each direction so that
-    downstream grid construction is well-defined.
+    downstream grid construction is well-defined.  When ``square=True``, the
+    shorter span is expanded around its center after padding/flooring so the
+    returned source-plane bbox has equal x/y extent.
     """
     if not (0.0 <= outlier_frac < 0.5):
         raise ValueError(
@@ -141,7 +161,16 @@ def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
     xmax = jnp.maximum(xmax, xmid + min_half)
     ymin = jnp.minimum(ymin, ymid - min_half)
     ymax = jnp.maximum(ymax, ymid + min_half)
+    if square:
+        xmin, xmax, ymin, ymax = make_square_bbox(xmin, xmax, ymin, ymax)
     return xmin, xmax, ymin, ymax
+
+
+def infer_square_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
+    """Infer a square source-plane bbox from ray-traced beta points."""
+    return infer_source_bbox(
+        beta_x, beta_y, padding=padding, outlier_frac=outlier_frac, square=True
+    )
 
 
 def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
@@ -172,5 +201,7 @@ __all__ = [
     "dense_mapping_from_weights_indices",
     "build_source_grid",
     "build_lens_mapping_matrix",
+    "make_square_bbox",
     "infer_source_bbox",
+    "infer_square_source_bbox",
 ]

@@ -132,6 +132,30 @@ def _make_test_data(psf=None, mask=None, nsub=1):
     return mock_image, noise, phys, config
 
 
+def _assert_square_bbox(source_bbox):
+    xmin, xmax, ymin, ymax = source_bbox
+    assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+
+@pytest.mark.unit
+def test_operator_infers_square_source_bbox_for_asymmetric_betas():
+    """Test operator bbox helper expands asymmetric seed-ray extents to square."""
+    config = _sim_config()
+    config.source_bbox_outlier_frac = 0.0
+    operator = PixelizedLensOperator(_phys_model(), config)
+    beta_x = jnp.asarray([0.0, 3.0])
+    beta_y = jnp.asarray([-0.2, 0.2])
+
+    source_bbox = operator._infer_and_fix_bbox(beta_x, beta_y)
+
+    _assert_square_bbox(source_bbox)
+    xmin, xmax, ymin, ymax = source_bbox
+    assert jnp.allclose(xmin, 0.0)
+    assert jnp.allclose(xmax, 3.0)
+    assert jnp.allclose(ymin, -1.5)
+    assert jnp.allclose(ymax, 1.5)
+
+
 # ------------------------------------------------------------------
 # PCG solver tests
 # ------------------------------------------------------------------
@@ -644,6 +668,21 @@ def test_operator_fixed_bbox_overrides_seed_inference():
     assert beta_y_sub.size > 0
     assert beta_x_seed.size > 0
     assert beta_y_seed.size > 0
+
+
+@pytest.mark.unit
+def test_operator_rejects_rectangular_fixed_source_bbox():
+    """Fixed source bboxes must be square for pixelized source grids."""
+    source = _pix_src(adaptive_reg_alpha=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+
+    with pytest.raises(ValueError, match="fixed_source_bbox must be square"):
+        PixelizedImageProbModelOperator(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=(-1.0, 1.0, -0.5, 0.5),
+            fixed_reg_scale=_fixed_scale(),
+        )
 
 
 @pytest.mark.unit

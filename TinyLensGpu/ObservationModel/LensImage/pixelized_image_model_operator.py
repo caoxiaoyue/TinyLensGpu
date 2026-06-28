@@ -61,8 +61,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     position_likelihood : dict, optional
         Position likelihood constraint configuration.
     fixed_source_bbox : tuple, optional
-        Fixed ``(xmin, xmax, ymin, ymax)`` source-plane bbox for S0-based
-        adaptive regularization.
+        Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
+        S0-based adaptive regularization.
     fixed_reg_scale : array_like, optional
         Flat fixed adaptive regularization scale map with shape ``(nx * ny,)``.
     fixed_reg_template : array_like, optional
@@ -164,6 +164,11 @@ class PixelizedImageProbModelOperator(ck.Module):
         if not (xmin < xmax and ymin < ymax):
             raise ValueError(
                 "fixed_source_bbox must satisfy xmin < xmax and ymin < ymax."
+            )
+        if not np.isclose(xmax - xmin, ymax - ymin, rtol=1.0e-6, atol=1.0e-7):
+            raise ValueError(
+                "fixed_source_bbox must be square for pixelized source grids "
+                "(xmax - xmin must equal ymax - ymin)."
             )
         return bbox
 
@@ -279,7 +284,7 @@ class PixelizedImageProbModelOperator(ck.Module):
     # ------------------------------------------------------------------
 
     def _get_bbox(self):
-        """Infer source-plane bounding box from seed-region ray-tracing.
+        """Infer square source-plane bounding box from seed-region ray-tracing.
 
         Returns ``(xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
         beta_x_seed, beta_y_seed)`` so that callers can reuse the seed
