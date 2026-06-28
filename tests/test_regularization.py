@@ -656,6 +656,34 @@ class TestSourceTemplateScaleMap:
         )
         assert scale is None
 
+    def test_traced_alpha_and_floor_change_scale(self):
+        source = jnp.array([0.0, 1.0, 3.0, 0.0])
+
+        def build(alpha, floor):
+            return source_template_scale_map(source, 2, 2, alpha=alpha, floor=floor)
+
+        scale_low = jax.jit(build)(jnp.asarray(0.5), jnp.asarray(0.2))
+        scale_high = jax.jit(build)(jnp.asarray(3.0), jnp.asarray(0.05))
+
+        assert scale_low is not None
+        assert scale_high is not None
+        assert scale_low.shape == (4,)
+        assert jnp.all(jnp.isfinite(scale_low))
+        assert jnp.all(jnp.isfinite(scale_high))
+        assert float(scale_high[2]) < float(scale_low[2])
+
+    def test_traced_zero_alpha_returns_uniform_scale(self):
+        source = jnp.array([0.0, 1.0, 3.0, 0.0])
+
+        @jax.jit
+        def build(alpha):
+            return source_template_scale_map(
+                source, 2, 2, alpha=alpha, floor=jnp.asarray(0.1),
+            )
+
+        scale = build(jnp.asarray(0.0))
+        np.testing.assert_allclose(np.asarray(scale), np.ones(4), atol=1e-6)
+
     def test_accepts_flat_or_2d_source_templates(self):
         source_2d = jnp.array([[0.0, 1.0], [2.0, 3.0]])
         scale_2d = source_template_scale_map(source_2d, 2, 2, alpha=1.0, floor=0.1)
@@ -667,6 +695,10 @@ class TestSourceTemplateScaleMap:
     def test_rejects_wrong_template_shape(self):
         with pytest.raises(ValueError, match="source_pixels must have shape"):
             source_template_scale_map(jnp.ones((3, 3)), 2, 2, alpha=1.0, floor=0.1)
+
+    def test_rejects_invalid_static_floor(self):
+        with pytest.raises(ValueError, match="floor must be in"):
+            source_template_scale_map(jnp.ones((2, 2)), 2, 2, alpha=1.0, floor=0.0)
 
 
 @pytest.mark.unit

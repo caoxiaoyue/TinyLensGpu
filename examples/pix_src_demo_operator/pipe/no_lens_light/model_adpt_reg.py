@@ -7,10 +7,12 @@ source reconstruction.
 
 Stage a  : SIE + shear + MGE source light (uniform priors, NO lens light)
 Stage b  : build an arc feature mask from image_no_lens S/N
-Stage m1 : SIE + shear + pixelized source — GPU grid search for lambda_reg
-           (SIE+shear fixed at stage-A medians; only lambda_reg free)
+Stage m1 : SIE + shear + pixelized source — Nautilus sampling of
+           log_lambda_reg, adaptive_reg_alpha, and adaptive_reg_floor
+           (SIE+shear fixed at stage-A medians)
 Stage m2 : EPL + shear + pixelized source — Nautilus nested sampling
-           (Gaussian priors from stage a on EPL+shear; lambda_reg fixed at M1 best)
+           (Gaussian priors from stage a on EPL+shear; source-reg
+           hyperparameters fixed at M1 posterior medians)
 
 Each stage pickles its posterior samples/weights to
 ``output_adpt_reg/stage_{a,m1,m2}.pkl`` and is re-runnable via ``--skip-done``.
@@ -171,14 +173,18 @@ def _source_axes_from_bbox(source_bbox, nx=NSRCX, ny=NSRCY):
     )
 
 
-def _make_s0_scale(s0_package):
+def _make_s0_scale(
+    s0_package,
+    alpha: float = ADAPTIVE_REG_ALPHA,
+    floor: float = ADAPTIVE_REG_FLOOR,
+):
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
         s0_package["source_pixels"],
         int(s0_package["nx"]),
         int(s0_package["ny"]),
-        alpha=ADAPTIVE_REG_ALPHA,
-        floor=ADAPTIVE_REG_FLOOR,
+        alpha=alpha,
+        floor=floor,
     )
 
 
@@ -238,7 +244,7 @@ def _s0_fingerprint(s0_package):
     h = hashlib.sha256()
     h.update(str(int(s0_package["nx"])).encode("ascii"))
     h.update(str(int(s0_package["ny"])).encode("ascii"))
-    for key in ("source_pixels", "source_bbox", "scale_map"):
+    for key in ("source_pixels", "source_bbox"):
         arr = np.ascontiguousarray(np.asarray(s0_package[key], dtype=np.float64))
         h.update(str(arr.shape).encode("ascii"))
         h.update(arr.tobytes())
@@ -261,8 +267,51 @@ def _s0_fixed_kwargs(s0_package):
     s0_package = _validate_s0_package(s0_package)
     return dict(
         fixed_source_bbox=tuple(float(v) for v in s0_package["source_bbox"]),
-        fixed_reg_scale=jnp.asarray(s0_package["scale_map"], dtype=jnp.float32),
+        fixed_reg_template=jnp.asarray(s0_package["source_pixels"], dtype=jnp.float32),
     )
+
+
+def _source_param_value(value):
+    """Return a scalar value from a static scalar or ParamU-like object."""
+    return value.value if hasattr(value, "value") else value
+
+
+def _reg_hyperparams_from_m1_payload(stage_payload):
+    medians = stage_payload.get("extra", {}).get("medians")
+    if not medians:
+        raise KeyError("stage-M1 payload missing posterior medians.")
+    required = ("log_lambda_reg", "adaptive_reg_alpha", "adaptive_reg_floor")
+    missing = [name for name in required if name not in medians]
+    if missing:
+        raise KeyError("stage-M1 medians missing required keys: " + ", ".join(missing))
+    return {name: float(medians[name]) for name in required}
+
+
+def _format_reg_hyperparams(reg_hyperparams):
+    return (
+        f"lambda={float(jnp.exp(reg_hyperparams['log_lambda_reg'])):.4e}, "
+        f"alpha={reg_hyperparams['adaptive_reg_alpha']:.4f}, "
+        f"floor={reg_hyperparams['adaptive_reg_floor']:.4e}"
+    )
+
+
+def _cache_matches_reg_hyperparams(stage_payload, reg_hyperparams, tag, rtol=1.0e-8):
+    actual = stage_payload.get("extra", {}).get("reg_hyperparams_fixed")
+    if actual is None:
+        actual = {
+            "log_lambda_reg": stage_payload.get("extra", {}).get("lambda_fixed"),
+            "adaptive_reg_alpha": stage_payload.get("extra", {}).get("adaptive_reg_alpha_fixed"),
+            "adaptive_reg_floor": stage_payload.get("extra", {}).get("adaptive_reg_floor_fixed"),
+        }
+    for name, expected in reg_hyperparams.items():
+        value = actual.get(name) if isinstance(actual, dict) else None
+        if value is None or not np.isclose(float(value), float(expected), rtol=rtol, atol=rtol):
+            print(
+                f"[stage-{tag.upper()}] cached output uses stale fixed "
+                f"{name}; recomputing."
+            )
+            return False
+    return True
 
 
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
@@ -748,13 +797,13 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
-# Stage M1 — SIE + shear + pixelized source  (GPU grid search for λ)
+# Stage M1 — SIE + shear + pixelized source  (fit adaptive-reg hyperparameters)
 # ------------------------------------------------------------------ #
 def build_stage_m1_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
     medians_a, position_likelihood, s0_package, circular_mask=None,
 ):
-    """Build likelihood for M1: SIE+shear fixed, λ free, S0 scale fixed."""
+    """Build likelihood for M1: SIE+shear fixed, source-reg hyperparams free."""
     sie, shear = _sie_mass_from_stage_a(medians_a)
 
     log_lam = ParamU(
@@ -765,14 +814,30 @@ def build_stage_m1_likelihood(
         limits=[-13.815510557964274, 13.815510557964274],
     )
     log_lam.to_dynamic()
+    alpha = ParamU(
+        "adaptive_reg_alpha",
+        ADAPTIVE_REG_ALPHA,
+        prior_type="uniform",
+        prior_settings=[0.0, 5.0],
+        limits=[0.0, 5.0],
+    )
+    floor = ParamU(
+        "adaptive_reg_floor",
+        ADAPTIVE_REG_FLOOR,
+        prior_type="log_uniform",
+        prior_settings=[1.0e-3, 1.0],
+        limits=[1.0e-3, 1.0],
+    )
+    alpha.to_dynamic()
+    floor.to_dynamic()
 
     pix_src = PixelizedSourceModel(
         nx=NSRCX,
         ny=NSRCY,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
-        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
+        adaptive_reg_alpha=alpha,
+        adaptive_reg_floor=floor,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -782,7 +847,6 @@ def build_stage_m1_likelihood(
     combined_mask = feature_mask
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
-    fixed_kwargs = _s0_fixed_kwargs(s0_package)
     return PixelizedImageProbModelOperator(
         image_data=image_data,
         noise_map=noise_map,
@@ -792,44 +856,18 @@ def build_stage_m1_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        **fixed_kwargs,
+        **_s0_fixed_kwargs(s0_package),
     )
-
-
-def _plot_m1_grid(likelihood, log_lam_coarse, log_ev_coarse,
-                   log_lam_fine, log_ev_fine, log_lam_best, log_ev_best):
-    """2-panel diagnostic: log-evidence vs lambda_reg for both grid stages."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5))
-
-    ax1.semilogx(np.asarray(log_lam_coarse), np.asarray(log_ev_coarse), 'b.-', markersize=2)
-    ax1.axvline(log_lam_best, color='r', linestyle='--', alpha=0.8,
-                label=f'best λ = {log_lam_best:.3e}')
-    ax1.set_xlabel('λ_reg'); ax1.set_ylabel('log-evidence')
-    ax1.set_title('Stage M1: Coarse grid (200 pts, 1e-8 – 1e8)')
-    ax1.legend(); ax1.grid(True, alpha=0.3)
-
-    ax2.semilogx(np.asarray(log_lam_fine), np.asarray(log_ev_fine), 'b.-', markersize=2)
-    ax2.axvline(log_lam_best, color='r', linestyle='--', alpha=0.8,
-                label=f'best λ = {log_lam_best:.3e}')
-    ax2.set_xlabel('λ_reg'); ax2.set_ylabel('log-evidence')
-    ax2.set_title('Stage M1: Refinement (±0.5 dex, 200 pts)')
-    ax2.legend(); ax2.grid(True, alpha=0.3)
-
-    plt.suptitle(f'Stage M1 — λ grid search  (best log-ev = {log_ev_best:.2f})', fontsize=11)
-    plt.tight_layout()
-    plt.savefig(OUT_DIR / "stage_m1_grid.png", dpi=120, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[stage-M1] grid diagnostic saved to {OUT_DIR / 'stage_m1_grid.png'}")
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
                   medians_a, position_likelihood, s0_package, circular_mask=None):
-    """Stage M1: GPU-batch grid search for lambda_reg (coarse → refine).
+    """Stage M1: Nautilus fit for adaptive source-regularization hyperparams.
 
     ``image_data`` is already lens-subtracted so we use it directly.
     """
     print("\n" + "=" * 60)
-    print(" Stage M1 : SIE + shear + pix source  (GPU grid search for λ)")
+    print(" Stage M1 : SIE + shear + pix source  (fit λ, α, floor)")
     print("=" * 60)
     t0 = time.time()
 
@@ -837,84 +875,39 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         image_data, noise_map, psf_kernel, feature_mask,
         medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
     )
-
-    # Batched log-evidence evaluator (jax.vmap + jit → GPU)
-    loglike_batch = make_likelihood(likelihood, vectorized=True)
-
-    n_grid = 200
-
-    # --- Coarse grid: 200 linearly-spaced points in log-λ over [ln(1e-8), ln(1e8)] ---
-    log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
-    print(f"[stage-M1] Running coarse grid (200 pts, λ in [{float(jnp.exp(log_lam_min)):.1e}, {float(jnp.exp(log_lam_max)):.1e}]) ...")
-    log_lam_grid_coarse = jnp.linspace(log_lam_min, log_lam_max, n_grid)
-    log_ev_coarse = jnp.asarray(loglike_batch(log_lam_grid_coarse.reshape(-1, 1)))
-
-    if not jnp.any(jnp.isfinite(log_ev_coarse)):
-        raise RuntimeError(
-            "[stage-M1] All log-λ values in coarse grid produced non-finite log-evidence "
-            "— PCG solver likely failed globally. Check data, noise map, and PSF."
-        )
-
-    best_idx_coarse = int(jnp.argmax(log_ev_coarse))
-    log_lam_best_coarse = float(log_lam_grid_coarse[best_idx_coarse])
-    log_ev_best_coarse = float(log_ev_coarse[best_idx_coarse])
-    print(f"[stage-M1] Coarse best: λ = {float(jnp.exp(log_lam_best_coarse)):.4e}  (log-ev = {log_ev_best_coarse:.2f})")
-
-    # --- Refinement grid: 200 points around coarse optimum (±0.5 dex in log10) ---
-    half_width = 0.5 * jnp.log(10)  # 0.5 dex in natural log
-    log_lam_grid_fine = jnp.linspace(log_lam_best_coarse - half_width,
-                                     log_lam_best_coarse + half_width, n_grid)
-    print(f"[stage-M1] Running refinement grid (200 pts, λ in [{float(jnp.exp(log_lam_grid_fine[0])):.4e}, {float(jnp.exp(log_lam_grid_fine[-1])):.4e}]) ...")
-    log_ev_fine = jnp.asarray(loglike_batch(log_lam_grid_fine.reshape(-1, 1)))
-
-    best_idx_fine = int(jnp.argmax(log_ev_fine))
-    log_lam_best = float(log_lam_grid_fine[best_idx_fine])
-    log_ev_best = float(log_ev_fine[best_idx_fine])
-    print(f"[stage-M1] Refined best: λ = {float(jnp.exp(log_lam_best)):.4e}  (log-ev = {log_ev_best:.2f})")
-
-    if best_idx_fine == 0 or best_idx_fine == n_grid - 1:
-        print(
-            f"[stage-M1] WARNING: refinement optimum at grid edge "
-            f"(idx={best_idx_fine}, λ={float(jnp.exp(log_lam_best)):.4e}). "
-            f"The true optimum may lie outside the ±0.5 dex refinement window. "
-            f"Consider widening the refinement range or inspecting the coarse grid."
-        )
-
+    samples, weights, names, logz = _run_sampler(
+        likelihood, n_live=250, n_eff=600, tag="stage-M1", vectorized=True,
+    )
     t1 = time.time()
-    print(f"\n[stage-M1] Grid search summary:")
-    print(f"    {'lambda_reg':25s} = {float(jnp.exp(log_lam_best)):+.4e}")
+    _print_summary("stage-M1", samples, weights, names)
     print(f"[stage-M1] time taken: {t1 - t0:.2f} seconds")
+    medians = _posterior_median(samples, weights, names)
+    reg_hyperparams = {
+        "log_lambda_reg": float(medians["log_lambda_reg"]),
+        "adaptive_reg_alpha": float(medians["adaptive_reg_alpha"]),
+        "adaptive_reg_floor": float(medians["adaptive_reg_floor"]),
+    }
+    print(f"[stage-M1] median hyperparams: {_format_reg_hyperparams(reg_hyperparams)}")
 
     _dump_stage(
-        "m1", None, None, ["log_lambda_reg"], log_ev_best,
+        "m1", samples, weights, names, logz,
         extra=dict(
-            lambda_best=log_lam_best,  # log-space
-            lambda_grid_coarse=np.asarray(log_lam_grid_coarse, dtype=np.float64),
-            log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
-            lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
-            log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+            medians=medians,
+            lambda_best=reg_hyperparams["log_lambda_reg"],
             s0_fingerprint=_s0_fingerprint(s0_package),
+            reg_hyperparams=reg_hyperparams,
             time_taken=t1 - t0,
         ),
     )
 
-    try:
-        _plot_m1_grid(likelihood,
-                       jnp.exp(log_lam_grid_coarse), log_ev_coarse,
-                       jnp.exp(log_lam_grid_fine), log_ev_fine,
-                       float(jnp.exp(log_lam_best)), log_ev_best)
-    except Exception as err:
-        print(f"[stage-M1] grid plot failed (non-fatal): {err}")
-
     # Generate M1 pixelized source reconstruction plot
     try:
-        medians_m1 = {**medians_a, "log_lambda_reg": log_lam_best}
-        _plot_pix_stage("stage-M1", likelihood, medians_m1, ["log_lambda_reg"],
+        _plot_pix_stage("stage-M1", likelihood, medians, names,
                         str(OUT_DIR / "stage_m1_model.png"))
     except Exception as err:
         print(f"[stage-M1] pix_stage plot failed (non-fatal): {err}")
 
-    return log_lam_best
+    return reg_hyperparams
 
 
 # ------------------------------------------------------------------ #
@@ -932,6 +925,13 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         likelihood.fill_params(jnp.array(q50))
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         lambda_j = jnp.asarray(lam_val)
+
+        lvl_val = float(np.asarray(_source_param_value(
+            likelihood.phys_model.source_light[0].adaptive_reg_alpha
+        )))
+        flr_val = float(np.asarray(_source_param_value(
+            likelihood.phys_model.source_light[0].adaptive_reg_floor
+        )))
 
         # Unpack 8-value _get_bbox (includes seed betas for adaptive reg)
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
@@ -1012,8 +1012,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     # Scale map (2D source grid)
     scale_img = np.array(scale).reshape(ny, nx) if scale is not None else np.ones((ny, nx))
-    lvl = likelihood.phys_model.source_light[0].adaptive_reg_alpha
-    flr = likelihood.phys_model.source_light[0].adaptive_reg_floor
+    lvl = lvl_val
+    flr = flr_val
 
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
@@ -1057,7 +1057,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     # Panel 5: adaptive reg scale map
     im4 = axes[4].imshow(scale_img, origin="lower", extent=ext_s,
                          cmap="plasma", vmin=flr, vmax=1.0)
-    axes[4].set_title(f"Reg scale map\n(α={lvl:.1f}, floor={flr})", fontsize=11)
+    axes[4].set_title(f"Reg scale map\n(α={lvl:.2f}, floor={flr:.2e})", fontsize=11)
     axes[4].set_xlabel("arcsec")
     plt.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04,
                  label=r"$\lambda_i / \lambda_{\rm global}$")
@@ -1084,22 +1084,32 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
 def build_stage_m2_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, position_likelihood, log_lambda_fixed: float,
+    passer: GaussianPriorPasser, position_likelihood, reg_hyperparams_fixed: dict,
     s0_package, circular_mask=None,
 ):
-    """Build likelihood for M2: EPL+shear with Gaussian priors, λ FIXED at M1 best."""
+    """Build likelihood for M2: EPL+shear with M1 source-reg medians fixed."""
     epl, shear = _epl_mass_from_stage_a(passer)
 
-    log_lam = ParamU("log_lambda_reg", float(log_lambda_fixed))
+    log_lam = ParamU("log_lambda_reg", float(reg_hyperparams_fixed["log_lambda_reg"]))
     log_lam.to_static()
+    alpha = ParamU(
+        "adaptive_reg_alpha",
+        float(reg_hyperparams_fixed["adaptive_reg_alpha"]),
+    )
+    floor = ParamU(
+        "adaptive_reg_floor",
+        float(reg_hyperparams_fixed["adaptive_reg_floor"]),
+    )
+    alpha.to_static()
+    floor.to_static()
 
     pix_src = PixelizedSourceModel(
         nx=NSRCX,
         ny=NSRCY,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
-        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
+        adaptive_reg_alpha=alpha,
+        adaptive_reg_floor=floor,
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -1109,7 +1119,6 @@ def build_stage_m2_likelihood(
     combined_mask = feature_mask
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
-    fixed_kwargs = _s0_fixed_kwargs(s0_package)
     return PixelizedImageProbModelOperator(
         image_data=image_data,
         noise_map=noise_map,
@@ -1119,22 +1128,22 @@ def build_stage_m2_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        **fixed_kwargs,
+        **_s0_fixed_kwargs(s0_package),
     )
 
 
 def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a,
-                  position_likelihood, log_lambda_fixed: float, s0_package,
+                  position_likelihood, reg_hyperparams_fixed: dict, s0_package,
                   circular_mask=None):
-    """Stage M2: Nautilus sampling of EPL+shear with λ fixed at M1 optimum.
+    """Stage M2: Nautilus sampling of EPL+shear with M1 source-reg medians fixed.
 
     ``image_data`` is already lens-subtracted so we use it directly.
     """
     print("\n" + "=" * 60)
-    print(" Stage M2 : EPL + shear + pix source (λ fixed from M1)")
+    print(" Stage M2 : EPL + shear + pix source (source reg fixed from M1)")
     print("=" * 60)
-    print(f"[stage-M2] lambda_reg fixed = {float(jnp.exp(log_lambda_fixed)):.4e}")
+    print(f"[stage-M2] fixed hyperparams: {_format_reg_hyperparams(reg_hyperparams_fixed)}")
     t0 = time.time()
     passer = GaussianPriorPasser(samples_a, weights_a, names_a)
     likelihood = build_stage_m2_likelihood(
@@ -1144,7 +1153,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         feature_mask,
         passer,
         position_likelihood,
-        log_lambda_fixed,
+        reg_hyperparams_fixed,
         s0_package,
         circular_mask=circular_mask,
     )
@@ -1157,7 +1166,8 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
     medians = _posterior_median(samples, weights, names)
     _dump_stage("m2", samples, weights, names, logz, extra=dict(
         medians=medians,
-        lambda_fixed=log_lambda_fixed,
+        lambda_fixed=reg_hyperparams_fixed["log_lambda_reg"],
+        reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
         s0_fingerprint=_s0_fingerprint(s0_package),
         time_taken=t1 - t0,
     ))
@@ -1237,32 +1247,41 @@ def main(skip_done: bool = False):
 
     # ---- stage M1 --------------------------------------------------- #
     time_m1 = 0.0
-    log_lambda_m1 = None
+    reg_hyperparams_m1 = None
     if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
         print("[stage-M1] loading cached output_adpt_reg/stage_m1.pkl")
         d = _load_stage("m1")
         if _cache_matches_s0(d, s0_package, "m1"):
-            log_lambda_m1 = d["extra"]["lambda_best"]
-            time_m1 = d["extra"].get("time_taken", 0.0)
+            try:
+                reg_hyperparams_m1 = _reg_hyperparams_from_m1_payload(d)
+                time_m1 = d["extra"].get("time_taken", 0.0)
+            except KeyError as err:
+                print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
+                reg_hyperparams_m1 = run_stage_m1(
+                    image_data, noise_map, psf_kernel, feature_mask,
+                    medians_a, position_likelihood, s0_package,
+                    circular_mask=circular_mask,
+                )
+                time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
         else:
-            log_lambda_m1 = run_stage_m1(
+            reg_hyperparams_m1 = run_stage_m1(
                 image_data, noise_map, psf_kernel, feature_mask,
                 medians_a, position_likelihood, s0_package,
                 circular_mask=circular_mask,
             )
             time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
     else:
-        log_lambda_m1 = run_stage_m1(
+        reg_hyperparams_m1 = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
             medians_a, position_likelihood, s0_package,
             circular_mask=circular_mask,
         )
         time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
 
-    if log_lambda_m1 is None:
+    if reg_hyperparams_m1 is None:
         raise RuntimeError(
-            "[stage-M1] Failed to determine lambda_reg — "
-            "stage_m1.pkl may be corrupted (missing 'lambda_best' in extra dict)."
+            "[stage-M1] Failed to determine source regularization hyperparameters — "
+            "stage_m1.pkl may be corrupted (missing posterior medians in extra dict)."
         )
 
     # If M1 posteriors exist but the plot is missing, re-plot now
@@ -1272,10 +1291,15 @@ def main(skip_done: bool = False):
             image_data, noise_map, psf_kernel, feature_mask,
             medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
         )
-        medians_m1_replot = {**medians_a, "log_lambda_reg": log_lambda_m1}
+        medians_m1_replot = dict(reg_hyperparams_m1)
         try:
-            _plot_pix_stage("stage-M1", lkl_m1_replot, medians_m1_replot, ["log_lambda_reg"],
-                            str(OUT_DIR / "stage_m1_model.png"))
+            _plot_pix_stage(
+                "stage-M1",
+                lkl_m1_replot,
+                medians_m1_replot,
+                ["log_lambda_reg", "adaptive_reg_alpha", "adaptive_reg_floor"],
+                str(OUT_DIR / "stage_m1_model.png"),
+            )
         except Exception as err:
             print(f"[stage-M1] re-plotting failed (non-fatal): {err}")
 
@@ -1284,7 +1308,9 @@ def main(skip_done: bool = False):
     if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
         print("[stage-M2] loading cached output_adpt_reg/stage_m2.pkl")
         d = _load_stage("m2")
-        if _cache_matches_s0(d, s0_package, "m2"):
+        if _cache_matches_s0(d, s0_package, "m2") and _cache_matches_reg_hyperparams(
+            d, reg_hyperparams_m1, "m2"
+        ):
             samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
             medians_m2 = d["extra"]["medians"]
             time_m2 = d["extra"].get("time_taken", 0.0)
@@ -1292,7 +1318,7 @@ def main(skip_done: bool = False):
             samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
                 image_data, noise_map, psf_kernel, feature_mask,
                 samples_a, weights_a, names_a,
-                position_likelihood, log_lambda_m1, circular_mask=circular_mask,
+                position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
                 s0_package=s0_package,
             )
             time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
@@ -1300,7 +1326,7 @@ def main(skip_done: bool = False):
         samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
             image_data, noise_map, psf_kernel, feature_mask,
             samples_a, weights_a, names_a,
-            position_likelihood, log_lambda_m1, circular_mask=circular_mask,
+            position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
             s0_package=s0_package,
         )
         time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
@@ -1315,7 +1341,7 @@ def main(skip_done: bool = False):
             feature_mask,
             passer_m2,
             position_likelihood,
-            log_lambda_m1,
+            reg_hyperparams_m1,
             s0_package,
             circular_mask=circular_mask,
         )
@@ -1335,7 +1361,7 @@ def main(skip_done: bool = False):
     print(f"    Stage M2: {time_m2/60:.2f} min")
     print(f"    Total:    {(time_a + time_m0 + time_m1 + time_m2)/60:.2f} min\n")
     print(f"    M0 best lambda_reg     = {float(jnp.exp(log_lambda_m0)):.4e}")
-    print(f"    M1 best lambda_reg     = {float(jnp.exp(log_lambda_m1)):.4e}")
+    print(f"    M1 median source reg   = {_format_reg_hyperparams(reg_hyperparams_m1)}")
 
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
               "center_x_mass", "center_y_mass", "gamma1", "gamma2"):

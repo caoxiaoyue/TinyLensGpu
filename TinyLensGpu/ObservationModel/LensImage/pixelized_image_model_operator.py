@@ -30,6 +30,7 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
+    source_template_scale_map,
 )
 
 
@@ -64,6 +65,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         adaptive regularization.
     fixed_reg_scale : array_like, optional
         Flat fixed adaptive regularization scale map with shape ``(nx * ny,)``.
+    fixed_reg_template : array_like, optional
+        Flat or 2D S0 source template used to generate the adaptive scale map
+        from current ``adaptive_reg_alpha`` and ``adaptive_reg_floor`` values.
     """
 
     def __init__(
@@ -80,6 +84,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         block_size: int = 10,
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
         fixed_reg_scale: Union[np.ndarray, Array, None] = None,
+        fixed_reg_template: Union[np.ndarray, Array, None] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
 
@@ -115,16 +120,20 @@ class PixelizedImageProbModelOperator(ck.Module):
         self._fixed_reg_scale = self._validate_fixed_reg_scale(
             fixed_reg_scale, source_nx * source_ny
         )
-        if abs(self.source_model.adaptive_reg_alpha) >= 1.0e-10:
+        self._fixed_reg_template = self._validate_fixed_reg_template(
+            fixed_reg_template, source_nx, source_ny
+        )
+        if self._adaptive_reg_enabled():
             if self._fixed_source_bbox is None:
                 raise ValueError(
                     "adaptive regularization in the operator backend requires "
                     "fixed_source_bbox from an S0 source template."
                 )
-            if self._fixed_reg_scale is None:
+            if self._fixed_reg_scale is None and self._fixed_reg_template is None:
                 raise ValueError(
                     "adaptive regularization in the operator backend requires "
-                    "fixed_reg_scale derived from an S0 source template."
+                    "fixed_reg_scale or fixed_reg_template derived from an S0 "
+                    "source template."
                 )
 
         # Block-diagonal preconditioner settings
@@ -175,6 +184,28 @@ class PixelizedImageProbModelOperator(ck.Module):
         if not valid:
             raise ValueError("fixed_reg_scale values must be finite and positive.")
         return scale
+
+    @staticmethod
+    def _validate_fixed_reg_template(
+        fixed_reg_template: Union[np.ndarray, Array, None],
+        nx: int,
+        ny: int,
+    ) -> Array | None:
+        if fixed_reg_template is None:
+            return None
+        template = jnp.asarray(fixed_reg_template, dtype=jnp.float32)
+        if template.shape == (int(ny), int(nx)):
+            template = template.reshape(int(nx) * int(ny))
+        elif template.shape != (int(nx) * int(ny),):
+            raise ValueError(
+                "fixed_reg_template must have shape "
+                f"({int(nx) * int(ny)},) or ({int(ny)}, {int(nx)}), "
+                f"got {template.shape}."
+            )
+        valid = bool(np.asarray(jnp.all(jnp.isfinite(template))))
+        if not valid:
+            raise ValueError("fixed_reg_template values must be finite.")
+        return template
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         self._pos_px = None
@@ -228,6 +259,20 @@ class PixelizedImageProbModelOperator(ck.Module):
     def source_model(self):
         """Return the single pixelized source configuration."""
         return self.phys_model.source_light[0]
+
+    @staticmethod
+    def _param_value(value):
+        return value.value if hasattr(value, "value") else value
+
+    def _adaptive_reg_enabled(self) -> bool:
+        alpha = self.source_model.adaptive_reg_alpha
+        if bool(getattr(alpha, "dynamic", False)):
+            return True
+        alpha_value = self._param_value(alpha)
+        try:
+            return abs(float(alpha_value)) >= 1.0e-10
+        except TypeError:
+            return True
 
     # ------------------------------------------------------------------
     # Source-plane bbox
@@ -283,19 +328,28 @@ class PixelizedImageProbModelOperator(ck.Module):
     # ------------------------------------------------------------------
 
     def _get_reg_scale(self) -> Array | None:
-        """Return the fixed S0-derived adaptive scale map.
+        """Return the S0-derived adaptive scale map.
 
         The operator backend no longer constructs adaptive scale maps from
-        image-plane seed rays.  Adaptive runs must provide ``fixed_reg_scale``
-        before JIT tracing; uniform runs keep the ``None`` fast path.
+        image-plane seed rays.  Adaptive runs must provide either a fixed
+        scale map or an S0 source template before JIT tracing; uniform runs
+        keep the ``None`` fast path.
         """
-        alpha_val = self.source_model.adaptive_reg_alpha
-        if abs(alpha_val) < 1e-10:
+        if not self._adaptive_reg_enabled():
             return None
+        if self._fixed_reg_template is not None:
+            source = self.source_model
+            return source_template_scale_map(
+                self._fixed_reg_template,
+                int(source.nx),
+                int(source.ny),
+                alpha=self._param_value(source.adaptive_reg_alpha),
+                floor=self._param_value(source.adaptive_reg_floor),
+            )
         if self._fixed_reg_scale is None:
             raise ValueError(
-                "fixed_reg_scale is required when adaptive_reg_alpha > 0 in "
-                "PixelizedImageProbModelOperator."
+                "fixed_reg_scale or fixed_reg_template is required when "
+                "adaptive_reg_alpha > 0 in PixelizedImageProbModelOperator."
             )
         return self._fixed_reg_scale
 

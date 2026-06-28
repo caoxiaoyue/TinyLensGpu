@@ -70,21 +70,28 @@ def source_template_scale_map(
         Source template with shape ``(ny * nx,)`` or ``(ny, nx)``.
     nx, ny : int
         Source-grid dimensions.
-    alpha : float
+    alpha : float or Array
         Adaptive regularization strength. Values within ``1e-10`` of zero
         return ``None`` for the uniform-regularization fast path.
-    floor : float
+    floor : float or Array
         Minimum per-pixel regularization scale in ``(0, 1]``.
     eps : float, optional
         Mean-brightness floor used to keep all-dark templates finite.
     """
     nx = int(nx)
     ny = int(ny)
-    alpha_f = float(alpha)
-    floor_f = float(floor)
-    if abs(alpha_f) < 1.0e-10:
+    try:
+        alpha_static = float(alpha)
+    except (TypeError, jax.errors.ConcretizationTypeError):
+        alpha_static = None
+    try:
+        floor_static = float(floor)
+    except (TypeError, jax.errors.ConcretizationTypeError):
+        floor_static = None
+
+    if alpha_static is not None and abs(alpha_static) < 1.0e-10:
         return None
-    if not 0.0 < floor_f <= 1.0:
+    if floor_static is not None and not 0.0 < floor_static <= 1.0:
         raise ValueError(f"floor must be in (0, 1], got {floor}")
 
     source = jnp.asarray(source_pixels, dtype=jnp.float32)
@@ -99,11 +106,21 @@ def source_template_scale_map(
     source_pos = jnp.maximum(source, 0.0)
     brightness_mean = jnp.mean(source_pos)
     b_norm = source_pos / jnp.maximum(brightness_mean, float(eps))
+    alpha_j = jnp.asarray(alpha, dtype=jnp.float32)
+    floor_j = jnp.asarray(floor, dtype=jnp.float32)
+    floor_j = jnp.clip(floor_j, jnp.asarray(eps, dtype=jnp.float32), 1.0)
+    alpha_j = jnp.maximum(alpha_j, 0.0)
     scale = DenseRegularizationBuilder._compute_scale_formula(
         b_norm,
-        jnp.asarray(alpha_f, dtype=jnp.float32),
-        jnp.asarray(floor_f, dtype=jnp.float32),
+        alpha_j,
+        floor_j,
     )
+    if alpha_static is None:
+        scale = jnp.where(
+            jnp.abs(alpha_j) < jnp.asarray(1.0e-10, dtype=jnp.float32),
+            jnp.ones_like(scale),
+            scale,
+        )
     return jnp.asarray(scale, dtype=jnp.float32)
 
 

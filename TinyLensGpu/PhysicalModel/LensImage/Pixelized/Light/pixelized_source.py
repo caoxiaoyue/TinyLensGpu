@@ -38,12 +38,12 @@ class PixelizedSourceModel(ck.Module):
         ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
     kernel_scale : float or ParamU or None, optional
         Kernel scale for GP-style regularization only.
-    adaptive_reg_alpha : float, optional
+    adaptive_reg_alpha : float or ParamU, optional
         Adaptive regularization strength.  ``0.0`` (default) disables
         adaptation and recovers uniform regularisation.  Larger values
         (e.g. ``1.0``) make the per-pixel regularisation scale more
         sensitive to the source brightness estimate.
-    adaptive_reg_floor : float, optional
+    adaptive_reg_floor : float or ParamU, optional
         Minimum per-pixel regularisation scale, relative to the global
         ``lambda_reg``.  Default ``0.1``; must be in ``(0, 1]``.
         Values greater than zero require a probability model that accepts an
@@ -58,24 +58,32 @@ class PixelizedSourceModel(ck.Module):
         log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
         kernel_scale: float | ParamU | None = None,
-        adaptive_reg_alpha: float = 0.0,
-        adaptive_reg_floor: float = 0.1,
+        adaptive_reg_alpha: float | ParamU = 0.0,
+        adaptive_reg_floor: float | ParamU = 0.1,
     ) -> None:
         super().__init__()
 
         if regularization_type not in VALID_REGULARIZATION_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
 
-        if not 0.0 <= float(adaptive_reg_alpha):
+        alpha_value = (
+            adaptive_reg_alpha.value
+            if isinstance(adaptive_reg_alpha, ParamU)
+            else adaptive_reg_alpha
+        )
+        floor_value = (
+            adaptive_reg_floor.value
+            if isinstance(adaptive_reg_floor, ParamU)
+            else adaptive_reg_floor
+        )
+        if not 0.0 <= float(alpha_value):
             raise ValueError(f"adaptive_reg_alpha must be >= 0, got {adaptive_reg_alpha}")
-        if not 0.0 < float(adaptive_reg_floor) <= 1.0:
+        if not 0.0 < float(floor_value) <= 1.0:
             raise ValueError(f"adaptive_reg_floor must be in (0, 1], got {adaptive_reg_floor}")
 
         object.__setattr__(self, "nx", int(nx))
         object.__setattr__(self, "ny", int(ny))
         object.__setattr__(self, "regularization_type", regularization_type)
-        object.__setattr__(self, "adaptive_reg_alpha", float(adaptive_reg_alpha))
-        object.__setattr__(self, "adaptive_reg_floor", float(adaptive_reg_floor))
         object.__setattr__(self, "is_pixelized_source", True)
 
         self.log_lambda_reg = (
@@ -84,6 +92,14 @@ class PixelizedSourceModel(ck.Module):
                         prior_type="uniform",
                         prior_settings=[jnp.log(1e-4), jnp.log(1e4)],
                         limits=[jnp.log(1e-4), jnp.log(1e4)])
+        )
+        self.adaptive_reg_alpha = (
+            adaptive_reg_alpha if isinstance(adaptive_reg_alpha, ParamU)
+            else float(adaptive_reg_alpha)
+        )
+        self.adaptive_reg_floor = (
+            adaptive_reg_floor if isinstance(adaptive_reg_floor, ParamU)
+            else float(adaptive_reg_floor)
         )
 
         if regularization_type in GP_REGULARIZATION_TYPES:

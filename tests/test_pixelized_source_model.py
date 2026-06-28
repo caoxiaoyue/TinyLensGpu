@@ -33,6 +33,65 @@ def test_construction_wraps_log_lambda_reg_as_paramu():
     assert isinstance(model.log_lambda_reg, ParamU)
     assert model.log_lambda_reg.prior_type == "uniform"
     assert list(model.log_lambda_reg.prior_settings) == [jnp.log(1e-4), jnp.log(1e4)]
+    assert model.adaptive_reg_alpha == 0.0
+    assert model.adaptive_reg_floor == 0.1
+
+
+@pytest.mark.unit
+def test_adaptive_hyperparams_can_be_paramu_and_dynamic():
+    from TinyLensGpu.Inference.build_prior import extract_prior_specs
+    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+
+    log_lambda = ParamU(
+        "log_lambda_reg", 0.0,
+        prior_type="uniform", prior_settings=[-2.0, 2.0],
+        limits=[-2.0, 2.0],
+    )
+    alpha = ParamU(
+        "adaptive_reg_alpha", 1.0,
+        prior_type="uniform", prior_settings=[0.0, 5.0],
+        limits=[0.0, 5.0],
+    )
+    floor = ParamU(
+        "adaptive_reg_floor", 0.1,
+        prior_type="log_uniform", prior_settings=[1.0e-3, 1.0],
+        limits=[1.0e-3, 1.0],
+    )
+    for p in (log_lambda, alpha, floor):
+        p.to_dynamic()
+
+    source = PixelizedSourceModel(
+        nx=5,
+        ny=5,
+        log_lambda_reg=log_lambda,
+        adaptive_reg_alpha=alpha,
+        adaptive_reg_floor=floor,
+    )
+
+    assert source.adaptive_reg_alpha is alpha
+    assert source.adaptive_reg_floor is floor
+    names = [spec.name for spec in extract_prior_specs(source)]
+    assert names == ["log_lambda_reg", "adaptive_reg_alpha", "adaptive_reg_floor"]
+
+
+@pytest.mark.unit
+def test_scalar_adaptive_hyperparams_are_not_dynamic_params():
+    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+
+    source = PixelizedSourceModel(
+        nx=5,
+        ny=5,
+        log_lambda_reg=0.0,
+        adaptive_reg_alpha=1.5,
+        adaptive_reg_floor=0.2,
+    )
+    source.log_lambda_reg.to_dynamic()
+
+    dynamic_names = {param.name for param in source.dynamic_params}
+
+    assert dynamic_names == {"log_lambda_reg"}
+    assert source.adaptive_reg_alpha == 1.5
+    assert source.adaptive_reg_floor == 0.2
 
 
 @pytest.mark.unit

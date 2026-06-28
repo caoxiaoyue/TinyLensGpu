@@ -29,6 +29,7 @@ from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
 )
+import caskade as ck
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -51,7 +52,7 @@ def _static_sie():
     return sie
 
 
-def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0):
+def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0, adaptive_reg_floor=0.1):
     lam = ParamU("log_lambda_reg", log_lambda_val,
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
@@ -62,6 +63,32 @@ def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0):
         log_lambda_reg=lam,
         regularization_type="first-order",
         adaptive_reg_alpha=adaptive_reg_alpha,
+        adaptive_reg_floor=adaptive_reg_floor,
+    )
+
+
+def _pix_src_dynamic_adaptive():
+    lam = ParamU("log_lambda_reg", 0.0,
+                 prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                 limits=[jnp.log(1e-3), jnp.log(1e3)])
+    alpha = ParamU("adaptive_reg_alpha", 1.0,
+                   prior_type="uniform",
+                   prior_settings=[0.0, 5.0],
+                   limits=[0.0, 5.0])
+    floor = ParamU("adaptive_reg_floor", 0.1,
+                   prior_type="log_uniform",
+                   prior_settings=[1.0e-3, 1.0],
+                   limits=[1.0e-3, 1.0])
+    for p in (lam, alpha, floor):
+        p.to_dynamic()
+    return PixelizedSourceModel(
+        nx=5,
+        ny=5,
+        log_lambda_reg=lam,
+        regularization_type="first-order",
+        adaptive_reg_alpha=alpha,
+        adaptive_reg_floor=floor,
     )
 
 
@@ -72,6 +99,10 @@ def _fixed_bbox():
 def _fixed_scale(nx=5, ny=5, alpha=1.0, floor=0.1):
     s0 = jnp.abs(jnp.linspace(-1.0, 1.0, nx * ny))
     return source_template_scale_map(s0, nx, ny, alpha=alpha, floor=floor)
+
+
+def _fixed_template(nx=5, ny=5):
+    return jnp.abs(jnp.linspace(-1.0, 1.0, nx * ny))
 
 
 def _phys_model(source=None):
@@ -671,6 +702,85 @@ def test_operator_fixed_scale_reproducible():
     scale_b = prob_op._get_reg_scale()
     assert jnp.array_equal(scale_a, fixed_scale)
     assert jnp.array_equal(scale_b, fixed_scale)
+
+
+@pytest.mark.unit
+def test_operator_fixed_template_dynamic_scale_changes_with_hyperparams():
+    """_get_reg_scale() can generate scale from S0 template and current params."""
+    source = _pix_src_dynamic_adaptive()
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    template = _fixed_template()
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=template,
+    )
+
+    with ck.ActiveContext(prob_op):
+        prob_op.fill_params(jnp.asarray([0.0, 0.5, 0.2]))
+        scale_low = prob_op._get_reg_scale()
+        prob_op.fill_params(jnp.asarray([0.0, 3.0, 0.05]))
+        scale_high = prob_op._get_reg_scale()
+
+    assert scale_low.shape == (25,)
+    assert scale_high.shape == (25,)
+    assert jnp.all(jnp.isfinite(scale_low))
+    assert jnp.all(jnp.isfinite(scale_high))
+    assert float(scale_high[0]) < float(scale_low[0])
+
+
+@pytest.mark.unit
+def test_operator_dynamic_adaptive_requires_scale_or_template():
+    """Dynamic adaptive params require fixed S0 scale or template inputs."""
+    source = _pix_src_dynamic_adaptive()
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    with pytest.raises(ValueError, match="fixed_reg_scale or fixed_reg_template"):
+        PixelizedImageProbModelOperator(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+        )
+
+
+@pytest.mark.unit
+def test_operator_rejects_invalid_fixed_template_shape():
+    """Fixed template shape must match the source-grid pixel count."""
+    source = _pix_src(adaptive_reg_alpha=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    with pytest.raises(ValueError, match="fixed_reg_template must have shape"):
+        PixelizedImageProbModelOperator(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+            fixed_reg_template=jnp.ones(24),
+        )
+
+
+@pytest.mark.unit
+def test_operator_vectorized_likelihood_jit_with_template_adaptive_reg():
+    """Vectorized operator likelihood should compile with dynamic S0-template scale."""
+    source = _pix_src_dynamic_adaptive()
+    phys = _phys_model(source=source)
+    config = _sim_config()
+    sim = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=_fixed_template(),
+    )
+    loglike = make_likelihood(prob_op, vectorized=True)
+    values = loglike(jnp.asarray([
+        [0.0, 0.5, 0.2],
+        [1.0, 3.0, 0.05],
+    ], dtype=jnp.float32))
+
+    assert values.shape == (2,)
+    assert jnp.all(jnp.isfinite(values))
 
 
 @pytest.mark.unit
