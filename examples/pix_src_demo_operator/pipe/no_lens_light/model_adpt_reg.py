@@ -25,6 +25,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pickle
 import time
@@ -67,6 +68,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils import load_lens_data
+from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
@@ -86,8 +88,6 @@ MASK_RADIUS = 2.5
 NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
 ADAPTIVE_REG_ALPHA = 2.0          # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
 ADAPTIVE_REG_FLOOR = 0.01          # minimum per-pixel reg scale
-ADAPTIVE_REG_MODE = "brightness_weighted" #"brightness_only"  # "brightness_only" (default) | "brightness_weighted"
-ADAPTIVE_REG_SMOOTH_SIGMA = 1.0    # Gaussian sigma for brightness-map smoothing (src pixels)
 OUT_DIR = Path("output_adpt_reg")
 DATA_DIR = Path("data")
 
@@ -161,6 +161,149 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     x = (np.arange(nx) - (nx - 1) / 2) * dpix
     yy, xx = np.meshgrid(y, x, indexing="ij")
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
+
+
+def _source_axes_from_bbox(source_bbox, nx=NSRCX, ny=NSRCY):
+    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
+    return (
+        np.linspace(xmin, xmax, int(nx), dtype=np.float64),
+        np.linspace(ymin, ymax, int(ny), dtype=np.float64),
+    )
+
+
+def _make_s0_scale(s0_package):
+    """Build the fixed adaptive scale map from the stage-M0 source template."""
+    return source_template_scale_map(
+        s0_package["source_pixels"],
+        int(s0_package["nx"]),
+        int(s0_package["ny"]),
+        alpha=ADAPTIVE_REG_ALPHA,
+        floor=ADAPTIVE_REG_FLOOR,
+    )
+
+
+def _validate_s0_package(s0_package):
+    required = (
+        "source_pixels",
+        "source_bbox",
+        "source_x_axis",
+        "source_y_axis",
+        "nx",
+        "ny",
+        "lambda_best",
+        "log_lambda_best",
+    )
+    missing = [k for k in required if k not in s0_package]
+    if missing:
+        raise KeyError("S0 package missing required keys: " + ", ".join(missing))
+
+    nx = int(s0_package["nx"])
+    ny = int(s0_package["ny"])
+    if nx != NSRCX or ny != NSRCY:
+        raise ValueError(
+            f"S0 grid shape ({ny}, {nx}) does not match configured "
+            f"({NSRCY}, {NSRCX})."
+        )
+    source_pixels = np.asarray(s0_package["source_pixels"])
+    if source_pixels.shape != (nx * ny,):
+        raise ValueError(
+            f"S0 source_pixels must have shape ({nx * ny},), "
+            f"got {source_pixels.shape}."
+        )
+    bbox = tuple(float(v) for v in s0_package["source_bbox"])
+    if len(bbox) != 4 or not np.all(np.isfinite(bbox)):
+        raise ValueError("S0 source_bbox must contain four finite values.")
+    if not (bbox[0] < bbox[1] and bbox[2] < bbox[3]):
+        raise ValueError("S0 source_bbox must satisfy xmin < xmax and ymin < ymax.")
+
+    scale_map = s0_package.get("scale_map")
+    if scale_map is None:
+        scale_map = np.asarray(_make_s0_scale(s0_package), dtype=np.float32)
+        s0_package["scale_map"] = scale_map
+    else:
+        scale_map = np.asarray(scale_map, dtype=np.float32)
+        if scale_map.shape != (nx * ny,):
+            raise ValueError(
+                f"S0 scale_map must have shape ({nx * ny},), got {scale_map.shape}."
+            )
+        if not np.all(np.isfinite(scale_map) & (scale_map > 0.0)):
+            raise ValueError("S0 scale_map values must be finite and positive.")
+        s0_package["scale_map"] = scale_map
+    return s0_package
+
+
+def _s0_fingerprint(s0_package):
+    """Stable fingerprint for cache entries tied to a specific S0 package."""
+    s0_package = _validate_s0_package(s0_package)
+    h = hashlib.sha256()
+    h.update(str(int(s0_package["nx"])).encode("ascii"))
+    h.update(str(int(s0_package["ny"])).encode("ascii"))
+    for key in ("source_pixels", "source_bbox", "scale_map"):
+        arr = np.ascontiguousarray(np.asarray(s0_package[key], dtype=np.float64))
+        h.update(str(arr.shape).encode("ascii"))
+        h.update(arr.tobytes())
+    return h.hexdigest()
+
+
+def _cache_matches_s0(stage_payload, s0_package, tag):
+    expected = _s0_fingerprint(s0_package)
+    actual = stage_payload.get("extra", {}).get("s0_fingerprint")
+    if actual == expected:
+        return True
+    print(
+        f"[stage-{tag.upper()}] cached output is stale or missing S0 fingerprint; "
+        "recomputing."
+    )
+    return False
+
+
+def _s0_fixed_kwargs(s0_package):
+    s0_package = _validate_s0_package(s0_package)
+    return dict(
+        fixed_source_bbox=tuple(float(v) for v in s0_package["source_bbox"]),
+        fixed_reg_scale=jnp.asarray(s0_package["scale_map"], dtype=jnp.float32),
+    )
+
+
+def _solve_pixel_source_for_package(likelihood, medians, param_names):
+    """Solve source pixels for the current pixelized likelihood configuration."""
+    q50 = [medians[n] for n in param_names]
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(jnp.array(q50))
+        lambda_j = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
+        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+         beta_x_seed, beta_y_seed) = likelihood._get_bbox()
+        scale = likelihood._get_reg_scale()
+        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
+        op_data = likelihood.sim_obj.precompute_operator_data(
+            xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
+        )
+        block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
+            likelihood.noise_1d, xmin, xmax, ymin, ymax, lambda_j,
+            likelihood.reg_builder, block_size=likelihood.block_size,
+            scale=scale,
+        )
+        source_pixels, pcg_info = likelihood._solve_source(
+            xmin, xmax, ymin, ymax, lambda_j, reg_data, (block_chols, block_masks),
+            op_data=op_data,
+        )
+        if not bool(np.asarray(pcg_info.converged)):
+            raise RuntimeError(
+                "PCG failed while solving the stage-M0 source template "
+                f"(residual={float(pcg_info.residual_norm):.4e}, "
+                f"n_iter={int(pcg_info.n_iter)})."
+            )
+    source_bbox = (float(xmin), float(xmax), float(ymin), float(ymax))
+    x_axis, y_axis = _source_axes_from_bbox(source_bbox, NSRCX, NSRCY)
+    return dict(
+        source_pixels=np.asarray(source_pixels, dtype=np.float64),
+        source_image=np.asarray(source_pixels, dtype=np.float64).reshape(NSRCY, NSRCX),
+        source_bbox=source_bbox,
+        source_x_axis=x_axis,
+        source_y_axis=y_axis,
+        nx=NSRCX,
+        ny=NSRCY,
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -478,13 +621,13 @@ def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
 
 
 # ------------------------------------------------------------------ #
-# Stage M1 — SIE + shear + pixelized source  (GPU grid search for λ)
+# Stage M0 — SIE + shear + uniform pixelized source  (build S0)
 # ------------------------------------------------------------------ #
-def build_stage_m1_likelihood(
+def build_stage_m0_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
     medians_a, position_likelihood, circular_mask=None,
 ):
-    """Build likelihood for M1: SIE+shear FIXED at stage-A medians, only λ free."""
+    """Build M0 likelihood: fixed SIE+shear, uniform pixelized source."""
     sie, shear = _sie_mass_from_stage_a(medians_a)
 
     log_lam = ParamU(
@@ -501,10 +644,8 @@ def build_stage_m1_likelihood(
         ny=NSRCY,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
+        adaptive_reg_alpha=0.0,
         adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
-        adaptive_reg_mode=ADAPTIVE_REG_MODE,
-        adaptive_reg_smooth_sigma=ADAPTIVE_REG_SMOOTH_SIGMA,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -523,6 +664,135 @@ def build_stage_m1_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
+    )
+
+
+def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
+                  medians_a, position_likelihood, circular_mask=None):
+    """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
+    print("\n" + "=" * 60)
+    print(" Stage M0 : fixed SIE + shear + uniform pix source (build S0)")
+    print("=" * 60)
+    t0 = time.time()
+
+    likelihood = build_stage_m0_likelihood(
+        image_data, noise_map, psf_kernel, feature_mask,
+        medians_a, position_likelihood, circular_mask=circular_mask,
+    )
+    loglike_batch = make_likelihood(likelihood, vectorized=True)
+    n_grid = 200
+
+    log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
+    print(f"[stage-M0] Running coarse grid (200 pts, λ in [{float(jnp.exp(log_lam_min)):.1e}, {float(jnp.exp(log_lam_max)):.1e}]) ...")
+    log_lam_grid_coarse = jnp.linspace(log_lam_min, log_lam_max, n_grid)
+    log_ev_coarse = jnp.asarray(loglike_batch(log_lam_grid_coarse.reshape(-1, 1)))
+    if not jnp.any(jnp.isfinite(log_ev_coarse)):
+        raise RuntimeError(
+            "[stage-M0] All log-λ values in coarse grid produced non-finite log-evidence."
+        )
+    best_idx_coarse = int(jnp.argmax(log_ev_coarse))
+    log_lam_best_coarse = float(log_lam_grid_coarse[best_idx_coarse])
+    log_ev_best_coarse = float(log_ev_coarse[best_idx_coarse])
+    print(f"[stage-M0] Coarse best: λ = {float(jnp.exp(log_lam_best_coarse)):.4e}  (log-ev = {log_ev_best_coarse:.2f})")
+
+    half_width = 0.5 * jnp.log(10)
+    log_lam_grid_fine = jnp.linspace(
+        log_lam_best_coarse - half_width,
+        log_lam_best_coarse + half_width,
+        n_grid,
+    )
+    print(f"[stage-M0] Running refinement grid (200 pts, λ in [{float(jnp.exp(log_lam_grid_fine[0])):.4e}, {float(jnp.exp(log_lam_grid_fine[-1])):.4e}]) ...")
+    log_ev_fine = jnp.asarray(loglike_batch(log_lam_grid_fine.reshape(-1, 1)))
+    best_idx_fine = int(jnp.argmax(log_ev_fine))
+    log_lam_best = float(log_lam_grid_fine[best_idx_fine])
+    log_ev_best = float(log_ev_fine[best_idx_fine])
+    print(f"[stage-M0] Refined best: λ = {float(jnp.exp(log_lam_best)):.4e}  (log-ev = {log_ev_best:.2f})")
+
+    medians_m0 = {**medians_a, "log_lambda_reg": log_lam_best}
+    s0_package = _solve_pixel_source_for_package(
+        likelihood, medians_m0, ["log_lambda_reg"],
+    )
+    s0_package.update(
+        lambda_best=float(jnp.exp(log_lam_best)),
+        log_lambda_best=log_lam_best,
+        stage_a_medians=dict(medians_a),
+    )
+    s0_package["scale_map"] = np.asarray(_make_s0_scale(s0_package), dtype=np.float32)
+    _validate_s0_package(s0_package)
+
+    t1 = time.time()
+    print(f"\n[stage-M0] Grid search summary:")
+    print(f"    {'lambda_reg_uniform':25s} = {float(jnp.exp(log_lam_best)):+.4e}")
+    print(f"[stage-M0] time taken: {t1 - t0:.2f} seconds")
+
+    _dump_stage(
+        "m0", None, None, ["log_lambda_reg"], log_ev_best,
+        extra=dict(
+            lambda_best=log_lam_best,
+            lambda_grid_coarse=np.asarray(log_lam_grid_coarse, dtype=np.float64),
+            log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
+            lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
+            log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+            s0=s0_package,
+            time_taken=t1 - t0,
+        ),
+    )
+
+    try:
+        _plot_pix_stage("stage-M0", likelihood, medians_m0, ["log_lambda_reg"],
+                        str(OUT_DIR / "stage_m0_model.png"))
+    except Exception as err:
+        print(f"[stage-M0] plotting failed (non-fatal): {err}")
+
+    return s0_package, log_lam_best
+
+
+# ------------------------------------------------------------------ #
+# Stage M1 — SIE + shear + pixelized source  (GPU grid search for λ)
+# ------------------------------------------------------------------ #
+def build_stage_m1_likelihood(
+    image_data, noise_map, psf_kernel, feature_mask,
+    medians_a, position_likelihood, s0_package, circular_mask=None,
+):
+    """Build likelihood for M1: SIE+shear fixed, λ free, S0 scale fixed."""
+    sie, shear = _sie_mass_from_stage_a(medians_a)
+
+    log_lam = ParamU(
+        "log_lambda_reg",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[-13.815510557964274, 13.815510557964274],
+        limits=[-13.815510557964274, 13.815510557964274],
+    )
+    log_lam.to_dynamic()
+
+    pix_src = PixelizedSourceModel(
+        nx=NSRCX,
+        ny=NSRCY,
+        log_lambda_reg=log_lam,
+        regularization_type="first-order",
+        adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
+        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
+    )
+    phys = PhysicalModel(
+        lens_mass=[sie, shear],
+        source_light=[pix_src],
+        lens_light=[],
+    )
+    combined_mask = feature_mask
+    if circular_mask is not None:
+        combined_mask = combined_mask | circular_mask
+    fixed_kwargs = _s0_fixed_kwargs(s0_package)
+    return PixelizedImageProbModelOperator(
+        image_data=image_data,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=DPIX,
+        nsub=NSUB_PIX,
+        phys_model=phys,
+        mask=combined_mask,
+        position_likelihood=position_likelihood,
+        **fixed_kwargs,
     )
 
 
@@ -553,7 +823,7 @@ def _plot_m1_grid(likelihood, log_lam_coarse, log_ev_coarse,
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
-                  medians_a, position_likelihood, circular_mask=None):
+                  medians_a, position_likelihood, s0_package, circular_mask=None):
     """Stage M1: GPU-batch grid search for lambda_reg (coarse → refine).
 
     ``image_data`` is already lens-subtracted so we use it directly.
@@ -565,7 +835,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
 
     likelihood = build_stage_m1_likelihood(
         image_data, noise_map, psf_kernel, feature_mask,
-        medians_a, position_likelihood, circular_mask=circular_mask,
+        medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
     )
 
     # Batched log-evidence evaluator (jax.vmap + jit → GPU)
@@ -623,6 +893,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
             log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
             lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
             log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+            s0_fingerprint=_s0_fingerprint(s0_package),
             time_taken=t1 - t0,
         ),
     )
@@ -667,9 +938,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
          beta_x_seed, beta_y_seed) = likelihood._get_bbox()
 
         # Compute adaptive regularization scale map
-        scale = likelihood._compute_reg_scale_from_betas(
-            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
-        )
+        scale = likelihood._get_reg_scale()
 
         reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
         op_data = likelihood.sim_obj.precompute_operator_data(
@@ -816,7 +1085,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 def build_stage_m2_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
     passer: GaussianPriorPasser, position_likelihood, log_lambda_fixed: float,
-    circular_mask=None,
+    s0_package, circular_mask=None,
 ):
     """Build likelihood for M2: EPL+shear with Gaussian priors, λ FIXED at M1 best."""
     epl, shear = _epl_mass_from_stage_a(passer)
@@ -831,8 +1100,6 @@ def build_stage_m2_likelihood(
         regularization_type="first-order",
         adaptive_reg_alpha=ADAPTIVE_REG_ALPHA,
         adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
-        adaptive_reg_mode=ADAPTIVE_REG_MODE,
-        adaptive_reg_smooth_sigma=ADAPTIVE_REG_SMOOTH_SIGMA,
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -842,6 +1109,7 @@ def build_stage_m2_likelihood(
     combined_mask = feature_mask
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
+    fixed_kwargs = _s0_fixed_kwargs(s0_package)
     return PixelizedImageProbModelOperator(
         image_data=image_data,
         noise_map=noise_map,
@@ -851,12 +1119,14 @@ def build_stage_m2_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
+        **fixed_kwargs,
     )
 
 
 def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a,
-                  position_likelihood, log_lambda_fixed: float, circular_mask=None):
+                  position_likelihood, log_lambda_fixed: float, s0_package,
+                  circular_mask=None):
     """Stage M2: Nautilus sampling of EPL+shear with λ fixed at M1 optimum.
 
     ``image_data`` is already lens-subtracted so we use it directly.
@@ -875,6 +1145,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         passer,
         position_likelihood,
         log_lambda_fixed,
+        s0_package,
         circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
@@ -887,6 +1158,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
     _dump_stage("m2", samples, weights, names, logz, extra=dict(
         medians=medians,
         lambda_fixed=log_lambda_fixed,
+        s0_fingerprint=_s0_fingerprint(s0_package),
         time_taken=t1 - t0,
     ))
     try:
@@ -933,18 +1205,56 @@ def main(skip_done: bool = False):
     # ---- position likelihood ----------------------------------------- #
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
+    # ---- stage M0 --------------------------------------------------- #
+    time_m0 = 0.0
+    if skip_done and (OUT_DIR / "stage_m0.pkl").exists():
+        print("[stage-M0] loading cached output_adpt_reg/stage_m0.pkl")
+        d = _load_stage("m0")
+        s0_package = _validate_s0_package(d["extra"]["s0"])
+        log_lambda_m0 = d["extra"]["lambda_best"]
+        time_m0 = d["extra"].get("time_taken", 0.0)
+    else:
+        s0_package, log_lambda_m0 = run_stage_m0(
+            image_data, noise_map, psf_kernel, feature_mask,
+            medians_a, position_likelihood,
+            circular_mask=circular_mask,
+        )
+        time_m0 = _load_stage("m0")["extra"].get("time_taken", 0.0)
+
+    # If M0 output exists but the plot is missing, re-plot now.
+    if (OUT_DIR / "stage_m0.pkl").exists() and not (OUT_DIR / "stage_m0_model.png").exists():
+        print("[stage-M0] stage_m0_model.png missing — re-plotting")
+        lkl_m0_replot = build_stage_m0_likelihood(
+            image_data, noise_map, psf_kernel, feature_mask,
+            medians_a, position_likelihood, circular_mask=circular_mask,
+        )
+        medians_m0_replot = {**medians_a, "log_lambda_reg": log_lambda_m0}
+        try:
+            _plot_pix_stage("stage-M0", lkl_m0_replot, medians_m0_replot, ["log_lambda_reg"],
+                            str(OUT_DIR / "stage_m0_model.png"))
+        except Exception as err:
+            print(f"[stage-M0] re-plotting failed (non-fatal): {err}")
+
     # ---- stage M1 --------------------------------------------------- #
     time_m1 = 0.0
     log_lambda_m1 = None
     if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
         print("[stage-M1] loading cached output_adpt_reg/stage_m1.pkl")
         d = _load_stage("m1")
-        log_lambda_m1 = d["extra"]["lambda_best"]
-        time_m1 = d["extra"].get("time_taken", 0.0)
+        if _cache_matches_s0(d, s0_package, "m1"):
+            log_lambda_m1 = d["extra"]["lambda_best"]
+            time_m1 = d["extra"].get("time_taken", 0.0)
+        else:
+            log_lambda_m1 = run_stage_m1(
+                image_data, noise_map, psf_kernel, feature_mask,
+                medians_a, position_likelihood, s0_package,
+                circular_mask=circular_mask,
+            )
+            time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
     else:
         log_lambda_m1 = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood,
+            medians_a, position_likelihood, s0_package,
             circular_mask=circular_mask,
         )
         time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
@@ -960,7 +1270,7 @@ def main(skip_done: bool = False):
         print("[stage-M1] stage_m1_model.png missing — re-plotting")
         lkl_m1_replot = build_stage_m1_likelihood(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, circular_mask=circular_mask,
+            medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
         )
         medians_m1_replot = {**medians_a, "log_lambda_reg": log_lambda_m1}
         try:
@@ -974,14 +1284,24 @@ def main(skip_done: bool = False):
     if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
         print("[stage-M2] loading cached output_adpt_reg/stage_m2.pkl")
         d = _load_stage("m2")
-        samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
-        medians_m2 = d["extra"]["medians"]
-        time_m2 = d["extra"].get("time_taken", 0.0)
+        if _cache_matches_s0(d, s0_package, "m2"):
+            samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
+            medians_m2 = d["extra"]["medians"]
+            time_m2 = d["extra"].get("time_taken", 0.0)
+        else:
+            samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
+                image_data, noise_map, psf_kernel, feature_mask,
+                samples_a, weights_a, names_a,
+                position_likelihood, log_lambda_m1, circular_mask=circular_mask,
+                s0_package=s0_package,
+            )
+            time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
     else:
         samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
             image_data, noise_map, psf_kernel, feature_mask,
             samples_a, weights_a, names_a,
             position_likelihood, log_lambda_m1, circular_mask=circular_mask,
+            s0_package=s0_package,
         )
         time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
 
@@ -996,6 +1316,7 @@ def main(skip_done: bool = False):
             passer_m2,
             position_likelihood,
             log_lambda_m1,
+            s0_package,
             circular_mask=circular_mask,
         )
         try:
@@ -1009,9 +1330,11 @@ def main(skip_done: bool = False):
     print("=" * 60)
     print(f" Time summary:")
     print(f"    Stage A:  {time_a/60:.2f} min")
+    print(f"    Stage M0: {time_m0/60:.2f} min")
     print(f"    Stage M1: {time_m1/60:.2f} min")
     print(f"    Stage M2: {time_m2/60:.2f} min")
-    print(f"    Total:    {(time_a + time_m1 + time_m2)/60:.2f} min\n")
+    print(f"    Total:    {(time_a + time_m0 + time_m1 + time_m2)/60:.2f} min\n")
+    print(f"    M0 best lambda_reg     = {float(jnp.exp(log_lambda_m0)):.4e}")
     print(f"    M1 best lambda_reg     = {float(jnp.exp(log_lambda_m1)):.4e}")
 
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",

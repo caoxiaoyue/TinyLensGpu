@@ -46,25 +46,9 @@ class PixelizedSourceModel(ck.Module):
     adaptive_reg_floor : float, optional
         Minimum per-pixel regularisation scale, relative to the global
         ``lambda_reg``.  Default ``0.1``; must be in ``(0, 1]``.
-    adaptive_reg_mode : str, optional
-        Brightness estimation mode.  ``"brightness_only"`` (default) uses
-        inverse-variance-weighted normalized convolution (``N/C``) to
-        cancel magnification dependence.  ``"brightness_weighted"``
-        retains the legacy brightness×ray-count product, upgraded with
-        inverse-variance weighting.
-    adaptive_reg_smooth_sigma : float, optional
-        Gaussian kernel sigma (in source pixels) for brightness-map
-        smoothing.  Default ``1.0``.  Kernel size auto-adapts as
-        ``max(5, 2·ceil(3·sigma)+1)``.
-    adaptive_reg_freeze : bool, optional
-        When ``True``, evidence models will reuse an explicitly frozen
-        brightness scale map.  Call ``prob_model.freeze_scale()`` eagerly
-        before JIT tracing / sampling to create the frozen map.  If no
-        frozen map exists, evidence evaluation warns and recomputes the
-        scale per call.  Default ``False``.
+        Values greater than zero require a probability model that accepts an
+        explicit fixed source-template scale map.
     """
-
-    _ALLOWED_ADAPTIVE_MODES: frozenset[str] = frozenset({"brightness_only", "brightness_weighted"})
 
     def __init__(
         self,
@@ -76,9 +60,6 @@ class PixelizedSourceModel(ck.Module):
         kernel_scale: float | ParamU | None = None,
         adaptive_reg_alpha: float = 0.0,
         adaptive_reg_floor: float = 0.1,
-        adaptive_reg_mode: str = "brightness_only",
-        adaptive_reg_smooth_sigma: float = 1.0,
-        adaptive_reg_freeze: bool = False,
     ) -> None:
         super().__init__()
 
@@ -89,24 +70,12 @@ class PixelizedSourceModel(ck.Module):
             raise ValueError(f"adaptive_reg_alpha must be >= 0, got {adaptive_reg_alpha}")
         if not 0.0 < float(adaptive_reg_floor) <= 1.0:
             raise ValueError(f"adaptive_reg_floor must be in (0, 1], got {adaptive_reg_floor}")
-        if adaptive_reg_mode not in self._ALLOWED_ADAPTIVE_MODES:
-            raise ValueError(
-                f"adaptive_reg_mode must be one of {sorted(self._ALLOWED_ADAPTIVE_MODES)}, "
-                f"got {adaptive_reg_mode!r}"
-            )
-        if not float(adaptive_reg_smooth_sigma) > 0.0:
-            raise ValueError(
-                f"adaptive_reg_smooth_sigma must be > 0, got {adaptive_reg_smooth_sigma}"
-            )
 
         object.__setattr__(self, "nx", int(nx))
         object.__setattr__(self, "ny", int(ny))
         object.__setattr__(self, "regularization_type", regularization_type)
         object.__setattr__(self, "adaptive_reg_alpha", float(adaptive_reg_alpha))
         object.__setattr__(self, "adaptive_reg_floor", float(adaptive_reg_floor))
-        object.__setattr__(self, "adaptive_reg_mode", str(adaptive_reg_mode))
-        object.__setattr__(self, "adaptive_reg_smooth_sigma", float(adaptive_reg_smooth_sigma))
-        object.__setattr__(self, "adaptive_reg_freeze", bool(adaptive_reg_freeze))
         object.__setattr__(self, "is_pixelized_source", True)
 
         self.log_lambda_reg = (

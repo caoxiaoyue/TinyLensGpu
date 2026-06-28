@@ -106,49 +106,6 @@ Backends that do not yet support fixed source-template adaptive inputs SHALL fai
 - **WHEN** a caller constructs `PixelizedSourceModel`
 - **THEN** it SHALL NOT accept `adaptive_reg_mode`, `adaptive_reg_smooth_sigma`, or `adaptive_reg_freeze` as active configuration fields
 
-### Requirement: Continuously-differentiable scale formula
-
-The final per-pixel regularization scale SHALL be computed as:
-
-`scale_i = floor + (1 - floor) / (1 + alpha * b_norm_i)`
-
-where `alpha >= 0`, `0 < floor <= 1`, and `b_norm_i >= 0`.
-
-This formula SHALL be continuously differentiable with respect to `b_norm_i` for all finite inputs.
-
-#### Scenario: Darkest pixel
-
-- **WHEN** `b_norm_i = 0`
-- **THEN** `scale_i = 1.0` regardless of `alpha` and `floor`
-
-#### Scenario: Brightest pixel
-
-- **WHEN** `b_norm_i` is very large
-- **THEN** `scale_i` SHALL approach `floor` asymptotically
-
-#### Scenario: Mean-brightness pixel
-
-- **WHEN** `b_norm_i = 1`, `alpha = 1`, and `floor = 0.1`
-- **THEN** `scale_i = 0.1 + 0.9 / 2 = 0.55`
-
-### Requirement: Scale application to regularization matrix
-
-The per-pixel `scale` array SHALL be applied to finite-difference regularization through edge weights, using geometric-mean interpolation of adjacent pixel scales:
-
-`w_edge(i,j) = sqrt(scale_i * scale_j)`
-
-This preserves symmetry and positive semi-definiteness of the regularizer.
-
-#### Scenario: Uniform scale
-
-- **WHEN** all `scale_i = 1`
-- **THEN** all edge weights SHALL be 1, recovering the uniform regularizer
-
-#### Scenario: Adjacent bright and dark pixel
-
-- **WHEN** `scale_i = floor` for a bright pixel adjacent to a dark pixel where `scale_j = 1`
-- **THEN** the shared edge weight SHALL be `sqrt(floor * 1) = sqrt(floor)`, intermediate between the two extremes
-
 ### Requirement: Stage-m0 source-template artifact
 
 The adaptive regularization demo pipeline SHALL include a stage-m0 before stage-m1.
@@ -205,3 +162,41 @@ The implementation SHALL avoid Python-side mutation from inside JIT-traced likel
 
 - **WHEN** a vectorized likelihood evaluates a batch of stage-m1 `log_lambda_reg` values
 - **THEN** each batch element SHALL share the same fixed source bbox and fixed regularization scale map
+
+## REMOVED Requirements
+
+### Requirement: Brightness-only adaptive regularization mode
+
+**Reason**: The adaptive scale seed is no longer estimated from image-plane seed rays, so normalized convolution over lensed arc pixels is no longer part of the adaptive regularization model.
+
+**Migration**: Use the stage-m0 `S0` source-template scale path. `S0` is reconstructed once on a fixed source grid, and m1/m2 consume the resulting fixed scale map.
+
+### Requirement: Brightness-weighted legacy mode
+
+**Reason**: The magnification-dependent brightness-times-ray-count estimator is the old adaptive regularization path being retired.
+
+**Migration**: Use the fixed `S0` source-template scale path. Magnification effects remain in the lensing operator and curvature terms rather than in the adaptive prior seed.
+
+### Requirement: Inverse-variance weighting in both modes
+
+**Reason**: Inverse-variance weighting was specific to image-plane seed-ray accumulation. The source-template path derives scale from an already reconstructed source map and does not accumulate image pixels.
+
+**Migration**: Noise weighting remains part of the stage-m0 source reconstruction through the pixelized likelihood. The adaptive scale builder consumes the resulting source template directly.
+
+### Requirement: Unified downstream normalization
+
+**Reason**: The old normalization requirement described a smoothed image-plane brightness proxy shared by seed-ray modes. The new source-template scale requirement defines the replacement normalization directly on `S0`.
+
+**Migration**: Use `s_pos = max(S0, 0)` followed by global-mean normalization and the existing adaptive scale formula.
+
+### Requirement: Configurable smoothing scale
+
+**Reason**: The new source-template path deliberately avoids an additional Gaussian smoothing pass because `S0` is already regularized.
+
+**Migration**: Do not configure `adaptive_reg_smooth_sigma` for `S0` scale construction. Control smoothness through the stage-m0 uniform regularization strength.
+
+### Requirement: Empirical-Bayes freeze
+
+**Reason**: The source-template scale map is fixed by construction and does not depend on the mass model during m1/m2 evaluation, so an eager `freeze_scale()` cache is unnecessary.
+
+**Migration**: Build or load the stage-m0 `S0` package before constructing m1/m2 likelihoods, derive the fixed scale map from `S0`, and pass it as a fixed likelihood input before JIT tracing.

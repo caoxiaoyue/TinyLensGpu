@@ -48,6 +48,65 @@ GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
 """GP-style regularization types that require a kernel_scale parameter."""
 
 
+def source_template_scale_map(
+    source_pixels: "jax.Array",
+    nx: int,
+    ny: int,
+    alpha: float,
+    floor: float,
+    *,
+    eps: float = 1.0e-10,
+) -> "jax.Array | None":
+    """Build an adaptive regularization scale map from a fixed source template.
+
+    The input source template is assumed to be a regularized MAP source
+    reconstruction such as stage-m0 ``S0``.  No additional smoothing is
+    applied here; the stage-m0 regularization controls the smoothness of the
+    template itself.
+
+    Parameters
+    ----------
+    source_pixels : array_like
+        Source template with shape ``(ny * nx,)`` or ``(ny, nx)``.
+    nx, ny : int
+        Source-grid dimensions.
+    alpha : float
+        Adaptive regularization strength. Values within ``1e-10`` of zero
+        return ``None`` for the uniform-regularization fast path.
+    floor : float
+        Minimum per-pixel regularization scale in ``(0, 1]``.
+    eps : float, optional
+        Mean-brightness floor used to keep all-dark templates finite.
+    """
+    nx = int(nx)
+    ny = int(ny)
+    alpha_f = float(alpha)
+    floor_f = float(floor)
+    if abs(alpha_f) < 1.0e-10:
+        return None
+    if not 0.0 < floor_f <= 1.0:
+        raise ValueError(f"floor must be in (0, 1], got {floor}")
+
+    source = jnp.asarray(source_pixels, dtype=jnp.float32)
+    if source.shape == (ny, nx):
+        source = source.reshape(ny * nx)
+    elif source.shape != (ny * nx,):
+        raise ValueError(
+            "source_pixels must have shape "
+            f"({ny * nx},) or ({ny}, {nx}), got {source.shape}."
+        )
+
+    source_pos = jnp.maximum(source, 0.0)
+    brightness_mean = jnp.mean(source_pos)
+    b_norm = source_pos / jnp.maximum(brightness_mean, float(eps))
+    scale = DenseRegularizationBuilder._compute_scale_formula(
+        b_norm,
+        jnp.asarray(alpha_f, dtype=jnp.float32),
+        jnp.asarray(floor_f, dtype=jnp.float32),
+    )
+    return jnp.asarray(scale, dtype=jnp.float32)
+
+
 class RegData(NamedTuple):
     """Compact finite-difference regularisation data for matrix-free matvec / logdet.
 

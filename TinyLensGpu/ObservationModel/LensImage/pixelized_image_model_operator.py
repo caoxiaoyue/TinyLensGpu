@@ -11,16 +11,13 @@ inversion is not yet supported.
 
 from __future__ import annotations
 
-import functools
 import logging
-import warnings
 from typing import Dict, Optional, Union
 
 import caskade as ck
-import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, jit
+from jax import Array
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +30,6 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
-)
-from TinyLensGpu.utils.lensing.mapping import (
-    lens_mapping_operator_bilinear_rectangular_from,
 )
 
 
@@ -65,6 +59,11 @@ class PixelizedImageProbModelOperator(ck.Module):
         Subsampling factor (default: 1).
     position_likelihood : dict, optional
         Position likelihood constraint configuration.
+    fixed_source_bbox : tuple, optional
+        Fixed ``(xmin, xmax, ymin, ymax)`` source-plane bbox for S0-based
+        adaptive regularization.
+    fixed_reg_scale : array_like, optional
+        Flat fixed adaptive regularization scale map with shape ``(nx * ny,)``.
     """
 
     def __init__(
@@ -79,6 +78,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
         block_size: int = 10,
+        fixed_source_bbox: tuple[float, float, float, float] | None = None,
+        fixed_reg_scale: Union[np.ndarray, Array, None] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
 
@@ -108,6 +109,23 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.reg_builder = DenseRegularizationBuilder(
             source_nx, source_ny, self.reg_type,
         )
+        self._fixed_source_bbox = self._validate_fixed_source_bbox(
+            fixed_source_bbox
+        )
+        self._fixed_reg_scale = self._validate_fixed_reg_scale(
+            fixed_reg_scale, source_nx * source_ny
+        )
+        if abs(self.source_model.adaptive_reg_alpha) >= 1.0e-10:
+            if self._fixed_source_bbox is None:
+                raise ValueError(
+                    "adaptive regularization in the operator backend requires "
+                    "fixed_source_bbox from an S0 source template."
+                )
+            if self._fixed_reg_scale is None:
+                raise ValueError(
+                    "adaptive regularization in the operator backend requires "
+                    "fixed_reg_scale derived from an S0 source template."
+                )
 
         # Block-diagonal preconditioner settings
         self.block_size = int(block_size)
@@ -117,6 +135,46 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.pcg_rtol = 1e-6
 
         self._init_position_likelihood(position_likelihood)
+
+    @staticmethod
+    def _validate_fixed_source_bbox(
+        fixed_source_bbox: tuple[float, float, float, float] | None,
+    ) -> tuple[Array, Array, Array, Array] | None:
+        if fixed_source_bbox is None:
+            return None
+        if len(fixed_source_bbox) != 4:
+            raise ValueError(
+                "fixed_source_bbox must be a 4-tuple "
+                "(xmin, xmax, ymin, ymax)."
+            )
+        bbox = tuple(jnp.asarray(v, dtype=jnp.float32) for v in fixed_source_bbox)
+        bbox_np = np.asarray([float(np.asarray(v)) for v in bbox], dtype=np.float64)
+        if not np.all(np.isfinite(bbox_np)):
+            raise ValueError("fixed_source_bbox values must be finite.")
+        xmin, xmax, ymin, ymax = bbox_np
+        if not (xmin < xmax and ymin < ymax):
+            raise ValueError(
+                "fixed_source_bbox must satisfy xmin < xmax and ymin < ymax."
+            )
+        return bbox
+
+    @staticmethod
+    def _validate_fixed_reg_scale(
+        fixed_reg_scale: Union[np.ndarray, Array, None],
+        expected_size: int,
+    ) -> Array | None:
+        if fixed_reg_scale is None:
+            return None
+        scale = jnp.asarray(fixed_reg_scale, dtype=jnp.float32)
+        if scale.shape != (int(expected_size),):
+            raise ValueError(
+                "fixed_reg_scale must have shape "
+                f"({int(expected_size)},), got {scale.shape}."
+            )
+        valid = bool(np.asarray(jnp.all(jnp.isfinite(scale) & (scale > 0.0))))
+        if not valid:
+            raise ValueError("fixed_reg_scale values must be finite and positive.")
+        return scale
 
     def _init_position_likelihood(self, config: Optional[Dict]) -> None:
         self._pos_px = None
@@ -182,11 +240,15 @@ class PixelizedImageProbModelOperator(ck.Module):
         beta_x_seed, beta_y_seed)`` so that callers can reuse the seed
         betas for adaptive regularisation without a second deflection call.
         """
-        beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed = \
+        beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed = (
             self.sim_obj._get_beta_sub_and_seed()
-        xmin, xmax, ymin, ymax = self.sim_obj._infer_and_fix_bbox(
-            beta_x_seed, beta_y_seed
         )
+        if self._fixed_source_bbox is None:
+            xmin, xmax, ymin, ymax = self.sim_obj._infer_and_fix_bbox(
+                beta_x_seed, beta_y_seed
+            )
+        else:
+            xmin, xmax, ymin, ymax = self._fixed_source_bbox
         return xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed
 
     # ------------------------------------------------------------------
@@ -220,178 +282,22 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Adaptive regularization scale map
     # ------------------------------------------------------------------
 
-    def _compute_reg_scale_from_betas(
-        self,
-        beta_x_seed: Array,
-        beta_y_seed: Array,
-        xmin, xmax, ymin, ymax,
-    ) -> Array | None:
-        """Compute per-source-pixel regularization scale factors.
+    def _get_reg_scale(self) -> Array | None:
+        """Return the fixed S0-derived adaptive scale map.
 
-        Supports two brightness-estimation modes (configured via
-        ``source_model.adaptive_reg_mode``):
-
-        * ``"brightness_only"`` (default) — inverse-variance-weighted
-          normalized convolution ``N/C``; magnification cancels in the
-          ratio, yielding a pure brightness proxy.
-        * ``"brightness_weighted"`` — inverse-variance-weighted
-          brightness×ray-count product; magnification dependence is
-          preserved for comparison or legacy use.
-
-        Both modes share the same downstream pipeline: configurable
-        Gaussian smoothing via :meth:`DenseRegularizationBuilder.smooth_scale_map`,
-        global-mean normalization, and a continuously-differentiable
-        scale formula.
-
-        Returns ``None`` when ``adaptive_reg_alpha == 0`` (fast path).
-
-        When ``adaptive_reg_freeze`` is ``True``, the caller MUST first
-        populate ``self._frozen_scale`` via :meth:`freeze_scale` (eagerly,
-        before JIT tracing).  At trace time this method picks the cached
-        branch and the JIT compiler captures the frozen array as a
-        constant.  If freeze is requested but no scale has been stored,
-        a warning is emitted and the scale is recomputed on every call.
+        The operator backend no longer constructs adaptive scale maps from
+        image-plane seed rays.  Adaptive runs must provide ``fixed_reg_scale``
+        before JIT tracing; uniform runs keep the ``None`` fast path.
         """
         alpha_val = self.source_model.adaptive_reg_alpha
-        # Note: alpha_val is a plain Python float from the model config.
-        # If it ever becomes a traced (caskade.Param) value, this check must
-        # switch to jnp.isclose / jax.lax.cond for JIT compatibility.
         if abs(alpha_val) < 1e-10:
             return None
-
-        # --- freeze: trace-time check for a cached scale map ---
-        # If freeze_scale() was called eagerly before JIT tracing, the
-        # cached concrete array is captured by the compiler as a constant
-        # and the (traced) betas below become dead args.
-        if self.source_model.adaptive_reg_freeze:
-            frozen = getattr(self, '_frozen_scale', None)
-            if frozen is not None:
-                return frozen
-            warnings.warn(
-                "adaptive_reg_freeze=True but no frozen scale map has been "
-                "stored; call .freeze_scale() before JIT tracing (e.g. before "
-                "make_likelihood / sampling). Falling back to per-call "
-                "recomputation.",
-                stacklevel=2,
+        if self._fixed_reg_scale is None:
+            raise ValueError(
+                "fixed_reg_scale is required when adaptive_reg_alpha > 0 in "
+                "PixelizedImageProbModelOperator."
             )
-
-        return self._compute_scale_core(beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax)
-
-    def _compute_scale_core(
-        self,
-        beta_x_seed: Array,
-        beta_y_seed: Array,
-        xmin, xmax, ymin, ymax,
-    ) -> Array:
-        """Core brightness → scale computation (no freeze / alpha-0 fast path).
-
-        Shared by :meth:`_compute_reg_scale_from_betas` (JIT path) and
-        :meth:`freeze_scale` (eager path) so the freeze-eager call does
-        not re-enter the freeze cache check.
-        """
-        nx = self.sim_obj.source_nx
-        ny = self.sim_obj.source_ny
-        n_source = nx * ny
-        floor = jnp.asarray(self.source_model.adaptive_reg_floor, dtype=jnp.float32)
-        alpha = jnp.asarray(self.source_model.adaptive_reg_alpha, dtype=jnp.float32)
-        mode = self.source_model.adaptive_reg_mode
-        sigma = float(self.source_model.adaptive_reg_smooth_sigma)
-
-        # 1. Brightness and inverse-variance at seed mask pixels
-        seed_flat = self.sim_obj.seed_flat_indices
-        brightness = jnp.maximum(
-            jnp.ravel(self.image_data)[seed_flat], 0.0,
-        )
-        noise_at_seed = jnp.ravel(self.noise_map)[seed_flat]
-        inv_var = 1.0 / (noise_at_seed ** 2)
-
-        # 2. Bilinear weights mapping seed betas → source grid
-        data_mesh = jnp.stack(
-            [jnp.ravel(beta_x_seed), jnp.ravel(beta_y_seed)], axis=1,
-        )
-        weights, indices, valid = lens_mapping_operator_bilinear_rectangular_from(
-            data_mesh, xmin, xmax, ymin, ymax, nx, ny,
-        )
-        valid_f = valid[:, None].astype(weights.dtype)
-
-        if mode == "brightness_only":
-            # Inverse-variance-weighted normalized convolution: N / C
-            w_num = weights * (brightness[:, None] * inv_var[:, None] * valid_f)
-            w_den = weights * (inv_var[:, None] * valid_f)
-
-            N = jax.ops.segment_sum(
-                w_num.ravel(), indices.ravel(), num_segments=n_source,
-            )
-            C = jax.ops.segment_sum(
-                w_den.ravel(), indices.ravel(), num_segments=n_source,
-            )
-
-            N_sm = self.reg_builder.smooth_scale_map(N, nx, ny, sigma=sigma)
-            C_sm = self.reg_builder.smooth_scale_map(C, nx, ny, sigma=sigma)
-            b_raw = N_sm / (C_sm + 1e-10)
-        else:
-            # brightness_weighted: inv-var-weighted brightness × ray-count
-            w_bright = weights * (brightness[:, None] * inv_var[:, None] * valid_f)
-            q = jax.ops.segment_sum(
-                w_bright.ravel(), indices.ravel(), num_segments=n_source,
-            )
-            b_raw = self.reg_builder.smooth_scale_map(q, nx, ny, sigma=sigma)
-
-        # 3. Shared downstream: normalize → scale formula
-        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
-        scale = DenseRegularizationBuilder._compute_scale_formula(
-            b_norm, alpha, floor,
-        )
-
-        return scale
-
-    # ------------------------------------------------------------------
-    # Empirical-Bayes freeze API
-    # ------------------------------------------------------------------
-
-    def freeze_scale(self) -> None:
-        """Eagerly compute and cache the adaptive scale map.
-
-        Implements the empirical-Bayes freeze: the scale map is evaluated
-        once at the current lens-parameter values and reused for all
-        subsequent evidence evaluations.  This prevents the adaptive
-        prior from drifting during lens-parameter sampling.
-
-        MUST be called before the likelihood is JIT-traced (i.e. before
-        :func:`make_likelihood` / sampler startup) so that the JIT
-        compiler captures the frozen array as a closure constant.  Calling
-        it after tracing has no effect on the compiled graph.
-
-        No-op when ``adaptive_reg_alpha == 0`` (uniform regularization)
-        or ``adaptive_reg_freeze == False``.
-        """
-        if abs(self.source_model.adaptive_reg_alpha) < 1e-10:
-            return
-        if not self.source_model.adaptive_reg_freeze:
-            warnings.warn(
-                "freeze_scale() called but adaptive_reg_freeze=False; "
-                "the cached scale will not be used.",
-                stacklevel=2,
-            )
-            return
-        (xmin, xmax, ymin, ymax, _beta_x_sub, _beta_y_sub,
-         beta_x_seed, beta_y_seed) = self._get_bbox()
-        # Bypass the freeze cache check in _compute_reg_scale_from_betas by
-        # calling the core directly — otherwise the first eager evaluation
-        # would re-enter the freeze branch and spuriously warn.
-        scale = self._compute_scale_core(
-            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
-        )
-        object.__setattr__(self, '_frozen_scale', scale)
-
-    def unfreeze_scale(self) -> None:
-        """Discard the cached adaptive scale map.
-
-        Subsequent evidence evaluations recompute the scale on every call.
-        Safe to call when no scale is cached.
-        """
-        if hasattr(self, '_frozen_scale'):
-            object.__delattr__(self, '_frozen_scale')
+        return self._fixed_reg_scale
 
     # ------------------------------------------------------------------
     # Source solve via PCG
@@ -456,9 +362,7 @@ class PixelizedImageProbModelOperator(ck.Module):
          beta_x_seed, beta_y_seed) = self._get_bbox()
 
         # Compute adaptive regularization scale map (zero extra tracing)
-        scale = self._compute_reg_scale_from_betas(
-            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
-        )
+        scale = self._get_reg_scale()
 
         # reg_data: compact edge-weighted Laplacian descriptor for matrix-free PCG.
         reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
@@ -549,9 +453,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
          beta_x_seed, beta_y_seed) = self._get_bbox()
 
-        scale = self._compute_reg_scale_from_betas(
-            beta_x_seed, beta_y_seed, xmin, xmax, ymin, ymax,
-        )
+        scale = self._get_reg_scale()
 
         reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
 
