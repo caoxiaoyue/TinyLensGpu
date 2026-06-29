@@ -622,8 +622,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path, positions=
     dof  = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].nx
-    ny = likelihood.phys_model.source_light[0].ny
+    nx = likelihood.phys_model.source_light[0].n
+    ny = likelihood.phys_model.source_light[0].n
     src_img = np.array(source_pixels).reshape(ny, nx)
 
     npix = image_data.shape[0]
@@ -684,9 +684,7 @@ def build_stage_m_likelihood(
     )
     lam.to_dynamic()
 
-    pix_src = PixelizedSourceModel(
-        nx=30,
-        ny=30,
+    pix_src = PixelizedSourceModel(n=30,
         log_lambda_reg=lam,
         regularization_type="first-order",
     )

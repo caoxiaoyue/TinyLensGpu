@@ -2,12 +2,11 @@
 
 from .mapping import (
     dense_mapping_from_weights_indices,
-    lens_mapping_operator_bilinear_rectangular_from,
+    lens_mapping_operator_bilinear_from,
     build_source_grid,
     build_lens_mapping_matrix,
     make_square_bbox,
     infer_source_bbox,
-    infer_square_source_bbox,
 )
 from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .point_source_solver import (
@@ -29,12 +28,11 @@ from .critical_line import (
 
 __all__ = [
     'dense_mapping_from_weights_indices',
-    'lens_mapping_operator_bilinear_rectangular_from',
+    'lens_mapping_operator_bilinear_from',
     'build_source_grid',
     'build_lens_mapping_matrix',
     'make_square_bbox',
     'infer_source_bbox',
-    'infer_square_source_bbox',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',
     'apply_psf_to_mapping_matrix',

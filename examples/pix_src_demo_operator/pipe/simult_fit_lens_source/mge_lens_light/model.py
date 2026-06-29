@@ -531,9 +531,7 @@ def build_stage_b_likelihood(
     )
     lam.to_dynamic()
 
-    pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
+    pix_src = PixelizedSourceModel(n=40,
         log_lambda_reg=lam,
         regularization_type="first-order",
     )
@@ -590,7 +588,7 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
         )
 
         # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-        nx_s, ny_s = likelihood.sim_obj.source_nx, likelihood.sim_obj.source_ny
+        nx_s, ny_s = likelihood.sim_obj.source_n, likelihood.sim_obj.source_n
         bs = likelihood.block_size
         n_bx = (nx_s + bs - 1) // bs
         n_by = (ny_s + bs - 1) // bs
@@ -637,8 +635,8 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     dof = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].nx
-    ny = likelihood.phys_model.source_light[0].ny
+    nx = likelihood.phys_model.source_light[0].n
+    ny = likelihood.phys_model.source_light[0].n
     src_img = src_1d.reshape(ny, nx)
 
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]

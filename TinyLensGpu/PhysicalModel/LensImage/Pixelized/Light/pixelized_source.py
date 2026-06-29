@@ -24,9 +24,8 @@ class PixelizedSourceModel(ck.Module):
 
     Parameters
     ----------
-    nx, ny : int
-        Number of source pixels along x and y. Pixelized source models require
-        a square ``nx == ny`` source grid.
+    n : int
+        Number of source pixels per side. The source grid is ``n x n``.
     log_lambda_reg : float or ParamU or None, optional
         Natural-log of the regularization strength. Stored in log-space so
         that the optimiser works with O(1) values even when the physical
@@ -53,8 +52,7 @@ class PixelizedSourceModel(ck.Module):
 
     def __init__(
         self,
-        nx: int,
-        ny: int,
+        n: int,
         *,
         log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
@@ -67,12 +65,10 @@ class PixelizedSourceModel(ck.Module):
         if regularization_type not in VALID_REGULARIZATION_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
 
-        nx_int = int(nx)
-        ny_int = int(ny)
-        if nx_int != ny_int:
+        n_int = int(n)
+        if n_int < 2:
             raise ValueError(
-                "PixelizedSourceModel requires a square source grid with nx == ny; "
-                f"got nx={nx_int}, ny={ny_int}."
+                f"PixelizedSourceModel requires n >= 2; got n={n_int}."
             )
 
         alpha_value = (
@@ -90,8 +86,7 @@ class PixelizedSourceModel(ck.Module):
         if not 0.0 < float(floor_value) <= 1.0:
             raise ValueError(f"adaptive_reg_floor must be in (0, 1], got {adaptive_reg_floor}")
 
-        object.__setattr__(self, "nx", nx_int)
-        object.__setattr__(self, "ny", ny_int)
+        object.__setattr__(self, "n", n_int)
         object.__setattr__(self, "regularization_type", regularization_type)
         object.__setattr__(self, "is_pixelized_source", True)
 
@@ -143,7 +138,7 @@ class PixelizedSourceModel(ck.Module):
         """
         xmin, xmax, ymin, ymax = source_bbox
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.nx, self.ny, xmin, xmax, ymin, ymax
+            self.n, xmin, xmax, ymin, ymax
         )
         mapping_matrix = build_lens_mapping_matrix(x, y, source_x_axis, source_y_axis)
         brightness = mapping_matrix @ jnp.ravel(jnp.asarray(source_values))

@@ -108,9 +108,7 @@ def build_prob_model(regularization_type):
             limits=[-13.815510557964274, 13.815510557964274],
     )
     if regularization_type == "matern32":
-        pix_src = PixelizedSourceModel(
-            nx=40,
-            ny=40,
+        pix_src = PixelizedSourceModel(n=40,
             regularization_type="matern32",
             log_lambda_reg=lambda_reg,
             kernel_scale=ParamU(
@@ -122,9 +120,7 @@ def build_prob_model(regularization_type):
             ),
         )
     else:
-        pix_src = PixelizedSourceModel(
-            nx=40,
-            ny=40,
+        pix_src = PixelizedSourceModel(n=40,
             regularization_type="first-order",
             log_lambda_reg=lambda_reg,
         )
@@ -203,16 +199,16 @@ def profile_variant(label, output_path):
         )
         source_bbox = prob_model.sim_obj.infer_source_bbox(beta_x, beta_y)
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            prob_model.sim_obj.source_nx,
-            prob_model.sim_obj.source_ny,
+            prob_model.sim_obj.source_n,
+            prob_model.sim_obj.source_n,
             *source_bbox,
         )
 
         def mapping_stage():
             local_bbox = prob_model.sim_obj.infer_source_bbox(beta_x, beta_y)
             local_x_axis, local_y_axis, _, _ = build_source_grid(
-                prob_model.sim_obj.source_nx,
-                prob_model.sim_obj.source_ny,
+                prob_model.sim_obj.source_n,
+                prob_model.sim_obj.source_n,
                 *local_bbox,
             )
             return build_lens_mapping_matrix(beta_x, beta_y, local_x_axis, local_y_axis)

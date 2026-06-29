@@ -106,20 +106,19 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
 
-        source_nx = int(self.source_model.nx)
-        source_ny = int(self.source_model.ny)
+        source_n = int(self.source_model.n)
         self.reg_type = self.source_model.regularization_type
         self.reg_builder = DenseRegularizationBuilder(
-            source_nx, source_ny, self.reg_type,
+            source_n, self.reg_type,
         )
         self._fixed_source_bbox = self._validate_fixed_source_bbox(
             fixed_source_bbox
         )
         self._fixed_reg_scale = self._validate_fixed_reg_scale(
-            fixed_reg_scale, source_nx * source_ny
+            fixed_reg_scale, source_n * source_n
         )
         self._fixed_reg_template = self._validate_fixed_reg_template(
-            fixed_reg_template, source_nx, source_ny
+            fixed_reg_template, source_n
         )
         if self._adaptive_reg_enabled():
             if self._fixed_source_bbox is None:
@@ -192,18 +191,17 @@ class PixelizedImageProbModelOperator(ck.Module):
     @staticmethod
     def _validate_fixed_reg_template(
         fixed_reg_template: Union[np.ndarray, Array, None],
-        nx: int,
-        ny: int,
+        n: int,
     ) -> Array | None:
         if fixed_reg_template is None:
             return None
         template = jnp.asarray(fixed_reg_template, dtype=jnp.float32)
-        if template.shape == (int(ny), int(nx)):
-            template = template.reshape(int(nx) * int(ny))
-        elif template.shape != (int(nx) * int(ny),):
+        if template.shape == (int(n), int(n)):
+            template = template.reshape(int(n) * int(n))
+        elif template.shape != (int(n) * int(n),):
             raise ValueError(
                 "fixed_reg_template must have shape "
-                f"({int(nx) * int(ny)},) or ({int(ny)}, {int(nx)}), "
+                f"({int(n) * int(n)},) or ({int(n)}, {int(n)}), "
                 f"got {template.shape}."
             )
         valid = bool(np.asarray(jnp.all(jnp.isfinite(template))))
@@ -310,8 +308,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             source = self.source_model
             return source_template_scale_map(
                 self._fixed_reg_template,
-                int(source.nx),
-                int(source.ny),
+                int(source.n),
                 alpha=self._param_value(source.adaptive_reg_alpha),
                 floor=self._param_value(source.adaptive_reg_floor),
             )

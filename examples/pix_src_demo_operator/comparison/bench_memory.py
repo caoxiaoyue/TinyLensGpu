@@ -24,11 +24,11 @@ from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator impor
 # Test grid sizes
 # ------------------------------------------------------------------ #
 GRID_SIZES = [
-    (20, 20),   # source 20x20
-    (30, 30),
-    (40, 40),
-    (50, 50),
-    (60, 60),
+    20,   # source 20x20
+    30,
+    40,
+    50,
+    60,
 ]
 
 npix = 100          # image pixels
@@ -55,9 +55,8 @@ print("-" * 55)
 
 results = []
 
-for src_nx, src_ny in GRID_SIZES:
-    pix_src = PixelizedSourceModel(
-        nx=src_nx, ny=src_ny,
+for src_n in GRID_SIZES:
+    pix_src = PixelizedSourceModel(n=src_n,
         regularization_type="first-order",
         log_lambda_reg=jnp.log(1.0),
     )
@@ -76,7 +75,7 @@ for src_nx, src_ny in GRID_SIZES:
     xmi, xma, ymi, yma = pm_op.sim_obj._infer_and_fix_bbox(bx, by)
 
     from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
-    builder = DenseRegularizationBuilder(src_nx, src_ny, "first-order")
+    builder = DenseRegularizationBuilder(src_n, "first-order")
 
     block_chols, block_masks = pm_op.sim_obj.build_block_diag_preconditioner(
         pm_op.noise_1d, xmi, xma, ymi, yma, jnp.asarray(1.0), builder, block_size=pm_op.block_size,
@@ -91,10 +90,10 @@ for src_nx, src_ny in GRID_SIZES:
 
     ratio = mem_operator / mem_f_matrix if mem_f_matrix > 0 else 0
 
-    print(f"{src_nx}x{src_ny} (Ns={Ns:4d}) | {mem_f_matrix:12.2f} | {mem_operator:14.2f} | {ratio:7.2%}")
+    print(f"{src_n}x{src_n} (Ns={Ns:4d}) | {mem_f_matrix:12.2f} | {mem_operator:14.2f} | {ratio:7.2%}")
 
     results.append({
-        'grid': f"{src_nx}x{src_ny}",
+        'grid': f"{src_n}x{src_n}",
         'Ns': Ns,
         'Nd': Nd,
         'matrix_mb': mem_f_matrix,

@@ -113,9 +113,7 @@ sie = SIE(
                     limits=[-0.5, 0.5]),
 )
 
-pix_src = PixelizedSourceModel(
-    nx=40,
-    ny=40,
+pix_src = PixelizedSourceModel(n=40,
     regularization_type="second-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
                       prior_type="uniform", prior_settings=[jnp.log(1e-6), jnp.log(1e6)],
@@ -256,7 +254,7 @@ with ck.ActiveContext(prob_model):
     )
 
     # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-    nx_s, ny_s = pix_src.nx, pix_src.ny
+    nx_s, ny_s = pix_src.n, pix_src.n
     bs = prob_model.block_size
     n_bx = (nx_s + bs - 1) // bs
     n_by = (ny_s + bs - 1) // bs
@@ -274,7 +272,7 @@ with ck.ActiveContext(prob_model):
             chol = block_chols[bid]
             inv_block = jsl.cho_solve((chol, True), R_block)
             trace_invPR = trace_invPR + jnp.trace(inv_block)
-    N_eff = float(pix_src.nx * pix_src.ny - lam * trace_invPR)
+    N_eff = float(pix_src.n * pix_src.n - lam * trace_invPR)
 
 source_pixels_np = np.array(source_pixels)
 model_image      = np.zeros(image_data.shape)
@@ -287,7 +285,7 @@ N_d              = int((~mask).sum())
 dof              = N_d - N_eff if N_eff < N_d else 1
 chi2_nu          = chi2 / dof if dof > 0 else 0.0
 
-source_image     = source_pixels_np.reshape(pix_src.ny, pix_src.nx)
+source_image     = source_pixels_np.reshape(pix_src.n, pix_src.n)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,

@@ -53,9 +53,7 @@ for LAMBDA in LAMBDA_LIST:
     print(f"\n" + "="*60)
     print(f"Running pixelized source inversion (λ={LAMBDA}) …")
     
-    pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
+    pix_src = PixelizedSourceModel(n=40,
         regularization_type="first-order",
         log_lambda_reg=jnp.log(max(LAMBDA, 1e-8)),
     )
@@ -115,7 +113,7 @@ for LAMBDA in LAMBDA_LIST:
         'chi2_nu': chi2_nu
     })
 
-    source_image = source_pixels.reshape(pix_src.ny, pix_src.nx)
+    source_image = source_pixels.reshape(pix_src.n, pix_src.n)
 
     # ------------------------------------------------------------------ #
     # 4-panel figure

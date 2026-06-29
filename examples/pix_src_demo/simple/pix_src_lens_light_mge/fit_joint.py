@@ -148,9 +148,7 @@ for i, sigma in enumerate(sigma_list_lens):
     gauss.flux.to_static(1.0)
     lens_light.append(gauss)
 
-pix_src = PixelizedSourceModel(
-    nx=40,
-    ny=40,
+pix_src = PixelizedSourceModel(n=40,
     regularization_type="first-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
                       prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
@@ -319,7 +317,7 @@ chi2_nu = chi2 / dof if dof > 0 else 0.0
 
 # Source reconstruction on source plane
 source_pixels_np = np.array(source_pixels)
-source_image = source_pixels_np.reshape(prob_model.sim_obj.source_ny, prob_model.sim_obj.source_nx)
+source_image = source_pixels_np.reshape(prob_model.sim_obj.source_n, prob_model.sim_obj.source_n)
 
 ext_i = [-npix * DPIX / 2,  npix * DPIX / 2,
          -npix * DPIX / 2,  npix * DPIX / 2]

@@ -123,9 +123,7 @@ shear = Shear(
                   limits=[-0.5, 0.5]),
 )
 
-pix_src = PixelizedSourceModel(
-    nx=25,
-    ny=25,
+pix_src = PixelizedSourceModel(n=25,
     regularization_type="matern32",
     log_lambda_reg=ParamU("log_lambda_reg", 2.302585092994046,
                       prior_type="uniform", prior_settings=[-4.605170185988091, 9.210340371976184],
@@ -269,7 +267,7 @@ N_d              = int((~mask).sum())
 dof              = N_d - N_eff
 chi2_nu          = chi2 / dof if dof > 0 else 0.0
 
-source_image     = source_pixels_np.reshape(pix_src.ny, pix_src.nx)
+source_image     = source_pixels_np.reshape(pix_src.n, pix_src.n)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,

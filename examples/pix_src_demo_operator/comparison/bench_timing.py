@@ -38,7 +38,7 @@ noise = jnp.ones_like(image) * 0.02
 psf = jnp.ones((5, 5)) / 25.0
 
 sie = SIE(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
-GRID_SIZES = [(20, 20), (30, 30), (40, 40), (50, 50)]
+GRID_SIZES = [20, 30, 40, 50]
 
 print("Benchmarking evidence evaluation time...")
 print(f"Warmup: {N_WARMUP}, Repeat: {N_REPEAT}")
@@ -47,8 +47,8 @@ print("-" * 75)
 
 results = []
 
-for src_nx, src_ny in GRID_SIZES:
-    pix_src = PixelizedSourceModel(nx=src_nx, ny=src_ny,
+for src_n in GRID_SIZES:
+    pix_src = PixelizedSourceModel(n=src_n,
                                    regularization_type="first-order",
                                    log_lambda_reg=jnp.log(1.0))
     phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
@@ -87,7 +87,7 @@ for src_nx, src_ny in GRID_SIZES:
     _, _, bx, by = pm_op.sim_obj._get_beta_sub_and_seed()
     xmi, xma, ymi, yma = pm_op.sim_obj._infer_and_fix_bbox(bx, by)
     from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
-    builder = DenseRegularizationBuilder(src_nx, src_ny, "first-order")
+    builder = DenseRegularizationBuilder(src_n, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
     lam = jnp.asarray(1.0)
@@ -104,11 +104,11 @@ for src_nx, src_ny in GRID_SIZES:
     _, info = pcg_solve(A_data, b, preconditioner, _A_jit, max_iter=200, rtol=1e-6)
     n_iter = int(info.n_iter)
 
-    print(f"{src_nx}x{src_ny}  | {t_mat:12.4f} | {t_op:14.4f} | {ratio:7.2%} | {n_iter:10d}")
+    print(f"{src_n}x{src_n}  | {t_mat:12.4f} | {t_op:14.4f} | {ratio:7.2%} | {n_iter:10d}")
 
     results.append({
-        'grid': f"{src_nx}x{src_ny}",
-        'Ns': src_nx * src_ny,
+        'grid': f"{src_n}x{src_n}",
+        'Ns': src_n * src_n,
         't_mat': t_mat,
         't_op': t_op,
         'ratio': ratio,

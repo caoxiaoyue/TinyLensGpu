@@ -26,10 +26,9 @@ def test_public_import_paths_work():
 def test_construction_wraps_log_lambda_reg_as_paramu():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
-    model = PixelizedSourceModel(nx=40, ny=40, log_lambda_reg=jnp.log(10.0))
+    model = PixelizedSourceModel(n=40, log_lambda_reg=jnp.log(10.0))
 
-    assert model.nx == 40
-    assert model.ny == 40
+    assert model.n == 40
     assert isinstance(model.log_lambda_reg, ParamU)
     assert model.log_lambda_reg.prior_type == "uniform"
     assert list(model.log_lambda_reg.prior_settings) == [jnp.log(1e-4), jnp.log(1e4)]
@@ -38,11 +37,11 @@ def test_construction_wraps_log_lambda_reg_as_paramu():
 
 
 @pytest.mark.unit
-def test_construction_rejects_rectangular_source_shape():
+def test_construction_rejects_invalid_grid_dimension():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
-    with pytest.raises(ValueError, match="square source grid"):
-        PixelizedSourceModel(nx=40, ny=50, log_lambda_reg=jnp.log(10.0))
+    with pytest.raises(ValueError, match="n >= 2"):
+        PixelizedSourceModel(n=1, log_lambda_reg=jnp.log(10.0))
 
 
 @pytest.mark.unit
@@ -69,8 +68,7 @@ def test_adaptive_hyperparams_can_be_paramu_and_dynamic():
         p.to_dynamic()
 
     source = PixelizedSourceModel(
-        nx=5,
-        ny=5,
+        n=5,
         log_lambda_reg=log_lambda,
         adaptive_reg_alpha=alpha,
         adaptive_reg_floor=floor,
@@ -87,8 +85,7 @@ def test_scalar_adaptive_hyperparams_are_not_dynamic_params():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
     source = PixelizedSourceModel(
-        nx=5,
-        ny=5,
+        n=5,
         log_lambda_reg=0.0,
         adaptive_reg_alpha=1.5,
         adaptive_reg_floor=0.2,
@@ -107,15 +104,13 @@ def test_kernel_scale_exists_only_for_gp_regularization():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
     gp_model = PixelizedSourceModel(
-        nx=5,
-        ny=5,
+        n=5,
         log_lambda_reg=jnp.log(10.0),
         regularization_type="gaussian",
         kernel_scale=2.0,
     )
     non_gp_model = PixelizedSourceModel(
-        nx=5,
-        ny=5,
+        n=5,
         log_lambda_reg=jnp.log(10.0),
         regularization_type="second-order",
     )
@@ -130,7 +125,7 @@ def test_pixel_brightness_values_are_not_registered_as_caskade_params():
 
     sie = SIE(theta_E=1.0, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
     shear = Shear(gamma1=0.03, gamma2=-0.01)
-    source = PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=jnp.log(10.0))
+    source = PixelizedSourceModel(n=5, log_lambda_reg=jnp.log(10.0))
 
     sie.theta_E.to_dynamic()
     sie.e1.to_static()
@@ -156,8 +151,7 @@ def test_dynamic_params_include_kernel_scale_for_gp_regularization():
 
     sie = SIE(theta_E=1.0, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
     source = PixelizedSourceModel(
-        nx=5,
-        ny=5,
+        n=5,
         log_lambda_reg=jnp.log(10.0),
         regularization_type="gaussian",
         kernel_scale=2.0,
@@ -183,7 +177,7 @@ def test_light_returns_bilinear_interpolation_matching_input_shape():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
     _, _, _, source_values = _build_affine_source_grid()
-    model = PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=jnp.log(10.0))
+    model = PixelizedSourceModel(n=5, log_lambda_reg=jnp.log(10.0))
 
     x = jnp.array([[-1.5, -0.25, 0.75], [1.25, -0.5, 1.5]], dtype=jnp.float32)
     y = jnp.array([[0.25, -1.0, 1.0], [1.5, -1.25, 0.0]], dtype=jnp.float32)
@@ -200,7 +194,7 @@ def test_light_exact_grid_points_return_input_values():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
     _, x_grid, y_grid, source_values = _build_affine_source_grid()
-    model = PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=jnp.log(10.0))
+    model = PixelizedSourceModel(n=5, log_lambda_reg=jnp.log(10.0))
 
     brightness = model.light(x_grid, y_grid, source_values, (-2.0, 2.0, -2.0, 2.0))
 
@@ -213,7 +207,7 @@ def test_invalid_regularization_type_raises_value_error():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
     with pytest.raises(ValueError):
-        PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=jnp.log(10.0), regularization_type="invalid")
+        PixelizedSourceModel(n=5, log_lambda_reg=jnp.log(10.0), regularization_type="invalid")
 
 
 if __name__ == "__main__":

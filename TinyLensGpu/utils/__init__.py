@@ -5,7 +5,6 @@ from .lensing.mapping import (
     build_source_grid,
     make_square_bbox,
     infer_source_bbox,
-    infer_square_source_bbox,
 )
 from .photometry import mag2cps, cps2mag
 
@@ -19,7 +18,6 @@ __all__ = [
     'build_lens_mapping_matrix',
     'make_square_bbox',
     'infer_source_bbox',
-    'infer_square_source_bbox',
     'mag2cps',
     'cps2mag',
     'weighted_quantile',

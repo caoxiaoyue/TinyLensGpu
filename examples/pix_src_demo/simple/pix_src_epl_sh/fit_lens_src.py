@@ -92,9 +92,7 @@ shear = Shear(
 )
 
 # Pixelized source — lambda_reg sampled log-uniformly over [1e-3, 1e3]
-pix_src = PixelizedSourceModel(
-    nx=40,
-    ny=40,
+pix_src = PixelizedSourceModel(n=40,
     regularization_type="first-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
                       prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],

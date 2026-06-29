@@ -92,8 +92,7 @@ class PixelizedImageProbModel(ck.Module):
         self.data_1d = self.image_data[self.unmask]
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
-        source_nx = int(self.source_model.nx)
-        source_ny = int(self.source_model.ny)
+        source_n = int(self.source_model.n)
         alpha = self.source_model.adaptive_reg_alpha
         alpha_value = alpha.value if hasattr(alpha, "value") else alpha
         alpha_dynamic = bool(getattr(alpha, "dynamic", False))
@@ -107,8 +106,7 @@ class PixelizedImageProbModel(ck.Module):
             )
         self.reg_type = self.source_model.regularization_type
         self.reg_builder = DenseRegularizationBuilder(
-            source_nx,
-            source_ny,
+            source_n,
             self.reg_type,
         )
 

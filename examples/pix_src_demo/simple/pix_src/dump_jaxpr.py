@@ -53,9 +53,7 @@ def build_prob_model():
         center_x=ParamU("center_x", 0.0, prior_type="gaussian", prior_settings=[0.0, 0.05], limits=[-0.5, 0.5]),
         center_y=ParamU("center_y", 0.0, prior_type="gaussian", prior_settings=[0.0, 0.05], limits=[-0.5, 0.5]),
     )
-    pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
+    pix_src = PixelizedSourceModel(n=40,
         regularization_type="first-order",
         log_lambda_reg=ParamU(
             "log_lambda_reg",

@@ -66,7 +66,7 @@ def _pixelized_source(*, log_lambda_value: float = 0.0, with_gp: bool = False) -
     )
     log_lambda_reg.to_dynamic()
     if not with_gp:
-        return PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=log_lambda_reg)
+        return PixelizedSourceModel(n=5, log_lambda_reg=log_lambda_reg)
 
     kernel_scale = ParamU(
         "kernel_scale",
@@ -76,9 +76,7 @@ def _pixelized_source(*, log_lambda_value: float = 0.0, with_gp: bool = False) -
         limits=[0.01, 5.0],
     )
     kernel_scale.to_dynamic()
-    return PixelizedSourceModel(
-        nx=5,
-        ny=5,
+    return PixelizedSourceModel(n=5,
         log_lambda_reg=log_lambda_reg,
         kernel_scale=kernel_scale,
         regularization_type="gaussian",
@@ -578,8 +576,7 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     """
     npix = 30
     dpix = 0.08
-    source_nx = 15
-    source_ny = 15
+    source_n = 15
     source_bbox_test = (-0.6, 0.6, -0.6, 0.6)
 
     psf_kernel = _gaussian_psf_kernel(size=5, sigma_pixels=0.8)
@@ -626,12 +623,12 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     beta_x, beta_y = gt_phys.deflection(xgrid, ygrid)
     ideal_lensed_truth = np.asarray(gt_phys.source_surface_brightness(beta_x, beta_y))
 
-    source_x_axis = np.linspace(source_bbox_test[0], source_bbox_test[1], source_nx)
-    source_y_axis = np.linspace(source_bbox_test[2], source_bbox_test[3], source_ny)
+    source_x_axis = np.linspace(source_bbox_test[0], source_bbox_test[1], source_n)
+    source_y_axis = np.linspace(source_bbox_test[2], source_bbox_test[3], source_n)
     source_xx, source_yy = np.meshgrid(source_x_axis, source_y_axis, indexing="xy")
     source_pixels = np.asarray(gt_phys.source_surface_brightness(source_xx, source_yy)).ravel()
 
-    pixelized_src = PixelizedSourceModel(nx=source_nx, ny=source_ny, log_lambda_reg=jnp.log(1.0))
+    pixelized_src = PixelizedSourceModel(n=source_n, log_lambda_reg=jnp.log(1.0))
     test_phys = PhysicalModel(lens_mass=[sie], source_light=[pixelized_src], lens_light=[])
     config = SimulatorConfig(
         dpix=dpix,
@@ -653,10 +650,10 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     ideal_rms = np.sqrt(np.mean((m_ideal - expected_ideal) ** 2))
     truth_scale = max(float(np.max(np.abs(expected_ideal))), 1.0e-12)
     # The 5% threshold might seem weak, but it is tightly bound to the coarse grid
-    # resolution used in this test (npix=30, source_nx=15) to keep the test fast.
+    # resolution used in this test (npix=30, source_n=15) to keep the test fast.
     # A source with sigma=0.10 spans only ~1.25 pixels on this source grid.
     # Bilinear interpolation of such narrow features naturally introduces ~2-4% error.
-    # Increasing resolution (e.g., npix=60, source_nx=30) drops this error to ~0.6%.
+    # Increasing resolution (e.g., npix=60, source_n=30) drops this error to ~0.6%.
     assert ideal_rms / truth_scale < 5.0e-2, (
         f"Ideal RMS relative error too large (nsub={nsub}): {ideal_rms / truth_scale:.3e}"
     )
@@ -818,7 +815,7 @@ def test_bilinear_interpolation_gradients_flow_through_beta() -> None:
     import jax
     from TinyLensGpu.utils.lensing.mapping import build_lens_mapping_matrix, build_source_grid
 
-    source_x_axis, source_y_axis, _, _ = build_source_grid(5, 5, -1.0, 1.0, -1.0, 1.0)
+    source_x_axis, source_y_axis, _, _ = build_source_grid(5, -1.0, 1.0, -1.0, 1.0)
 
     def loss_fn(beta_x, beta_y):
         mapping_matrix = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
@@ -851,12 +848,15 @@ def test_infer_source_bbox_asymmetric_offset_betas() -> None:
         beta_x, beta_y, padding=0.05, outlier_frac=0.0
     )
 
-    span_x = 1.5 - 0.5  # = 1.0
-    span_y = 1.1 - 0.3  # = 0.8
-    assert jnp.allclose(xmin, 0.5 - 0.05 * span_x)
-    assert jnp.allclose(xmax, 1.5 + 0.05 * span_x)
-    assert jnp.allclose(ymin, 0.3 - 0.05 * span_y)
-    assert jnp.allclose(ymax, 1.1 + 0.05 * span_y)
+    # Square bbox: x-span determines both axes
+    span_x = 1.5 - 0.5  # = 1.0 (longer span)
+    expected_half = 0.5 * span_x * (1.0 + 2.0 * 0.05)  # padded half-span
+    x_center = 1.0
+    y_center = 0.7
+    assert jnp.allclose(xmin, x_center - expected_half)
+    assert jnp.allclose(xmax, x_center + expected_half)
+    assert jnp.allclose(ymin, y_center - expected_half)
+    assert jnp.allclose(ymax, y_center + expected_half)
     # Bbox should be fully offset — min values should be far from origin
     assert xmin > 0.0
     assert ymin > 0.0

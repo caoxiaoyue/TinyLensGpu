@@ -29,8 +29,8 @@ from TinyLensGpu.utils.inversion.regularization import (
 )
 from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
-    infer_square_source_bbox,
-    lens_mapping_operator_bilinear_rectangular_from,
+    infer_source_bbox,
+    lens_mapping_operator_bilinear_from,
 )
 
 
@@ -135,17 +135,17 @@ def _geom_mean3(a: Array, b: Array, c: Array) -> Array:
 
 
 def _weighted_first_order_matvec_jit(
-    s: Array, scale: Array | None, scale_x: Array, scale_y: Array, nx: int, ny: int
+    s: Array, scale: Array | None, scale_factor: Array, n: int
 ) -> Array:
     """Edge-weighted first-order Laplacian ``R @ s``."""
-    s_2d = s.reshape(ny, nx)
-    scale_2d = scale.reshape(ny, nx) if scale is not None else None
+    s_2d = s.reshape(n, n)
+    scale_2d = scale.reshape(n, n) if scale is not None else None
 
     out_x = jnp.zeros_like(s_2d)
     out_y = jnp.zeros_like(s_2d)
-    if nx > 1:
+    if n > 1:
         if scale_2d is None:
-            w_x = jnp.ones((ny, nx - 1), dtype=s.dtype)
+            w_x = jnp.ones((n, n - 1), dtype=s.dtype)
         else:
             w_x = _geom_mean(scale_2d[:, :-1], scale_2d[:, 1:])
         diff_x = s_2d[:, 1:] - s_2d[:, :-1]
@@ -153,9 +153,9 @@ def _weighted_first_order_matvec_jit(
         out_x = out_x.at[:, :-1].add(-wdiff_x)
         out_x = out_x.at[:, 1:].add(wdiff_x)
         out_x = out_x.at[:, -1].add(s_2d[:, -1])
-    if ny > 1:
+    if n > 1:
         if scale_2d is None:
-            w_y = jnp.ones((ny - 1, nx), dtype=s.dtype)
+            w_y = jnp.ones((n - 1, n), dtype=s.dtype)
         else:
             w_y = _geom_mean(scale_2d[:-1, :], scale_2d[1:, :])
         diff_y = s_2d[1:, :] - s_2d[:-1, :]
@@ -163,29 +163,29 @@ def _weighted_first_order_matvec_jit(
         out_y = out_y.at[:-1, :].add(-wdiff_y)
         out_y = out_y.at[1:, :].add(wdiff_y)
         out_y = out_y.at[-1, :].add(s_2d[-1, :])
-    return (scale_x * out_x + scale_y * out_y).ravel()
+    return (scale_factor * (out_x + out_y)).ravel()
 
 
 def _weighted_second_order_matvec_jit(
-    s: Array, scale: Array | None, scale_x: Array, scale_y: Array, nx: int, ny: int
+    s: Array, scale: Array | None, scale_factor: Array, n: int
 ) -> Array:
     """Edge-weighted second-order curvature ``R @ s``."""
-    s_2d = s.reshape(ny, nx)
-    scale_2d = scale.reshape(ny, nx) if scale is not None else None
+    s_2d = s.reshape(n, n)
+    scale_2d = scale.reshape(n, n) if scale is not None else None
 
     out_x = jnp.zeros_like(s_2d)
     out_y = jnp.zeros_like(s_2d)
-    if nx > 1:
+    if n > 1:
         if scale_2d is None:
-            w_near_x = jnp.ones((ny,), dtype=s.dtype)
+            w_near_x = jnp.ones((n,), dtype=s.dtype)
         else:
             w_near_x = _geom_mean(scale_2d[:, -2], scale_2d[:, -1])
         diff_near_x = s_2d[:, -1] - s_2d[:, -2]
         out_x = out_x.at[:, -2].add(-w_near_x * diff_near_x)
         out_x = out_x.at[:, -1].add(w_near_x * diff_near_x)
-    if nx > 2:
+    if n > 2:
         if scale_2d is None:
-            w_x2 = jnp.ones((ny, nx - 2), dtype=s.dtype)
+            w_x2 = jnp.ones((n, n - 2), dtype=s.dtype)
         else:
             w_x2 = _geom_mean3(scale_2d[:, :-2], scale_2d[:, 1:-1], scale_2d[:, 2:])
         c_x = s_2d[:, :-2] - 2.0 * s_2d[:, 1:-1] + s_2d[:, 2:]
@@ -193,20 +193,20 @@ def _weighted_second_order_matvec_jit(
         out_x = out_x.at[:, :-2].add(wc_x)
         out_x = out_x.at[:, 1:-1].add(-2.0 * wc_x)
         out_x = out_x.at[:, 2:].add(wc_x)
-    if nx > 1:
+    if n > 1:
         out_x = out_x.at[:, -1].add(s_2d[:, -1])
 
-    if ny > 1:
+    if n > 1:
         if scale_2d is None:
-            w_near_y = jnp.ones((nx,), dtype=s.dtype)
+            w_near_y = jnp.ones((n,), dtype=s.dtype)
         else:
             w_near_y = _geom_mean(scale_2d[-2, :], scale_2d[-1, :])
         diff_near_y = s_2d[-1, :] - s_2d[-2, :]
         out_y = out_y.at[-2, :].add(-w_near_y * diff_near_y)
         out_y = out_y.at[-1, :].add(w_near_y * diff_near_y)
-    if ny > 2:
+    if n > 2:
         if scale_2d is None:
-            w_y2 = jnp.ones((ny - 2, nx), dtype=s.dtype)
+            w_y2 = jnp.ones((n - 2, n), dtype=s.dtype)
         else:
             w_y2 = _geom_mean3(scale_2d[:-2, :], scale_2d[1:-1, :], scale_2d[2:, :])
         c_y = s_2d[:-2, :] - 2.0 * s_2d[1:-1, :] + s_2d[2:, :]
@@ -214,14 +214,14 @@ def _weighted_second_order_matvec_jit(
         out_y = out_y.at[:-2, :].add(wc_y)
         out_y = out_y.at[1:-1, :].add(-2.0 * wc_y)
         out_y = out_y.at[2:, :].add(wc_y)
-    if ny > 1:
+    if n > 1:
         out_y = out_y.at[-1, :].add(s_2d[-1, :])
 
-    return (scale_x * out_x + scale_y * out_y).ravel()
+    return (scale_factor * (out_x + out_y)).ravel()
 
 
 @partial(jax.jit, static_argnames=("H", "W", "n_source", "nsub", "agg_n_active",
-                                   "nx", "ny", "reg_type"))
+                                   "n", "reg_type"))
 def _A_matvec_jit(
     s: Array,
     weights: Array,
@@ -235,10 +235,9 @@ def _A_matvec_jit(
     psf_fft: Array,
     psf_fft_conj: Array,
     noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: tuple,          # RegData: (scale, scale_x, scale_y)
+    reg_data: tuple,          # RegData: (scale, scale_factor)
     lambda_reg: Array,
-    nx: int,                  # static: source grid x-dim
-    ny: int,                  # static: source grid y-dim
+    n: int,                   # static: source grid dimension
     reg_type: str,            # static: "zero-order" / "first-order" / "second-order"
 ) -> Array:
     """JIT-compiled A(s) = Mᵀ C⁻¹ M s + λ R s.
@@ -247,8 +246,8 @@ def _A_matvec_jit(
     ``psf_fft_conj`` is ``conj(FFT(PSF))`` for the adjoint convolution Bᵀ.
     ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
     tuple holding the per-pixel adaptive ``scale`` array and physical spacing
-    factors for the edge-weighted finite-difference regularisation.
-    ``nx``, ``ny`` and ``reg_type`` are static grid dimensions / type.
+    factor for the edge-weighted finite-difference regularisation.
+    ``n`` and ``reg_type`` are static grid dimension / type.
     """
     # ---- L(s) ----
     img_lensed = _apply_L_jit(
@@ -275,13 +274,13 @@ def _A_matvec_jit(
     )  # (Ns,)
 
     # ---- + λ R s  (edge-weighted matrix-free Laplacian) ----
-    scale, scale_x, scale_y = reg_data
+    scale, scale_factor = reg_data
     if reg_type == "zero-order":
         reg_term = scale * s if scale is not None else s
     elif reg_type == "first-order":
-        reg_term = _weighted_first_order_matvec_jit(s, scale, scale_x, scale_y, nx, ny)
+        reg_term = _weighted_first_order_matvec_jit(s, scale, scale_factor, n)
     elif reg_type == "second-order":
-        reg_term = _weighted_second_order_matvec_jit(s, scale, scale_x, scale_y, nx, ny)
+        reg_term = _weighted_second_order_matvec_jit(s, scale, scale_factor, n)
     else:
         # Unreachable: reg_type is a static arg validated in __init__ to be
         # one of {zero, first, second}-order.  Kept for type-narrowing.
@@ -335,9 +334,8 @@ class PixelizedLensOperator:
                 f"got {_reg_type!r}. Use the dense backend for GP types."
             )
         self.reg_type = _reg_type
-        self.source_nx = int(source.nx)
-        self.source_ny = int(source.ny)
-        self.n_source_pixels = self.source_nx * self.source_ny
+        self.source_n = int(source.n)
+        self.n_source_pixels = self.source_n * self.source_n
 
         self.n_lens_light = len(phys_model.lens_light)
         self.has_lens_light = self.n_lens_light > 0
@@ -416,8 +414,7 @@ class PixelizedLensOperator:
             n_source=self.n_source_pixels,
             nsub=self.nsub,
             agg_n_active=self._agg_n_active if self.nsub > 1 else 0,
-            nx=self.source_nx,
-            ny=self.source_ny,
+            n=self.source_n,
             reg_type=self.reg_type,
         )
 
@@ -435,7 +432,7 @@ class PixelizedLensOperator:
         return beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed
 
     def _infer_and_fix_bbox(self, beta_x_seed, beta_y_seed):
-        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+        xmin, xmax, ymin, ymax = infer_source_bbox(
             beta_x_seed, beta_y_seed,
             padding=self.sim_config.source_bbox_padding,
             outlier_frac=self.sim_config.source_bbox_outlier_frac,
@@ -480,19 +477,18 @@ class PixelizedLensOperator:
         else:
             beta_x_sub, beta_y_sub, _, _ = self._get_beta_sub_and_seed()
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax,
+            self.source_n, xmin, xmax, ymin, ymax,
         )
         data_mesh = jnp.stack(
             [jnp.ravel(beta_x_sub), jnp.ravel(beta_y_sub)], axis=1
         )
-        weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
+        weights, indices, _ = lens_mapping_operator_bilinear_from(
             data_mesh,
             source_x_axis[0],
             source_x_axis[-1],
             source_y_axis[0],
             source_y_axis[-1],
-            self.source_nx,
-            self.source_ny,
+            self.source_n,
         )
         return LensOperatorData(
             weights=weights,
@@ -682,50 +678,49 @@ class PixelizedLensOperator:
             x=self.image_x_active, y=self.image_y_active
         )
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax,
+            self.source_n, xmin, xmax, ymin, ymax,
         )
         data_mesh = jnp.stack(
             [jnp.ravel(beta_x), jnp.ravel(beta_y)], axis=1
         )
-        weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
+        weights, indices, _ = lens_mapping_operator_bilinear_from(
             data_mesh,
             source_x_axis[0], source_x_axis[-1],
             source_y_axis[0], source_y_axis[-1],
-            self.source_nx, self.source_ny,
+            self.source_n,
         )
         Ns = self.n_source_pixels
-        nx, ny = self.source_nx, self.source_ny
+        n = self.source_n
         w_eff_active = w_eff_full[self.flat_indices]
 
         # ---- Block partitioning ----
-        n_bx = (nx + block_size - 1) // block_size
-        n_by = (ny + block_size - 1) // block_size
+        n_blocks = (n + block_size - 1) // block_size
 
-        # Source pixel → block mapping  (column-major: s = x + y * nx)
-        sx = jnp.arange(Ns) % nx
-        sy = jnp.arange(Ns) // nx
+        # Source pixel → block mapping  (column-major: s = x + y * n)
+        sx = jnp.arange(Ns) % n
+        sy = jnp.arange(Ns) // n
         block_x = sx // block_size
         block_y = sy // block_size
-        block_id = block_x + block_y * n_bx  # (Ns,)
+        block_id = block_x + block_y * n_blocks  # (Ns,)
 
         # Which blocks does each image pixel's bilinear stencil touch?
         bid_per_neighbor = block_id[indices]  # (Nd, 4)
 
         # Dispatch: scan for uniform grids, legacy loop otherwise
-        is_uniform = (nx % block_size == 0) and (ny % block_size == 0)
+        is_uniform = (n % block_size == 0)
         if is_uniform:
             chols, masks = self._build_block_diag_precond_scan(
                 weights, indices, bid_per_neighbor, w_eff_active,
                 lambda_reg, reg_builder, block_size,
                 xmin, xmax, ymin, ymax, scale,
-                n_bx, n_by, nx,
+                n_blocks,
             )
         else:
             chols, masks = self._build_block_diag_precond_legacy(
                 weights, indices, bid_per_neighbor, w_eff_active,
                 lambda_reg, reg_builder, block_size,
                 xmin, xmax, ymin, ymax, scale,
-                n_bx, n_by, nx,
+                n_blocks,
             )
 
         # Stack if uniform
@@ -741,20 +736,20 @@ class PixelizedLensOperator:
         weights, indices, bid_per_neighbor, w_eff_active,
         lambda_reg, reg_builder, block_size,
         xmin, xmax, ymin, ymax, scale,
-        n_bx, n_by, nx,
+        n_blocks,
     ):
         """Legacy Python-loop block-diagonal preconditioner (non-uniform grids)."""
         Ns = self.n_source_pixels
         block_chols = []
         block_masks = []
 
-        for by in range(n_by):
-            for bx in range(n_bx):
-                bid = bx + by * n_bx
+        for by in range(n_blocks):
+            for bx in range(n_blocks):
+                bid = bx + by * n_blocks
                 x_s = bx * block_size
-                x_e = min(x_s + block_size, nx)
+                x_e = min(x_s + block_size, self.source_n)
                 y_s = by * block_size
-                y_e = min(y_s + block_size, self.source_ny)
+                y_e = min(y_s + block_size, self.source_n)
                 block_nx_b = x_e - x_s
                 block_ny_b = y_e - y_s
                 block_n = block_nx_b * block_ny_b
@@ -763,7 +758,7 @@ class PixelizedLensOperator:
                     continue
 
                 bf = jnp.array(
-                    [x + y * nx
+                    [x + y * self.source_n
                      for y in range(y_s, y_e)
                      for x in range(x_s, x_e)],
                     dtype=jnp.int32,
@@ -829,7 +824,7 @@ class PixelizedLensOperator:
         weights, indices, bid_per_neighbor, w_eff_active,
         lambda_reg, reg_builder, block_size,
         xmin, xmax, ymin, ymax, scale,
-        n_bx, n_by, nx,
+        n_blocks,
     ):
         """``lax.scan``-based block-diagonal preconditioner (uniform grids).
 
@@ -841,10 +836,10 @@ class PixelizedLensOperator:
         Ns = self.n_source_pixels
 
         # Precompute scan inputs: (bid, x_s, y_s) for each block
-        bx_arr = jnp.arange(n_bx, dtype=jnp.int32)
-        by_arr = jnp.arange(n_by, dtype=jnp.int32)
+        bx_arr = jnp.arange(n_blocks, dtype=jnp.int32)
+        by_arr = jnp.arange(n_blocks, dtype=jnp.int32)
         bxs, bys = jnp.meshgrid(bx_arr, by_arr, indexing="xy")
-        bids = (bxs + bys * n_bx).ravel().astype(jnp.int32)
+        bids = (bxs + bys * n_blocks).ravel().astype(jnp.int32)
         x_starts = (bxs * bs).ravel().astype(jnp.int32)
         y_starts = (bys * bs).ravel().astype(jnp.int32)
         scan_inputs = jnp.stack([bids, x_starts, y_starts], axis=-1)
@@ -860,7 +855,7 @@ class PixelizedLensOperator:
             y_s = xs[2]
 
             # Flat source indices for this block (column-major, vectorized)
-            bf = (x_s + loc_x_template) + (y_s + loc_y_template) * nx  # (block_n,)
+            bf = (x_s + loc_x_template) + (y_s + loc_y_template) * self.source_n  # (block_n,)
 
             # Affected pixels mask
             affected = jnp.any(bid_per_neighbor == bid, axis=1)  # (Nd,)
@@ -963,7 +958,7 @@ class PixelizedLensOperator:
     def __repr__(self) -> str:
         return (
             f"PixelizedLensOperator(image_shape={self.image_shape}, "
-            f"source_shape=({self.source_ny}, {self.source_nx}), "
+            f"source_shape=({self.source_n}, {self.source_n}), "
             f"n_active={self.n_active})"
         )
 

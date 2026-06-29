@@ -34,8 +34,8 @@ from TinyLensGpu.utils.inversion.regularization import (
 
 @pytest.fixture
 def small_source_grid_shape():
-    """Return a small rectangular source grid shape for regularization tests."""
-    return 5, 5
+    """Return a small source grid dimension for regularization tests."""
+    return 5
 
 
 def assert_valid_regularization_matrix(matrix, n_pixels):
@@ -48,10 +48,10 @@ def assert_valid_regularization_matrix(matrix, n_pixels):
     assert jnp.min(eigenvalues) >= -1e-5
 
 
-def pairwise_source_distances(nx, ny, xmin, xmax, ymin, ymax):
+def pairwise_source_distances(n, xmin, xmax, ymin, ymax):
     """Return pairwise Euclidean distances between source-grid pixels."""
-    x_axis = jnp.linspace(xmin, xmax, nx)
-    y_axis = jnp.linspace(ymin, ymax, ny)
+    x_axis = jnp.linspace(xmin, xmax, n)
+    y_axis = jnp.linspace(ymin, ymax, n)
     source_x_mesh, source_y_mesh = jnp.meshgrid(x_axis, y_axis)
     coordinates = jnp.stack(
         [source_x_mesh.reshape(-1), source_y_mesh.reshape(-1)],
@@ -72,22 +72,22 @@ class TestDenseRegularizationBuilder:
     )
     def test_regularization_matrices_are_valid(self, small_source_grid_shape, regularization_type):
         """Test shape, symmetry, finite values, and PSD stability for all types."""
-        nx, ny = small_source_grid_shape
-        builder = DenseRegularizationBuilder(nx, ny, regularization_type)
+        n = small_source_grid_shape
+        builder = DenseRegularizationBuilder(n, regularization_type)
 
         result, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0, kernel_scale=0.5)
         matrix = result
 
-        assert_valid_regularization_matrix(matrix, nx * ny)
+        assert_valid_regularization_matrix(matrix, n * n)
 
     def test_zero_regularization_is_identity(self, small_source_grid_shape):
         """Test that zero-order regularization defaults to an identity penalty."""
-        nx, ny = small_source_grid_shape
-        builder = DenseRegularizationBuilder(nx, ny, "zero-order")
+        n = small_source_grid_shape
+        builder = DenseRegularizationBuilder(n, "zero-order")
 
         matrix, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)
 
-        assert jnp.allclose(matrix, jnp.eye(nx * ny))
+        assert jnp.allclose(matrix, jnp.eye(n * n))
 
 
 @pytest.mark.unit
@@ -96,8 +96,8 @@ class TestTraditionalRegularizationScaling:
 
     def test_first_order_regularization_scales_with_inverse_spacing_squared(self, small_source_grid_shape):
         """Test first-order matrix scaling when physical grid spacing changes."""
-        nx, ny = small_source_grid_shape
-        builder = DenseRegularizationBuilder(nx, ny, "first-order")
+        n = small_source_grid_shape
+        builder = DenseRegularizationBuilder(n, "first-order")
 
         matrix_half_size_1, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)
         matrix_half_size_2, _ = builder.matrix(-2.0, 2.0, -2.0, 2.0)
@@ -107,8 +107,8 @@ class TestTraditionalRegularizationScaling:
 
     def test_second_order_regularization_scales_with_inverse_spacing_fourth(self, small_source_grid_shape):
         """Test second-order matrix scaling when physical grid spacing changes."""
-        nx, ny = small_source_grid_shape
-        builder = DenseRegularizationBuilder(nx, ny, "second-order")
+        n = small_source_grid_shape
+        builder = DenseRegularizationBuilder(n, "second-order")
 
         matrix_half_size_1, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)
         matrix_half_size_2, _ = builder.matrix(-2.0, 2.0, -2.0, 2.0)
@@ -118,128 +118,21 @@ class TestTraditionalRegularizationScaling:
 
 
 @pytest.mark.unit
-class TestRectangularGridRegularizationScaling:
-    """Test that rectangular (non-square) grids scale x/y axes independently.
 
-    Requirement: first/second-order regularization must divide x-differences
-    by cell_dx and y-differences by cell_dy, allowing cell_dx != cell_dy.
-    """
-
-    @pytest.fixture
-    def asymmetric_grid(self):
-        """Return an asymmetric (nx=5, ny=3) source grid shape."""
-        return 5, 3
-
-    def test_first_order_rectangular_grid_independent_axis_scaling(
-        self, asymmetric_grid
-    ):
-        """First-order H scales independently: factor_x/dx² + factor_y/dy²."""
-        nx, ny = asymmetric_grid
-        builder = DenseRegularizationBuilder(nx, ny, "first-order")
-
-        bbox_a = (-1.0, 1.0, -1.0, 1.0)  # dx=0.5, dy=1.0
-        bbox_b = (-1.0, 1.0, -2.0, 2.0)  # dx=0.5, dy=2.0 (only y stretched)
-
-        matrix_a, _ = builder.matrix(*bbox_a)
-        # y-span doubled → dy doubled → y-contribution ÷ 4, x-contribution unchanged
-        scale_x_a = 2.0 / (bbox_a[1] - bbox_a[0])
-        scale_y_a = 2.0 / (bbox_a[3] - bbox_a[2])
-        scale_x_b = 2.0 / (bbox_b[1] - bbox_b[0])
-        scale_y_b = 2.0 / (bbox_b[3] - bbox_b[2])
-        expected_b = (
-            builder._H1_unit_x * (scale_x_b ** 2)
-            + builder._H1_unit_y * (scale_y_b ** 2)
-        )
-
-        matrix_b, _ = builder.matrix(*bbox_b)
-        assert jnp.allclose(matrix_b, expected_b, rtol=1e-5, atol=1e-5)
-        # Cross-check: x-contribution identical, y-contribution scaled by 1/4
-        assert scale_x_a == scale_x_b
-        assert jnp.allclose(scale_y_b, scale_y_a / 2.0)
-
-    def test_first_order_only_x_stretched(self, asymmetric_grid):
-        """Only x-axis stretched: x contribution ÷4, y contribution unchanged."""
-        nx, ny = asymmetric_grid
-        builder = DenseRegularizationBuilder(nx, ny, "first-order")
-
-        bbox_ref = (-1.0, 1.0, -1.0, 1.0)   # dx=0.5, dy=1.0
-        bbox_x2 = (-2.0, 2.0, -1.0, 1.0)    # dx=1.0, dy=1.0
-
-        matrix_ref, _ = builder.matrix(*bbox_ref)
-        matrix_x2, _ = builder.matrix(*bbox_x2)
-
-        # x-span doubled → dx doubled → x-contribution ÷4; y-contribution same
-        diff = matrix_ref - matrix_x2
-        # x-contribution difference: H1x * (scale_x_ref^2 - scale_x_x2^2)
-        scale_x_ref = 2.0 / (bbox_ref[1] - bbox_ref[0])
-        scale_x_x2 = 2.0 / (bbox_x2[1] - bbox_x2[0])
-        expected_diff = builder._H1_unit_x * (scale_x_ref ** 2 - scale_x_x2 ** 2)
-        assert jnp.allclose(diff, expected_diff, rtol=1e-5, atol=1e-5)
-
-    def test_second_order_rectangular_grid_independent_axis_scaling(
-        self, asymmetric_grid
-    ):
-        """Second-order H scales independently: factor_x/dx⁴ + factor_y/dy⁴."""
-        nx, ny = asymmetric_grid
-        builder = DenseRegularizationBuilder(nx, ny, "second-order")
-
-        bbox_a = (-1.0, 1.0, -1.0, 1.0)  # dx=0.5, dy=1.0
-        bbox_b = (-1.0, 1.0, -2.0, 2.0)  # dx=0.5, dy=2.0
-
-        scale_x_a = 2.0 / (bbox_a[1] - bbox_a[0])
-        scale_y_a = 2.0 / (bbox_a[3] - bbox_a[2])
-        scale_x_b = 2.0 / (bbox_b[1] - bbox_b[0])
-        scale_y_b = 2.0 / (bbox_b[3] - bbox_b[2])
-        expected_b = (
-            builder._H2_unit_x * (scale_x_b ** 4)
-            + builder._H2_unit_y * (scale_y_b ** 4)
-        )
-
-        matrix_b, _ = builder.matrix(*bbox_b)
-        assert jnp.allclose(matrix_b, expected_b, rtol=1e-5, atol=1e-5)
-
-    def test_rectangular_matrices_are_valid(self, asymmetric_grid):
-        """All traditional types yield valid regularization for rectangular grids."""
-        for reg_type in ("zero-order", "first-order", "second-order"):
-            nx, ny = asymmetric_grid
-            builder = DenseRegularizationBuilder(nx, ny, reg_type)
-            bbox = (-0.5, 1.5, -2.0, 2.0)  # dx=0.5, dy=2.0 (dx≠dy)
-            matrix, _ = builder.matrix(*bbox)
-            assert matrix.shape == (nx * ny, nx * ny)
-            assert jnp.all(jnp.isfinite(matrix))
-            assert jnp.allclose(matrix, matrix.T, atol=1e-6)
-            eigenvalues = jnp.linalg.eigvalsh(matrix)
-            assert jnp.min(eigenvalues) >= -1e-5, (
-                f"{reg_type} regularization not PSD for rectangular grid"
-            )
-
-    def test_gp_kernel_handles_rectangular_bounds(self, asymmetric_grid):
-        """GP kernels compute valid precision matrices for rectangular bounds."""
-        nx, ny = asymmetric_grid
-        for reg_type in ("exponential", "gaussian", "matern32"):
-            builder = DenseRegularizationBuilder(nx, ny, reg_type)
-            bbox = (-0.5, 1.5, -2.0, 2.0)  # dx=0.5, dy=2.0
-            matrix, logdet = builder.matrix(*bbox, kernel_scale=0.7)
-            assert jnp.all(jnp.isfinite(matrix))
-            assert jnp.isfinite(logdet)
-            assert jnp.allclose(matrix, matrix.T, atol=1e-6)
-
-
-@pytest.mark.unit
 class TestGaussianProcessRegularization:
     """Test distance-kernel construction for GP-style dense regularization."""
 
     def test_exponential_regularization_uses_distance_kernel(self, small_source_grid_shape):
         """Test exponential kernel returns precision (inverse covariance) matrix."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-1.0, 1.0, -1.0, 1.0)
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, "exponential", jitter=jitter)
+        builder = DenseRegularizationBuilder(n, "exponential", jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
-        covariance = jnp.exp(-distances / kernel_scale) + jitter * jnp.eye(nx * ny)
+        distances = pairwise_source_distances(n, *bbox)
+        covariance = jnp.exp(-distances / kernel_scale) + jitter * jnp.eye(n * n)
         expected = jnp.linalg.inv(covariance)
 
         assert jnp.allclose(matrix, expected, rtol=1e-4, atol=1e-4)
@@ -248,15 +141,15 @@ class TestGaussianProcessRegularization:
 
     def test_gaussian_regularization_uses_distance_kernel(self, small_source_grid_shape):
         """Test Gaussian kernel returns precision (inverse covariance) matrix."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-1.0, 1.0, -1.0, 1.0)
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, "gaussian", jitter=jitter)
+        builder = DenseRegularizationBuilder(n, "gaussian", jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
-        covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(nx * ny)
+        distances = pairwise_source_distances(n, *bbox)
+        covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(n * n)
         expected = jnp.linalg.inv(covariance)
 
         assert jnp.allclose(matrix, expected, rtol=1e-3, atol=1e-3)
@@ -265,14 +158,14 @@ class TestGaussianProcessRegularization:
 
     @pytest.mark.parametrize("reg_type,nu", [("matern32", 1.5), ("matern52", 2.5), ("matern72", 3.5)])
     def test_matern_regularization_uses_distance_kernel(self, small_source_grid_shape, reg_type, nu):
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-1.0, 1.0, -1.0, 1.0)
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, reg_type, jitter=jitter)
+        builder = DenseRegularizationBuilder(n, reg_type, jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
+        distances = pairwise_source_distances(n, *bbox)
         r = distances / kernel_scale
         if nu == 1.5:
             sqrt3_r = jnp.sqrt(3.0) * r
@@ -283,7 +176,7 @@ class TestGaussianProcessRegularization:
         else:
             sqrt7_r = jnp.sqrt(7.0) * r
             covariance = (1.0 + sqrt7_r + 14.0 * r ** 2 / 5.0 + 7.0 * jnp.sqrt(7.0) * r ** 3 / 15.0) * jnp.exp(-sqrt7_r)
-        stabilized = covariance + jitter * jnp.eye(nx * ny)
+        stabilized = covariance + jitter * jnp.eye(n * n)
         expected = jnp.linalg.inv(stabilized)
 
         assert jnp.allclose(matrix, expected, rtol=1e-4, atol=1e-4)
@@ -302,9 +195,9 @@ class TestSlogdetMatchesAnalyticalForSquareGrid:
 
     def test_slogdet_first_order_matches_analytical(self, small_source_grid_shape):
         """slogdet(H) == logdet(H_unit) + n_s * (-2) * log(h) for first-order."""
-        nx, ny = small_source_grid_shape
-        n_s = nx * ny
-        builder = DenseRegularizationBuilder(nx, ny, "first-order")
+        n = small_source_grid_shape
+        n_s = n * n
+        builder = DenseRegularizationBuilder(n, "first-order")
 
         # --- analytical reference ---
         H_unit, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)  # h=1, scale=1
@@ -324,9 +217,9 @@ class TestSlogdetMatchesAnalyticalForSquareGrid:
 
     def test_slogdet_second_order_matches_analytical(self, small_source_grid_shape):
         """slogdet(H) == logdet(H_unit) + n_s * (-4) * log(h) for second-order."""
-        nx, ny = small_source_grid_shape
-        n_s = nx * ny
-        builder = DenseRegularizationBuilder(nx, ny, "second-order")
+        n = small_source_grid_shape
+        n_s = n * n
+        builder = DenseRegularizationBuilder(n, "second-order")
 
         # --- analytical reference ---
         H_unit, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)  # h=1
@@ -346,8 +239,8 @@ class TestSlogdetMatchesAnalyticalForSquareGrid:
 
     def test_slogdet_zero_order_is_zero(self, small_source_grid_shape):
         """slogdet(identity) == 0 regardless of bbox."""
-        nx, ny = small_source_grid_shape
-        builder = DenseRegularizationBuilder(nx, ny, "zero-order")
+        n = small_source_grid_shape
+        builder = DenseRegularizationBuilder(n, "zero-order")
 
         for bbox in [(-1.0, 1.0, -1.0, 1.0), (-2.0, 2.0, -0.5, 0.5)]:
             H, _ = builder.matrix(*bbox)
@@ -359,60 +252,60 @@ class TestSlogdetMatchesAnalyticalForSquareGrid:
 
 
 @pytest.mark.unit
-class TestGpKernelLogdetRectangular:
-    """GP kernel logdet_cov validation for rectangular (non-square) bounds."""
+class TestGpKernelLogdetNonSquareBbox:
+    """GP kernel logdet_cov validation for non-square bboxes on square grids."""
 
-    def test_exponential_logdet_rectangular(self, small_source_grid_shape):
+    def test_exponential_logdet_non_square_bbox(self, small_source_grid_shape):
         """Exponential kernel logdet matches slogdet on independently built covariance."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-0.5, 1.5, -2.0, 2.0)  # dx≠dy, offset from origin
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, "exponential", jitter=jitter)
+        builder = DenseRegularizationBuilder(n, "exponential", jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
-        covariance = jnp.exp(-distances / kernel_scale) + jitter * jnp.eye(nx * ny)
+        distances = pairwise_source_distances(n, *bbox)
+        covariance = jnp.exp(-distances / kernel_scale) + jitter * jnp.eye(n * n)
         _, expected_logdet = jnp.linalg.slogdet(covariance)
 
         assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-4), (
-            f"Exponential logdet_cov mismatch for rectangular bbox"
+            f"Exponential logdet_cov mismatch for non-square bbox"
         )
 
-    def test_gaussian_logdet_rectangular(self, small_source_grid_shape):
+    def test_gaussian_logdet_non_square_bbox(self, small_source_grid_shape):
         """Gaussian kernel logdet matches slogdet on independently built covariance."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-0.5, 1.5, -2.0, 2.0)
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, "gaussian", jitter=jitter)
+        builder = DenseRegularizationBuilder(n, "gaussian", jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
-        covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(nx * ny)
+        distances = pairwise_source_distances(n, *bbox)
+        covariance = jnp.exp(-0.5 * (distances / kernel_scale) ** 2) + jitter * jnp.eye(n * n)
         _, expected_logdet = jnp.linalg.slogdet(covariance)
 
         assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-3), (
-            f"Gaussian logdet_cov mismatch for rectangular bbox"
+            f"Gaussian logdet_cov mismatch for non-square bbox"
         )
 
-    def test_matern32_logdet_rectangular(self, small_source_grid_shape):
+    def test_matern32_logdet_non_square_bbox(self, small_source_grid_shape):
         """Matern-3/2 kernel logdet matches slogdet on independently built covariance."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
         bbox = (-0.5, 1.5, -2.0, 2.0)
         kernel_scale = 0.7
         jitter = 1e-6
-        builder = DenseRegularizationBuilder(nx, ny, "matern32", jitter=jitter)
+        builder = DenseRegularizationBuilder(n, "matern32", jitter=jitter)
 
         matrix, logdet_cov = builder.matrix(*bbox, kernel_scale=kernel_scale)
-        distances = pairwise_source_distances(nx, ny, *bbox)
+        distances = pairwise_source_distances(n, *bbox)
         r = distances / kernel_scale
         sqrt3_r = jnp.sqrt(3.0) * r
-        covariance = (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r) + jitter * jnp.eye(nx * ny)
+        covariance = (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r) + jitter * jnp.eye(n * n)
         _, expected_logdet = jnp.linalg.slogdet(covariance)
 
         assert jnp.allclose(logdet_cov, expected_logdet, atol=1e-4), (
-            f"Matern32 logdet_cov mismatch for rectangular bbox"
+            f"Matern32 logdet_cov mismatch for non-square bbox"
         )
 
 
@@ -422,10 +315,10 @@ class TestDenseRegularizationBuilderValidation:
 
     def test_invalid_regularization_type_raises_value_error(self, small_source_grid_shape):
         """Test that unsupported regularization types fail with ValueError."""
-        nx, ny = small_source_grid_shape
+        n = small_source_grid_shape
 
         with pytest.raises(ValueError):
-            DenseRegularizationBuilder(nx, ny, "unsupported")
+            DenseRegularizationBuilder(n, "unsupported")
 
 
 @pytest.mark.unit
@@ -436,25 +329,25 @@ class TestAdaptiveRegUtilities:
 
     def test_smooth_sigma_default(self):
         """Default sigma=1 produces kernel size 5 like legacy."""
-        builder = DenseRegularizationBuilder(10, 10, "second-order")
+        builder = DenseRegularizationBuilder(10, "second-order")
         q = jnp.ones(100, dtype=jnp.float32)
-        q_sm = builder.smooth_scale_map(q, 10, 10, sigma=1.0)
+        q_sm = builder.smooth_scale_map(q, 10, sigma=1.0)
         assert q_sm.shape == (100,)
         assert jnp.all(jnp.isfinite(q_sm))
 
     def test_smooth_sigma_large_adapts_kernel(self):
         """sigma=3 produces kernel size > 5 to avoid truncation."""
-        builder = DenseRegularizationBuilder(10, 10, "second-order")
+        builder = DenseRegularizationBuilder(10, "second-order")
         q = jnp.ones(100, dtype=jnp.float32)
-        q_sm = builder.smooth_scale_map(q, 10, 10, sigma=3.0)
+        q_sm = builder.smooth_scale_map(q, 10, sigma=3.0)
         assert q_sm.shape == (100,)
         assert jnp.all(jnp.isfinite(q_sm))
 
     def test_smooth_preserves_interior(self):
         """Gaussian smoothing preserves uniform values in interior (away from boundaries)."""
-        builder = DenseRegularizationBuilder(20, 20, "second-order")
+        builder = DenseRegularizationBuilder(20, "second-order")
         q = jnp.ones(400, dtype=jnp.float32) * 5.0
-        q_sm = builder.smooth_scale_map(q, 20, 20, sigma=1.0)
+        q_sm = builder.smooth_scale_map(q, 20, sigma=1.0)
         # Interior pixels (central 10×10) should be unaffected by boundaries
         q_2d = q_sm.reshape(20, 20)
         interior = q_2d[5:15, 5:15]
@@ -534,13 +427,13 @@ class TestAdaptiveRegUtilities:
     @pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
     def test_scale_preserves_psd(self, reg_type):
         """Regularisation matrix with non-uniform scale remains PSD."""
-        nx, ny = 8, 8
-        builder = DenseRegularizationBuilder(nx, ny, reg_type)
+        n = 8
+        builder = DenseRegularizationBuilder(n, reg_type)
         bbox = (-1.0, 1.0, -1.0, 1.0)
 
         # Non-uniform scale: alternating bright/dark rows
-        scale = jnp.ones(nx * ny, dtype=jnp.float32)
-        scale = scale.at[ny//2 * nx:].set(0.3)  # bottom half "bright"
+        scale = jnp.ones(n * n, dtype=jnp.float32)
+        scale = scale.at[n//2 * n:].set(0.3)  # bottom half "bright"
 
         matrix, _ = builder.matrix(*bbox, scale=scale)
         eigenvalues = jnp.linalg.eigvalsh(matrix)
@@ -564,25 +457,24 @@ def _static_sie():
     return sie
 
 
-def _adaptive_source(nx=5, ny=5, *, alpha=1.0, floor=0.1,
+def _adaptive_source(n=5, *, alpha=1.0, floor=0.1,
                      reg_type="first-order"):
     log_lambda = ParamU(
         "log_lambda_reg", 0.0, prior_type="uniform",
         prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
     )
     log_lambda.to_dynamic()
-    return PixelizedSourceModel(
-        nx=nx, ny=ny, log_lambda_reg=log_lambda,
+    return PixelizedSourceModel(n=n, log_lambda_reg=log_lambda,
         regularization_type=reg_type,
         adaptive_reg_alpha=alpha, adaptive_reg_floor=floor,
     )
 
 
-def _dense_prob(nx=5, ny=5, *, alpha=1.0, floor=0.1,
+def _dense_prob(n=5, *, alpha=1.0, floor=0.1,
                 image_data=None, noise_map=None, source_seed_mask=None,
                 reg_type="first-order"):
     source = _adaptive_source(
-        nx, ny, alpha=alpha, floor=floor, reg_type=reg_type,
+        n, alpha=alpha, floor=floor, reg_type=reg_type,
     )
     phys = PhysicalModel(
         lens_mass=[_static_sie()], source_light=[source], lens_light=[],
@@ -595,12 +487,12 @@ def _dense_prob(nx=5, ny=5, *, alpha=1.0, floor=0.1,
     )
 
 
-def _operator_prob(nx=5, ny=5, *, alpha=1.0, floor=0.1,
+def _operator_prob(n=5, *, alpha=1.0, floor=0.1,
                    image_data=None, noise_map=None, source_seed_mask=None,
                    reg_type="first-order", fixed_source_bbox=None,
                    fixed_reg_scale=None):
     source = _adaptive_source(
-        nx, ny, alpha=alpha, floor=floor, reg_type=reg_type,
+        n, alpha=alpha, floor=floor, reg_type=reg_type,
     )
     phys = PhysicalModel(
         lens_mass=[_static_sie()], source_light=[source], lens_light=[],
@@ -625,7 +517,7 @@ class TestSourceTemplateScaleMap:
             [0.0, 4.0, 0.0],
             [0.0, 1.0, 0.0],
         ])
-        scale = source_template_scale_map(source, 3, 3, alpha=2.0, floor=0.1)
+        scale = source_template_scale_map(source, 3, alpha=2.0, floor=0.1)
         assert scale is not None
         center = 1 * 3 + 1
         fainter = 2 * 3 + 1
@@ -635,7 +527,7 @@ class TestSourceTemplateScaleMap:
 
     def test_negative_source_pixels_are_clipped(self):
         source = jnp.array([-5.0, 0.0, 2.0, 0.0])
-        scale = source_template_scale_map(source, 2, 2, alpha=1.0, floor=0.2)
+        scale = source_template_scale_map(source, 2, alpha=1.0, floor=0.2)
         assert scale is not None
         assert jnp.all(jnp.isfinite(scale))
         assert jnp.all(scale > 0.0)
@@ -644,7 +536,7 @@ class TestSourceTemplateScaleMap:
 
     def test_all_dark_template_is_finite_and_uniform(self):
         scale = source_template_scale_map(
-            jnp.zeros((2, 2)), 2, 2, alpha=1.0, floor=0.1,
+            jnp.zeros((2, 2)), 2, alpha=1.0, floor=0.1,
         )
         assert scale is not None
         assert jnp.all(jnp.isfinite(scale))
@@ -652,7 +544,7 @@ class TestSourceTemplateScaleMap:
 
     def test_alpha_zero_uses_uniform_fast_path(self):
         scale = source_template_scale_map(
-            jnp.ones((2, 2)), 2, 2, alpha=0.0, floor=0.1,
+            jnp.ones((2, 2)), 2, alpha=0.0, floor=0.1,
         )
         assert scale is None
 
@@ -660,7 +552,7 @@ class TestSourceTemplateScaleMap:
         source = jnp.array([0.0, 1.0, 3.0, 0.0])
 
         def build(alpha, floor):
-            return source_template_scale_map(source, 2, 2, alpha=alpha, floor=floor)
+            return source_template_scale_map(source, 2, alpha=alpha, floor=floor)
 
         scale_low = jax.jit(build)(jnp.asarray(0.5), jnp.asarray(0.2))
         scale_high = jax.jit(build)(jnp.asarray(3.0), jnp.asarray(0.05))
@@ -678,7 +570,7 @@ class TestSourceTemplateScaleMap:
         @jax.jit
         def build(alpha):
             return source_template_scale_map(
-                source, 2, 2, alpha=alpha, floor=jnp.asarray(0.1),
+                source, 2, alpha=alpha, floor=jnp.asarray(0.1),
             )
 
         scale = build(jnp.asarray(0.0))
@@ -686,19 +578,19 @@ class TestSourceTemplateScaleMap:
 
     def test_accepts_flat_or_2d_source_templates(self):
         source_2d = jnp.array([[0.0, 1.0], [2.0, 3.0]])
-        scale_2d = source_template_scale_map(source_2d, 2, 2, alpha=1.0, floor=0.1)
+        scale_2d = source_template_scale_map(source_2d, 2, alpha=1.0, floor=0.1)
         scale_1d = source_template_scale_map(
-            source_2d.ravel(), 2, 2, alpha=1.0, floor=0.1,
+            source_2d.ravel(), 2, alpha=1.0, floor=0.1,
         )
         np.testing.assert_allclose(np.asarray(scale_2d), np.asarray(scale_1d))
 
     def test_rejects_wrong_template_shape(self):
         with pytest.raises(ValueError, match="source_pixels must have shape"):
-            source_template_scale_map(jnp.ones((3, 3)), 2, 2, alpha=1.0, floor=0.1)
+            source_template_scale_map(jnp.ones((3, 2)), 3, alpha=1.0, floor=0.1)
 
     def test_rejects_invalid_static_floor(self):
         with pytest.raises(ValueError, match="floor must be in"):
-            source_template_scale_map(jnp.ones((2, 2)), 2, 2, alpha=1.0, floor=0.0)
+            source_template_scale_map(jnp.ones((2, 2)), 2, alpha=1.0, floor=0.0)
 
 
 @pytest.mark.unit
@@ -715,20 +607,17 @@ class TestRetiredAdaptiveRegPath:
     )
     def test_source_model_rejects_retired_kwargs(self, kwarg):
         with pytest.raises(TypeError):
-            PixelizedSourceModel(
-                nx=5,
-                ny=5,
-                log_lambda_reg=0.0,
+            PixelizedSourceModel(n=5, log_lambda_reg=0.0,
                 regularization_type="first-order",
                 **kwarg,
             )
 
     def test_dense_backend_rejects_adaptive_reg(self):
         with pytest.raises(ValueError, match="no longer supports"):
-            _dense_prob(nx=5, ny=5, alpha=1.0)
+            _dense_prob(n=5, alpha=1.0)
 
     def test_dense_backend_has_no_freeze_api(self):
-        model = _dense_prob(nx=5, ny=5, alpha=0.0)
+        model = _dense_prob(n=5, alpha=0.0)
         assert not hasattr(model, "freeze_scale")
         assert not hasattr(model, "unfreeze_scale")
 
@@ -748,7 +637,7 @@ class TestAdaptiveRegIntegration:
             prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
         )
         log_lambda.to_dynamic()
-        source = PixelizedSourceModel(nx=5, ny=5, log_lambda_reg=log_lambda)
+        source = PixelizedSourceModel(n=5, log_lambda_reg=log_lambda)
         phys = PhysicalModel(
             lens_mass=[sie], source_light=[source], lens_light=[],
         )
@@ -766,7 +655,7 @@ class TestAdaptiveRegIntegration:
         """Dense backend remains finite for uniform pixelized regularization."""
         mock, noise = self._mock_image()
         model = _dense_prob(
-            nx=5, ny=5, alpha=0.0, floor=0.1,
+            n=5, alpha=0.0, floor=0.1,
             image_data=mock, noise_map=noise,
         )
         log_ev = model()
@@ -777,9 +666,9 @@ class TestAdaptiveRegIntegration:
         """Operator backend: fixed S0-derived scale yields finite evidence."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, 5, alpha=1.0, floor=0.1)
+        fixed_scale = source_template_scale_map(s0, 5, alpha=1.0, floor=0.1)
         model = _operator_prob(
-            nx=5, ny=5, alpha=1.0, floor=0.1,
+            n=5, alpha=1.0, floor=0.1,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
             fixed_reg_scale=fixed_scale,
@@ -792,9 +681,9 @@ class TestAdaptiveRegIntegration:
         """Repeated operator calls reuse the same fixed S0 scale and bbox."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, 5, alpha=1.0, floor=0.1)
+        fixed_scale = source_template_scale_map(s0, 5, alpha=1.0, floor=0.1)
         model = _operator_prob(
-            nx=5, ny=5, alpha=1.0, floor=0.1,
+            n=5, alpha=1.0, floor=0.1,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
             fixed_reg_scale=fixed_scale,

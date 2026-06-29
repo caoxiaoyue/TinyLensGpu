@@ -45,8 +45,7 @@ print("-" * 75)
 results = []
 
 for LAMBDA in LAMBDA_LIST:
-    pix_src = PixelizedSourceModel(
-        nx=40, ny=40,
+    pix_src = PixelizedSourceModel(n=40,
         regularization_type="first-order",
         log_lambda_reg=jnp.log(LAMBDA),
     )

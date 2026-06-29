@@ -1,46 +1,70 @@
 ## Purpose
 
-Define the square-grid contract for public pixelized source reconstruction.
-Pixelized source models use square `N x N` source arrays and square source-plane
-bboxes, while lower-level rectangular utilities may remain available for
-internal compatibility and tests.
+Define the square-grid contract for pixelized source reconstruction. The entire
+pixelized-source stack — source model, mapping utilities, regularization
+builders, forward simulators, and observation models — uses a single grid
+dimension ``n`` (``n x n`` square grid).  All rectangular-grid support has been
+removed.
 
 ## Requirements
 
-### Requirement: Pixelized source shape is square
+### Requirement: Single grid-dimension parameter for pixelized source model
 
-The system SHALL require public pixelized source models to use equal source-grid dimensions.
+`PixelizedSourceModel` SHALL accept a single positional integer `n` specifying both source-grid dimensions. The model SHALL expose `self.n` as the grid dimension. The previous `nx` and `ny` parameters SHALL be removed. Construction SHALL fail when ``n < 2``.
 
-`PixelizedSourceModel(nx: int, ny: int, ...)` SHALL accept construction only when `int(nx) == int(ny)`. The model SHALL preserve the existing `nx` and `ny` attributes for compatibility, and both attributes SHALL contain the validated square dimension.
+#### Scenario: Square source model constructed with n
 
-#### Scenario: Square source shape is accepted
-
-- **WHEN** a caller constructs `PixelizedSourceModel(nx=40, ny=40)`
+- **WHEN** a caller constructs `PixelizedSourceModel(n=40)`
 - **THEN** construction SHALL succeed
-- **THEN** the model SHALL expose `nx == 40` and `ny == 40`
+- **THEN** the model SHALL expose `n == 40`
 
-#### Scenario: Rectangular source shape is rejected
+#### Scenario: Invalid n is rejected
 
-- **WHEN** a caller constructs `PixelizedSourceModel(nx=40, ny=50)`
-- **THEN** construction SHALL fail with a clear error explaining that pixelized source grids must be square
+- **WHEN** a caller constructs `PixelizedSourceModel(n=0)` or `PixelizedSourceModel(n=-5)`
+- **THEN** construction SHALL fail with a clear error
 
-### Requirement: Pixelized bbox inference returns square source-plane bounds
+#### Scenario: Non-integer n is coerced
 
-The system SHALL infer square source-plane bboxes for public pixelized source likelihood paths.
+- **WHEN** a caller constructs `PixelizedSourceModel(n=40.7)`
+- **THEN** construction SHALL succeed with `n == 40`
 
-The square bbox behavior SHALL first compute finite x/y bounds using the existing outlier trimming, padding, and minimum-span rules, then expand the shorter span around its center so that `xmax - xmin == ymax - ymin`. The helper API SHALL be JAX-compatible and equivalent to one of:
+### Requirement: Single grid-dimension parameter for regularization builder
 
-```python
-infer_source_bbox(beta_x, beta_y, padding=..., outlier_frac=..., square=True)
-```
+`DenseRegularizationBuilder` SHALL accept a single integer `n` specifying the source-grid dimension. All internal methods SHALL use a single physical `scale_factor` instead of separate `scale_x`/`scale_y`.
 
-or:
+`RegData` SHALL carry `(scale: Array | None, scale_factor: Array)` where `scale_factor` is a scalar JAX array encoding the grid-spacing factor (`1/dx^2` for first-order, `1/dx^4` for second-order, `1.0` for zero-order).
 
-```python
-infer_square_source_bbox(beta_x, beta_y, padding=..., outlier_frac=...)
-```
+#### Scenario: Regularization builder constructed with n
 
-The returned values SHALL be scalar arrays or scalars compatible with downstream JAX source-grid construction.
+- **WHEN** a caller constructs `DenseRegularizationBuilder(n=40, regularization_type="second-order")`
+- **THEN** construction SHALL succeed
+- **THEN** `make_reg_data()` SHALL return `RegData` with a single `scale_factor`
+
+#### Scenario: Regularization matvec uses single scale_factor
+
+- **WHEN** `matvec_free(s, xmin, xmax, ymin, ymax)` is called on a square grid with square bbox
+- **THEN** the result SHALL be mathematically equivalent to the dense matrix-vector product
+- **THEN** `scale_factor * (out_x + out_y)` SHALL replace the old `scale_x * out_x + scale_y * out_y`
+
+### Requirement: Mapping utilities use single grid dimension
+
+`build_source_grid` SHALL accept a single integer `n` and produce a square `(n, n)` meshgrid.
+
+`lens_mapping_operator_bilinear_rectangular_from` SHALL be renamed to `lens_mapping_operator_bilinear_from` and SHALL accept a single `n` parameter instead of `(nx, ny)`.
+
+`infer_source_bbox` SHALL always return square bounds without requiring a `square` parameter. The separate `infer_square_source_bbox` function SHALL be removed.
+
+#### Scenario: build_source_grid produces square grid
+
+- **WHEN** a caller invokes `build_source_grid(n=5, xmin=-1.0, xmax=1.0, ymin=-2.0, ymax=2.0)`
+- **THEN** the returned x_axis SHALL have length 5 spanning [-1.0, 1.0]
+- **THEN** the returned y_axis SHALL have length 5 spanning [-2.0, 2.0]
+- **THEN** the returned mesh SHALL have shape (5, 5)
+
+#### Scenario: lens_mapping_operator_bilinear_from produces valid weights
+
+- **WHEN** `lens_mapping_operator_bilinear_from(data_mesh_beta, x_min, x_max, y_min, y_max, n=5)` is called
+- **THEN** it SHALL produce bilinear interpolation weights and indices identical to the old `lens_mapping_operator_bilinear_rectangular_from` with `nx=ny=5`
 
 #### Scenario: Asymmetric beta extent expands shorter side
 
@@ -58,9 +82,34 @@ The returned values SHALL be scalar arrays or scalars compatible with downstream
 - **WHEN** all beta coordinates collapse to a single point
 - **THEN** the inferred square bbox SHALL have positive equal x/y spans
 
+### Requirement: Forward simulators use single source dimension
+
+`PixelizedLensSimulator` and `PixelizedLensOperator` SHALL expose a single `source_n` attribute. Internal references to `source_nx`/`source_ny` SHALL be replaced. The number of source pixels SHALL be `source_n * source_n`.
+
+#### Scenario: Dense simulator source_n
+
+- **WHEN** `PixelizedLensSimulator` is constructed with a `PixelizedSourceModel(n=40)`
+- **THEN** `sim.source_n` SHALL be 40
+- **THEN** `sim.n_source_pixels` SHALL be 1600
+
+#### Scenario: Operator simulator source_n
+
+- **WHEN** `PixelizedLensOperator` is constructed with a `PixelizedSourceModel(n=40)`
+- **THEN** `sim.source_n` SHALL be 40
+- **THEN** `sim.n_source_pixels` SHALL be 1600
+
+### Requirement: Observation models use single source dimension
+
+`PixelizedImageProbModel` and `PixelizedImageProbModelOperator` SHALL derive a single `source_n` from their source model. `DenseRegularizationBuilder` construction SHALL use `DenseRegularizationBuilder(n)`.
+
+#### Scenario: Operator prob model with source_n
+
+- **WHEN** `PixelizedImageProbModelOperator` is constructed with a `PixelizedSourceModel(n=30)`
+- **THEN** `reg_builder.n` SHALL be 30
+
 ### Requirement: Dense and operator pixelized likelihoods use square bboxes
 
-The dense and operator pixelized image probability models SHALL use square source-plane bboxes whenever they infer source grids internally.
+The dense and operator pixelized image probability models SHALL use square source-plane bboxes whenever they infer source grids internally. They SHALL call `infer_source_bbox` (always square) instead of the removed `infer_square_source_bbox`.
 
 This applies to source-grid construction for dense design matrices, matrix-free operator precomputation, source reconstruction returned by `forward_model(return_source=True)`, and evidence evaluation. The implementation SHALL keep bbox arithmetic JAX-compatible and SHALL NOT add per-pixel work beyond the existing mapping and regularization operations.
 
@@ -105,15 +154,3 @@ An S0 package SHALL contain source pixels compatible with `(N * N,)`, grid metad
 
 - **WHEN** a saved S0 package has `nx != ny` or a non-square `source_bbox`
 - **THEN** the pipeline SHALL fail with a clear validation error requiring regeneration under square source-grid rules
-
-### Requirement: Rectangular helpers remain internal-compatible
-
-The system MAY retain lower-level rectangular mapping and regularization helpers for internal tests and compatibility, but public pixelized source reconstruction paths SHALL NOT use them to expose rectangular source grids.
-
-Existing helper APIs that accept `nx` and `ny` SHALL continue to document their accepted shapes if they remain public utility exports. Their presence SHALL NOT weaken the square-grid contract for `PixelizedSourceModel`, dense pixelized likelihoods, or operator pixelized likelihoods.
-
-#### Scenario: Low-level rectangular regularization test remains valid
-
-- **WHEN** a low-level test constructs a `DenseRegularizationBuilder` with `nx != ny`
-- **THEN** the helper MAY continue to produce a valid matrix or operator for that rectangular shape
-- **THEN** this SHALL NOT imply that `PixelizedSourceModel(nx != ny)` is accepted

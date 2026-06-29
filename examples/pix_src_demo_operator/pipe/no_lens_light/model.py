@@ -67,8 +67,8 @@ import caskade as ck
 import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
-NSRCX = 80
-NSRCY = 80
+NSRC = 80
+NSRC = 80
 DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4
@@ -483,9 +483,7 @@ def build_stage_m1_likelihood(
     )
     log_lam.to_dynamic()
 
-    pix_src = PixelizedSourceModel(
-        nx=NSRCX,
-        ny=NSRCY,
+    pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
     )
@@ -664,7 +662,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         )
 
         # N_eff = Ns - λ Tr(P⁻¹ R)  via block-diagonal preconditioner
-        nx_s, ny_s = likelihood.sim_obj.source_nx, likelihood.sim_obj.source_ny
+        nx_s, ny_s = likelihood.sim_obj.source_n, likelihood.sim_obj.source_n
         bs = likelihood.block_size
         n_bx = (nx_s + bs - 1) // bs
         n_by = (ny_s + bs - 1) // bs
@@ -710,8 +708,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     dof  = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].nx
-    ny = likelihood.phys_model.source_light[0].ny
+    nx = likelihood.phys_model.source_light[0].n
+    ny = likelihood.phys_model.source_light[0].n
     src_img = np.array(source_pixels).reshape(ny, nx)
 
     npix = image_data.shape[0]
@@ -783,9 +781,7 @@ def build_stage_m2_likelihood(
     log_lam = ParamU("log_lambda_reg", float(log_lambda_fixed))
     log_lam.to_static()
 
-    pix_src = PixelizedSourceModel(
-        nx=NSRCX,
-        ny=NSRCY,
+    pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
     )

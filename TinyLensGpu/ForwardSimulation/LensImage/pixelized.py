@@ -14,7 +14,7 @@ from ...PhysicalModel.LensImage.Pixelized.Light import is_pixelized_source_model
 from ...utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
-    infer_square_source_bbox,
+    infer_source_bbox,
 )
 from .config import SimulatorConfig
 from .parametric import bin_image_general
@@ -75,9 +75,8 @@ class PixelizedLensSimulator:
 
         source = phys_model.source_light[0]
         self.source_model = source
-        self.source_nx = int(source.nx)
-        self.source_ny = int(source.ny)
-        self.n_source_pixels = self.source_nx * self.source_ny
+        self.source_n = int(source.n)
+        self.n_source_pixels = self.source_n * self.source_n
 
         # Lens light
         self.n_lens_light = len(phys_model.lens_light)
@@ -184,7 +183,7 @@ class PixelizedLensSimulator:
             if outlier_frac is None
             else outlier_frac
         )
-        return infer_square_source_bbox(
+        return infer_source_bbox(
             beta_x, beta_y, padding=pad, outlier_frac=frac
         )
 
@@ -223,7 +222,7 @@ class PixelizedLensSimulator:
             ymax = jax.lax.stop_gradient(ymax)
 
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax
+            self.source_n, xmin, xmax, ymin, ymax
         )
         return build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
 
@@ -341,7 +340,7 @@ class PixelizedLensSimulator:
             ymax = jax.lax.stop_gradient(ymax)
 
         source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.source_nx, self.source_ny, xmin, xmax, ymin, ymax
+            self.source_n, xmin, xmax, ymin, ymax
         )
         mapping_matrix_sub = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
 
@@ -500,7 +499,7 @@ class PixelizedLensSimulator:
 
     def __repr__(self) -> str:
         return (f"PixelizedLensSimulator(image_shape={self.image_shape}, "
-                f"source_shape=({self.source_ny}, {self.source_nx}), "
+                f"source_shape=({self.source_n}, {self.source_n}), "
                 f"n_active={int(self.flat_indices.shape[0])}, "
                 f"n_lens_light={self.n_lens_light})")
 

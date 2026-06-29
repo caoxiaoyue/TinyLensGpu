@@ -57,9 +57,7 @@ def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0, adaptive_reg_floor=0.1)
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
     lam.to_dynamic()
-    return PixelizedSourceModel(
-        nx=5,
-        ny=5,
+    return PixelizedSourceModel(n=5,
         log_lambda_reg=lam,
         regularization_type="first-order",
         adaptive_reg_alpha=adaptive_reg_alpha,
@@ -82,9 +80,7 @@ def _pix_src_dynamic_adaptive():
                    limits=[1.0e-3, 1.0])
     for p in (lam, alpha, floor):
         p.to_dynamic()
-    return PixelizedSourceModel(
-        nx=5,
-        ny=5,
+    return PixelizedSourceModel(n=5,
         log_lambda_reg=lam,
         regularization_type="first-order",
         adaptive_reg_alpha=alpha,
@@ -96,13 +92,13 @@ def _fixed_bbox():
     return (-0.3, 0.3, -0.3, 0.3)
 
 
-def _fixed_scale(nx=5, ny=5, alpha=1.0, floor=0.1):
-    s0 = jnp.abs(jnp.linspace(-1.0, 1.0, nx * ny))
-    return source_template_scale_map(s0, nx, ny, alpha=alpha, floor=floor)
+def _fixed_scale(n=5, alpha=1.0, floor=0.1):
+    s0 = jnp.abs(jnp.linspace(-1.0, 1.0, n * n))
+    return source_template_scale_map(s0, n, alpha=alpha, floor=floor)
 
 
-def _fixed_template(nx=5, ny=5):
-    return jnp.abs(jnp.linspace(-1.0, 1.0, nx * ny))
+def _fixed_template(n=5):
+    return jnp.abs(jnp.linspace(-1.0, 1.0, n * n))
 
 
 def _phys_model(source=None):
@@ -160,12 +156,11 @@ def test_operator_infers_square_source_bbox_for_asymmetric_betas():
 # PCG solver tests
 # ------------------------------------------------------------------
 
-# Minimal 3-tuple RegData placeholder for PCG tests that bypass regularisation
+# Minimal RegData placeholder for PCG tests that bypass regularisation
 # via a custom _simple_A.  Not consumed by the real _A_matvec_jit path.
 _DUMMY_REG_DATA = (
     jnp.ones(1, dtype=jnp.float32),     # scale
-    jnp.array(1.0, dtype=jnp.float32),  # scale_x
-    jnp.array(1.0, dtype=jnp.float32),  # scale_y
+    jnp.array(1.0, dtype=jnp.float32),  # scale_factor
 )
 
 
@@ -296,7 +291,7 @@ def test_A_matvec_matches_explicit():
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
 
-    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    builder = DenseRegularizationBuilder(5, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
     reg_dense, _ = builder.matrix(xmif, xmaf, ymif, ymaf)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
@@ -348,7 +343,7 @@ def test_preconditioner_is_spd():
 
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
-    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    builder = DenseRegularizationBuilder(5, "first-order")
 
     block_chols, block_masks = sim_op.build_block_diag_preconditioner(
         n_1d, xmi, xma, ymi, yma, lam, builder, block_size=3,
@@ -380,7 +375,7 @@ def test_preconditioner_stacks_equal_sized_blocks():
 
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
-    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    builder = DenseRegularizationBuilder(5, "first-order")
 
     block_chols, block_masks = sim_op.build_block_diag_preconditioner(
         n_1d, xmi, xma, ymi, yma, lam, builder, block_size=5,
@@ -621,9 +616,7 @@ def test_operator_zero_order_adaptive_reg_jit_scan_path():
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
     lam.to_dynamic()
-    source = PixelizedSourceModel(
-        nx=8,
-        ny=8,
+    source = PixelizedSourceModel(n=8,
         log_lambda_reg=lam,
         regularization_type="zero-order",
         adaptive_reg_alpha=1.0,
@@ -639,7 +632,7 @@ def test_operator_zero_order_adaptive_reg_jit_scan_path():
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
         block_size=4,
         fixed_source_bbox=_fixed_bbox(),
-        fixed_reg_scale=_fixed_scale(nx=8, ny=8),
+        fixed_reg_scale=_fixed_scale(n=8),
     )
     loglike = make_likelihood(prob_op, vectorized=True)
     values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
@@ -845,7 +838,7 @@ def test_nonsymmetric_psf_A_matvec_matches_explicit():
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
 
-    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    builder = DenseRegularizationBuilder(5, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
     reg_dense, _ = builder.matrix(xmif, xmaf, ymif, ymaf)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
@@ -903,12 +896,12 @@ def test_nonsymmetric_psf_source_consistency():
 @pytest.mark.parametrize("reg_type", ["zero-order", "first-order", "second-order"])
 def test_matvec_free_matches_dense(reg_type):
     """matvec_free should give identical result to dense R @ s."""
-    nx, ny = 5, 7  # non-square
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 7  # test different grid sizes
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 2.0, -0.5, 1.5
 
     reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
-    s = jnp.linspace(-1.0, 1.0, nx * ny)
+    s = jnp.linspace(-1.0, 1.0, n * n)
 
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax)
     result_dense = reg_dense @ s
@@ -922,8 +915,8 @@ def test_matvec_free_matches_dense(reg_type):
 @pytest.mark.parametrize("reg_type", ["zero-order", "first-order", "second-order"])
 def test_logdet_free_matches_dense(reg_type):
     """logdet_free should match slogdet of dense R."""
-    nx, ny = 5, 5
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 5
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
 
     reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
@@ -938,7 +931,7 @@ def test_logdet_free_matches_dense(reg_type):
 @pytest.mark.unit
 def test_matvec_free_raises_for_gp():
     """matvec_free should raise ValueError for GP types."""
-    builder = DenseRegularizationBuilder(5, 5, "exponential")
+    builder = DenseRegularizationBuilder(5, "exponential")
     s = jnp.ones(25)
     with pytest.raises(ValueError, match="GP"):
         builder.matvec_free(s, -1.0, 1.0, -1.0, 1.0)
@@ -947,7 +940,7 @@ def test_matvec_free_raises_for_gp():
 @pytest.mark.unit
 def test_logdet_free_raises_for_gp():
     """logdet_free should raise ValueError for GP types."""
-    builder = DenseRegularizationBuilder(5, 5, "gaussian")
+    builder = DenseRegularizationBuilder(5, "gaussian")
     with pytest.raises(ValueError, match="GP"):
         builder.logdet_free(-1.0, 1.0, -1.0, 1.0)
 
@@ -959,14 +952,14 @@ def test_edge_weighted_constant_source_has_zero_internal_energy(reg_type):
     that are not on the global boundary (boundary fallbacks are numerical
     stabilisers and are excluded from this check).
     """
-    nx, ny = 5, 5
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 5
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 1.0, -1.0, 1.0
-    scale = jnp.linspace(0.5, 1.5, nx * ny)  # deliberately non-uniform
-    s = jnp.ones(nx * ny)
+    scale = jnp.linspace(0.5, 1.5, n * n)  # deliberately non-uniform
+    s = jnp.ones(n * n)
 
     Rs = builder.matvec_free(s, xmin, xmax, ymin, ymax, scale=scale)
-    Rs_2d = np.array(Rs).reshape(ny, nx)
+    Rs_2d = np.array(Rs).reshape(n, n)
 
     # Internal pixels (not on last row or last column) must be zero
     internal = Rs_2d[:-1, :-1]
@@ -976,9 +969,9 @@ def test_edge_weighted_constant_source_has_zero_internal_energy(reg_type):
 @pytest.mark.unit
 def test_to_dense_free_matches_matrix():
     """to_dense_free should match matrix() for FD types."""
-    nx, ny = 4, 6
+    n = 6
     for reg_type in ("zero-order", "first-order", "second-order"):
-        builder = DenseRegularizationBuilder(nx, ny, reg_type)
+        builder = DenseRegularizationBuilder(n, reg_type)
         xmin, xmax, ymin, ymax = -1.5, 1.5, -0.5, 2.0
         expected, _ = builder.matrix(xmin, xmax, ymin, ymax)
         computed = builder.to_dense_free(xmin, xmax, ymin, ymax)
@@ -993,10 +986,10 @@ def test_diag_R_matches_dense_matrix_diagonal(reg_type):
     """diag_R should match jnp.diag(matrix()) for non-square grids with
     non-uniform adaptive scale — this catches coefficient errors and
     scale_x/scale_y cross-contamination."""
-    nx, ny = 7, 5  # deliberately non-square so dx != dy
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 7  # square grid
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 3.0, -1.0, 4.0  # asymmetric, dx != dy
-    scale = jnp.linspace(0.3, 2.0, nx * ny)  # non-uniform
+    scale = jnp.linspace(0.3, 2.0, n * n)  # non-uniform
 
     # Reference: extract diagonal from the full dense matrix.
     R_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
@@ -1023,7 +1016,7 @@ def test_diag_R_matches_dense_matrix_diagonal(reg_type):
 )
 def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
     """Invalid adaptive scale should fail before sqrt/logdet paths diverge."""
-    builder = DenseRegularizationBuilder(5, 5, "first-order")
+    builder = DenseRegularizationBuilder(5, "first-order")
     with pytest.raises(ValueError, match="scale"):
         builder.matrix(-1.0, 1.0, -1.0, 1.0, scale=bad_scale)
 
@@ -1031,19 +1024,19 @@ def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
 @pytest.mark.unit
 def test_make_reg_data_shapes():
     """make_reg_data should return scale and physical factors."""
-    nx, ny = 5, 8
-    builder = DenseRegularizationBuilder(nx, ny, "first-order")
+    n = 8
+    builder = DenseRegularizationBuilder(n, "first-order")
     rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
 
     assert rd.scale is None
-    assert rd.scale_x.shape == ()
-    assert rd.scale_y.shape == ()
+    assert rd.scale_factor.shape == ()
+    assert rd.scale_factor.shape == ()
 
 
 @pytest.mark.unit
 def test_make_reg_data_raises_for_gp():
     """make_reg_data should raise ValueError for GP types (operator backend unsupported)."""
-    builder = DenseRegularizationBuilder(5, 5, "exponential")
+    builder = DenseRegularizationBuilder(5, "exponential")
     with pytest.raises(ValueError, match="Operator backend does not support GP"):
         builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
 
@@ -1051,12 +1044,12 @@ def test_make_reg_data_raises_for_gp():
 @pytest.mark.unit
 def test_make_reg_data_propagates_scale():
     """make_reg_data should propagate a provided scale array into RegData."""
-    nx, ny = 5, 8
-    builder = DenseRegularizationBuilder(nx, ny, "first-order")
-    scale = jnp.linspace(0.5, 1.5, nx * ny)
+    n = 8
+    builder = DenseRegularizationBuilder(n, "first-order")
+    scale = jnp.linspace(0.5, 1.5, n * n)
     rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0, scale=scale)
     assert rd.scale is not None
-    assert rd.scale.shape == (nx * ny,)
+    assert rd.scale.shape == (n * n,)
 
 
 @pytest.mark.unit
@@ -1069,11 +1062,11 @@ def test_matvec_free_nonuniform_scale_matches_dense(reg_type):
     _geom_mean3 or in the scale_x/scale_y off-diagonal scaling would only
     surface with a non-constant source and non-uniform scale.
     """
-    nx, ny = 5, 7  # non-square so dx != dy
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 7  # test different grid sizes so dx != dy
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 2.0, -0.5, 1.5
-    scale = jnp.linspace(0.3, 2.0, nx * ny)  # non-uniform
-    s = jnp.linspace(-1.0, 1.0, nx * ny)     # non-constant
+    scale = jnp.linspace(0.3, 2.0, n * n)  # non-uniform
+    s = jnp.linspace(-1.0, 1.0, n * n)     # non-constant
 
     reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax, scale=scale)
@@ -1103,10 +1096,10 @@ def test_logdet_free_block_diag_approximation(reg_type):
 
     ``exact=True`` must match ``slogdet`` of the full R to float precision.
     """
-    nx = ny = 9  # smaller than default block_size=10
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 9  # smaller than default block_size=10
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
-    scale = jnp.linspace(0.3, 2.0, nx * ny)
+    scale = jnp.linspace(0.3, 2.0, n * n)
 
     reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
     logdet_slogdet = float(jnp.linalg.slogdet(reg_dense)[1])
@@ -1150,8 +1143,7 @@ def test_operator_rejects_gp_regularization_type():
     GP types require a dense (Ns, Ns) precision matrix and gain nothing from
     the matrix-free operator backend; they must use the dense backend.
     """
-    gp_source = PixelizedSourceModel(
-        nx=5, ny=5, regularization_type="gaussian",
+    gp_source = PixelizedSourceModel(n=5, regularization_type="gaussian",
     )
     phys = PhysicalModel(
         lens_mass=[_static_sie()],
@@ -1164,20 +1156,20 @@ def test_operator_rejects_gp_regularization_type():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("nx,ny", [(2, 5), (5, 2)])
+@pytest.mark.parametrize("n", [2, 5])
 @pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
-def test_matvec_free_degenerate_grid_matches_dense(nx, ny, reg_type):
+def test_matvec_free_degenerate_grid_matches_dense(n, reg_type):
     """matvec_free must match dense R @ s on degenerate (thin) grids.
 
-    For nx=2 the second-order full-curvature stencil (nx > 2) is skipped and
+    For source_n=2 the second-order full-curvature stencil (source_n > 2) is skipped and
     only the near-boundary first-gradient fallback runs.  This guards the
-    ``if self.nx > 2`` / ``if self.ny > 2`` boundary branches.
+    ``if self.n > 2`` / ``if self.n > 2`` boundary branches.
     """
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 1.0, -0.5, 1.5
 
     reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
-    s = jnp.linspace(-1.0, 1.0, nx * ny)
+    s = jnp.linspace(-1.0, 1.0, n * n)
 
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax)
     result_dense = reg_dense @ s
@@ -1198,17 +1190,17 @@ def test_block_diag_R_is_principal_submatrix(reg_type, use_scale):
     diagonal contributions to in-block pixels.  The principal submatrix
     includes those contributions by construction.
     """
-    nx, ny = 10, 9  # non-square, multiple blocks with block_size=4
-    builder = DenseRegularizationBuilder(nx, ny, reg_type)
+    n = 10  # square grid with block_size=4
+    builder = DenseRegularizationBuilder(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
-    scale = jnp.linspace(0.3, 2.0, nx * ny) if use_scale else None
+    scale = jnp.linspace(0.3, 2.0, n * n) if use_scale else None
 
     R_full, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
 
     # Check several blocks: interior, edge, and corner blocks
-    for x_s, x_e, y_s, y_e in [(2, 6, 2, 6), (0, 4, 0, 4), (6, 10, 5, 9)]:
+    for x_s, x_e, y_s, y_e in [(2, 6, 2, 6), (0, 4, 0, 4), (6, 10, 6, 10)]:
         bf = jnp.asarray(
-            [x + y * nx for y in range(y_s, y_e) for x in range(x_s, x_e)],
+            [x + y * n for y in range(y_s, y_e) for x in range(x_s, x_e)],
             dtype=jnp.int32,
         )
         R_principal = R_full[jnp.ix_(bf, bf)]

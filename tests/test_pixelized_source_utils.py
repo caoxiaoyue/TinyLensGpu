@@ -14,7 +14,6 @@ from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
     infer_source_bbox,
-    infer_square_source_bbox,
     make_square_bbox,
 )
 
@@ -22,10 +21,8 @@ from TinyLensGpu.utils.lensing.mapping import (
 @pytest.fixture
 def small_source_grid():
     """Return a small 5x5 source grid for mapping-matrix tests."""
-    nx, ny = 5, 5
     source_x_axis, source_y_axis, source_x_mesh, source_y_mesh = build_source_grid(
-        nx,
-        ny,
+        5,
         -1.0,
         1.0,
         -1.0,
@@ -41,7 +38,6 @@ class TestBuildSourceGrid:
     def test_three_by_three_grid_axes_and_mesh_shape(self):
         """Test that a 3x3 unit-half-size grid spans [-1, 0, 1]."""
         source_x_axis, source_y_axis, source_x_mesh, source_y_mesh = build_source_grid(
-            3,
             3,
             -1.0,
             1.0,
@@ -169,8 +165,8 @@ class TestInferSourceBbox:
 
         assert jnp.allclose(xmin, -1.0 - 0.05 * 2.0)
         assert jnp.allclose(xmax, 1.0 + 0.05 * 2.0)
-        assert jnp.allclose(ymin, -0.5 - 0.05 * 1.0)
-        assert jnp.allclose(ymax, 0.5 + 0.05 * 1.0)
+        assert jnp.allclose(ymin, -1.0 - 0.05 * 2.0)
+        assert jnp.allclose(ymax, 1.0 + 0.05 * 2.0)
 
     def test_standalone_asymmetric_span(self):
         """Test infer_source_bbox where x and y spans differ."""
@@ -183,8 +179,8 @@ class TestInferSourceBbox:
 
         assert jnp.allclose(xmin, 0.0 - 0.05 * 3.0)
         assert jnp.allclose(xmax, 3.0 + 0.05 * 3.0)
-        assert jnp.allclose(ymin, -0.2 - 0.05 * 0.4)
-        assert jnp.allclose(ymax, 0.2 + 0.05 * 0.4)
+        assert jnp.allclose(ymin, -1.5 - 0.05 * 3.0)
+        assert jnp.allclose(ymax, 1.5 + 0.05 * 3.0)
 
     def test_single_point_floor(self):
         """Test that a single beta point produces non-degenerate bbox."""
@@ -258,7 +254,7 @@ class TestInferSquareSourceBbox:
         beta_y = jnp.asarray([-0.2, 0.2])
 
         xmin, xmax, ymin, ymax = infer_source_bbox(
-            beta_x, beta_y, padding=0.0, outlier_frac=0.0, square=True
+            beta_x, beta_y, padding=0.0, outlier_frac=0.0
         )
 
         assert jnp.allclose(xmin, 0.0)
@@ -272,7 +268,7 @@ class TestInferSquareSourceBbox:
         beta_x = jnp.asarray([0.5, 1.5])
         beta_y = jnp.asarray([0.3, 1.1])
 
-        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+        xmin, xmax, ymin, ymax = infer_source_bbox(
             beta_x, beta_y, padding=0.05, outlier_frac=0.0
         )
 
@@ -287,7 +283,7 @@ class TestInferSquareSourceBbox:
         beta_x = jnp.arange(100.0)
         beta_y = 0.5 * jnp.arange(100.0)
 
-        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+        xmin, xmax, ymin, ymax = infer_source_bbox(
             beta_x, beta_y, padding=0.1, outlier_frac=0.01
         )
 
@@ -299,7 +295,7 @@ class TestInferSquareSourceBbox:
     def test_point_like_extent_is_positive_and_square(self):
         """Test point-like beta coordinates produce non-degenerate square bbox."""
         beta = jnp.asarray([5.0])
-        xmin, xmax, ymin, ymax = infer_square_source_bbox(
+        xmin, xmax, ymin, ymax = infer_source_bbox(
             beta, beta, padding=0.0, outlier_frac=0.0
         )
 
@@ -314,16 +310,16 @@ class TestBuildSourceGridOffset:
 
     def test_offset_bounds_grid_axes(self):
         """Test grid axes span exactly [xmin, xmax] and [ymin, ymax]."""
-        x_axis, y_axis, x_mesh, y_mesh = build_source_grid(3, 4, 0.5, 1.5, -2.0, -0.5)
+        x_axis, y_axis, x_mesh, y_mesh = build_source_grid(4, 0.5, 1.5, -2.0, -0.5)
 
-        assert jnp.allclose(x_axis, jnp.asarray([0.5, 1.0, 1.5]))
+        assert jnp.allclose(x_axis, jnp.asarray([0.5, 0.83333333, 1.16666667, 1.5]))
         assert jnp.allclose(y_axis, jnp.asarray([-2.0, -1.5, -1.0, -0.5]))
-        assert x_mesh.shape == (4, 3)
-        assert y_mesh.shape == (4, 3)
+        assert x_mesh.shape == (4, 4)
+        assert y_mesh.shape == (4, 4)
 
     def test_offset_bounds_meshgrid_consistency(self):
         """Test that meshgrid coordinates are consistent with axes."""
-        x_axis, y_axis, x_mesh, y_mesh = build_source_grid(3, 3, 0.5, 1.5, -2.0, 0.0)
+        x_axis, y_axis, x_mesh, y_mesh = build_source_grid(4, 0.5, 1.5, -2.0, 0.0)
 
         # All rows of x_mesh should equal x_axis
         assert jnp.allclose(x_mesh[0], x_axis)

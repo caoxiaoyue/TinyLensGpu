@@ -65,9 +65,7 @@ def build_prob_model():
         gamma1=ParamU("gamma1", SHEAR_TRUE["gamma1"], prior_type="gaussian", prior_settings=[SHEAR_TRUE["gamma1"], 0.05], limits=[-0.5, 0.5]),
         gamma2=ParamU("gamma2", SHEAR_TRUE["gamma2"], prior_type="gaussian", prior_settings=[SHEAR_TRUE["gamma2"], 0.05], limits=[-0.5, 0.5]),
     )
-    pix_src = PixelizedSourceModel(
-        nx=40,
-        ny=40,
+    pix_src = PixelizedSourceModel(n=40,
         regularization_type="first-order",
         log_lambda_reg=ParamU(
             "log_lambda_reg",

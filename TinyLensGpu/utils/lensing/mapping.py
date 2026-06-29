@@ -37,21 +37,20 @@ def dense_mapping_from_weights_indices(
     return mapping_matrix.at[row_indices, col_indices].add(weights_flat)
 
 
-@partial(jax.jit, static_argnames=("nx", "ny"))
-def lens_mapping_operator_bilinear_rectangular_from(
+@partial(jax.jit, static_argnames=("n",))
+def lens_mapping_operator_bilinear_from(
     data_mesh_beta: jnp.ndarray,
     x_min: float,
     x_max: float,
     y_min: float,
     y_max: float,
-    nx: int,
-    ny: int,
+    n: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Build bilinear interpolation weights/indices on a rectangular source grid."""
+    """Build bilinear interpolation weights/indices on a square source grid."""
     beta = jnp.asarray(data_mesh_beta, dtype=jnp.float32)
 
-    dx = (x_max - x_min) / (nx - 1)
-    dy = (y_max - y_min) / (ny - 1)
+    dx = (x_max - x_min) / (n - 1)
+    dy = (y_max - y_min) / (n - 1)
 
     ux = (beta[:, 0] - x_min) / dx
     uy = (beta[:, 1] - y_min) / dy
@@ -61,17 +60,17 @@ def lens_mapping_operator_bilinear_rectangular_from(
     fx = ux - ix0
     fy = uy - iy0
 
-    valid = (ux >= 0) & (ux <= nx - 1) & (uy >= 0) & (uy <= ny - 1)
+    valid = (ux >= 0) & (ux <= n - 1) & (uy >= 0) & (uy <= n - 1)
 
-    ix0_c = jnp.clip(ix0, 0, nx - 1)
-    iy0_c = jnp.clip(iy0, 0, ny - 1)
-    ix1_c = jnp.clip(ix0_c + 1, 0, nx - 1)
-    iy1_c = jnp.clip(iy0_c + 1, 0, ny - 1)
+    ix0_c = jnp.clip(ix0, 0, n - 1)
+    iy0_c = jnp.clip(iy0, 0, n - 1)
+    ix1_c = jnp.clip(ix0_c + 1, 0, n - 1)
+    iy1_c = jnp.clip(iy0_c + 1, 0, n - 1)
 
-    i00 = iy0_c * nx + ix0_c
-    i10 = iy0_c * nx + ix1_c
-    i01 = iy1_c * nx + ix0_c
-    i11 = iy1_c * nx + ix1_c
+    i00 = iy0_c * n + ix0_c
+    i10 = iy0_c * n + ix1_c
+    i01 = iy1_c * n + ix0_c
+    i11 = iy1_c * n + ix1_c
 
     w00 = (1.0 - fx) * (1.0 - fy)
     w10 = fx * (1.0 - fy)
@@ -84,13 +83,13 @@ def lens_mapping_operator_bilinear_rectangular_from(
     return weights, indices, valid
 
 
-def build_source_grid(nx, ny, xmin, xmax, ymin, ymax):
-    """Build a rectangular source-plane grid spanning [xmin, xmax] x [ymin, ymax].
+def build_source_grid(n, xmin, xmax, ymin, ymax):
+    """Build a square source-plane grid spanning [xmin, xmax] x [ymin, ymax].
 
     Returns (x_axis, y_axis, xgrid, ygrid) with ``jnp.meshgrid(..., indexing='xy')`` layout.
     """
-    x_axis = jnp.linspace(xmin, xmax, int(nx))
-    y_axis = jnp.linspace(ymin, ymax, int(ny))
+    x_axis = jnp.linspace(xmin, xmax, int(n))
+    y_axis = jnp.linspace(ymin, ymax, int(n))
     xgrid, ygrid = jnp.meshgrid(x_axis, y_axis, indexing="xy")
     return x_axis, y_axis, xgrid, ygrid
 
@@ -113,8 +112,8 @@ def make_square_bbox(xmin, xmax, ymin, ymax):
     return xmid - half, xmid + half, ymid - half, ymid + half
 
 
-def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01, square=False):
-    """Infer source-plane bounding box from ray-traced beta points.
+def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
+    """Infer a square source-plane bounding box from ray-traced beta points.
 
     Computes robust quantile bounds of beta coordinates and adds a
     fractional padding margin on each side (default 0 — no padding).
@@ -122,8 +121,8 @@ def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01, square=Fal
     default uses the 1st and 99th percentiles instead of the absolute
     min/max.  Set ``outlier_frac=0.0`` to recover the previous min/max
     behaviour.  Ensures a minimum span of 1e-6 in each direction so that
-    downstream grid construction is well-defined.  When ``square=True``, the
-    shorter span is expanded around its center after padding/flooring so the
+    downstream grid construction is well-defined.  The shorter span is
+    always expanded around its center after padding/flooring so the
     returned source-plane bbox has equal x/y extent.
     """
     if not (0.0 <= outlier_frac < 0.5):
@@ -161,16 +160,8 @@ def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01, square=Fal
     xmax = jnp.maximum(xmax, xmid + min_half)
     ymin = jnp.minimum(ymin, ymid - min_half)
     ymax = jnp.maximum(ymax, ymid + min_half)
-    if square:
-        xmin, xmax, ymin, ymax = make_square_bbox(xmin, xmax, ymin, ymax)
+    xmin, xmax, ymin, ymax = make_square_bbox(xmin, xmax, ymin, ymax)
     return xmin, xmax, ymin, ymax
-
-
-def infer_square_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
-    """Infer a square source-plane bbox from ray-traced beta points."""
-    return infer_source_bbox(
-        beta_x, beta_y, padding=padding, outlier_frac=outlier_frac, square=True
-    )
 
 
 def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
@@ -181,27 +172,24 @@ def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
 
     source_x_axis = jnp.asarray(source_x_axis)
     source_y_axis = jnp.asarray(source_y_axis)
-    nx = source_x_axis.shape[0]
-    ny = source_y_axis.shape[0]
+    n = source_x_axis.shape[0]
 
-    weights, indices, _ = lens_mapping_operator_bilinear_rectangular_from(
+    weights, indices, _ = lens_mapping_operator_bilinear_from(
         data_mesh_beta,
         source_x_axis[0],
         source_x_axis[-1],
         source_y_axis[0],
         source_y_axis[-1],
-        nx,
-        ny,
+        n,
     )
-    return dense_mapping_from_weights_indices(weights, indices, nx * ny)
+    return dense_mapping_from_weights_indices(weights, indices, n * n)
 
 
 __all__ = [
-    "lens_mapping_operator_bilinear_rectangular_from",
+    "lens_mapping_operator_bilinear_from",
     "dense_mapping_from_weights_indices",
     "build_source_grid",
     "build_lens_mapping_matrix",
     "make_square_bbox",
     "infer_source_bbox",
-    "infer_square_source_bbox",
 ]
