@@ -10,7 +10,7 @@ import jax.scipy as jsp
 from jax import Array
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
-from ...PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
+from ...PhysicalModel.LensImage.Pixelized.Light import is_pixelized_source_model
 from ...utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
@@ -19,13 +19,6 @@ from ...utils.lensing.mapping import (
 from .config import SimulatorConfig
 from .parametric import bin_image_general
 from .results import SimulationResult
-
-
-def _is_pixelized_source_model(source: object) -> bool:
-    """Check whether a source component carries the pixelized-source marker."""
-    if hasattr(source, "is_pixelized_source"):
-        return bool(getattr(source, "is_pixelized_source"))
-    return isinstance(source, PixelizedSourceModel)
 
 
 EPSILON_REG = 1e-6  # Tiny Tikhonov regularization for lens-light amplitudes
@@ -74,7 +67,7 @@ class PixelizedLensSimulator:
         self.nsub = int(sim_config.nsub)
         self.detach_bbox = detach_bbox
 
-        n_pixelized = sum(_is_pixelized_source_model(s) for s in phys_model.source_light)
+        n_pixelized = sum(is_pixelized_source_model(s) for s in phys_model.source_light)
         if n_pixelized != len(phys_model.source_light):
             raise ValueError("PixelizedLensSimulator does not support a parametric source")
         if n_pixelized != 1:

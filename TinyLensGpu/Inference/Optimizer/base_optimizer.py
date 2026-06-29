@@ -1,5 +1,4 @@
 from TinyLensGpu.Inference.base import AbstractInference
-import numpy as np
 from abc import abstractmethod
 
 class BaseOptimizer(AbstractInference):

@@ -26,6 +26,7 @@ from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 
 from .param_u import ParamU
+from TinyLensGpu.utils.misc import weighted_quantile
 
 
 # ------------------------------------------------------------------ #
@@ -94,18 +95,6 @@ def empirical_width(model: str, attr: str) -> Tuple[str, float]:
     return table[attr]
 
 
-def weighted_quantile(
-    samples: np.ndarray, weights: np.ndarray, q: float
-) -> float:
-    """Weighted q-quantile along a 1D sample vector."""
-    idx = np.argsort(samples)
-    s = samples[idx]
-    w = weights[idx]
-    cdf = np.cumsum(w)
-    cdf /= cdf[-1]
-    return float(np.interp(q, cdf, s))
-
-
 def weighted_mean_std(
     samples: np.ndarray, weights: np.ndarray
 ) -> Tuple[float, float]:
@@ -158,7 +147,7 @@ class GaussianPriorPasser:
     # -------------- basic posterior queries ------------------------- #
     def median(self, name: str) -> float:
         col = self._require_col(name)
-        return weighted_quantile(self.samples[:, col], self.weights, 0.5)
+        return float(weighted_quantile(self.samples[:, col], self.weights, 0.5))
 
     def std(self, name: str) -> float:
         col = self._require_col(name)

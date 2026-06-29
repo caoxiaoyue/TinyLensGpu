@@ -12,7 +12,6 @@ where z(λ) maps the wavelength range to [-1, +1].
 """
 
 from typing import Sequence
-import numpy as np
 import jax.numpy as jnp
 from jax import Array
 

@@ -5,7 +5,6 @@ This module provides configuration management for gravitational lens
 simulations, including coordinate grids, PSF kernels, and masks.
 """
 
-import numpy as np
 import jax.numpy as jnp
 from jax import Array
 from typing import Optional, Tuple, Union, cast
@@ -190,19 +189,13 @@ class SimulatorConfig:
         self.source_bbox_padding = float(source_bbox_padding)
         self.source_bbox_outlier_frac = float(source_bbox_outlier_frac)
 
-        self.xgrid, self.ygrid, self.xgrid_sub, self.ygrid_sub = self.get_coords(
-            self.npix, self.dpix, self.nsub
-        )
+        self.xgrid, self.ygrid = make_grid_2d(self.npix, self.dpix, 1)
+        self.xgrid_sub, self.ygrid_sub = make_grid_2d(self.npix, self.dpix, self.nsub)
 
         self._prepare_1d_subgrid()
 
     def _prepare_1d_subgrid(self):
-        """
-        Precompute flattened unmasked sub-grid coordinates.
-
-        The method caches index/coordinate arrays frequently reused by forward
-        simulation and inversion routines.
-        """
+        """Precompute flattened unmasked sub-grid coordinates."""
         self.unmask = ~self.mask
         self.flat_indices_native = jnp.flatnonzero(self.unmask)
 
@@ -221,31 +214,6 @@ class SimulatorConfig:
         self.ygrid_sub_1d = y_flat[self.flat_indices]
 
         self.subgrid_shape = self.xgrid_sub.shape
-
-    @staticmethod
-    def get_coords(npix: int, dpix: float, nsub: int = 1) -> Tuple[Array, Array, Array, Array]:
-        """
-        Build native and subsampled image-plane coordinate grids.
-
-        Parameters
-        ----------
-        npix : int
-            Number of pixels per side in the native image grid.
-        dpix : float
-            Pixel scale in arcsec per pixel.
-        nsub : int, optional
-            Subsampling factor for high-resolution grids.
-
-        Returns
-        -------
-        tuple[Array, Array, Array, Array]
-            ``(xgrid, ygrid, xgrid_sub, ygrid_sub)`` where ``xgrid/ygrid`` have
-            shape ``(npix, npix)`` and ``xgrid_sub/ygrid_sub`` have shape
-            ``(npix * nsub, npix * nsub)``.
-        """
-        xgrid, ygrid = make_grid_2d(npix, dpix, 1)
-        xgrid_sub, ygrid_sub = make_grid_2d(npix, dpix, nsub)
-        return xgrid, ygrid, xgrid_sub, ygrid_sub
 
     def __repr__(self) -> str:
         """

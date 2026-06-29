@@ -74,73 +74,43 @@ class EllipticityConstraint(ck.Module):
         self.phi_min = phi_min
         self.phi_max = phi_max
 
-    @ck.forward
-    def out_e1(self, e1_raw, e2_raw):
-        """
-        Compute the constrained ``e1`` value.
+    def _check_valid(self, e1_raw, e2_raw):
+        """Return a boolean mask for constraint satisfaction.
 
         Parameters
         ----------
-        e1_raw : Array
-            Raw ellipticity component along the x-axis.
-        e2_raw : Array
-            Raw ellipticity component at 45 degrees.
+        e1_raw, e2_raw : Array
+            Raw ellipticity components.
 
         Returns
         -------
-        Array
-            ``e1_raw`` if constraints are satisfied, otherwise NaN.
+        Array (bool)
+            ``True`` where the ellipticity and position-angle constraints
+            are all satisfied.
         """
         e = jnp.sqrt(e1_raw**2 + e2_raw**2)
         q = (1 - e) / (1 + e)
 
-        # Compute position angle in degrees and wrap to [0, 180)
         phi_rad = 0.5 * jnp.arctan2(e2_raw, e1_raw)
         phi_deg = jnp.degrees(phi_rad)
         phi_deg_wrapped = jnp.mod(phi_deg, 180.0)
 
-        # Combine all constraints into a single boolean mask
-        valid = (
+        return (
             (q >= self.q_min)
             & (q <= self.q_max)
             & (phi_deg_wrapped >= self.phi_min)
             & (phi_deg_wrapped <= self.phi_max)
         )
 
-        return jnp.where(valid, e1_raw, jnp.nan)
+    @ck.forward
+    def out_e1(self, e1_raw, e2_raw):
+        """Return ``e1_raw`` when constraints are satisfied, otherwise NaN."""
+        return jnp.where(self._check_valid(e1_raw, e2_raw), e1_raw, jnp.nan)
 
     @ck.forward
     def out_e2(self, e1_raw, e2_raw):
-        """
-        Compute the constrained ``e2`` value.
-
-        Parameters
-        ----------
-        e1_raw : Array
-            Raw ellipticity component along the x-axis.
-        e2_raw : Array
-            Raw ellipticity component at 45 degrees.
-
-        Returns
-        -------
-        Array
-            ``e2_raw`` if constraints are satisfied, otherwise NaN.
-        """
-        e = jnp.sqrt(e1_raw**2 + e2_raw**2)
-        q = (1 - e) / (1 + e)
-
-        phi_rad = 0.5 * jnp.arctan2(e2_raw, e1_raw)
-        phi_deg = jnp.degrees(phi_rad)
-        phi_deg_wrapped = jnp.mod(phi_deg, 180.0)
-
-        valid = (
-            (q >= self.q_min)
-            & (q <= self.q_max)
-            & (phi_deg_wrapped >= self.phi_min)
-            & (phi_deg_wrapped <= self.phi_max)
-        )
-
-        return jnp.where(valid, e2_raw, jnp.nan)
+        """Return ``e2_raw`` when constraints are satisfied, otherwise NaN."""
+        return jnp.where(self._check_valid(e1_raw, e2_raw), e2_raw, jnp.nan)
 
 
 __all__ = ["EllipticityConstraint"]

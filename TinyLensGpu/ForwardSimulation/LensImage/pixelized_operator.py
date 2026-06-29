@@ -21,8 +21,8 @@ from jax import Array
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import (
-    PixelizedSourceModel,
+from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import (
+    is_pixelized_source_model,
 )
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
@@ -32,12 +32,6 @@ from TinyLensGpu.utils.lensing.mapping import (
     infer_square_source_bbox,
     lens_mapping_operator_bilinear_rectangular_from,
 )
-
-
-def _is_pixelized_source_model(source: object) -> bool:
-    if hasattr(source, "is_pixelized_source"):
-        return bool(getattr(source, "is_pixelized_source"))
-    return isinstance(source, PixelizedSourceModel)
 
 
 # ==================================================================
@@ -324,7 +318,7 @@ class PixelizedLensOperator:
         self.detach_bbox = detach_bbox
 
         n_pixelized = sum(
-            _is_pixelized_source_model(s) for s in phys_model.source_light
+            is_pixelized_source_model(s) for s in phys_model.source_light
         )
         if n_pixelized != len(phys_model.source_light):
             raise ValueError("PixelizedLensOperator does not support a parametric source")

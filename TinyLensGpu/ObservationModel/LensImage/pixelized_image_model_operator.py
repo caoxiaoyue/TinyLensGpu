@@ -11,15 +11,12 @@ inversion is not yet supported.
 
 from __future__ import annotations
 
-import logging
 from typing import Dict, Optional, Union
 
 import caskade as ck
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-
-logger = logging.getLogger(__name__)
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
@@ -32,6 +29,7 @@ from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
 )
+from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
 
 
 class PixelizedImageProbModelOperator(ck.Module):
@@ -143,7 +141,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.pcg_max_iter = 200
         self.pcg_rtol = 1e-6
 
-        self._init_position_likelihood(position_likelihood)
+        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
+            resolve_position_likelihood_attrs(position_likelihood)
 
     @staticmethod
     def _validate_fixed_source_bbox(
@@ -212,41 +211,6 @@ class PixelizedImageProbModelOperator(ck.Module):
             raise ValueError("fixed_reg_template values must be finite.")
         return template
 
-    def _init_position_likelihood(self, config: Optional[Dict]) -> None:
-        self._pos_px = None
-        self._pos_py = None
-        self._pos_thr = jnp.array(0.0, dtype=jnp.float32)
-        self._pos_minl = jnp.array(0.0, dtype=jnp.float32)
-        self._has_pos_penalty = False
-
-        if config is not None:
-            positions = config.get("positions", [])
-            if positions is not None and len(positions) >= 2:
-                self._pos_px = jnp.array(
-                    [p[0] for p in positions], dtype=jnp.float32
-                )
-                self._pos_py = jnp.array(
-                    [p[1] for p in positions], dtype=jnp.float32
-                )
-                self._pos_thr = jnp.array(
-                    float(
-                        config.get(
-                            "threshold_arcsec",
-                            config.get("position_threshold", 0.0),
-                        )
-                    ),
-                    dtype=jnp.float32,
-                )
-                self._pos_minl = jnp.array(
-                    float(
-                        config.get(
-                            "min_log_like",
-                            config.get("min_position_likelihood", 0.0),
-                        )
-                    ),
-                    dtype=jnp.float32,
-                )
-                self._has_pos_penalty = True
 
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
@@ -575,21 +539,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         return log_ev
 
     def _position_likelihood_penalty_jax(self) -> Array:
-        r"""Penalize image positions that don't map to the same source position."""
-        beta_x, beta_y = self.phys_model.deflection(
-            self._pos_px, self._pos_py
+        """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
+        return compute_position_penalty_jax(
+            self.phys_model, self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
         )
-
-        dx = beta_x[:, None] - beta_x[None, :]
-        dy = beta_y[:, None] - beta_y[None, :]
-        dist = jnp.sqrt(dx * dx + dy * dy)
-        max_sep = jnp.max(dist)
-
-        exceed = jnp.maximum(0.0, max_sep - self._pos_thr)
-        ratio = jnp.where(self._pos_thr > 0.0, exceed / self._pos_thr, 0.0)
-        pen_continuous = self._pos_minl * (1.0 - jnp.exp(-ratio))
-
-        return jnp.clip(pen_continuous, min=self._pos_minl, max=0.0)
 
     def likelihood(self, debug: bool = True) -> float:
         """Return the current log evidence as a Python float."""

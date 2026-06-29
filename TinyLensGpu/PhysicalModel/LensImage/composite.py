@@ -127,7 +127,14 @@ class PhysicalModel(ck.Module):
         return self._lens_light_list
 
     def get_dynamic_params(self):
-        """Return the dynamic parameters tracked by caskade."""
+        """Return the dynamic parameters tracked by caskade.
+
+        This method exists as a stable interface compatibility layer for
+        ``extract_prior_specs`` (Inference/build_prior.py), which probes
+        the module via ``hasattr(module, 'get_dynamic_params')`` before
+        falling back to the generic ``caskade.Module.dynamic_params``
+        property.
+        """
         return self.dynamic_params
 
     @ck.forward
