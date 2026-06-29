@@ -39,17 +39,20 @@ def model_adpt_reg():
     return _load_model_adpt_reg()
 
 
-def _s0_package(module, *, nx=None, ny=None, source_bbox=None):
-    nx = module.NSRC if nx is None else int(nx)
-    ny = module.NSRC if ny is None else int(ny)
+def _s0_package(module, *, n=None, source_bbox=None, source_pixels=None):
+    n = module.NSRC if n is None else int(n)
     bbox = (-0.5, 0.5, -0.5, 0.5) if source_bbox is None else source_bbox
+    pixels = (
+        np.ones(n * n, dtype=np.float64)
+        if source_pixels is None
+        else np.asarray(source_pixels, dtype=np.float64)
+    )
     return {
-        "source_pixels": np.ones(nx * ny, dtype=np.float64),
+        "source_pixels": pixels,
         "source_bbox": bbox,
-        "source_x_axis": np.linspace(bbox[0], bbox[1], nx),
-        "source_y_axis": np.linspace(bbox[2], bbox[3], ny),
-        "nx": nx,
-        "ny": ny,
+        "source_x_axis": np.linspace(bbox[0], bbox[1], n),
+        "source_y_axis": np.linspace(bbox[2], bbox[3], n),
+        "n": n,
         "lambda_best": 1.0,
         "log_lambda_best": 0.0,
     }
@@ -68,14 +71,32 @@ def test_validate_s0_package_accepts_square_grid_and_bbox(model_adpt_reg):
 
 
 @pytest.mark.unit
-def test_validate_s0_package_rejects_rectangular_grid_shape(model_adpt_reg):
+def test_validate_s0_package_rejects_legacy_grid_shape_metadata(model_adpt_reg):
+    n = model_adpt_reg.NSRC
+    bbox = (-0.5, 0.5, -0.5, 0.5)
+    package = {
+        "source_pixels": np.ones(n * n, dtype=np.float64),
+        "source_bbox": bbox,
+        "source_x_axis": np.linspace(bbox[0], bbox[1], n),
+        "source_y_axis": np.linspace(bbox[2], bbox[3], n),
+        "nx": n,
+        "ny": n,
+        "lambda_best": 1.0,
+        "log_lambda_best": 0.0,
+    }
+
+    with pytest.raises(KeyError, match="legacy source-grid keys"):
+        model_adpt_reg._validate_s0_package(package)
+
+
+@pytest.mark.unit
+def test_validate_s0_package_rejects_invalid_source_vector_shape(model_adpt_reg):
     package = _s0_package(
         model_adpt_reg,
-        nx=model_adpt_reg.NSRC,
-        ny=model_adpt_reg.NSRC - 1,
+        source_pixels=np.ones(model_adpt_reg.NSRC * model_adpt_reg.NSRC - 1),
     )
 
-    with pytest.raises(ValueError, match="rectangular"):
+    with pytest.raises(ValueError, match="source_pixels must have shape"):
         model_adpt_reg._validate_s0_package(package)
 
 

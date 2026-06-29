@@ -263,16 +263,15 @@ with ck.ActiveContext(prob_model):
     )
 
     # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-    nx_s, ny_s = prob_model.sim_obj.source_n, prob_model.sim_obj.source_n
+    n_s = prob_model.sim_obj.source_n
     bs = prob_model.block_size
-    n_bx = (nx_s + bs - 1) // bs
-    n_by = (ny_s + bs - 1) // bs
+    n_blocks = (n_s + bs - 1) // bs
     trace_invPR = jnp.array(0.0, dtype=lam.dtype)
-    for by in range(n_by):
-        for bx in range(n_bx):
-            bid = bx + by * n_bx
-            x_s, x_e = bx * bs, min((bx + 1) * bs, nx_s)
-            y_s, y_e = by * bs, min((by + 1) * bs, ny_s)
+    for by in range(n_blocks):
+        for bx in range(n_blocks):
+            bid = bx + by * n_blocks
+            x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
+            y_s, y_e = by * bs, min((by + 1) * bs, n_s)
             if bid >= len(block_chols):
                 break
             R_block = prob_model.reg_builder.block_diag_R(

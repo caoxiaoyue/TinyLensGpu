@@ -62,7 +62,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
         S0-based adaptive regularization.
     fixed_reg_scale : array_like, optional
-        Flat fixed adaptive regularization scale map with shape ``(nx * ny,)``.
+        Flat fixed adaptive regularization scale map with shape ``(n * n,)``.
     fixed_reg_template : array_like, optional
         Flat or 2D S0 source template used to generate the adaptive scale map
         from current ``adaptive_reg_alpha`` and ``adaptive_reg_floor`` values.

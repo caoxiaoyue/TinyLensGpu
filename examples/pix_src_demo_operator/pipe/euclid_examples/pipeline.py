@@ -937,16 +937,15 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         )
 
         # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-        nx_s, ny_s = likelihood.sim_obj.source_n, likelihood.sim_obj.source_n
+        n_s = likelihood.sim_obj.source_n
         bs = likelihood.block_size
-        n_bx = (nx_s + bs - 1) // bs
-        n_by = (ny_s + bs - 1) // bs
+        n_blocks = (n_s + bs - 1) // bs
         trace_invPR = jnp.array(0.0, dtype=lambda_j.dtype)
-        for by in range(n_by):
-            for bx in range(n_bx):
-                bid = bx + by * n_bx
-                x_s, x_e = bx * bs, min((bx + 1) * bs, nx_s)
-                y_s, y_e = by * bs, min((by + 1) * bs, ny_s)
+        for by in range(n_blocks):
+            for bx in range(n_blocks):
+                bid = bx + by * n_blocks
+                x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
+                y_s, y_e = by * bs, min((by + 1) * bs, n_s)
                 if bid >= len(block_chols):
                     break
                 R_block = likelihood.reg_builder.block_diag_R(
@@ -966,9 +965,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     dof  = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].n
-    ny = likelihood.phys_model.source_light[0].n
-    src_img = np.array(source_pixels).reshape(ny, nx)
+    n = likelihood.phys_model.source_light[0].n
+    src_img = np.array(source_pixels).reshape(n, n)
 
     # Image-plane extent is cropped to the unmasked region; source-plane
     # extent comes from the model bbox and is unaffected by the mask.

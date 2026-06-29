@@ -132,7 +132,7 @@ class PixelizedSourceModel(ck.Module):
         x, y : Array
             Image-plane coordinates.
         source_values : Array
-            Source pixel intensities, shape (Nx*Ny,).
+            Source pixel intensities, shape (n * n,).
         source_bbox : tuple
             Square (xmin, xmax, ymin, ymax) source-plane bounding box.
         """

@@ -185,20 +185,27 @@ def _make_s0_scale(
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
         s0_package["source_pixels"],
-        int(s0_package["nx"]),
+        int(s0_package["n"]),
         alpha=alpha,
         floor=floor,
     )
 
 
 def _validate_s0_package(s0_package):
+    legacy_keys = [k for k in ("nx", "ny") if k in s0_package]
+    if legacy_keys:
+        raise KeyError(
+            "S0 package uses legacy source-grid keys "
+            f"{', '.join(legacy_keys)}; regenerate S0 with the single-n "
+            "source-grid schema."
+        )
+
     required = (
         "source_pixels",
         "source_bbox",
         "source_x_axis",
         "source_y_axis",
-        "nx",
-        "ny",
+        "n",
         "lambda_best",
         "log_lambda_best",
     )
@@ -206,24 +213,23 @@ def _validate_s0_package(s0_package):
     if missing:
         raise KeyError("S0 package missing required keys: " + ", ".join(missing))
 
-    nx = int(s0_package["nx"])
-    ny = int(s0_package["ny"])
-    if nx != ny:
+    n = int(s0_package["n"])
+    if n != NSRC:
         raise ValueError(
-            f"S0 grid shape ({ny}, {nx}) is rectangular; regenerate S0 with "
-            "a square pixelized source grid."
-        )
-    if nx != NSRC or ny != NSRC:
-        raise ValueError(
-            f"S0 grid shape ({ny}, {nx}) does not match configured "
-            f"({NSRC}, {NSRC})."
+            f"S0 grid dimension n={n} does not match configured n={NSRC}."
         )
     source_pixels = np.asarray(s0_package["source_pixels"])
-    if source_pixels.shape != (nx * ny,):
+    if source_pixels.shape != (n * n,):
         raise ValueError(
-            f"S0 source_pixels must have shape ({nx * ny},), "
+            f"S0 source_pixels must have shape ({n * n},), "
             f"got {source_pixels.shape}."
         )
+    for axis_name in ("source_x_axis", "source_y_axis"):
+        axis = np.asarray(s0_package[axis_name])
+        if axis.shape != (n,):
+            raise ValueError(
+                f"S0 {axis_name} must have shape ({n},), got {axis.shape}."
+            )
     bbox = tuple(float(v) for v in s0_package["source_bbox"])
     if len(bbox) != 4 or not np.all(np.isfinite(bbox)):
         raise ValueError("S0 source_bbox must contain four finite values.")
@@ -241,9 +247,9 @@ def _validate_s0_package(s0_package):
         s0_package["scale_map"] = scale_map
     else:
         scale_map = np.asarray(scale_map, dtype=np.float32)
-        if scale_map.shape != (nx * ny,):
+        if scale_map.shape != (n * n,):
             raise ValueError(
-                f"S0 scale_map must have shape ({nx * ny},), got {scale_map.shape}."
+                f"S0 scale_map must have shape ({n * n},), got {scale_map.shape}."
             )
         if not np.all(np.isfinite(scale_map) & (scale_map > 0.0)):
             raise ValueError("S0 scale_map values must be finite and positive.")
@@ -255,8 +261,7 @@ def _s0_fingerprint(s0_package):
     """Stable fingerprint for cache entries tied to a specific S0 package."""
     s0_package = _validate_s0_package(s0_package)
     h = hashlib.sha256()
-    h.update(str(int(s0_package["nx"])).encode("ascii"))
-    h.update(str(int(s0_package["ny"])).encode("ascii"))
+    h.update(str(int(s0_package["n"])).encode("ascii"))
     for key in ("source_pixels", "source_bbox"):
         arr = np.ascontiguousarray(np.asarray(s0_package[key], dtype=np.float64))
         h.update(str(arr.shape).encode("ascii"))
@@ -363,8 +368,7 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
         source_bbox=source_bbox,
         source_x_axis=x_axis,
         source_y_axis=y_axis,
-        nx=NSRC,
-        ny=NSRC,
+        n=NSRC,
     )
 
 
@@ -968,16 +972,15 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         )
 
         # N_eff = Ns - λ Tr(P⁻¹ R)  via block-diagonal preconditioner
-        nx_s, ny_s = likelihood.sim_obj.source_n, likelihood.sim_obj.source_n
+        n_s = likelihood.sim_obj.source_n
         bs = likelihood.block_size
-        n_bx = (nx_s + bs - 1) // bs
-        n_by = (ny_s + bs - 1) // bs
+        n_blocks = (n_s + bs - 1) // bs
         trace_invPR = jnp.array(0.0, dtype=lambda_j.dtype)
-        for by in range(n_by):
-            for bx in range(n_bx):
-                bid = bx + by * n_bx
-                x_s, x_e = bx * bs, min((bx + 1) * bs, nx_s)
-                y_s, y_e = by * bs, min((by + 1) * bs, ny_s)
+        for by in range(n_blocks):
+            for bx in range(n_blocks):
+                bid = bx + by * n_blocks
+                x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
+                y_s, y_e = by * bs, min((by + 1) * bs, n_s)
                 if bid >= len(block_chols):
                     break
                 R_block = likelihood.reg_builder.block_diag_R(
@@ -1015,12 +1018,11 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     dof  = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].n
-    ny = likelihood.phys_model.source_light[0].n
-    src_img = np.array(source_pixels).reshape(ny, nx)
+    n = likelihood.phys_model.source_light[0].n
+    src_img = np.array(source_pixels).reshape(n, n)
 
     # Scale map (2D source grid)
-    scale_img = np.array(scale).reshape(ny, nx) if scale is not None else np.ones((ny, nx))
+    scale_img = np.array(scale).reshape(n, n) if scale is not None else np.ones((n, n))
     lvl = lvl_val
     flr = flr_val
 

@@ -1271,16 +1271,15 @@ class DenseRegularizationBuilder:
         ``jax.lax.scan`` to avoid Python-loop unrolling during JIT tracing.
         Otherwise falls back to the legacy Python-loop path.
         """
-        n_bx = (self.n + block_size - 1) // block_size
-        n_by = (self.n + block_size - 1) // block_size
+        n_blocks = (self.n + block_size - 1) // block_size
         is_uniform = (self.n % block_size == 0) 
 
         if is_uniform:
             return self._logdet_block_diag_scan(
-                xmin, xmax, ymin, ymax, scale, block_size, n_bx, n_by,
+                xmin, xmax, ymin, ymax, scale, block_size, n_blocks,
             )
         return self._logdet_block_diag_legacy(
-            xmin, xmax, ymin, ymax, scale, block_size, n_bx, n_by,
+            xmin, xmax, ymin, ymax, scale, block_size, n_blocks,
         )
 
     def _logdet_block_diag_legacy(
@@ -1288,15 +1287,15 @@ class DenseRegularizationBuilder:
         xmin: float, xmax: float, ymin: float, ymax: float,
         scale: "jax.Array | None",
         block_size: int,
-        n_bx: int, n_by: int,
+        n_blocks: int,
     ) -> "jax.Array":
         """Legacy Python-loop path for non-uniform source grids."""
         scale_factor = self._get_scale(xmin, xmax, ymin, ymax)
         scale_2d = self._scale_to_2d(scale)
         logdet = jnp.array(0.0, dtype=jnp.float32)
 
-        for by in range(n_by):
-            for bx in range(n_bx):
+        for by in range(n_blocks):
+            for bx in range(n_blocks):
                 x_s = bx * block_size
                 x_e = min(x_s + block_size, self.n)
                 y_s = by * block_size
@@ -1332,13 +1331,12 @@ class DenseRegularizationBuilder:
         xmin: float, xmax: float, ymin: float, ymax: float,
         scale: "jax.Array | None",
         block_size: int,
-        n_bx: int, n_by: int,
+        n_blocks: int,
     ) -> "jax.Array":
         """``lax.scan``-based logdet for uniform source grids."""
         # Precompute block start positions
-        bx_arr = jnp.arange(n_bx, dtype=jnp.int32)
-        by_arr = jnp.arange(n_by, dtype=jnp.int32)
-        bxs, bys = jnp.meshgrid(bx_arr, by_arr, indexing="xy")
+        block_indices = jnp.arange(n_blocks, dtype=jnp.int32)
+        bxs, bys = jnp.meshgrid(block_indices, block_indices, indexing="xy")
         x_starts = (bxs * block_size).ravel().astype(jnp.int32)
         y_starts = (bys * block_size).ravel().astype(jnp.int32)
         scan_inputs = jnp.stack([x_starts, y_starts], axis=-1)

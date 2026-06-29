@@ -634,9 +634,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     dof  = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].n
-    ny = likelihood.phys_model.source_light[0].n
-    src_img = np.array(source_pixels).reshape(ny, nx)
+    n = likelihood.phys_model.source_light[0].n
+    src_img = np.array(source_pixels).reshape(n, n)
 
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]

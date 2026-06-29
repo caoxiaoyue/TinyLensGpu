@@ -614,9 +614,8 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     dof = int((~mask).sum()) - N_eff
     chi2_nu = chi2 / dof if dof > 0 else 0.0
 
-    nx = likelihood.phys_model.source_light[0].n
-    ny = likelihood.phys_model.source_light[0].n
-    src_img = src_1d.reshape(ny, nx)
+    n = likelihood.phys_model.source_light[0].n
+    src_img = src_1d.reshape(n, n)
 
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
     ext_s = [float(source_bbox[0]), float(source_bbox[1]), float(source_bbox[2]), float(source_bbox[3])]
