@@ -52,7 +52,7 @@ def _static_sie():
     return sie
 
 
-def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0, adaptive_reg_floor=0.1):
+def _pix_src(log_lambda_val=0.0, adaptive_reg_rho=0.0):
     lam = ParamU("log_lambda_reg", log_lambda_val,
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
@@ -60,8 +60,7 @@ def _pix_src(log_lambda_val=0.0, adaptive_reg_alpha=0.0, adaptive_reg_floor=0.1)
     return PixelizedSourceModel(n=5,
         log_lambda_reg=lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=adaptive_reg_alpha,
-        adaptive_reg_floor=adaptive_reg_floor,
+        adaptive_reg_rho=adaptive_reg_rho,
     )
 
 
@@ -70,21 +69,16 @@ def _pix_src_dynamic_adaptive():
                  prior_type="uniform",
                  prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
                  limits=[jnp.log(1e-3), jnp.log(1e3)])
-    alpha = ParamU("adaptive_reg_alpha", 1.0,
-                   prior_type="uniform",
-                   prior_settings=[0.0, 5.0],
-                   limits=[0.0, 5.0])
-    floor = ParamU("adaptive_reg_floor", 0.1,
-                   prior_type="log_uniform",
-                   prior_settings=[1.0e-3, 1.0],
-                   limits=[1.0e-3, 1.0])
-    for p in (lam, alpha, floor):
+    rho = ParamU("adaptive_reg_rho", 1.0,
+                 prior_type="uniform",
+                 prior_settings=[0.0, 3.0],
+                 limits=[0.0, 3.0])
+    for p in (lam, rho):
         p.to_dynamic()
     return PixelizedSourceModel(n=5,
         log_lambda_reg=lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=alpha,
-        adaptive_reg_floor=floor,
+        adaptive_reg_rho=rho,
     )
 
 
@@ -92,9 +86,9 @@ def _fixed_bbox():
     return (-0.3, 0.3, -0.3, 0.3)
 
 
-def _fixed_scale(n=5, alpha=1.0, floor=0.1):
+def _fixed_scale(n=5, rho=1.0):
     s0 = jnp.abs(jnp.linspace(-1.0, 1.0, n * n))
-    return source_template_scale_map(s0, n, alpha=alpha, floor=floor)
+    return source_template_scale_map(s0, n, rho=rho)
 
 
 def _fixed_template(n=5):
@@ -550,7 +544,7 @@ def test_operator_forward_model_converges_pcg():
 @pytest.mark.unit
 def test_dense_vectorized_likelihood_jit_with_uniform_reg():
     """Vectorized dense likelihood should compile for uniform regularization."""
-    source = _pix_src(adaptive_reg_alpha=0.0)
+    source = _pix_src(adaptive_reg_rho=0.0)
     phys = _phys_model(source=source)
     config = _sim_config()
     sim = PixelizedLensSimulator(phys, config)
@@ -571,7 +565,7 @@ def test_dense_vectorized_likelihood_jit_with_uniform_reg():
 @pytest.mark.unit
 def test_dense_vectorized_likelihood_rejects_adaptive_reg():
     """Dense backend no longer exposes the retired seed-ray adaptive path."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     config = _sim_config()
     sim = PixelizedLensSimulator(phys, config)
@@ -586,10 +580,10 @@ def test_dense_vectorized_likelihood_rejects_adaptive_reg():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("adaptive_reg_alpha", [0.0, 1.0])
-def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_alpha):
+@pytest.mark.parametrize("adaptive_reg_rho", [0.0, 1.0])
+def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_rho):
     """Vectorized operator likelihood should compile for uniform and adaptive reg."""
-    source = _pix_src(adaptive_reg_alpha=adaptive_reg_alpha)
+    source = _pix_src(adaptive_reg_rho=adaptive_reg_rho)
     phys = _phys_model(source=source)
     config = _sim_config()
     sim = PixelizedLensSimulator(phys, config)
@@ -599,8 +593,8 @@ def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_alpha
 
     prob_op = PixelizedImageProbModelOperator(
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
-        fixed_source_bbox=_fixed_bbox() if adaptive_reg_alpha > 0 else None,
-        fixed_reg_scale=_fixed_scale(alpha=adaptive_reg_alpha) if adaptive_reg_alpha > 0 else None,
+        fixed_source_bbox=_fixed_bbox() if adaptive_reg_rho > 0 else None,
+        fixed_reg_scale=_fixed_scale(rho=adaptive_reg_rho) if adaptive_reg_rho > 0 else None,
     )
     loglike = make_likelihood(prob_op, vectorized=True)
     values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
@@ -619,7 +613,7 @@ def test_operator_zero_order_adaptive_reg_jit_scan_path():
     source = PixelizedSourceModel(n=8,
         log_lambda_reg=lam,
         regularization_type="zero-order",
-        adaptive_reg_alpha=1.0,
+        adaptive_reg_rho=1.0,
     )
     phys = _phys_model(source=source)
     config = _sim_config()
@@ -644,7 +638,7 @@ def test_operator_zero_order_adaptive_reg_jit_scan_path():
 @pytest.mark.unit
 def test_operator_fixed_bbox_overrides_seed_inference():
     """A configured source bbox should be used even though seed betas are computed."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     prob_op = PixelizedImageProbModelOperator(
@@ -666,7 +660,7 @@ def test_operator_fixed_bbox_overrides_seed_inference():
 @pytest.mark.unit
 def test_operator_rejects_rectangular_fixed_source_bbox():
     """Fixed source bboxes must be square for pixelized source grids."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
 
@@ -681,7 +675,7 @@ def test_operator_rejects_rectangular_fixed_source_bbox():
 @pytest.mark.unit
 def test_operator_adaptive_requires_fixed_bbox():
     """Adaptive operator runs require a fixed source bbox from S0."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     with pytest.raises(ValueError, match="fixed_source_bbox"):
@@ -694,7 +688,7 @@ def test_operator_adaptive_requires_fixed_bbox():
 @pytest.mark.unit
 def test_operator_adaptive_requires_fixed_scale():
     """Adaptive operator runs require an S0-derived fixed scale map."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     with pytest.raises(ValueError, match="fixed_reg_scale"):
@@ -707,7 +701,7 @@ def test_operator_adaptive_requires_fixed_scale():
 @pytest.mark.unit
 def test_operator_rejects_invalid_fixed_scale_shape():
     """Fixed scale shape must match the source-grid pixel count."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     with pytest.raises(ValueError, match="fixed_reg_scale must have shape"):
@@ -721,7 +715,7 @@ def test_operator_rejects_invalid_fixed_scale_shape():
 @pytest.mark.unit
 def test_operator_fixed_scale_reproducible():
     """_get_reg_scale() returns the configured S0 scale on every call."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     fixed_scale = _fixed_scale()
@@ -750,16 +744,16 @@ def test_operator_fixed_template_dynamic_scale_changes_with_hyperparams():
     )
 
     with ck.ActiveContext(prob_op):
-        prob_op.fill_params(jnp.asarray([0.0, 0.5, 0.2]))
+        prob_op.fill_params(jnp.asarray([0.0, 0.5]))
         scale_low = prob_op._get_reg_scale()
-        prob_op.fill_params(jnp.asarray([0.0, 3.0, 0.05]))
+        prob_op.fill_params(jnp.asarray([0.0, 3.0]))
         scale_high = prob_op._get_reg_scale()
 
     assert scale_low.shape == (25,)
     assert scale_high.shape == (25,)
     assert jnp.all(jnp.isfinite(scale_low))
     assert jnp.all(jnp.isfinite(scale_high))
-    assert float(scale_high[0]) < float(scale_low[0])
+    assert float(scale_high[12]) > float(scale_low[12])
 
 
 @pytest.mark.unit
@@ -778,7 +772,7 @@ def test_operator_dynamic_adaptive_requires_scale_or_template():
 @pytest.mark.unit
 def test_operator_rejects_invalid_fixed_template_shape():
     """Fixed template shape must match the source-grid pixel count."""
-    source = _pix_src(adaptive_reg_alpha=1.0)
+    source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     with pytest.raises(ValueError, match="fixed_reg_template must have shape"):
@@ -807,8 +801,8 @@ def test_operator_vectorized_likelihood_jit_with_template_adaptive_reg():
     )
     loglike = make_likelihood(prob_op, vectorized=True)
     values = loglike(jnp.asarray([
-        [0.0, 0.5, 0.2],
-        [1.0, 3.0, 0.05],
+        [0.0, 0.5],
+        [1.0, 3.0],
     ], dtype=jnp.float32))
 
     assert values.shape == (2,)

@@ -323,104 +323,7 @@ class TestDenseRegularizationBuilderValidation:
 
 @pytest.mark.unit
 class TestAdaptiveRegUtilities:
-    """Test shared adaptive-regularisation utility functions."""
-
-    # --- smooth_scale_map ---
-
-    def test_smooth_sigma_default(self):
-        """Default sigma=1 produces kernel size 5 like legacy."""
-        builder = DenseRegularizationBuilder(10, "second-order")
-        q = jnp.ones(100, dtype=jnp.float32)
-        q_sm = builder.smooth_scale_map(q, 10, sigma=1.0)
-        assert q_sm.shape == (100,)
-        assert jnp.all(jnp.isfinite(q_sm))
-
-    def test_smooth_sigma_large_adapts_kernel(self):
-        """sigma=3 produces kernel size > 5 to avoid truncation."""
-        builder = DenseRegularizationBuilder(10, "second-order")
-        q = jnp.ones(100, dtype=jnp.float32)
-        q_sm = builder.smooth_scale_map(q, 10, sigma=3.0)
-        assert q_sm.shape == (100,)
-        assert jnp.all(jnp.isfinite(q_sm))
-
-    def test_smooth_preserves_interior(self):
-        """Gaussian smoothing preserves uniform values in interior (away from boundaries)."""
-        builder = DenseRegularizationBuilder(20, "second-order")
-        q = jnp.ones(400, dtype=jnp.float32) * 5.0
-        q_sm = builder.smooth_scale_map(q, 20, sigma=1.0)
-        # Interior pixels (central 10×10) should be unaffected by boundaries
-        q_2d = q_sm.reshape(20, 20)
-        interior = q_2d[5:15, 5:15]
-        assert jnp.allclose(interior, 5.0, atol=1e-4)
-
-    # --- _normalize_brightness ---
-
-    def test_normalize_all_dark(self):
-        """All-dark pixels produce near-zero normalized values."""
-        b_raw = jnp.zeros(100, dtype=jnp.float32)
-        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
-        # With mean≈0, each value/eps → 0
-        assert jnp.allclose(b_norm, jnp.zeros(100), atol=1e-6)
-
-    def test_normalize_uniform(self):
-        """Uniform brightness produces b_norm ≈ 1."""
-        b_raw = jnp.ones(100, dtype=jnp.float32) * 3.0
-        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
-        assert jnp.allclose(b_norm, 1.0, atol=1e-6)
-
-    def test_normalize_sparse_bright(self):
-        """Sparse bright pixels produce b_norm ≫ 1 for bright pixels."""
-        b_raw = jnp.zeros(100, dtype=jnp.float32)
-        b_raw = b_raw.at[:10].set(10.0)  # 10 bright, 90 dark
-        b_norm = DenseRegularizationBuilder._normalize_brightness(b_raw)
-        # Global mean = (10*10 + 90*0) / 100 = 1.0
-        # Bright: 10 / 1 = 10
-        assert b_norm[0] > 5.0
-        # Dark: 0 / 1 = 0
-        assert jnp.allclose(b_norm[10:], 0.0, atol=1e-6)
-
-    # --- _compute_scale_formula ---
-
-    def test_scale_formula_darkest(self):
-        """b_norm=0 → scale=1 regardless of alpha/floor."""
-        b_norm = jnp.zeros(10, dtype=jnp.float32)
-        alpha = jnp.array(2.0)
-        floor = jnp.array(0.1)
-        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
-        assert jnp.allclose(scale, 1.0)
-
-    def test_scale_formula_brightest(self):
-        """b_norm → ∞ → scale → floor."""
-        b_norm = jnp.array([1e10], dtype=jnp.float32)
-        alpha = jnp.array(1.0)
-        floor = jnp.array(0.2)
-        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
-        assert scale[0] < 0.21  # very close to floor
-
-    def test_scale_formula_mean_brightness(self):
-        """b_norm=1, alpha=1, floor=0.1 → scale = 0.1 + 0.9/2 = 0.55."""
-        b_norm = jnp.ones(1, dtype=jnp.float32)
-        alpha = jnp.array(1.0)
-        floor = jnp.array(0.1)
-        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
-        assert jnp.allclose(scale[0], 0.55, atol=1e-6)
-
-    def test_scale_formula_alpha_zero(self):
-        """alpha=0 → scale=1 regardless of brightness."""
-        b_norm = jnp.array([0.0, 1.0, 100.0], dtype=jnp.float32)
-        alpha = jnp.array(0.0)
-        floor = jnp.array(0.1)
-        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
-        assert jnp.allclose(scale, 1.0)
-
-    def test_scale_formula_monotonic(self):
-        """scale decreases monotonically with increasing brightness."""
-        b_norm = jnp.linspace(0.0, 10.0, 100, dtype=jnp.float32)
-        alpha = jnp.array(1.0)
-        floor = jnp.array(0.1)
-        scale = DenseRegularizationBuilder._compute_scale_formula(b_norm, alpha, floor)
-        diffs = jnp.diff(scale)
-        assert jnp.all(diffs <= 0.0)  # non-increasing
+    """Test adaptive-regularisation edge-weight and scale-application utilities."""
 
     # --- integration: scale applied via edge weights preserves PSD ---
 
@@ -441,6 +344,20 @@ class TestAdaptiveRegUtilities:
             f"{reg_type} with non-uniform scale not PSD"
         )
 
+    def test_galan_scale_edge_weight_is_geometric_mean(self):
+        """A bright/dark adjacent edge has weight exp(rho / 2)."""
+        n = 2
+        rho = 2.0
+        builder = DenseRegularizationBuilder(n, "first-order")
+        scale_2d = jnp.asarray([
+            [1.0, jnp.exp(rho)],
+            [1.0, 1.0],
+        ])
+
+        w_x, _ = builder._edge_weights_first_order(scale_2d)
+
+        assert np.isclose(float(w_x[0, 0]), float(jnp.exp(rho / 2.0)))
+
 
 # ------------------------------------------------------------------
 # Fixtures and helpers for adaptive scale-map computation tests
@@ -457,7 +374,7 @@ def _static_sie():
     return sie
 
 
-def _adaptive_source(n=5, *, alpha=1.0, floor=0.1,
+def _adaptive_source(n=5, *, rho=1.0,
                      reg_type="first-order"):
     log_lambda = ParamU(
         "log_lambda_reg", 0.0, prior_type="uniform",
@@ -466,15 +383,15 @@ def _adaptive_source(n=5, *, alpha=1.0, floor=0.1,
     log_lambda.to_dynamic()
     return PixelizedSourceModel(n=n, log_lambda_reg=log_lambda,
         regularization_type=reg_type,
-        adaptive_reg_alpha=alpha, adaptive_reg_floor=floor,
+        adaptive_reg_rho=rho,
     )
 
 
-def _dense_prob(n=5, *, alpha=1.0, floor=0.1,
+def _dense_prob(n=5, *, rho=1.0,
                 image_data=None, noise_map=None, source_seed_mask=None,
                 reg_type="first-order"):
     source = _adaptive_source(
-        n, alpha=alpha, floor=floor, reg_type=reg_type,
+        n, rho=rho, reg_type=reg_type,
     )
     phys = PhysicalModel(
         lens_mass=[_static_sie()], source_light=[source], lens_light=[],
@@ -487,12 +404,12 @@ def _dense_prob(n=5, *, alpha=1.0, floor=0.1,
     )
 
 
-def _operator_prob(n=5, *, alpha=1.0, floor=0.1,
+def _operator_prob(n=5, *, rho=1.0,
                    image_data=None, noise_map=None, source_seed_mask=None,
                    reg_type="first-order", fixed_source_bbox=None,
                    fixed_reg_scale=None):
     source = _adaptive_source(
-        n, alpha=alpha, floor=floor, reg_type=reg_type,
+        n, rho=rho, reg_type=reg_type,
     )
     phys = PhysicalModel(
         lens_mass=[_static_sie()], source_light=[source], lens_light=[],
@@ -511,66 +428,70 @@ def _operator_prob(n=5, *, alpha=1.0, floor=0.1,
 class TestSourceTemplateScaleMap:
     """Test S0-derived adaptive regularization scale maps."""
 
-    def test_bright_pixels_receive_lower_scale(self):
+    def test_faint_pixels_receive_stronger_scale(self):
         source = jnp.array([
             [0.0, 0.0, 0.0],
             [0.0, 4.0, 0.0],
             [0.0, 1.0, 0.0],
         ])
-        scale = source_template_scale_map(source, 3, alpha=2.0, floor=0.1)
+        scale = source_template_scale_map(source, 3, rho=2.0)
         assert scale is not None
         center = 1 * 3 + 1
         fainter = 2 * 3 + 1
         dark = 0
         assert float(scale[center]) < float(scale[fainter]) < float(scale[dark])
-        assert np.isclose(float(scale[dark]), 1.0)
+        assert np.isclose(float(scale[center]), 1.0)
+        assert np.isclose(float(scale[dark]), float(jnp.exp(2.0)))
 
     def test_negative_source_pixels_are_clipped(self):
         source = jnp.array([-5.0, 0.0, 2.0, 0.0])
-        scale = source_template_scale_map(source, 2, alpha=1.0, floor=0.2)
+        scale = source_template_scale_map(source, 2, rho=1.0)
         assert scale is not None
         assert jnp.all(jnp.isfinite(scale))
         assert jnp.all(scale > 0.0)
-        assert np.isclose(float(scale[0]), 1.0)
-        assert float(scale[2]) < 1.0
+        assert np.isclose(float(scale[0]), float(jnp.exp(1.0)))
+        assert np.isclose(float(scale[2]), 1.0)
 
     def test_all_dark_template_is_finite_and_uniform(self):
         scale = source_template_scale_map(
-            jnp.zeros((2, 2)), 2, alpha=1.0, floor=0.1,
+            jnp.zeros((2, 2)), 2, rho=1.0,
         )
         assert scale is not None
         assert jnp.all(jnp.isfinite(scale))
-        np.testing.assert_allclose(np.asarray(scale), np.ones(4), atol=1e-6)
+        np.testing.assert_allclose(
+            np.asarray(scale), np.ones(4) * np.exp(1.0), atol=1e-6,
+        )
 
-    def test_alpha_zero_uses_uniform_fast_path(self):
+    def test_rho_zero_uses_uniform_fast_path(self):
         scale = source_template_scale_map(
-            jnp.ones((2, 2)), 2, alpha=0.0, floor=0.1,
+            jnp.ones((2, 2)), 2, rho=0.0,
         )
         assert scale is None
 
-    def test_traced_alpha_and_floor_change_scale(self):
+    def test_traced_rho_changes_scale(self):
         source = jnp.array([0.0, 1.0, 3.0, 0.0])
 
-        def build(alpha, floor):
-            return source_template_scale_map(source, 2, alpha=alpha, floor=floor)
+        def build(rho):
+            return source_template_scale_map(source, 2, rho=rho)
 
-        scale_low = jax.jit(build)(jnp.asarray(0.5), jnp.asarray(0.2))
-        scale_high = jax.jit(build)(jnp.asarray(3.0), jnp.asarray(0.05))
+        scale_low = jax.jit(build)(jnp.asarray(0.5))
+        scale_high = jax.jit(build)(jnp.asarray(3.0))
 
         assert scale_low is not None
         assert scale_high is not None
         assert scale_low.shape == (4,)
         assert jnp.all(jnp.isfinite(scale_low))
         assert jnp.all(jnp.isfinite(scale_high))
-        assert float(scale_high[2]) < float(scale_low[2])
+        assert float(scale_high[0]) > float(scale_low[0])
+        assert np.isclose(float(scale_high[2]), 1.0)
 
-    def test_traced_zero_alpha_returns_uniform_scale(self):
+    def test_traced_zero_rho_returns_uniform_scale(self):
         source = jnp.array([0.0, 1.0, 3.0, 0.0])
 
         @jax.jit
-        def build(alpha):
+        def build(rho):
             return source_template_scale_map(
-                source, 2, alpha=alpha, floor=jnp.asarray(0.1),
+                source, 2, rho=rho,
             )
 
         scale = build(jnp.asarray(0.0))
@@ -578,19 +499,25 @@ class TestSourceTemplateScaleMap:
 
     def test_accepts_flat_or_2d_source_templates(self):
         source_2d = jnp.array([[0.0, 1.0], [2.0, 3.0]])
-        scale_2d = source_template_scale_map(source_2d, 2, alpha=1.0, floor=0.1)
+        scale_2d = source_template_scale_map(source_2d, 2, rho=1.0)
         scale_1d = source_template_scale_map(
-            source_2d.ravel(), 2, alpha=1.0, floor=0.1,
+            source_2d.ravel(), 2, rho=1.0,
         )
         np.testing.assert_allclose(np.asarray(scale_2d), np.asarray(scale_1d))
 
     def test_rejects_wrong_template_shape(self):
         with pytest.raises(ValueError, match="source_pixels must have shape"):
-            source_template_scale_map(jnp.ones((3, 2)), 3, alpha=1.0, floor=0.1)
+            source_template_scale_map(jnp.ones((3, 2)), 3, rho=1.0)
 
-    def test_rejects_invalid_static_floor(self):
-        with pytest.raises(ValueError, match="floor must be in"):
-            source_template_scale_map(jnp.ones((2, 2)), 2, alpha=1.0, floor=0.0)
+    def test_rejects_invalid_static_rho(self):
+        with pytest.raises(ValueError, match="rho must be"):
+            source_template_scale_map(jnp.ones((2, 2)), 2, rho=-1.0)
+
+    def test_percentile_reference_clips_outliers(self):
+        source = jnp.concatenate([jnp.ones(399), jnp.asarray([1000.0])])
+        scale = source_template_scale_map(source, 20, rho=2.0)
+        assert scale is not None
+        assert np.isclose(float(scale[-1]), 1.0)
 
 
 @pytest.mark.unit
@@ -614,10 +541,10 @@ class TestRetiredAdaptiveRegPath:
 
     def test_dense_backend_rejects_adaptive_reg(self):
         with pytest.raises(ValueError, match="no longer supports"):
-            _dense_prob(n=5, alpha=1.0)
+            _dense_prob(n=5, rho=1.0)
 
     def test_dense_backend_has_no_freeze_api(self):
-        model = _dense_prob(n=5, alpha=0.0)
+        model = _dense_prob(n=5, rho=0.0)
         assert not hasattr(model, "freeze_scale")
         assert not hasattr(model, "unfreeze_scale")
 
@@ -655,7 +582,7 @@ class TestAdaptiveRegIntegration:
         """Dense backend remains finite for uniform pixelized regularization."""
         mock, noise = self._mock_image()
         model = _dense_prob(
-            n=5, alpha=0.0, floor=0.1,
+            n=5, rho=0.0,
             image_data=mock, noise_map=noise,
         )
         log_ev = model()
@@ -666,9 +593,9 @@ class TestAdaptiveRegIntegration:
         """Operator backend: fixed S0-derived scale yields finite evidence."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, alpha=1.0, floor=0.1)
+        fixed_scale = source_template_scale_map(s0, 5, rho=1.0)
         model = _operator_prob(
-            n=5, alpha=1.0, floor=0.1,
+            n=5, rho=1.0,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
             fixed_reg_scale=fixed_scale,
@@ -681,9 +608,9 @@ class TestAdaptiveRegIntegration:
         """Repeated operator calls reuse the same fixed S0 scale and bbox."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, alpha=1.0, floor=0.1)
+        fixed_scale = source_template_scale_map(s0, 5, rho=1.0)
         model = _operator_prob(
-            n=5, alpha=1.0, floor=0.1,
+            n=5, rho=1.0,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
             fixed_reg_scale=fixed_scale,

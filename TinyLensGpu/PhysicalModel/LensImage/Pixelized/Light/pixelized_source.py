@@ -38,16 +38,10 @@ class PixelizedSourceModel(ck.Module):
         ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
     kernel_scale : float or ParamU or None, optional
         Kernel scale for GP-style regularization only.
-    adaptive_reg_alpha : float or ParamU, optional
-        Adaptive regularization strength.  ``0.0`` (default) disables
-        adaptation and recovers uniform regularisation.  Larger values
-        (e.g. ``1.0``) make the per-pixel regularisation scale more
-        sensitive to the source brightness estimate.
-    adaptive_reg_floor : float or ParamU, optional
-        Minimum per-pixel regularisation scale, relative to the global
-        ``lambda_reg``.  Default ``0.1``; must be in ``(0, 1]``.
-        Values greater than zero require a probability model that accepts an
-        explicit fixed source-template scale map.
+    adaptive_reg_rho : float or ParamU, optional
+        Galan-style adaptive regularization strength. ``0.0`` (default)
+        disables adaptation and recovers uniform regularization. Larger
+        values strengthen regularization in faint S0 source-template regions.
     """
 
     def __init__(
@@ -57,10 +51,18 @@ class PixelizedSourceModel(ck.Module):
         log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
         kernel_scale: float | ParamU | None = None,
-        adaptive_reg_alpha: float | ParamU = 0.0,
-        adaptive_reg_floor: float | ParamU = 0.1,
+        adaptive_reg_rho: float | ParamU = 0.0,
+        adaptive_reg_alpha: float | ParamU | None = None,
+        adaptive_reg_floor: float | ParamU | None = None,
     ) -> None:
         super().__init__()
+
+        if adaptive_reg_alpha is not None or adaptive_reg_floor is not None:
+            raise ValueError(
+                "adaptive_reg_alpha and adaptive_reg_floor are retired. "
+                "Use adaptive_reg_rho for Galan-style source-template "
+                "adaptive regularization."
+            )
 
         if regularization_type not in VALID_REGULARIZATION_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type}")
@@ -71,20 +73,7 @@ class PixelizedSourceModel(ck.Module):
                 f"PixelizedSourceModel requires n >= 2; got n={n_int}."
             )
 
-        alpha_value = (
-            adaptive_reg_alpha.value
-            if isinstance(adaptive_reg_alpha, ParamU)
-            else adaptive_reg_alpha
-        )
-        floor_value = (
-            adaptive_reg_floor.value
-            if isinstance(adaptive_reg_floor, ParamU)
-            else adaptive_reg_floor
-        )
-        if not 0.0 <= float(alpha_value):
-            raise ValueError(f"adaptive_reg_alpha must be >= 0, got {adaptive_reg_alpha}")
-        if not 0.0 < float(floor_value) <= 1.0:
-            raise ValueError(f"adaptive_reg_floor must be in (0, 1], got {adaptive_reg_floor}")
+        self._validate_adaptive_reg_rho(adaptive_reg_rho)
 
         object.__setattr__(self, "n", n_int)
         object.__setattr__(self, "regularization_type", regularization_type)
@@ -97,13 +86,9 @@ class PixelizedSourceModel(ck.Module):
                         prior_settings=[jnp.log(1e-4), jnp.log(1e4)],
                         limits=[jnp.log(1e-4), jnp.log(1e4)])
         )
-        self.adaptive_reg_alpha = (
-            adaptive_reg_alpha if isinstance(adaptive_reg_alpha, ParamU)
-            else float(adaptive_reg_alpha)
-        )
-        self.adaptive_reg_floor = (
-            adaptive_reg_floor if isinstance(adaptive_reg_floor, ParamU)
-            else float(adaptive_reg_floor)
+        self.adaptive_reg_rho = (
+            adaptive_reg_rho if isinstance(adaptive_reg_rho, ParamU)
+            else float(adaptive_reg_rho)
         )
 
         if regularization_type in GP_REGULARIZATION_TYPES:
@@ -116,6 +101,48 @@ class PixelizedSourceModel(ck.Module):
             raise ValueError("kernel_scale is only valid for GP regularization types")
         else:
             self.kernel_scale = None
+
+    @staticmethod
+    def _validate_adaptive_reg_rho(adaptive_reg_rho: float | ParamU) -> None:
+        rho_value = (
+            adaptive_reg_rho.value
+            if isinstance(adaptive_reg_rho, ParamU)
+            else adaptive_reg_rho
+        )
+        if not 0.0 <= float(rho_value):
+            raise ValueError(f"adaptive_reg_rho must be >= 0, got {adaptive_reg_rho}")
+        if not isinstance(adaptive_reg_rho, ParamU):
+            return
+
+        def _lower_bound(values):
+            if values is None:
+                return None
+            return float(values[0])
+
+        limits_lower = _lower_bound(adaptive_reg_rho.limits)
+        if limits_lower is not None and limits_lower < 0.0:
+            raise ValueError(
+                "adaptive_reg_rho limits must have a non-negative lower bound"
+            )
+
+        prior_lower = _lower_bound(adaptive_reg_rho.prior_settings)
+        if (
+            adaptive_reg_rho.prior_type in ("uniform", "log_uniform")
+            and prior_lower is not None
+            and prior_lower < 0.0
+        ):
+            raise ValueError(
+                "adaptive_reg_rho prior_settings must have a non-negative lower bound"
+            )
+
+        if (
+            bool(getattr(adaptive_reg_rho, "dynamic", False))
+            and adaptive_reg_rho.prior_type in ("gaussian", "truncated_gaussian")
+            and limits_lower is None
+        ):
+            raise ValueError(
+                "dynamic adaptive_reg_rho gaussian priors require non-negative limits"
+            )
 
     @ck.forward
     def light(

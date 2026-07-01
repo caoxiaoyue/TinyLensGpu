@@ -65,7 +65,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         Flat fixed adaptive regularization scale map with shape ``(n * n,)``.
     fixed_reg_template : array_like, optional
         Flat or 2D S0 source template used to generate the adaptive scale map
-        from current ``adaptive_reg_alpha`` and ``adaptive_reg_floor`` values.
+        from current ``adaptive_reg_rho`` values.
     """
 
     def __init__(
@@ -232,12 +232,12 @@ class PixelizedImageProbModelOperator(ck.Module):
         return value.value if hasattr(value, "value") else value
 
     def _adaptive_reg_enabled(self) -> bool:
-        alpha = self.source_model.adaptive_reg_alpha
-        if bool(getattr(alpha, "dynamic", False)):
+        rho = self.source_model.adaptive_reg_rho
+        if bool(getattr(rho, "dynamic", False)):
             return True
-        alpha_value = self._param_value(alpha)
+        rho_value = self._param_value(rho)
         try:
-            return abs(float(alpha_value)) >= 1.0e-10
+            return abs(float(rho_value)) >= 1.0e-10
         except TypeError:
             return True
 
@@ -309,13 +309,12 @@ class PixelizedImageProbModelOperator(ck.Module):
             return source_template_scale_map(
                 self._fixed_reg_template,
                 int(source.n),
-                alpha=self._param_value(source.adaptive_reg_alpha),
-                floor=self._param_value(source.adaptive_reg_floor),
+                rho=self._param_value(source.adaptive_reg_rho),
             )
         if self._fixed_reg_scale is None:
             raise ValueError(
                 "fixed_reg_scale or fixed_reg_template is required when "
-                "adaptive_reg_alpha > 0 in PixelizedImageProbModelOperator."
+                "adaptive_reg_rho > 0 in PixelizedImageProbModelOperator."
             )
         return self._fixed_reg_scale
 

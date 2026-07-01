@@ -8,7 +8,7 @@ source reconstruction.
 Stage a  : SIE + shear + MGE source light (uniform priors, NO lens light)
 Stage b  : build an arc feature mask from image_no_lens S/N
 Stage m1 : SIE + shear + pixelized source — Nautilus sampling of
-           log_lambda_reg, adaptive_reg_alpha, and adaptive_reg_floor
+           log_lambda_reg and adaptive_reg_rho
            (SIE+shear fixed at stage-A medians)
 Stage m2 : EPL + shear + pixelized source — Nautilus nested sampling
            (Gaussian priors from stage a on EPL+shear; source-reg
@@ -87,8 +87,7 @@ NSUB_PIX = 4
 N_GAUSSIANS_SRC = 10
 MASK_RADIUS = 2.5
 NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
-ADAPTIVE_REG_ALPHA = 2.0          # 0 = uniform, >0 = adaptive (bright regions → weaker reg)
-ADAPTIVE_REG_FLOOR = 0.01          # minimum per-pixel reg scale
+ADAPTIVE_REG_RHO = 2.0             # 0 = uniform, >0 strengthens faint-region reg
 OUT_DIR = Path("output_adpt_reg")
 DATA_DIR = Path("data")
 
@@ -179,15 +178,13 @@ def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
 
 def _make_s0_scale(
     s0_package,
-    alpha: float = ADAPTIVE_REG_ALPHA,
-    floor: float = ADAPTIVE_REG_FLOOR,
+    rho: float = ADAPTIVE_REG_RHO,
 ):
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
         s0_package["source_pixels"],
         int(s0_package["n"]),
-        alpha=alpha,
-        floor=floor,
+        rho=rho,
     )
 
 
@@ -298,7 +295,7 @@ def _reg_hyperparams_from_m1_payload(stage_payload):
     medians = stage_payload.get("extra", {}).get("medians")
     if not medians:
         raise KeyError("stage-M1 payload missing posterior medians.")
-    required = ("log_lambda_reg", "adaptive_reg_alpha", "adaptive_reg_floor")
+    required = ("log_lambda_reg", "adaptive_reg_rho")
     missing = [name for name in required if name not in medians]
     if missing:
         raise KeyError("stage-M1 medians missing required keys: " + ", ".join(missing))
@@ -308,8 +305,7 @@ def _reg_hyperparams_from_m1_payload(stage_payload):
 def _format_reg_hyperparams(reg_hyperparams):
     return (
         f"lambda={float(jnp.exp(reg_hyperparams['log_lambda_reg'])):.4e}, "
-        f"alpha={reg_hyperparams['adaptive_reg_alpha']:.4f}, "
-        f"floor={reg_hyperparams['adaptive_reg_floor']:.4e}"
+        f"rho={reg_hyperparams['adaptive_reg_rho']:.4f}"
     )
 
 
@@ -318,8 +314,7 @@ def _cache_matches_reg_hyperparams(stage_payload, reg_hyperparams, tag, rtol=1.0
     if actual is None:
         actual = {
             "log_lambda_reg": stage_payload.get("extra", {}).get("lambda_fixed"),
-            "adaptive_reg_alpha": stage_payload.get("extra", {}).get("adaptive_reg_alpha_fixed"),
-            "adaptive_reg_floor": stage_payload.get("extra", {}).get("adaptive_reg_floor_fixed"),
+            "adaptive_reg_rho": stage_payload.get("extra", {}).get("adaptive_reg_rho_fixed"),
         }
     for name, expected in reg_hyperparams.items():
         value = actual.get(name) if isinstance(actual, dict) else None
@@ -708,8 +703,6 @@ def build_stage_m0_likelihood(
     pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=0.0,
-        adaptive_reg_floor=ADAPTIVE_REG_FLOOR,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -829,28 +822,19 @@ def build_stage_m1_likelihood(
         limits=[-13.815510557964274, 13.815510557964274],
     )
     log_lam.to_dynamic()
-    alpha = ParamU(
-        "adaptive_reg_alpha",
-        ADAPTIVE_REG_ALPHA,
+    rho = ParamU(
+        "adaptive_reg_rho",
+        ADAPTIVE_REG_RHO,
         prior_type="uniform",
-        prior_settings=[0.0, 5.0],
-        limits=[0.0, 5.0],
+        prior_settings=[0.0, 3.0],
+        limits=[0.0, 3.0],
     )
-    floor = ParamU(
-        "adaptive_reg_floor",
-        ADAPTIVE_REG_FLOOR,
-        prior_type="log_uniform",
-        prior_settings=[1.0e-3, 1.0],
-        limits=[1.0e-3, 1.0],
-    )
-    alpha.to_dynamic()
-    floor.to_dynamic()
+    rho.to_dynamic()
 
     pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=alpha,
-        adaptive_reg_floor=floor,
+        adaptive_reg_rho=rho,
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -880,7 +864,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     ``image_data`` is already lens-subtracted so we use it directly.
     """
     print("\n" + "=" * 60)
-    print(" Stage M1 : SIE + shear + pix source  (fit λ, α, floor)")
+    print(" Stage M1 : SIE + shear + pix source  (fit λ, rho)")
     print("=" * 60)
     t0 = time.time()
 
@@ -897,8 +881,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     medians = _posterior_median(samples, weights, names)
     reg_hyperparams = {
         "log_lambda_reg": float(medians["log_lambda_reg"]),
-        "adaptive_reg_alpha": float(medians["adaptive_reg_alpha"]),
-        "adaptive_reg_floor": float(medians["adaptive_reg_floor"]),
+        "adaptive_reg_rho": float(medians["adaptive_reg_rho"]),
     }
     print(f"[stage-M1] median hyperparams: {_format_reg_hyperparams(reg_hyperparams)}")
 
@@ -939,11 +922,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
         lambda_j = jnp.asarray(lam_val)
 
-        lvl_val = float(np.asarray(_source_param_value(
-            likelihood.phys_model.source_light[0].adaptive_reg_alpha
-        )))
-        flr_val = float(np.asarray(_source_param_value(
-            likelihood.phys_model.source_light[0].adaptive_reg_floor
+        rho_val = float(np.asarray(_source_param_value(
+            likelihood.phys_model.source_light[0].adaptive_reg_rho
         )))
 
         # Unpack 8-value _get_bbox (includes seed betas for adaptive reg)
@@ -1023,8 +1003,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     # Scale map (2D source grid)
     scale_img = np.array(scale).reshape(n, n) if scale is not None else np.ones((n, n))
-    lvl = lvl_val
-    flr = flr_val
+    rho = rho_val
 
     npix = image_data.shape[0]
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
@@ -1067,8 +1046,8 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
     # Panel 5: adaptive reg scale map
     im4 = axes[4].imshow(scale_img, origin="lower", extent=ext_s,
-                         cmap="plasma", vmin=flr, vmax=1.0)
-    axes[4].set_title(f"Reg scale map\n(α={lvl:.2f}, floor={flr:.2e})", fontsize=11)
+                         cmap="plasma", vmin=1.0, vmax=max(1.0, float(np.nanmax(scale_img))))
+    axes[4].set_title(f"Reg precision scale\n(rho={rho:.2f})", fontsize=11)
     axes[4].set_xlabel("arcsec")
     plt.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04,
                  label=r"$\lambda_i / \lambda_{\rm global}$")
@@ -1103,22 +1082,16 @@ def build_stage_m2_likelihood(
 
     log_lam = ParamU("log_lambda_reg", float(reg_hyperparams_fixed["log_lambda_reg"]))
     log_lam.to_static()
-    alpha = ParamU(
-        "adaptive_reg_alpha",
-        float(reg_hyperparams_fixed["adaptive_reg_alpha"]),
+    rho = ParamU(
+        "adaptive_reg_rho",
+        float(reg_hyperparams_fixed["adaptive_reg_rho"]),
     )
-    floor = ParamU(
-        "adaptive_reg_floor",
-        float(reg_hyperparams_fixed["adaptive_reg_floor"]),
-    )
-    alpha.to_static()
-    floor.to_static()
+    rho.to_static()
 
     pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type="first-order",
-        adaptive_reg_alpha=alpha,
-        adaptive_reg_floor=floor,
+        adaptive_reg_rho=rho,
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -1306,7 +1279,7 @@ def main(skip_done: bool = False):
                 "stage-M1",
                 lkl_m1_replot,
                 medians_m1_replot,
-                ["log_lambda_reg", "adaptive_reg_alpha", "adaptive_reg_floor"],
+                ["log_lambda_reg", "adaptive_reg_rho"],
                 str(OUT_DIR / "stage_m1_model.png"),
             )
         except Exception as err:

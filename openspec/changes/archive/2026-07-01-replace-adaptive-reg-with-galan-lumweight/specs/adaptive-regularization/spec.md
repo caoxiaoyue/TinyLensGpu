@@ -1,7 +1,5 @@
-## Purpose
+## MODIFIED Requirements
 
-Adaptive regularization for pixelized source reconstruction supports source-template empirical-Bayes workflows. A fixed stage-m0 source reconstruction can define a luminosity-weighted regularization precision map that is reused by later operator likelihood stages.
-## Requirements
 ### Requirement: Source-template adaptive scale maps
 
 The system SHALL support adaptive regularization scale maps derived from a fixed pixelized source reconstruction template instead of image-plane seed rays.
@@ -107,54 +105,6 @@ For traced `rho`, the implementation SHALL NOT call Python `float()` on that val
 - **WHEN** `adaptive_reg_rho` is traced and happens to evaluate to zero
 - **THEN** scale construction SHALL produce an all-ones scale map without Python-side branching on the traced value
 
-### Requirement: Fixed source bbox for source-template inference
-
-The operator pixelized image probability model SHALL support a fixed source-plane bbox for source-template adaptive regularization.
-
-The API SHALL expose a configuration equivalent to:
-
-```python
-PixelizedImageProbModelOperator(
-    ...,
-    fixed_source_bbox: tuple[float, float, float, float] | None = None,
-    fixed_reg_scale: Array | None = None,
-    fixed_reg_template: Array | None = None,
-)
-```
-
-When `fixed_source_bbox` is provided, `_get_bbox()` SHALL return that bbox for source-grid construction while still computing current mass-model betas for the lensing operator.
-
-#### Scenario: M2 mass proposal with fixed source grid
-
-- **WHEN** stage-m2 evaluates a new EPL+shear mass proposal and `fixed_source_bbox` is configured from stage-m0
-- **THEN** the likelihood SHALL use the stage-m0 source bbox for the source grid instead of inferring a new bbox from the proposal's seed-ray betas
-
-#### Scenario: Missing fixed bbox for adaptive S0 path
-
-- **WHEN** adaptive regularization is enabled through the source-template path and no `fixed_source_bbox` is provided
-- **THEN** the operator likelihood SHALL fail with a clear error before JIT tracing or evidence evaluation
-
-### Requirement: External fixed scale map for operator likelihoods
-
-The operator pixelized image probability model SHALL accept an externally supplied fixed regularization scale map.
-
-The fixed scale map SHALL have shape `(nx * ny,)`, finite positive values, and dtype convertible to `jax.float32`. When provided and adaptive regularization is enabled, the operator likelihood's adaptive-scale access path SHALL return the fixed scale map without performing image-plane brightness accumulation, segment sums, or smoothing.
-
-#### Scenario: Fixed scale bypasses mass-dependent scale construction
-
-- **WHEN** a likelihood is configured with `fixed_reg_scale` from `S0`
-- **THEN** repeated likelihood evaluations at different mass parameters SHALL use the same scale values and SHALL NOT rebuild the adaptive scale from current seed-ray betas
-
-#### Scenario: Invalid fixed scale shape
-
-- **WHEN** `fixed_reg_scale` has a shape different from `(nx * ny,)`
-- **THEN** the likelihood construction or first scale validation SHALL fail with a clear error describing the expected shape
-
-#### Scenario: Missing fixed scale for adaptive S0 path
-
-- **WHEN** adaptive regularization is enabled and no fixed scale map has been configured from `S0`
-- **THEN** the operator likelihood SHALL fail with a clear error rather than falling back to seed-ray scale construction
-
 ### Requirement: Operator likelihood can generate scale maps from an S0 template
 
 The operator pixelized image probability model SHALL accept a fixed source-template input for adaptive scale-map generation.
@@ -175,27 +125,6 @@ When `fixed_reg_template` is provided and adaptive regularization is enabled, th
 
 - **WHEN** adaptive regularization is enabled through dynamic `adaptive_reg_rho` and neither `fixed_reg_scale` nor `fixed_reg_template` is provided
 - **THEN** likelihood construction or scale access SHALL fail with a clear error before producing evidence values
-
-### Requirement: Retired seed-ray adaptive path is unavailable
-
-The system SHALL NOT expose the retired image-plane seed-ray adaptive regularization path, its configurable brightness modes, its Gaussian smoothing parameter, or its `freeze_scale()` / `unfreeze_scale()` empirical-Bayes cache as active adaptive-regularization APIs.
-
-Backends that do not yet support fixed source-template adaptive inputs SHALL fail clearly when `adaptive_reg_rho > 0` instead of computing a mass-dependent scale map from current seed-ray betas.
-
-#### Scenario: Dense backend adaptive request
-
-- **WHEN** a dense pixelized image probability model is constructed or evaluated with `adaptive_reg_rho > 0`
-- **THEN** it SHALL raise a clear error explaining that adaptive regularization now requires fixed source-template inputs and is currently supported by the operator backend
-
-#### Scenario: Retired freeze API
-
-- **WHEN** a caller tries to use `freeze_scale()` or `unfreeze_scale()` on pixelized image probability models
-- **THEN** those APIs SHALL be absent or raise a clear error rather than caching a mass-dependent scale map
-
-#### Scenario: Retired physical source configuration
-
-- **WHEN** a caller constructs `PixelizedSourceModel`
-- **THEN** it SHALL NOT accept `adaptive_reg_mode`, `adaptive_reg_smooth_sigma`, or `adaptive_reg_freeze` as active configuration fields
 
 ### Requirement: Continuously-differentiable scale formula
 
@@ -244,31 +173,6 @@ This preserves symmetry and positive semi-definiteness of the regularizer. Large
 
 - **WHEN** `scale_i = 1` for a reference-bright pixel adjacent to a dark pixel where `scale_j = exp(rho)`
 - **THEN** the shared edge weight SHALL be `exp(rho / 2)`, intermediate between the two extremes
-
-### Requirement: Stage-m0 source-template artifact
-
-The adaptive regularization demo pipeline SHALL include a stage-m0 before stage-m1.
-
-Stage-m0 SHALL fix SIE+shear mass parameters at the stage-A medians, disable adaptive regularization, optimize the uniform regularization strength with the same grid-search style used by stage-m1, solve the MAP pixelized source at the best regularization strength, and save a reusable `S0` package.
-
-The `S0` package SHALL include at minimum:
-
-- `source_pixels` with shape `(nx * ny,)`
-- `source_bbox = (xmin, xmax, ymin, ymax)`
-- `source_x_axis` and `source_y_axis`
-- `nx` and `ny`
-- the best stage-m0 regularization value
-- enough metadata to validate that downstream stages use the same grid shape
-
-#### Scenario: Cached stage-m0 output is reused
-
-- **WHEN** the demo is run with `--skip-done` and a valid stage-m0 output exists
-- **THEN** the pipeline SHALL load `S0` from cache and SHALL NOT recompute the uniform source reconstruction
-
-#### Scenario: Missing S0 metadata
-
-- **WHEN** a cached stage-m0 output lacks required source grid metadata
-- **THEN** the pipeline SHALL treat the cache as invalid and recompute or raise a clear error before stage-m1 starts
 
 ### Requirement: Stage-m1 adaptive hyperparameter posterior artifact
 
@@ -327,4 +231,3 @@ The implementation SHALL avoid Python-side mutation from inside JIT-traced likel
 
 - **WHEN** a vectorized likelihood evaluates a batch of stage-m1 proposals
 - **THEN** each batch element SHALL share the same fixed source bbox and S0 source template while using its own `log_lambda_reg` and `adaptive_reg_rho`
-

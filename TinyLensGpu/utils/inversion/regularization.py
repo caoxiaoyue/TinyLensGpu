@@ -26,13 +26,11 @@ from __future__ import annotations
 
 # pyright: reportMissingImports=false
 
-import math
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
-import jax.scipy.signal as jsp_signal
 
 VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
     "zero-order", "first-order", "second-order",
@@ -51,12 +49,12 @@ GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
 def source_template_scale_map(
     source_pixels: "jax.Array",
     n: int,
-    alpha: float,
-    floor: float,
+    rho: float,
     *,
+    ref_percentile: float = 99.5,
     eps: float = 1.0e-10,
 ) -> "jax.Array | None":
-    """Build an adaptive regularization scale map from a fixed source template.
+    """Build a Galan-style adaptive precision scale map from a source template.
 
     The input source template is assumed to be a regularized MAP source
     reconstruction such as stage-m0 ``S0``.  No additional smoothing is
@@ -69,28 +67,30 @@ def source_template_scale_map(
         Source template with shape ``(n * n,)`` or ``(n, n)``.
     n : int
         Source-grid dimension (n x n square grid).
-    alpha : float or Array
-        Adaptive regularization strength. Values within ``1e-10`` of zero
+    rho : float or Array
+        Galan-style adaptive regularization strength. Values within ``1e-10`` of zero
         return ``None`` for the uniform-regularization fast path.
-    floor : float or Array
-        Minimum per-pixel regularization scale in ``(0, 1]``.
+    ref_percentile : float, optional
+        Static percentile of non-negative source brightness used as the
+        reference-bright value (default 99.5).
     eps : float, optional
-        Mean-brightness floor used to keep all-dark templates finite.
+        Reference-brightness floor used to keep all-dark templates finite.
     """
     n = int(n)
     try:
-        alpha_static = float(alpha)
+        rho_static = float(rho)
     except (TypeError, jax.errors.ConcretizationTypeError):
-        alpha_static = None
-    try:
-        floor_static = float(floor)
-    except (TypeError, jax.errors.ConcretizationTypeError):
-        floor_static = None
+        rho_static = None
 
-    if alpha_static is not None and abs(alpha_static) < 1.0e-10:
+    if rho_static is not None and rho_static < 0.0:
+        raise ValueError(f"rho must be >= 0, got {rho}")
+    if rho_static is not None and abs(rho_static) < 1.0e-10:
         return None
-    if floor_static is not None and not 0.0 < floor_static <= 1.0:
-        raise ValueError(f"floor must be in (0, 1], got {floor}")
+    ref_percentile = float(ref_percentile)
+    if not 0.0 <= ref_percentile <= 100.0:
+        raise ValueError(
+            f"ref_percentile must be in [0, 100], got {ref_percentile}"
+        )
 
     source = jnp.asarray(source_pixels, dtype=jnp.float32)
     if source.shape == (n, n):
@@ -102,20 +102,14 @@ def source_template_scale_map(
         )
 
     source_pos = jnp.maximum(source, 0.0)
-    brightness_mean = jnp.mean(source_pos)
-    b_norm = source_pos / jnp.maximum(brightness_mean, float(eps))
-    alpha_j = jnp.asarray(alpha, dtype=jnp.float32)
-    floor_j = jnp.asarray(floor, dtype=jnp.float32)
-    floor_j = jnp.clip(floor_j, jnp.asarray(eps, dtype=jnp.float32), 1.0)
-    alpha_j = jnp.maximum(alpha_j, 0.0)
-    scale = DenseRegularizationBuilder._compute_scale_formula(
-        b_norm,
-        alpha_j,
-        floor_j,
-    )
-    if alpha_static is None:
+    brightness_ref = jnp.percentile(source_pos, ref_percentile)
+    u = source_pos / jnp.maximum(brightness_ref, float(eps))
+    u = jnp.clip(u, 0.0, 1.0)
+    rho_j = jnp.maximum(jnp.asarray(rho, dtype=jnp.float32), 0.0)
+    scale = jnp.exp(rho_j * (1.0 - u))
+    if rho_static is None:
         scale = jnp.where(
-            jnp.abs(alpha_j) < jnp.asarray(1.0e-10, dtype=jnp.float32),
+            jnp.abs(rho_j) < jnp.asarray(1.0e-10, dtype=jnp.float32),
             jnp.ones_like(scale),
             scale,
         )
@@ -243,100 +237,6 @@ class DenseRegularizationBuilder:
             scale_mat = sqrt_scale[:, None] * sqrt_scale[None, :]
             matrix = matrix * scale_mat
         return matrix
-
-    # ------------------------------------------------------------------
-    # Shared adaptive-regularisation utilities (static, mode-agnostic)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def smooth_scale_map(
-        q_1d: "jax.Array", n: int, sigma: float = 1.0,
-    ) -> "jax.Array":
-        """Gaussian-smooth a square source-plane map with configurable kernel width.
-
-        Uses a separable Gaussian kernel with the given *sigma* (in source
-        pixels).  The kernel size is auto-adapted as
-        ``max(5, 2·ceil(3·sigma) + 1)`` to avoid truncation.
-        Assumes column-major flat layout ``(x + y * n)`` for an ``n x n`` grid.
-
-        Parameters
-        ----------
-        q_1d : Array, shape (Ns,)
-            Flat source-plane map to smooth.
-        n : int
-            Source grid dimension (``n x n`` square grid).
-        sigma : float, optional
-            Gaussian sigma in source pixels (default 1.0).
-
-        Returns
-        -------
-        Array, shape (Ns,)
-            Smoothed map in the same flat layout.
-        """
-        ksize = max(5, 2 * int(math.ceil(3.0 * sigma)) + 1)
-        x_k = jnp.arange(ksize, dtype=jnp.float32) - (ksize - 1) / 2
-        kernel_1d = jnp.exp(-0.5 * (x_k / sigma) ** 2)
-        kernel_1d = kernel_1d / jnp.sum(kernel_1d)
-        kernel_2d = kernel_1d[:, None] * kernel_1d[None, :]
-
-        q_2d = q_1d.reshape(int(n), int(n))
-        q_smooth = jsp_signal.convolve2d(q_2d, kernel_2d, mode='same')
-        return q_smooth.ravel()
-
-    @staticmethod
-    def _normalize_brightness(
-        b_raw: "jax.Array", eps: float = 1e-10,
-    ) -> "jax.Array":
-        r"""Normalize raw brightness to unit mean over all source pixels.
-
-        ``b_norm = b_raw / max(mean(b_raw), eps)`` using the global mean
-        (Option B).  No hard threshold — dark pixels naturally produce
-        ``b_norm ≈ 0`` while bright pixels obtain ``b_norm ≫ 1``.
-
-        Parameters
-        ----------
-        b_raw : Array, shape (Ns,)
-            Raw brightness estimate (already smoothed).
-        eps : float, optional
-            Small protection against division by zero (default 1e-10).
-
-        Returns
-        -------
-        Array, shape (Ns,)
-            Normalized brightness with global mean ≈ 1.
-        """
-        b_mean = jnp.mean(b_raw)
-        return b_raw / jnp.maximum(b_mean, eps)
-
-    @staticmethod
-    def _compute_scale_formula(
-        b_norm: "jax.Array",
-        alpha: "jax.Array",
-        floor: "jax.Array",
-    ) -> "jax.Array":
-        r"""Compute per-pixel scale from normalized brightness.
-
-        ``scale_i = floor + (1 - floor) / (1 + alpha * b_norm_i)``
-
-        This formula is continuously differentiable for all finite inputs.
-        At ``b_norm = 0``, ``scale = 1``.  As ``b_norm → ∞``,
-        ``scale → floor`` asymptotically.
-
-        Parameters
-        ----------
-        b_norm : Array, shape (Ns,)
-            Normalized brightness (non-negative).
-        alpha : Array
-            Adaptive strength scalar.
-        floor : Array
-            Minimum scale scalar in ``(0, 1]``.
-
-        Returns
-        -------
-        Array, shape (Ns,)
-            Per-pixel regularization scale in ``[floor, 1.0]``.
-        """
-        return floor + (1.0 - floor) / (1.0 + alpha * b_norm)
 
     # ------------------------------------------------------------------
     # Edge-weight helpers for finite-difference adaptive regularisation

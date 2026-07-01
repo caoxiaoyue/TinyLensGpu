@@ -93,10 +93,10 @@ class PixelizedImageProbModel(ck.Module):
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
         source_n = int(self.source_model.n)
-        alpha = self.source_model.adaptive_reg_alpha
-        alpha_value = alpha.value if hasattr(alpha, "value") else alpha
-        alpha_dynamic = bool(getattr(alpha, "dynamic", False))
-        if alpha_dynamic or abs(float(alpha_value)) >= 1.0e-10:
+        rho = self.source_model.adaptive_reg_rho
+        rho_value = rho.value if hasattr(rho, "value") else rho
+        rho_dynamic = bool(getattr(rho, "dynamic", False))
+        if rho_dynamic or abs(float(rho_value)) >= 1.0e-10:
             raise ValueError(
                 "PixelizedImageProbModel no longer supports mass-dependent "
                 "seed-ray adaptive regularization. Use "
