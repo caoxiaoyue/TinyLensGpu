@@ -401,6 +401,54 @@ def test_operator_prob_model_returns_finite_evidence():
 
 
 @pytest.mark.unit
+def test_operator_source_nonnegativity_prior_penalizes_negative_source():
+    """Soft source positivity prior lowers evidence for negative source solves."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+    mock = -jnp.abs(mock)
+
+    model_plain = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+    )
+    model_positive = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        source_nonnegativity_sigma=1.0e-3,
+    )
+
+    log_ev_plain = model_plain()
+    log_ev_positive = model_positive()
+    _, source = model_plain.forward_model(return_source=True)
+
+    assert jnp.any(source < 0.0)
+    assert jnp.isfinite(log_ev_positive)
+    assert log_ev_positive < log_ev_plain
+
+
+@pytest.mark.unit
+def test_operator_source_bbox_padding_expands_inferred_bbox():
+    """Operator model forwards bbox padding into source-plane bbox inference."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    model_plain = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        source_bbox_padding=0.0,
+    )
+    model_padded = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        source_bbox_padding=0.25,
+    )
+
+    xmin0, xmax0, ymin0, ymax0, *_ = model_plain._get_bbox()
+    xmin1, xmax1, ymin1, ymax1, *_ = model_padded._get_bbox()
+
+    assert xmax1 - xmin1 > xmax0 - xmin0
+    assert ymax1 - ymin1 > ymax0 - ymin0
+
+
+@pytest.mark.unit
 def test_operator_forward_model_returns_correct_shapes():
     """Forward model returns image and source of correct shape."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf())

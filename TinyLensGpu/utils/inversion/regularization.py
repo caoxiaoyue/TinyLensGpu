@@ -174,23 +174,19 @@ class DenseRegularizationBuilder:
         if self.jitter < 0.0:
             raise ValueError("jitter must be non-negative.")
 
-        self._identity = jnp.eye(self.n_pixels)
-        self._dx_operator, self._dy_operator = self._build_first_difference_operators()
-        self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
-        self._unit_coordinates = self._build_unit_coordinates()
+        self._identity = None
+        self._dx_operator = self._dy_operator = None
+        self._lx_operator = self._ly_operator = None
+        self._unit_coordinates = None
 
-        # Precompute H_unit matrices on index space (half_size=1, spacing=2/(n-1)).
-        # H(h) = H_unit / du(h)^2  for first-order,  / du(h)^4  for second-order.
-        # du(h) = 2h/(n-1) for both axes (square grid).
-        du_unit = 2.0 / (self.n - 1)
-        sdx1 = self._dx_operator / du_unit
-        sdy1 = self._dy_operator / du_unit
-        self._H1_unit_x = sdx1.T @ sdx1   # x contribution at half_size=1
-        self._H1_unit_y = sdy1.T @ sdy1   # y contribution at half_size=1
-        sdx2 = self._lx_operator / (du_unit ** 2)
-        sdy2 = self._ly_operator / (du_unit ** 2)
-        self._H2_unit_x = sdx2.T @ sdx2
-        self._H2_unit_y = sdy2.T @ sdy2
+        if self.regularization_type in ("zero-order", *GP_REGULARIZATION_TYPES):
+            self._identity = jnp.eye(self.n_pixels)
+        if self.regularization_type == "first-order":
+            self._dx_operator, self._dy_operator = self._build_first_difference_operators()
+        elif self.regularization_type == "second-order":
+            self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
+        elif self.regularization_type in GP_REGULARIZATION_TYPES:
+            self._unit_coordinates = self._build_unit_coordinates()
 
     # ------------------------------------------------------------------
     # Internal helpers

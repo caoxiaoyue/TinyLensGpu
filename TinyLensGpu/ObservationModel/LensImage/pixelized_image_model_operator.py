@@ -66,6 +66,17 @@ class PixelizedImageProbModelOperator(ck.Module):
     fixed_reg_template : array_like, optional
         Flat or 2D S0 source template used to generate the adaptive scale map
         from current ``adaptive_reg_rho`` values.
+    source_nonnegativity_sigma : float, optional
+        If provided, add a soft half-Gaussian prior against negative source
+        pixels: ``-0.5 * sum((min(s, 0) / sigma)^2)``.  This leaves the
+        matrix-free PCG solve unconstrained while discouraging unphysical
+        negative source structure.
+    source_bbox_padding : float, optional
+        Fractional padding passed to source-plane bbox inference when
+        ``fixed_source_bbox`` is not supplied.
+    source_bbox_outlier_frac : float, optional
+        Fraction of ray-traced source-plane points trimmed from each tail
+        during bbox inference when ``fixed_source_bbox`` is not supplied.
     """
 
     def __init__(
@@ -83,6 +94,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
         fixed_reg_scale: Union[np.ndarray, Array, None] = None,
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
+        source_nonnegativity_sigma: float | None = None,
+        source_bbox_padding: float = 0.0,
+        source_bbox_outlier_frac: float = 0.01,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
 
@@ -99,6 +113,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             nsub=nsub,
             mask=mask,
             source_seed_mask=source_seed_mask,
+            source_bbox_padding=source_bbox_padding,
+            source_bbox_outlier_frac=source_bbox_outlier_frac,
         )
         self.sim_obj = PixelizedLensOperator(self.phys_model, sim_config)
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
@@ -119,6 +135,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         )
         self._fixed_reg_template = self._validate_fixed_reg_template(
             fixed_reg_template, source_n
+        )
+        self.source_nonnegativity_sigma = self._validate_source_nonnegativity_sigma(
+            source_nonnegativity_sigma
         )
         if self._adaptive_reg_enabled():
             if self._fixed_source_bbox is None:
@@ -209,6 +228,18 @@ class PixelizedImageProbModelOperator(ck.Module):
             raise ValueError("fixed_reg_template values must be finite.")
         return template
 
+    @staticmethod
+    def _validate_source_nonnegativity_sigma(
+        source_nonnegativity_sigma: float | None,
+    ) -> Array | None:
+        if source_nonnegativity_sigma is None:
+            return None
+        sigma = float(source_nonnegativity_sigma)
+        if not np.isfinite(sigma) or sigma <= 0.0:
+            raise ValueError(
+                "source_nonnegativity_sigma must be a positive finite value."
+            )
+        return jnp.asarray(sigma, dtype=jnp.float32)
 
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
@@ -437,6 +468,13 @@ class PixelizedImageProbModelOperator(ck.Module):
                 source_pixels, xmin, xmax, ymin, ymax, scale=scale,
             ),
         )
+        if self.source_nonnegativity_sigma is not None:
+            negative_source = jnp.minimum(source_pixels, 0.0)
+            source_nonnegativity_penalty = -0.5 * jnp.sum(
+                (negative_source / self.source_nonnegativity_sigma) ** 2
+            )
+        else:
+            source_nonnegativity_penalty = jnp.asarray(0.0, dtype=source_pixels.dtype)
 
         # logdet(P) from block-diagonal Cholesky factors
         logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
@@ -455,6 +493,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
             + pcg_penalty
+            + source_nonnegativity_penalty
         )
 
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
