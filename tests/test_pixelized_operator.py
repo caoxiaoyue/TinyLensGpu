@@ -2,6 +2,7 @@
 
 import functools
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve
+from TinyLensGpu.utils.fista_solver import fista_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
@@ -246,6 +248,70 @@ def test_pcg_detects_non_spd_failure():
 
 
 # ------------------------------------------------------------------
+# FISTA NNLS solver tests
+# ------------------------------------------------------------------
+
+@functools.partial(jax.jit, static_argnames=())
+def _simple_A(s, w, idx, fi, *, agg_segment_ids=None, psf_fft=None,
+              psf_fft_conj=None,
+              noise_var=None, reg_data=None, lambda_reg=None, **_kw):
+    return w @ s
+
+
+@pytest.mark.unit
+def test_fista_nnls_solves_positive_quadratic():
+    """FISTA should solve a small non-negative SPD quadratic."""
+    A_dense = jnp.diag(jnp.asarray([2.0, 4.0, 8.0], dtype=jnp.float32))
+    b = jnp.asarray([2.0, 8.0, 4.0], dtype=jnp.float32)
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = fista_nnls_solve(
+        A_data, b, _simple_A,
+        max_iter=300, rtol=1e-5, power_iter=8,
+    )
+
+    expected = jnp.asarray([1.0, 2.0, 0.5], dtype=jnp.float32)
+    np.testing.assert_allclose(np.array(x), np.array(expected), rtol=1e-3, atol=1e-3)
+    assert jnp.all(x >= 0.0)
+    assert jnp.isfinite(info.convergence_metric)
+    assert info.converged
+
+
+@pytest.mark.unit
+def test_fista_nnls_projects_negative_solution_to_zero():
+    """FISTA projection should enforce x >= 0 for an all-negative drive."""
+    A_dense = jnp.eye(4, dtype=jnp.float32)
+    b = -jnp.ones(4, dtype=jnp.float32)
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = fista_nnls_solve(
+        A_data, b, _simple_A,
+        max_iter=50, rtol=1e-5, power_iter=4,
+    )
+
+    np.testing.assert_allclose(np.array(x), np.zeros(4), atol=1e-6)
+    assert info.converged
+    assert not info.failed
+
+
+@pytest.mark.unit
+def test_fista_nnls_reports_invalid_step_failure():
+    """Invalid explicit step sizes should fail cleanly without NaN output."""
+    A_dense = jnp.eye(3, dtype=jnp.float32)
+    b = jnp.ones(3, dtype=jnp.float32)
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = fista_nnls_solve(
+        A_data, b, _simple_A,
+        max_iter=5, step_size=-1.0,
+    )
+
+    assert info.failed
+    assert not info.converged
+    assert jnp.all(jnp.isfinite(x))
+
+
+# ------------------------------------------------------------------
 # PixelizedLensOperator tests
 # ------------------------------------------------------------------
 
@@ -401,28 +467,36 @@ def test_operator_prob_model_returns_finite_evidence():
 
 
 @pytest.mark.unit
-def test_operator_source_nonnegativity_prior_penalizes_negative_source():
-    """Soft source positivity prior lowers evidence for negative source solves."""
+def test_operator_fista_returns_nonnegative_source_for_negative_data():
+    """FISTA source solve should enforce hard non-negative source pixels."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf())
     mock = -jnp.abs(mock)
 
-    model_plain = PixelizedImageProbModelOperator(
+    model = PixelizedImageProbModelOperator(
         mock, noise, _delta_psf(), 0.08, phys,
         mask=config.mask,
-    )
-    model_positive = PixelizedImageProbModelOperator(
-        mock, noise, _delta_psf(), 0.08, phys,
-        mask=config.mask,
-        source_nonnegativity_sigma=1.0e-3,
+        solver_type="fista",
     )
 
-    log_ev_plain = model_plain()
-    log_ev_positive = model_positive()
-    _, source = model_plain.forward_model(return_source=True)
+    log_ev = model()
+    _, source = model.forward_model(return_source=True)
 
-    assert jnp.any(source < 0.0)
-    assert jnp.isfinite(log_ev_positive)
-    assert log_ev_positive < log_ev_plain
+    assert jnp.isfinite(log_ev)
+    assert source.shape == (25,)
+    assert jnp.all(source >= -1e-6)
+
+
+@pytest.mark.unit
+def test_operator_rejects_invalid_solver_type():
+    """Operator model should reject unsupported source solver names."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    with pytest.raises(ValueError, match="solver_type"):
+        PixelizedImageProbModelOperator(
+            mock, noise, _delta_psf(), 0.08, phys,
+            mask=config.mask,
+            solver_type="bad",
+        )
 
 
 @pytest.mark.unit
@@ -463,6 +537,94 @@ def test_operator_forward_model_returns_correct_shapes():
     assert source.shape == (25,)
     assert jnp.all(jnp.isfinite(model_image))
     assert jnp.all(jnp.isfinite(source))
+
+
+@pytest.mark.unit
+def test_operator_fista_forward_model_returns_nonnegative_source():
+    """FISTA forward_model returns finite image and non-negative source."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    model = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        solver_type="fista",
+    )
+
+    model_image, source = model.forward_model(return_source=True)
+    assert model_image.shape == (10, 10)
+    assert source.shape == (25,)
+    assert jnp.all(jnp.isfinite(model_image))
+    assert jnp.all(jnp.isfinite(source))
+    assert jnp.all(source >= -1e-6)
+
+
+@pytest.mark.unit
+def test_operator_fista_nonconvergence_penalizes_evidence():
+    """FISTA gating should penalize an explicitly non-converged solve.
+
+    ``max_iter=0`` exercises the no-iteration boundary: the solver returns the
+    zero initial source, reports non-convergence from the projected-gradient
+    metric, and the evidence layer applies the same large penalty used for
+    failed iterative solves.
+    """
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    model = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        solver_type="fista",
+    )
+    # Boundary case for evidence gating rather than a realistic hard problem.
+    model.fista_max_iter = 0
+
+    log_ev = model()
+    assert log_ev < -1.0e9
+
+
+def _dense_objective(design_matrix, data_1d, noise_1d, reg_matrix, lambda_reg, source):
+    resid = data_1d - design_matrix @ source
+    e_d = 0.5 * jnp.sum((resid / noise_1d) ** 2)
+    e_s = 0.5 * jnp.dot(source, reg_matrix @ source)
+    return e_d + lambda_reg * e_s
+
+
+@pytest.mark.unit
+def test_operator_fista_matches_dense_nnls_objective_small_grid():
+    """Operator FISTA should match dense NNLS objective on a small problem."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+    source_bbox = _fixed_bbox()
+    lambda_reg = jnp.exp(jnp.asarray(phys.source_light[0].log_lambda_reg.value))
+
+    prob_dense = PixelizedImageProbModel(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        solver_type="nnls",
+    )
+    design_matrix, _ = prob_dense.sim_obj.design_matrix(source_bbox=source_bbox)
+    reg_matrix, _ = prob_dense._regularization_matrix(source_bbox)
+    src_dense, _, _ = prob_dense._solve_source(design_matrix, reg_matrix, lambda_reg)
+
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        fixed_source_bbox=source_bbox,
+        solver_type="fista",
+    )
+    prob_op.fista_max_iter = 1000
+    prob_op.fista_rtol = 1e-4
+    _, src_op = prob_op.forward_model(return_source=True)
+
+    obj_dense = _dense_objective(
+        design_matrix, prob_dense.data_1d, prob_dense.noise_1d,
+        reg_matrix, lambda_reg, src_dense,
+    )
+    obj_op = _dense_objective(
+        design_matrix, prob_dense.data_1d, prob_dense.noise_1d,
+        reg_matrix, lambda_reg, src_op,
+    )
+
+    assert jnp.all(src_op >= -1e-6)
+    np.testing.assert_allclose(float(obj_op), float(obj_dense), rtol=5e-3, atol=5e-3)
 
 
 @pytest.mark.unit

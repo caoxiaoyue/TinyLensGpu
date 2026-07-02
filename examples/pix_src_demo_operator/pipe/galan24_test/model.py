@@ -92,7 +92,6 @@ NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
 ADAPTIVE_REG_RHO = 2.0             # 0 = uniform, >0 strengthens faint-region reg
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
-SOURCE_NONNEGATIVITY_SIGMA = 3.0e-4
 SOURCE_BBOX_PADDING = 0.30
 M2_SAMPLE_REG_HYPERPARAMS = False
 OUT_DIR = Path("output_adpt_reg")
@@ -739,7 +738,7 @@ def build_stage_m0_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        source_nonnegativity_sigma=SOURCE_NONNEGATIVITY_SIGMA,
+        solver_type="fista",
         source_bbox_padding=SOURCE_BBOX_PADDING,
     )
 
@@ -883,7 +882,7 @@ def build_stage_m1_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        source_nonnegativity_sigma=SOURCE_NONNEGATIVITY_SIGMA,
+        solver_type="fista",
         source_bbox_padding=SOURCE_BBOX_PADDING,
         **_s0_fixed_kwargs(s0_package),
     )
@@ -1159,7 +1158,7 @@ def build_stage_m2_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        source_nonnegativity_sigma=SOURCE_NONNEGATIVITY_SIGMA,
+        solver_type="fista",
         source_bbox_padding=SOURCE_BBOX_PADDING,
         **_s0_fixed_kwargs(s0_package),
     )

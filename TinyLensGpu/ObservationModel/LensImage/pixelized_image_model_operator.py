@@ -1,12 +1,10 @@
 """Operator-based Bayesian evidence model for pixelized source inversions.
 
 This module provides :class:`PixelizedImageProbModelOperator`, which uses
-matrix-free operators and preconditioned conjugate gradient (PCG) to solve
-the source inversion, avoiding explicit construction of the (Nd × Ns)
-design matrix.
+matrix-free operators and PCG or FISTA to solve the source inversion,
+avoiding explicit construction of the (Nd × Ns) design matrix.
 
-Phase-1 limitation: NNLS solver is not supported; lens-light joint
-inversion is not yet supported.
+Phase-1 limitation: lens-light joint inversion is not yet supported.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
+from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
@@ -36,7 +35,11 @@ class PixelizedImageProbModelOperator(ck.Module):
     """Operator-based evidence model for one pixelized source.
 
     Same public API as :class:`PixelizedImageProbModel` but uses matrix-free
-    operators and PCG instead of explicit Cholesky decomposition.
+    operators and iterative source solvers instead of explicit Cholesky
+    decomposition. ``solver_type="pcg"`` preserves the unconstrained source
+    solve. ``solver_type="fista"`` enforces hard source non-negativity with a
+    projected FISTA solve while retaining the existing operator logdet
+    approximation.
 
     Parameters
     ----------
@@ -58,6 +61,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         Subsampling factor (default: 1).
     position_likelihood : dict, optional
         Position likelihood constraint configuration.
+    solver_type : {"pcg", "fista"}, optional
+        Source solver. ``"pcg"`` is unconstrained. ``"fista"`` solves the
+        matrix-free non-negative quadratic with source pixels constrained to
+        be non-negative.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
         S0-based adaptive regularization.
@@ -66,11 +73,6 @@ class PixelizedImageProbModelOperator(ck.Module):
     fixed_reg_template : array_like, optional
         Flat or 2D S0 source template used to generate the adaptive scale map
         from current ``adaptive_reg_rho`` values.
-    source_nonnegativity_sigma : float, optional
-        If provided, add a soft half-Gaussian prior against negative source
-        pixels: ``-0.5 * sum((min(s, 0) / sigma)^2)``.  This leaves the
-        matrix-free PCG solve unconstrained while discouraging unphysical
-        negative source structure.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
         ``fixed_source_bbox`` is not supplied.
@@ -91,14 +93,20 @@ class PixelizedImageProbModelOperator(ck.Module):
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
         block_size: int = 10,
+        solver_type: str = "pcg",
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
         fixed_reg_scale: Union[np.ndarray, Array, None] = None,
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
-        source_nonnegativity_sigma: float | None = None,
         source_bbox_padding: float = 0.0,
         source_bbox_outlier_frac: float = 0.01,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
+        if solver_type not in ("pcg", "fista"):
+            raise ValueError(
+                "solver_type must be 'pcg' or 'fista', "
+                f"got {solver_type!r}"
+            )
+        self.solver_type = solver_type
 
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
@@ -136,9 +144,6 @@ class PixelizedImageProbModelOperator(ck.Module):
         self._fixed_reg_template = self._validate_fixed_reg_template(
             fixed_reg_template, source_n
         )
-        self.source_nonnegativity_sigma = self._validate_source_nonnegativity_sigma(
-            source_nonnegativity_sigma
-        )
         if self._adaptive_reg_enabled():
             if self._fixed_source_bbox is None:
                 raise ValueError(
@@ -158,6 +163,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         # PCG settings
         self.pcg_max_iter = 200
         self.pcg_rtol = 1e-6
+        self.fista_max_iter = 300
+        self.fista_rtol = 1e-5
+        self.fista_power_iter = 10
+        self.fista_step_safety = 1.2
 
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
@@ -227,19 +236,6 @@ class PixelizedImageProbModelOperator(ck.Module):
         if not valid:
             raise ValueError("fixed_reg_template values must be finite.")
         return template
-
-    @staticmethod
-    def _validate_source_nonnegativity_sigma(
-        source_nonnegativity_sigma: float | None,
-    ) -> Array | None:
-        if source_nonnegativity_sigma is None:
-            return None
-        sigma = float(source_nonnegativity_sigma)
-        if not np.isfinite(sigma) or sigma <= 0.0:
-            raise ValueError(
-                "source_nonnegativity_sigma must be a positive finite value."
-            )
-        return jnp.asarray(sigma, dtype=jnp.float32)
 
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
@@ -350,7 +346,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         return self._fixed_reg_scale
 
     # ------------------------------------------------------------------
-    # Source solve via PCG
+    # Source solve via configured iterative solver
     # ------------------------------------------------------------------
 
     def _solve_source(
@@ -360,13 +356,16 @@ class PixelizedImageProbModelOperator(ck.Module):
         reg_data: tuple,
         preconditioner,
         op_data=None,  # precomputed LensOperatorData
-    ) -> tuple[Array, PCGInfo]:
-        """Solve for MAP source pixels using PCG.
+    ) -> tuple[Array, PCGInfo | FISTAInfo]:
+        """Solve for MAP source pixels using the configured source solver.
 
         ``preconditioner`` may be a dense Cholesky factor (legacy) or a
-        block-diagonal ``(block_chols, block_masks)`` tuple.
+        block-diagonal ``(block_chols, block_masks)`` tuple. It is used by PCG
+        and still built for FISTA because the evidence approximation uses the
+        same block-diagonal logdet term.
 
-        Returns ``(source_pixels, pcg_info)``.
+        Returns ``(source_pixels, solver_info)``. For ``solver_type="fista"``,
+        ``source_pixels`` are projected to be non-negative.
         """
         A_data, _A_jit_prebound = self.sim_obj.build_A_matvec(
             self.noise_1d,
@@ -381,22 +380,33 @@ class PixelizedImageProbModelOperator(ck.Module):
             op_data=op_data,
         )
 
-        source_pixels, pcg_info = pcg_solve(
-            A_data,
-            b,
-            preconditioner,
-            _A_jit_prebound,
-            max_iter=self.pcg_max_iter,
-            rtol=self.pcg_rtol,
-        )
-        return source_pixels, pcg_info
+        if self.solver_type == "fista":
+            source_pixels, solver_info = fista_nnls_solve(
+                A_data,
+                b,
+                _A_jit_prebound,
+                max_iter=self.fista_max_iter,
+                rtol=self.fista_rtol,
+                power_iter=self.fista_power_iter,
+                step_safety=self.fista_step_safety,
+            )
+        else:
+            source_pixels, solver_info = pcg_solve(
+                A_data,
+                b,
+                preconditioner,
+                _A_jit_prebound,
+                max_iter=self.pcg_max_iter,
+                rtol=self.pcg_rtol,
+            )
+        return source_pixels, solver_info
 
     # ------------------------------------------------------------------
     # Log evidence
     # ------------------------------------------------------------------
 
     def _log_evidence(self) -> Array:
-        """Evaluate log evidence using PCG and block-diagonal preconditioner.
+        """Evaluate log evidence using the configured matrix-free solver.
 
         .. warning::
             This uses ``logdet(P)`` as a deterministic approximation to
@@ -404,7 +414,10 @@ class PixelizedImageProbModelOperator(ck.Module):
             and a block-diagonal approximation (with the same partition) for
             ``logdet(R)``.  For blurred or asymmetric PSFs, ``nsub > 1``, or
             masked pixels, the evidence will deviate from the exact dense-backend
-            value.  Use the dense backend when exact evidence parity is required.
+            value.  For ``solver_type="fista"``, the source MAP is constrained
+            but the logdet terms remain this same unconstrained-style operator
+            approximation. Use the dense backend when exact evidence parity is
+            required.
         """
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
@@ -435,8 +448,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         )
         preconditioner = (block_chols, block_masks)
 
-        # Solve source via PCG (uses compact reg_data, matrix-free).
-        source_pixels, pcg_info = self._solve_source(
+        # Solve source via configured matrix-free solver.
+        source_pixels, solver_info = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
@@ -444,9 +457,9 @@ class PixelizedImageProbModelOperator(ck.Module):
             op_data=op_data,
         )
 
-        # Penalize non-converged PCG solves.
-        pcg_penalty = jnp.where(
-            pcg_info.converged, 0.0, -1.0e10
+        # Penalize non-converged source solves.
+        solver_penalty = jnp.where(
+            solver_info.converged, 0.0, -1.0e10
         )
 
         # Forward model for χ² and regularization penalty (reuses op_data)
@@ -468,14 +481,6 @@ class PixelizedImageProbModelOperator(ck.Module):
                 source_pixels, xmin, xmax, ymin, ymax, scale=scale,
             ),
         )
-        if self.source_nonnegativity_sigma is not None:
-            negative_source = jnp.minimum(source_pixels, 0.0)
-            source_nonnegativity_penalty = -0.5 * jnp.sum(
-                (negative_source / self.source_nonnegativity_sigma) ** 2
-            )
-        else:
-            source_nonnegativity_penalty = jnp.asarray(0.0, dtype=source_pixels.dtype)
-
         # logdet(P) from block-diagonal Cholesky factors
         logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
 
@@ -492,8 +497,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             + 0.5 * logdet_h
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
-            + pcg_penalty
-            + source_nonnegativity_penalty
+            + solver_penalty
         )
 
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
@@ -506,7 +510,11 @@ class PixelizedImageProbModelOperator(ck.Module):
     def forward_model(
         self, *, return_source: bool = False, return_components: bool = False
     ):
-        """Solve linear params and return the reconstructed model image."""
+        """Solve source pixels and return the reconstructed model image.
+
+        With ``solver_type="fista"``, returned source pixels are constrained
+        to be non-negative.
+        """
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
          beta_x_seed, beta_y_seed) = self._get_bbox()
@@ -532,7 +540,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         )
         preconditioner = (block_chols, block_masks)
 
-        source_pixels, pcg_info = self._solve_source(
+        source_pixels, solver_info = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
@@ -544,11 +552,11 @@ class PixelizedImageProbModelOperator(ck.Module):
             source_pixels, xmin, xmax, ymin, ymax,
             op_data=op_data,
         )
-        # Zero out the model image AND the source pixels when PCG fails to
+        # Zero out the model image AND the source pixels when solving fails to
         # converge — prevents silently returning partially-converged garbage.
         # Gating both keeps the (image, source) pair internally consistent for
         # callers that destructure ``forward_model(return_source=True)``.
-        converged = pcg_info.converged
+        converged = solver_info.converged
         model_1d = jnp.where(converged, model_1d, jnp.zeros_like(model_1d))
         source_pixels = jnp.where(converged, source_pixels, jnp.zeros_like(source_pixels))
 
