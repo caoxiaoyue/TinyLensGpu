@@ -55,7 +55,7 @@ Prior definitions, likelihood builders, and sampler/optimizer interfaces.
 - `make_likelihood` - Build likelihood function for samplers (in `build_likelihood`)
 - `PriorSpec` / `extract_prior_specs` - Prior spec dataclass + traversal (in `build_prior`)
 - `EllipticityConstraint` - Ellipticity constraints
-- `GaussianPriorPasser` - SLaM-style conservative Gaussian prior passing from a posterior
+- `StagePosterior` - Stage-to-stage posterior transfer from likelihood-bound samples
 - `nautilus_posterior_summary` - Posterior summary from a finished nautilus sampler
 - `AbstractInference` - Abstract base (ABC) shared by all samplers and optimizers (`base.py`)
 

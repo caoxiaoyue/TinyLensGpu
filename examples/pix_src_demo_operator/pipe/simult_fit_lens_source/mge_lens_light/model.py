@@ -49,7 +49,7 @@ from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
-from TinyLensGpu.Inference import GaussianPriorPasser
+from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
 import jax.scipy.linalg as jsl
@@ -431,7 +431,7 @@ def _build_arc_mask(image_data, noise_map, lens_light_model):
 # ------------------------------------------------------------------ #
 # Stage B — joint fit: EPL + shear + MGE lens light + pixelized source
 # ------------------------------------------------------------------ #
-def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
+def _epl_mass_from_stage_a(passer: StagePosterior):
     """EPL (+ shear) with Gaussian priors inherited from stage-A posterior."""
     theta_E = passer.gaussian(
         "theta_E", model="SIE", attr="theta_E", limits=[0.0, 5.0],
@@ -472,7 +472,7 @@ def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
     return epl, shear
 
 
-def _mge_lens_light_from_stage_a(passer: GaussianPriorPasser):
+def _mge_lens_light_from_stage_a(passer: StagePosterior):
     """MGE lens light with non-linear geometric params inherited from stage-A."""
     sigma_list = generate_radial_basis_knots(
         dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
@@ -516,7 +516,7 @@ def build_stage_b_likelihood(
     image_data,
     noise_map,
     psf_kernel,
-    passer: GaussianPriorPasser,
+    passer: StagePosterior,
     position_likelihood,
     feature_mask,
 ):
@@ -726,7 +726,7 @@ def run_stage_b(image_data, noise_map, psf_kernel,
     print("\n" + "=" * 60)
     print(" Stage B : EPL + shear + MGE lens light + pix source (joint fit)")
     print("=" * 60)
-    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
+    passer = StagePosterior(samples_a, weights_a, names_a)
     likelihood = build_stage_b_likelihood(
         image_data, noise_map, psf_kernel, passer, position_likelihood, feature_mask,
     )

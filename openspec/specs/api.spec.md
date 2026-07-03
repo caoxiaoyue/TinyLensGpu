@@ -49,7 +49,7 @@ from TinyLensGpu.ObservationModel import (
 from TinyLensGpu.Inference import (
     ParamU,                    # Parameter with prior
     EllipticityConstraint,     # Ellipticity constraint
-    GaussianPriorPasser,       # Prior passing
+    StagePosterior,            # Stage-to-stage posterior transfer
     nautilus_posterior_summary, # Posterior summary
     build_prior,               # module: make_prior_transformation, PriorSpec, extract_prior_specs
     build_likelihood,          # module: make_likelihood

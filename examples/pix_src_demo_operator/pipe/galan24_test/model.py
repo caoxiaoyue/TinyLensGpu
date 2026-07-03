@@ -77,7 +77,7 @@ from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
-from TinyLensGpu.Inference import GaussianPriorPasser
+from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
 import jax.scipy.linalg as jsl
@@ -128,16 +128,32 @@ def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool
 
     log_z = float(sampler.log_z)
     print(f"[{tag}] log_z = {log_z:.3f}")
-    return samples, weights, param_names, log_z
+    return StagePosterior.from_likelihood(likelihood, samples, weights, log_z=log_z)
 
 
-def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
+def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
     OUT_DIR.mkdir(exist_ok=True)
-    payload = dict(
-        samples=samples, weights=weights,
-        param_names=param_names, log_z=log_z,
-        extra=extra or {},
-    )
+    if stage is not None:
+        stage_payload = stage.cache_payload()
+        payload = dict(
+            samples=stage_payload["samples"],
+            weights=stage_payload["weights"],
+            param_names=stage_payload["param_names"],
+            log_z=stage_payload["log_z"],
+            stage_schema={
+                key: stage_payload[key]
+                for key in ("param_names", "prior_specs")
+                if key in stage_payload
+            },
+            extra=extra or {},
+        )
+    else:
+        payload = dict(
+            samples=samples, weights=weights,
+            param_names=param_names, log_z=log_z,
+            stage_schema={"param_names": list(param_names)},
+            extra=extra or {},
+        )
     with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
         pickle.dump(payload, f)
     print(f"[{tag}] posterior saved to {OUT_DIR}/stage_{tag}.pkl")
@@ -148,14 +164,18 @@ def _load_stage(tag: str):
         return pickle.load(f)
 
 
-def _posterior_median(samples, weights, param_names):
-    """Return dict of weighted medians keyed by param name."""
-    out = {}
-    q = np.array([0.5])
-    for i, name in enumerate(param_names):
-        out[name] = float(weighted_quantile(
-            np.asarray(samples[:, i]), weights, q)[0])
-    return out
+def _stage_from_payload(payload):
+    """Rehydrate a stage posterior from a cached stage payload."""
+    schema = payload.get("stage_schema", {})
+    prior_specs = payload.get("prior_specs") or schema.get("prior_specs")
+    param_names = payload.get("param_names") or schema.get("param_names")
+    return StagePosterior.from_schema(
+        payload["samples"],
+        payload["weights"],
+        prior_specs=prior_specs,
+        param_names=None if prior_specs is not None else param_names,
+        log_z=payload.get("log_z"),
+    )
 
 
 def _print_summary(tag: str, samples, weights, param_names):
@@ -446,14 +466,15 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     t0 = time.time()
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel,
                                           circular_mask=circular_mask)
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=2000, tag="stage-A", vectorized=True,
     )
     t1 = time.time()
+    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-A", samples, weights, names)
     print(f"[stage-A] time taken: {t1 - t0:.2f} seconds")
 
-    medians = _posterior_median(samples, weights, names)
+    medians = stage.medians()
     q50 = [medians[n] for n in names]
 
     _dump_stage(
@@ -462,6 +483,7 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
             medians=medians,
             time_taken=t1 - t0,
         ),
+        stage=stage,
     )
 
     try:
@@ -474,7 +496,7 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
         )
     except Exception as err:
         print(f"[stage-A] plotting failed (non-fatal): {err}")
-    return samples, weights, names, medians
+    return stage, medians
 
 
 # ------------------------------------------------------------------ #
@@ -622,42 +644,38 @@ def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
 # ------------------------------------------------------------------ #
 # Helpers for Stage M1 / M2
 # ------------------------------------------------------------------ #
-def _sie_mass_from_stage_a(medians_a: dict):
+def _sie_mass_from_stage_a(stage_a: StagePosterior):
     """SIE (+ shear) with all parameters FIXED at stage-A posterior medians."""
     sie = SIE(
-        theta_E=ParamU("theta_E", float(medians_a["theta_E"])),
-        e1=ParamU("e1_mass", float(medians_a["e1_mass"])),
-        e2=ParamU("e2_mass", float(medians_a["e2_mass"])),
-        center_x=ParamU("center_x_mass", float(medians_a["center_x_mass"])),
-        center_y=ParamU("center_y_mass", float(medians_a["center_y_mass"])),
+        theta_E=stage_a.fixed("theta_E"),
+        e1=stage_a.fixed("e1_mass"),
+        e2=stage_a.fixed("e2_mass"),
+        center_x=stage_a.fixed("center_x_mass"),
+        center_y=stage_a.fixed("center_y_mass"),
     )
-    for p in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
-        p.to_static()
 
     shear = Shear(
-        gamma1=ParamU("gamma1", float(medians_a["gamma1"])),
-        gamma2=ParamU("gamma2", float(medians_a["gamma2"])),
+        gamma1=stage_a.fixed("gamma1"),
+        gamma2=stage_a.fixed("gamma2"),
     )
-    shear.gamma1.to_static()
-    shear.gamma2.to_static()
     return sie, shear
 
 
-def _epl_mass_from_passer(passer: GaussianPriorPasser):
-    """EPL (+ shear) with Gaussian priors inherited from a posterior passer."""
-    theta_E = passer.gaussian(
+def _epl_mass_from_stage(stage: StagePosterior):
+    """EPL (+ shear) with Gaussian priors inherited from a stage posterior."""
+    theta_E = stage.gaussian(
         "theta_E", model="EPL", attr="theta_E", limits=[0.0, 5.0],
     )
-    e1m = passer.gaussian(
+    e1m = stage.gaussian(
         "e1_mass", model="EPL", attr="e1", limits=[-1.0, 1.0],
     )
-    e2m = passer.gaussian(
+    e2m = stage.gaussian(
         "e2_mass", model="EPL", attr="e2", limits=[-1.0, 1.0],
     )
-    cx = passer.gaussian(
+    cx = stage.gaussian(
         "center_x_mass", model="EPL", attr="center_x", limits=[-1.0, 1.0],
     )
-    cy = passer.gaussian(
+    cy = stage.gaussian(
         "center_y_mass", model="EPL", attr="center_y", limits=[-1.0, 1.0],
     )
     gamma = ParamU(
@@ -669,19 +687,16 @@ def _epl_mass_from_passer(passer: GaussianPriorPasser):
     )
 
     epl = EPL(theta_E=theta_E, gamma=gamma, e1=e1m, e2=e2m, center_x=cx, center_y=cy)
-    for p in (epl.theta_E, epl.gamma, epl.e1, epl.e2, epl.center_x, epl.center_y):
-        p.to_dynamic()
+    epl.gamma.to_dynamic()
 
     shear = Shear(
-        gamma1=passer.gaussian(
+        gamma1=stage.gaussian(
             "gamma1", model="Shear", attr="gamma1", limits=[-0.5, 0.5],
         ),
-        gamma2=passer.gaussian(
+        gamma2=stage.gaussian(
             "gamma2", model="Shear", attr="gamma2", limits=[-0.5, 0.5],
         ),
     )
-    shear.gamma1.to_dynamic()
-    shear.gamma2.to_dynamic()
     return epl, shear
 
 
@@ -726,10 +741,10 @@ def _epl_mass_from_medians(medians: dict):
 # ------------------------------------------------------------------ #
 def build_stage_m0_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
-    medians_a, position_likelihood, circular_mask=None,
+    stage_a: StagePosterior, position_likelihood, circular_mask=None,
 ):
     """Build M0 likelihood: fixed SIE+shear, uniform pixelized source."""
-    sie, shear = _sie_mass_from_stage_a(medians_a)
+    sie, shear = _sie_mass_from_stage_a(stage_a)
 
     log_lam = ParamU(
         "log_lambda_reg",
@@ -768,7 +783,7 @@ def build_stage_m0_likelihood(
 
 
 def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
-                  medians_a, position_likelihood, circular_mask=None):
+                  stage_a: StagePosterior, position_likelihood, circular_mask=None):
     """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
     print("\n" + "=" * 60)
     print(" Stage M0 : fixed SIE + shear + uniform pix source (build S0)")
@@ -777,7 +792,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 
     likelihood = build_stage_m0_likelihood(
         image_data, noise_map, psf_kernel, feature_mask,
-        medians_a, position_likelihood, circular_mask=circular_mask,
+        stage_a, position_likelihood, circular_mask=circular_mask,
     )
     loglike_batch = make_likelihood(likelihood, vectorized=True)
     n_grid = 200
@@ -818,6 +833,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
     log_ev_best = float(log_ev_fine[best_idx_fine])
     print(f"[stage-M0] Refined best: λ = {float(jnp.exp(log_lam_best)):.4e}  (log-ev = {log_ev_best:.2f})")
 
+    medians_a = stage_a.medians()
     medians_m0 = {**medians_a, "log_lambda_reg": log_lam_best}
     s0_package = _solve_pixel_source_for_package(
         likelihood, medians_m0, ["log_lambda_reg"],
@@ -866,11 +882,11 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 # ------------------------------------------------------------------ #
 def build_stage_m1_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, position_likelihood, log_lambda_fixed: float,
+    stage_a: StagePosterior, position_likelihood, log_lambda_fixed: float,
     circular_mask=None,
 ):
     """Build M1: EPL+shear free, source lambda as truncated Gaussian around M0."""
-    epl, shear = _epl_mass_from_passer(passer)
+    epl, shear = _epl_mass_from_stage(stage_a)
     log_lam = ParamU(
         "log_lambda_reg",
         float(log_lambda_fixed),
@@ -908,7 +924,7 @@ def build_stage_m1_likelihood(
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
-                  samples_a, weights_a, names_a, position_likelihood,
+                  stage_a: StagePosterior, position_likelihood,
                   log_lambda_fixed: float, circular_mask=None):
     """Stage M1: fit EPL+shear with non-adaptive source lambda fixed from M0.
 
@@ -925,19 +941,19 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     )
     t0 = time.time()
 
-    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
     likelihood = build_stage_m1_likelihood(
         image_data, noise_map, psf_kernel, feature_mask,
-        passer, position_likelihood, log_lambda_fixed,
+        stage_a, position_likelihood, log_lambda_fixed,
         circular_mask=circular_mask,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M1", vectorized=True,
     )
     t1 = time.time()
+    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M1", samples, weights, names)
     print(f"[stage-M1] time taken: {t1 - t0:.2f} seconds")
-    medians = _posterior_median(samples, weights, names)
+    medians = stage.medians()
 
     s1_medians = dict(medians)
     log_lambda_m1 = float(medians["log_lambda_reg"])
@@ -961,6 +977,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
             s1=s1_package,
             time_taken=t1 - t0,
         ),
+        stage=stage,
     )
 
     # Generate M1 pixelized source reconstruction plot
@@ -970,7 +987,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     except Exception as err:
         print(f"[stage-M1] pix_stage plot failed (non-fatal): {err}")
 
-    return samples, weights, names, medians, s1_package
+    return stage, medians, s1_package
 
 
 # ------------------------------------------------------------------ #
@@ -1211,13 +1228,14 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         s1_package,
         circular_mask=circular_mask,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=250, n_eff=600, tag="stage-M2", vectorized=True,
     )
     t1 = time.time()
+    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M2", samples, weights, names)
     print(f"[stage-M2] time taken: {t1 - t0:.2f} seconds")
-    medians = _posterior_median(samples, weights, names)
+    medians = stage.medians()
     reg_hyperparams_m2 = {
         "log_lambda_reg": float(medians["log_lambda_reg"]),
         "adaptive_reg_rho": float(medians["adaptive_reg_rho"]),
@@ -1230,13 +1248,13 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         reg_hyperparams=reg_hyperparams_m2,
         time_taken=t1 - t0,
     )
-    _dump_stage("m2", samples, weights, names, logz, extra=extra)
+    _dump_stage("m2", samples, weights, names, logz, extra=extra, stage=stage)
     try:
         _plot_pix_stage("stage-M2", likelihood, medians, names,
                         str(OUT_DIR / "stage_m2_model.png"))
     except Exception as err:
         print(f"[stage-M2] plotting failed (non-fatal): {err}")
-    return samples, weights, names, medians, reg_hyperparams_m2
+    return stage, medians, reg_hyperparams_m2
 
 
 # ------------------------------------------------------------------ #
@@ -1244,11 +1262,11 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
 # ------------------------------------------------------------------ #
 def build_stage_m3_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, position_likelihood, reg_hyperparams_fixed: dict,
+    stage_m1: StagePosterior, position_likelihood, reg_hyperparams_fixed: dict,
     s1_package, circular_mask=None,
 ):
     """Build M3: EPL+shear free, adaptive source-reg fixed from M2."""
-    epl, shear = _epl_mass_from_passer(passer)
+    epl, shear = _epl_mass_from_stage(stage_m1)
     log_lam = ParamU("log_lambda_reg", float(reg_hyperparams_fixed["log_lambda_reg"]))
     log_lam.to_static()
     rho = ParamU("adaptive_reg_rho", float(reg_hyperparams_fixed["adaptive_reg_rho"]))
@@ -1284,7 +1302,7 @@ def build_stage_m3_likelihood(
 
 
 def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
-                  samples_m1, weights_m1, names_m1, position_likelihood,
+                  stage_m1: StagePosterior, position_likelihood,
                   reg_hyperparams_fixed: dict, s1_package, circular_mask=None):
     """Stage M3: final EPL+shear sampling with source-reg fixed from M2.
 
@@ -1295,25 +1313,25 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
     print("=" * 60)
     print(f"[stage-M3] fixed source reg: {_format_reg_hyperparams(reg_hyperparams_fixed)}")
     t0 = time.time()
-    passer = GaussianPriorPasser(samples_m1, weights_m1, names_m1)
     likelihood = build_stage_m3_likelihood(
         image_data,
         noise_map,
         psf_kernel,
         feature_mask,
-        passer,
+        stage_m1,
         position_likelihood,
         reg_hyperparams_fixed,
         s1_package,
         circular_mask=circular_mask,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M3", vectorized=True,
     )
     t1 = time.time()
+    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M3", samples, weights, names)
     print(f"[stage-M3] time taken: {t1 - t0:.2f} seconds")
-    medians = _posterior_median(samples, weights, names)
+    medians = stage.medians()
     _dump_stage(
         "m3", samples, weights, names, logz,
         extra=dict(
@@ -1322,13 +1340,14 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
             reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
             time_taken=t1 - t0,
         ),
+        stage=stage,
     )
     try:
         _plot_pix_stage("stage-M3", likelihood, medians, names,
                         str(OUT_DIR / "stage_m3_model.png"))
     except Exception as err:
         print(f"[stage-M3] plotting failed (non-fatal): {err}")
-    return samples, weights, names, medians
+    return stage, medians
 
 
 # ------------------------------------------------------------------ #
@@ -1355,11 +1374,11 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     if skip_done and (OUT_DIR / "stage_a.pkl").exists():
         print(f"[stage-A] loading cached {OUT_DIR}/stage_a.pkl")
         d = _load_stage("a")
-        samples_a, weights_a, names_a = d["samples"], d["weights"], d["param_names"]
+        stage_a = _stage_from_payload(d)
         medians_a = d["extra"]["medians"]
         time_a = d["extra"].get("time_taken", 0.0)
     else:
-        samples_a, weights_a, names_a, medians_a = run_stage_a(
+        stage_a, medians_a = run_stage_a(
             image_data, noise_map, psf_kernel, circular_mask=circular_mask,
         )
         time_a = _load_stage("a")["extra"].get("time_taken", 0.0)
@@ -1382,7 +1401,7 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     else:
         s0_package, log_lambda_m0 = run_stage_m0(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood,
+            stage_a, position_likelihood,
             circular_mask=circular_mask,
         )
         time_m0 = _load_stage("m0")["extra"].get("time_taken", 0.0)
@@ -1392,7 +1411,7 @@ def main(skip_done: bool = False, out_dir: str | None = None):
         print("[stage-M0] stage_m0_model.png missing — re-plotting")
         lkl_m0_replot = build_stage_m0_likelihood(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, circular_mask=circular_mask,
+            stage_a, position_likelihood, circular_mask=circular_mask,
         )
         medians_m0_replot = {
             **medians_a,
@@ -1411,28 +1430,29 @@ def main(skip_done: bool = False, out_dir: str | None = None):
         print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl")
         d = _load_stage("m1")
         try:
-            samples_m1 = d["samples"]
-            weights_m1 = d["weights"]
             names_m1 = d["param_names"]
+            stage_m1 = _stage_from_payload(d)
             medians_m1 = d["extra"]["medians"]
             s1_package = _validate_s0_package(d["extra"]["s1"])
             time_m1 = d["extra"].get("time_taken", 0.0)
         except KeyError as err:
             print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
-            samples_m1, weights_m1, names_m1, medians_m1, s1_package = run_stage_m1(
+            stage_m1, medians_m1, s1_package = run_stage_m1(
                 image_data, noise_map, psf_kernel, feature_mask,
-                samples_a, weights_a, names_a, position_likelihood,
+                stage_a, position_likelihood,
                 log_lambda_m0,
                 circular_mask=circular_mask,
             )
+            names_m1 = stage_m1.param_names
             time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
     else:
-        samples_m1, weights_m1, names_m1, medians_m1, s1_package = run_stage_m1(
+        stage_m1, medians_m1, s1_package = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
-            samples_a, weights_a, names_a, position_likelihood,
+            stage_a, position_likelihood,
             log_lambda_m0,
             circular_mask=circular_mask,
         )
+        names_m1 = stage_m1.param_names
         time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
 
     if s1_package is None:
@@ -1444,10 +1464,9 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     # If M1 posteriors exist but the plot is missing, re-plot now
     if (OUT_DIR / "stage_m1.pkl").exists() and not (OUT_DIR / "stage_m1_model.png").exists():
         print("[stage-M1] stage_m1_model.png missing — re-plotting")
-        passer_m1 = GaussianPriorPasser(samples_a, weights_a, names_a)
         lkl_m1_replot = build_stage_m1_likelihood(
             image_data, noise_map, psf_kernel, feature_mask,
-            passer_m1, position_likelihood, log_lambda_m0,
+            stage_a, position_likelihood, log_lambda_m0,
             circular_mask=circular_mask,
         )
         try:
@@ -1467,16 +1486,18 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
         print(f"[stage-M2] loading cached {OUT_DIR}/stage_m2.pkl")
         d = _load_stage("m2")
-        samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
+        stage_m2 = _stage_from_payload(d)
+        names_m2 = stage_m2.param_names
         medians_m2 = d["extra"]["medians"]
         reg_hyperparams_m2 = _reg_hyperparams_from_m2_payload(d)
         time_m2 = d["extra"].get("time_taken", 0.0)
     else:
-        samples_m2, weights_m2, names_m2, medians_m2, reg_hyperparams_m2 = run_stage_m2(
+        stage_m2, medians_m2, reg_hyperparams_m2 = run_stage_m2(
             image_data, noise_map, psf_kernel, feature_mask,
             medians_m1, position_likelihood, s1_package,
             circular_mask=circular_mask,
         )
+        names_m2 = stage_m2.param_names
         time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
 
     # Re-plot M2 if the png is missing but posteriors exist
@@ -1507,26 +1528,27 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     if skip_done and (OUT_DIR / "stage_m3.pkl").exists():
         print(f"[stage-M3] loading cached {OUT_DIR}/stage_m3.pkl")
         d = _load_stage("m3")
-        samples_m3, weights_m3, names_m3 = d["samples"], d["weights"], d["param_names"]
+        stage_m3 = _stage_from_payload(d)
+        names_m3 = stage_m3.param_names
         medians_m3 = d["extra"]["medians"]
         time_m3 = d["extra"].get("time_taken", 0.0)
     else:
-        samples_m3, weights_m3, names_m3, medians_m3 = run_stage_m3(
+        stage_m3, medians_m3 = run_stage_m3(
             image_data, noise_map, psf_kernel, feature_mask,
-            samples_m1, weights_m1, names_m1,
+            stage_m1,
             position_likelihood, reg_hyperparams_m2, s1_package,
             circular_mask=circular_mask,
         )
+        names_m3 = stage_m3.param_names
         time_m3 = _load_stage("m3")["extra"].get("time_taken", 0.0)
 
     if not (OUT_DIR / "stage_m3_model.png").exists():
-        passer_m3 = GaussianPriorPasser(samples_m1, weights_m1, names_m1)
         lkl_m3 = build_stage_m3_likelihood(
             image_data,
             noise_map,
             psf_kernel,
             feature_mask,
-            passer_m3,
+            stage_m1,
             position_likelihood,
             reg_hyperparams_m2,
             s1_package,

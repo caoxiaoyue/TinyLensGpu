@@ -49,7 +49,7 @@ from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
-from TinyLensGpu.Inference import GaussianPriorPasser
+from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
 import jax.scipy.linalg as jsl
@@ -322,7 +322,7 @@ def build_stage_new_likelihood(
     driven only by the clean lens-light pixels, yielding a better
     lens-light subtraction for the subsequent pixelized-source stages.
     """
-    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
+    passer = StagePosterior(samples_a, weights_a, names_a)
 
     # Lens light geometry — Gaussian priors from stage a posterior
     cx_l = passer.gaussian(
@@ -482,7 +482,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
 # ------------------------------------------------------------------ #
 # Stage M — merged EPL + shear + pixelized source (replaces C + D)
 # ------------------------------------------------------------------ #
-def _epl_mass_from_stage_a(passer: GaussianPriorPasser):
+def _epl_mass_from_stage_a(passer: StagePosterior):
     """EPL (+ shear) with Gaussian priors inherited from stage-A posterior."""
     theta_E = passer.gaussian(
         "theta_E", model="EPL", attr="theta_E", limits=[0.0, 5.0],
@@ -693,7 +693,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 # ------------------------------------------------------------------ #
 def build_stage_m_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
-    passer: GaussianPriorPasser, position_likelihood,
+    passer: StagePosterior, position_likelihood,
 ):
     epl, shear = _epl_mass_from_stage_a(passer)
     lam = ParamU(
@@ -732,7 +732,7 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
     print(" Stage M : EPL + shear + pix source (lambda_reg free)")
     print("=" * 60)
     lens_subtracted = image_data - lens_light_model
-    passer = GaussianPriorPasser(samples_a, weights_a, names_a)
+    passer = StagePosterior(samples_a, weights_a, names_a)
     likelihood = build_stage_m_likelihood(
         lens_subtracted,
         noise_map,
@@ -810,7 +810,7 @@ def main(skip_done: bool = False):
         )
 
     if not (OUT_DIR / "stage_m_model.png").exists():
-        passer_m = GaussianPriorPasser(samples_a, weights_a, names_a)
+        passer_m = StagePosterior(samples_a, weights_a, names_a)
         lkl_m = build_stage_m_likelihood(
             lens_subtracted,
             noise_map,
