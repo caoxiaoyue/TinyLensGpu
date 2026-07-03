@@ -869,10 +869,16 @@ def build_stage_m1_likelihood(
     passer: GaussianPriorPasser, position_likelihood, log_lambda_fixed: float,
     circular_mask=None,
 ):
-    """Build M1: EPL+shear free, non-adaptive source lambda fixed from M0."""
+    """Build M1: EPL+shear free, source lambda as truncated Gaussian around M0."""
     epl, shear = _epl_mass_from_passer(passer)
-    log_lam = ParamU("log_lambda_reg", float(log_lambda_fixed))
-    log_lam.to_static()
+    log_lam = ParamU(
+        "log_lambda_reg",
+        float(log_lambda_fixed),
+        prior_type="truncated_gaussian",
+        prior_settings=[float(log_lambda_fixed), 0.15],
+        limits=[float(log_lambda_fixed) - 0.5, float(log_lambda_fixed) + 0.5],
+    )
+    log_lam.to_dynamic()
 
     pix_src = PixelizedSourceModel(n=NSRC,
         log_lambda_reg=log_lam,
@@ -912,8 +918,10 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     print(" Stage M1 : EPL + shear + non-adaptive pix source (mass fit)")
     print("=" * 60)
     print(
-        f"[stage-M1] fixed lambda_reg from M0: "
-        f"{float(jnp.exp(log_lambda_fixed)):.4e}"
+        f"[stage-M1] lambda_reg prior from M0: "
+        f"truncated Gaussian centered at {float(jnp.exp(log_lambda_fixed)):.4e} "
+        f"(sigma=0.15, limits=[{float(jnp.exp(log_lambda_fixed - 0.5)):.4e}, "
+        f"{float(jnp.exp(log_lambda_fixed + 0.5)):.4e}])"
     )
     t0 = time.time()
 
@@ -931,11 +939,12 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     print(f"[stage-M1] time taken: {t1 - t0:.2f} seconds")
     medians = _posterior_median(samples, weights, names)
 
-    s1_medians = {**medians, "log_lambda_reg": float(log_lambda_fixed)}
+    s1_medians = dict(medians)
+    log_lambda_m1 = float(medians["log_lambda_reg"])
     s1_package = _solve_pixel_source_for_package(likelihood, s1_medians, names)
     s1_package.update(
-        lambda_best=float(jnp.exp(log_lambda_fixed)),
-        log_lambda_best=float(log_lambda_fixed),
+        lambda_best=float(jnp.exp(log_lambda_m1)),
+        log_lambda_best=log_lambda_m1,
         stage_m1_medians=dict(medians),
     )
     s1_package["scale_map"] = np.asarray(_make_s0_scale(s1_package), dtype=np.float32)
@@ -946,7 +955,9 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         extra=dict(
             medians=medians,
             m1_mass_model="EPL+Shear",
-            lambda_fixed=float(log_lambda_fixed),
+            lambda_prior_center=float(log_lambda_fixed),
+            lambda_prior_sigma=0.15,
+            lambda_prior_limits=[float(log_lambda_fixed - 0.5), float(log_lambda_fixed + 0.5)],
             s1=s1_package,
             time_taken=t1 - t0,
         ),
