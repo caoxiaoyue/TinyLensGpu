@@ -559,6 +559,27 @@ def test_operator_fista_forward_model_returns_nonnegative_source():
 
 
 @pytest.mark.unit
+def test_operator_fista_solver_controls_are_configurable():
+    """Constructor-level FISTA controls should be stored on the model."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    model = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        solver_type="fista",
+        fista_max_iter=17,
+        fista_rtol=2e-5,
+        fista_power_iter=5,
+        fista_step_safety=1.4,
+    )
+
+    assert model.fista_max_iter == 17
+    assert model.fista_rtol == 2e-5
+    assert model.fista_power_iter == 5
+    assert model.fista_step_safety == 1.4
+
+
+@pytest.mark.unit
 def test_operator_fista_nonconvergence_penalizes_evidence():
     """FISTA gating should penalize an explicitly non-converged solve.
 

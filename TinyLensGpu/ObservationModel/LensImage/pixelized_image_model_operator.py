@@ -79,6 +79,16 @@ class PixelizedImageProbModelOperator(ck.Module):
     source_bbox_outlier_frac : float, optional
         Fraction of ray-traced source-plane points trimmed from each tail
         during bbox inference when ``fixed_source_bbox`` is not supplied.
+    fista_max_iter : int, optional
+        Fixed iteration budget for ``solver_type="fista"``. The default is
+        intentionally conservative because evidence evaluation penalizes
+        non-converged source solves.
+    fista_rtol : float, optional
+        Relative tolerance for the projected-gradient convergence metric.
+    fista_power_iter : int, optional
+        Number of power iterations used for FISTA step-size estimation.
+    fista_step_safety : float, optional
+        Safety factor applied to the estimated Lipschitz constant.
     """
 
     def __init__(
@@ -99,6 +109,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
         source_bbox_padding: float = 0.0,
         source_bbox_outlier_frac: float = 0.01,
+        fista_max_iter: int = 1000,
+        fista_rtol: float = 1e-5,
+        fista_power_iter: int = 10,
+        fista_step_safety: float = 1.2,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "fista"):
@@ -163,10 +177,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         # PCG settings
         self.pcg_max_iter = 200
         self.pcg_rtol = 1e-6
-        self.fista_max_iter = 300
-        self.fista_rtol = 1e-5
-        self.fista_power_iter = 10
-        self.fista_step_safety = 1.2
+        self.fista_max_iter = int(fista_max_iter)
+        self.fista_rtol = float(fista_rtol)
+        self.fista_power_iter = int(fista_power_iter)
+        self.fista_step_safety = float(fista_step_safety)
 
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
