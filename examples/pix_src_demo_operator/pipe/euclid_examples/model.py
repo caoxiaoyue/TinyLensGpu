@@ -38,5 +38,9 @@ if __name__ == "__main__":
         "--skip-done", action="store_true",
         help="Re-use cached posteriors in output/stage_*.pkl",
     )
+    parser.add_argument(
+        "--out-dir", default=None,
+        help="Output directory relative to this script.",
+    )
     args = parser.parse_args()
-    main(skip_done=args.skip_done)
+    main(skip_done=args.skip_done, out_dir=args.out_dir)

@@ -44,6 +44,10 @@ def main():
         action="store_true",
         help="Re-use cached posteriors in output/stage_*.pkl",
     )
+    parser.add_argument(
+        "--out-dir", default=None,
+        help="Output directory relative to the lens subdirectory.",
+    )
     args = parser.parse_args()
 
     lens_path = Path(args.lens_dir).resolve()
@@ -60,7 +64,7 @@ def main():
 
     from pipeline import main as pipeline_main  # noqa: E402
 
-    pipeline_main(skip_done=args.skip_done)
+    pipeline_main(skip_done=args.skip_done, out_dir=args.out_dir)
 
 
 if __name__ == "__main__":
