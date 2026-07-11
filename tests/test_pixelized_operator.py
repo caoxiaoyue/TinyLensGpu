@@ -929,6 +929,48 @@ def test_weak_regularization_stabilizes_duplicate_lens_light_bases():
 
 
 @pytest.mark.unit
+def test_joint_pcg_converges_when_source_regularization_is_weak():
+    """Block-Schur preconditioning remains SPD in the weak-prior regime."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.4, n_sersic=2.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    log_lambda = ParamU(
+        "log_lambda_reg", -10.0,
+        prior_type="uniform", prior_settings=[-14.0, 7.0],
+    )
+    log_lambda.to_dynamic()
+    source = PixelizedSourceModel(
+        n=20, log_lambda_reg=log_lambda,
+        regularization_type="first-order",
+    )
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[source],
+        lens_light=[lens_light],
+    )
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)) * 0.1, jnp.ones((10, 10)) * 0.1,
+        _delta_psf(), 0.08, phys, block_size=10,
+    )
+
+    model_image, source_pixels, lens_intensities = model.forward_model(
+        return_components=True
+    )
+
+    assert jnp.any(model_image != 0.0)
+    assert jnp.all(jnp.isfinite(source_pixels))
+    assert jnp.all(jnp.isfinite(lens_intensities))
+
+
+@pytest.mark.unit
 def test_matrix_vs_operator_source_consistency_nsub2():
     """Source reconstruction parity with nsub=2 sub-grid sampling."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf(), nsub=2)

@@ -359,8 +359,8 @@ plt.suptitle(
     fontsize=12,
 )
 overlay_critical_and_caustics(
-    image_axes=[axes[0], axes[1], axes[2]],
-    source_ax=axes[3],
+    image_axes=[axes[0, 0], axes[0, 1], axes[1, 0]],
+    source_ax=axes[0, 3],
     lens_mass=prob_model.phys_model,
 )
 

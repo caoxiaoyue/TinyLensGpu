@@ -407,7 +407,30 @@ class PixelizedImageProbModelOperator(ck.Module):
             ),
             in_axes=1, out_axes=1,
         )(cross)
-        schur = lens_block - cross.T @ inverse_cross
+        cross_curvature = cross.T @ inverse_cross
+
+        # A block-diagonal approximation to the source curvature can be too
+        # weak for the exact source/lens cross block, making the approximate
+        # Schur complement indefinite even though the true joint curvature is
+        # SPD.  Spectrally damp only the preconditioner cross block when this
+        # happens; the joint operator and physical regularization are unchanged.
+        lens_chol = jnp.linalg.cholesky(lens_block)
+        whitened = jax.scipy.linalg.solve_triangular(
+            lens_chol, cross_curvature, lower=True,
+        )
+        whitened = jax.scipy.linalg.solve_triangular(
+            lens_chol, whitened.T, lower=True,
+        ).T
+        max_coupling = jnp.max(jnp.linalg.eigvalsh(
+            0.5 * (whitened + whitened.T)
+        ))
+        margin = jnp.asarray(1.0e-3, dtype=lens_matrix.dtype)
+        cross_scale = jnp.minimum(
+            1.0,
+            jnp.sqrt((1.0 - margin) / jnp.maximum(max_coupling, margin)),
+        )
+        cross = cross_scale * cross
+        schur = lens_block - (cross_scale ** 2) * cross_curvature
         schur = 0.5 * (schur + schur.T)
         jitter = jnp.asarray(10.0 * jnp.finfo(schur.dtype).eps, schur.dtype)
         schur_chol = jnp.linalg.cholesky(

@@ -136,10 +136,10 @@ lens_light = SersicEllipse(
     Ie=1.0,  # Unit amplitude basis, solved linearly
 )
 
-pix_src = PixelizedSourceModel(n=40,
+pix_src = PixelizedSourceModel(n=80,
     regularization_type="first-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
-                      prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                      prior_type="uniform", prior_settings=[jnp.log(1e-6), jnp.log(1e3)],
                       limits=[-13.815510557964274, 13.815510557964274]),
 )
 
@@ -185,7 +185,8 @@ prob_model = PixelizedImageProbModelOperator(
     phys_model=phys_model,
     mask=mask,
     source_seed_mask=source_seed_mask,
-    nsub=2,
+    nsub=4,
+    source_bbox_padding=0.2,
     position_likelihood=position_likelihood,
     solver_type="pcg",
 )
@@ -201,7 +202,7 @@ print(f"  {len(param_names)} dynamic parameters:")
 for s in prior_specs:
     print(f"    {s.name:20s}: {s.describe()}")
 
-loglike = make_likelihood(prob_model, vectorized=False)
+loglike = make_likelihood(prob_model, vectorized=True)
 
 # ------------------------------------------------------------------ #
 # Nautilus nested sampling
@@ -211,8 +212,9 @@ sampler = Sampler(
     prior,
     loglike,
     n_dim=len(param_names),
-    n_live=200,
-    vectorized=False,
+    n_live=300,
+    vectorized=True,
+    n_batch=200,
 )
 
 t0 = time.time()
@@ -345,12 +347,12 @@ axes[1, 3].set_xlabel("arcsec")
 
 plt.suptitle(
     f"Joint Fit: SIE + Sersic lens light + pix src  "
-    f"(theta_E={q50_list[0]:.3f}\", R_sersic={q50_list[5]:.3f}\")",
+    f"(theta_E={q50_list[0]:.3f}\", R_sersic={q50_list[6]:.3f}\")",
     fontsize=12,
 )
 overlay_critical_and_caustics(
-    image_axes=[axes[0], axes[1], axes[2]],
-    source_ax=axes[3],
+    image_axes=[axes[0, 0], axes[0, 1], axes[1, 0]],
+    source_ax=axes[0, 3],
     lens_mass=prob_model.phys_model,
 )
 
