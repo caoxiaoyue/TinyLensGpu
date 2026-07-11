@@ -190,7 +190,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.fista_power_iter = int(fista_power_iter)
         self.fista_step_safety = float(fista_step_safety)
 
-        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
+        (self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
+         self._pos_sigma, self._has_pos_penalty) = \
             resolve_position_likelihood_attrs(position_likelihood)
 
     @staticmethod
@@ -311,6 +312,16 @@ class PixelizedImageProbModelOperator(ck.Module):
         else:
             xmin, xmax, ymin, ymax = self._fixed_source_bbox
         return xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed
+
+    def infer_source_bbox(self) -> tuple[float, float, float, float]:
+        """Return the source bbox implied by the current reference model.
+
+        This public helper is intended for constructing a second probability
+        model with ``fixed_source_bbox=...``.  Fixing the source coordinate
+        system is important during mass-model sampling: otherwise every mass
+        proposal changes both the lens mapping and the pixelized source basis.
+        """
+        return tuple(float(np.asarray(value)) for value in self._get_bbox()[:4])
 
     # ------------------------------------------------------------------
     # Regularization matrix
@@ -764,7 +775,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
         return compute_position_penalty_jax(
-            self.phys_model, self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
+            self.phys_model, self._pos_px, self._pos_py, self._pos_thr,
+            self._pos_minl, self._pos_sigma,
         )
 
     def likelihood(self, debug: bool = True) -> float:

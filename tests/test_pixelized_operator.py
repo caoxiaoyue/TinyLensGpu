@@ -1109,6 +1109,29 @@ def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_rho):
 
 
 @pytest.mark.unit
+def test_operator_chunked_likelihood_accepts_nautilus_batch_of_200():
+    """The operator path preserves a sampler batch while bounding vmap memory."""
+    phys = _phys_model()
+    config = _sim_config()
+    sim = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    mock = sim.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+    )
+    loglike = make_likelihood(
+        prob_op, vectorized=True, vectorized_chunk_size=50
+    )
+
+    values = loglike(jnp.zeros((200, 1), dtype=jnp.float32))
+
+    assert values.shape == (200,)
+    assert jnp.all(jnp.isfinite(values))
+
+
+@pytest.mark.unit
 def test_operator_zero_order_adaptive_reg_jit_scan_path():
     """Zero-order adaptive regularization should compile on the scan preconditioner path."""
     lam = ParamU("log_lambda_reg", 0.0,
@@ -1160,6 +1183,32 @@ def test_operator_fixed_bbox_overrides_seed_inference():
     assert beta_y_sub.size > 0
     assert beta_x_seed.size > 0
     assert beta_y_seed.size > 0
+
+
+@pytest.mark.unit
+def test_operator_can_export_reference_bbox_for_fixed_sampling_grid():
+    """The public bbox helper should round-trip into a fixed-grid model."""
+    phys = _phys_model()
+    reference = PixelizedImageProbModelOperator(
+        image_data=jnp.ones((5, 5)),
+        noise_map=jnp.ones((5, 5)),
+        psf_kernel=_delta_psf(),
+        dpix=0.1,
+        phys_model=phys,
+        source_bbox_padding=0.2,
+    )
+
+    bbox = reference.infer_source_bbox()
+    fixed = PixelizedImageProbModelOperator(
+        image_data=jnp.ones((5, 5)),
+        noise_map=jnp.ones((5, 5)),
+        psf_kernel=_delta_psf(),
+        dpix=0.1,
+        phys_model=phys,
+        fixed_source_bbox=bbox,
+    )
+
+    np.testing.assert_allclose(fixed.infer_source_bbox(), bbox, atol=1e-7)
 
 
 @pytest.mark.unit

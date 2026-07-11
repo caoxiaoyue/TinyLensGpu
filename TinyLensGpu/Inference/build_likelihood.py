@@ -5,13 +5,20 @@ for efficient batch processing.
 
 # pyright: reportMissingImports=false
 
+from numbers import Integral
 from typing import Callable, Optional
 import jax
 import jax.numpy as jnp
 from jax import jit
 
 
-def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional[jnp.dtype] = None) -> Callable:
+def make_likelihood(
+    likelihood_obj,
+    *,
+    vectorized: bool = False,
+    dtype: Optional[jnp.dtype] = None,
+    vectorized_chunk_size: Optional[int] = None,
+) -> Callable:
     """
     Create Nautilus-compatible log-likelihood function with JAX vmap.
     
@@ -29,6 +36,10 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     vectorized : bool, optional
         Whether to support batched evaluation (default: False)
         If True, uses JAX vmap for efficient vectorization.
+    vectorized_chunk_size : int, optional
+        Maximum number of samples evaluated by one internal ``vmap``. The
+        sampler still submits and receives the original batch as a whole, but
+        JAX executes it in chunks via ``lax.map`` to cap accelerator memory.
     
     Returns
     -------
@@ -37,7 +48,8 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
     
     Notes
     -----
-    This implementation uses JAX vmap for true vectorization:
+    This implementation uses JAX ``vmap`` directly, or batched ``lax.map``
+    when ``vectorized_chunk_size`` is configured:
     - 10-100x faster than Python loops
     - Fully JIT compiled
     - GPU accelerated
@@ -68,10 +80,28 @@ def make_likelihood(likelihood_obj, *, vectorized: bool = False, dtype: Optional
         """
         return likelihood_obj(theta)
     
+    if vectorized_chunk_size is not None:
+        if isinstance(vectorized_chunk_size, bool) or not isinstance(
+            vectorized_chunk_size, Integral
+        ):
+            raise TypeError("vectorized_chunk_size must be an integer")
+        vectorized_chunk_size = int(vectorized_chunk_size)
+        if vectorized_chunk_size <= 0:
+            raise ValueError("vectorized_chunk_size must be a positive integer")
+
     batch_loglike = None
     if vectorized:
-        # Vectorize using JAX vmap for efficient batch processing
-        batch_loglike = jit(jax.vmap(loglike_fn))
+        if vectorized_chunk_size is None:
+            batch_loglike = jit(jax.vmap(loglike_fn))
+        else:
+            # lax.map with batch_size performs a vmap over bounded chunks and
+            # concatenates the results without materialising the full batch's
+            # intermediate solver state at once.
+            batch_loglike = jit(
+                lambda theta: jax.lax.map(
+                    loglike_fn, theta, batch_size=vectorized_chunk_size
+                )
+            )
     
     def loglike(params):
         """

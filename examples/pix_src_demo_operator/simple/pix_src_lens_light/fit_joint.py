@@ -136,11 +136,16 @@ lens_light = SersicEllipse(
     Ie=1.0,  # Unit amplitude basis, solved linearly
 )
 
-pix_src = PixelizedSourceModel(n=80,
+pix_src = PixelizedSourceModel(
+    n=120,
     regularization_type="first-order",
-    log_lambda_reg=ParamU("log_lambda_reg", 0.0,
-                      prior_type="uniform", prior_settings=[jnp.log(1e-6), jnp.log(1e3)],
-                      limits=[-13.815510557964274, 13.815510557964274]),
+    log_lambda_reg=ParamU(
+        "log_lambda_reg",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[jnp.log(1e-6), jnp.log(1e3)],
+        limits=[-13.815510557964274, 13.815510557964274],
+    ),
 )
 
 phys_model = PhysicalModel(
@@ -169,15 +174,18 @@ pix_src.log_lambda_reg.to_dynamic()
 # ------------------------------------------------------------------ #
 position_likelihood = {
     'positions': _img_positions.tolist(),
-    'threshold_arcsec': 0.3,
-    'min_log_like': -1.0e10,
+    # Smooth source-plane consistency likelihood. The mock positions are
+    # noise-free and solved to 5e-4 arcsec. For two images, dividing 1e-3 by
+    # sqrt(2) preserves the previously validated pair-separation penalty under
+    # the centroid-residual Gaussian definition.
+    'sigma_arcsec': 1.0e-3 / np.sqrt(2.0),
 }
 
 # ------------------------------------------------------------------ #
 # Probability model (Bayesian evidence)
 # ------------------------------------------------------------------ #
 print("[3] Building probability model ...")
-prob_model = PixelizedImageProbModelOperator(
+_bbox_probe = PixelizedImageProbModelOperator(
     image_data=image_data,
     noise_map=noise_map,
     psf_kernel=psf_kernel,
@@ -187,6 +195,26 @@ prob_model = PixelizedImageProbModelOperator(
     source_seed_mask=source_seed_mask,
     nsub=4,
     source_bbox_padding=0.2,
+    position_likelihood=position_likelihood,
+    solver_type="pcg",
+)
+fixed_source_bbox = _bbox_probe.infer_source_bbox()
+del _bbox_probe
+print(f"  Fixed source bbox: {fixed_source_bbox}")
+
+# Keep the source coordinate system fixed throughout sampling. Re-inferring the
+# bbox for every mass model changes the pixel basis and its implicit prior
+# volume, which can move the evidence peak even for a noiseless mock.
+prob_model = PixelizedImageProbModelOperator(
+    image_data=image_data,
+    noise_map=noise_map,
+    psf_kernel=psf_kernel,
+    dpix=DPIX,
+    phys_model=phys_model,
+    mask=mask,
+    source_seed_mask=source_seed_mask,
+    nsub=4,
+    fixed_source_bbox=fixed_source_bbox,
     position_likelihood=position_likelihood,
     solver_type="pcg",
 )
@@ -202,7 +230,11 @@ print(f"  {len(param_names)} dynamic parameters:")
 for s in prior_specs:
     print(f"    {s.name:20s}: {s.describe()}")
 
-loglike = make_likelihood(prob_model, vectorized=True)
+loglike = make_likelihood(
+    prob_model,
+    vectorized=True,
+    vectorized_chunk_size=50,
+)
 
 # ------------------------------------------------------------------ #
 # Nautilus nested sampling
@@ -277,10 +309,46 @@ lens_image_2d = np.asarray(lens_image_2d)
 
 resid_norm = (image_data - model_image) / noise_map
 
-# Chi-square
-dof = int((~mask).sum()) - n_source - (len(lens_amplitudes) if lens_amplitudes is not None else 0)
+# The effective degrees of freedom of a regularized semi-linear inversion is
+# not ``Ndata - Nsource``. Report chi-square per fitted datum explicitly.
+n_data = int((~mask).sum())
 chi2 = float(np.sum(resid_norm[~mask]**2))
-chi2_nu = chi2 / dof if dof > 0 else 0.0
+chi2_per_data = chi2 / n_data
+
+# Arc-local residual diagnostics. The reconstructed lensed-source component
+# defines the arc support, so this remains usable on real data without truth
+# images. Correlation with the arc template catches coherent under/over-fitting
+# that a global chi-square can hide.
+arc_region = (~mask) & (source_image_2d / noise_map > 3.0)
+arc_resid = resid_norm[arc_region]
+arc_template = source_image_2d[arc_region] / noise_map[arc_region]
+if arc_resid.size == 0:
+    arc_resid_mean = float("nan")
+    arc_resid_std = float("nan")
+else:
+    arc_resid_mean = float(np.mean(arc_resid))
+    arc_resid_std = float(np.std(arc_resid))
+if (
+    arc_resid.size < 2
+    or np.std(arc_resid) == 0.0
+    or np.std(arc_template) == 0.0
+):
+    arc_template_corr = float("nan")
+else:
+    arc_template_corr = float(np.corrcoef(arc_resid, arc_template)[0, 1])
+print(
+    "  Residual diagnostics: "
+    f"chi2/Ndata={chi2_per_data:.4f}, "
+    f"arc mean={arc_resid_mean:.4f}, arc std={arc_resid_std:.4f}, "
+    f"arc-template corr={arc_template_corr:.4f}"
+)
+np.savetxt(
+    "output/fit_diagnostics.csv",
+    np.asarray([[chi2_per_data, arc_resid_mean, arc_resid_std, arc_template_corr]]),
+    delimiter=",",
+    header="chi2_per_data,arc_resid_mean,arc_resid_std,arc_template_corr",
+    comments="",
+)
 
 # Source reconstruction on source plane
 source_pixels_np = np.array(source_pixels)
@@ -309,7 +377,10 @@ plt.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
 resid_display = np.where(mask, np.nan, resid_norm)
 im2 = axes[0, 2].imshow(resid_display, origin="lower", extent=ext_i,
                         cmap="RdBu_r", vmin=-3, vmax=3)
-axes[0, 2].set_title(f"Norm. residual (sigma)\nchi^2/ν = {chi2_nu:.3f}", fontsize=11)
+axes[0, 2].set_title(
+    f"Norm. residual (sigma)\nchi^2/Ndata = {chi2_per_data:.3f}",
+    fontsize=11,
+)
 axes[0, 2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 

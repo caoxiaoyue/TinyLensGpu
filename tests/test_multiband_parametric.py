@@ -730,6 +730,47 @@ def test_make_likelihood_vectorized_batch_matches_manual_loop() -> None:
     assert np.allclose(batched, manual)
 
 
+def test_make_likelihood_chunked_vectorization_matches_full_batch() -> None:
+    """Chunking preserves values when the batch has a remainder."""
+    model, _ = _make_two_band_linear_model()
+    theta = np.asarray(model.get_values("flat"), dtype=float)
+    batch = np.stack(
+        [theta, theta + 0.01, theta - 0.01, theta + 0.02, theta - 0.02],
+        axis=0,
+    )
+
+    full = np.asarray(make_likelihood(model, vectorized=True)(batch))
+    chunked = np.asarray(
+        make_likelihood(
+            model, vectorized=True, vectorized_chunk_size=2
+        )(batch)
+    )
+
+    np.testing.assert_allclose(chunked, full, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize("bad_chunk_size", [0, -1])
+def test_make_likelihood_rejects_nonpositive_chunk_size(bad_chunk_size) -> None:
+    model, _ = _make_two_band_linear_model()
+    with pytest.raises(ValueError, match="positive integer"):
+        make_likelihood(
+            model,
+            vectorized=True,
+            vectorized_chunk_size=bad_chunk_size,
+        )
+
+
+@pytest.mark.parametrize("bad_chunk_size", [True, 2.5, "2"])
+def test_make_likelihood_rejects_noninteger_chunk_size(bad_chunk_size) -> None:
+    model, _ = _make_two_band_linear_model()
+    with pytest.raises(TypeError, match="must be an integer"):
+        make_likelihood(
+            model,
+            vectorized=True,
+            vectorized_chunk_size=bad_chunk_size,
+        )
+
+
 def test_make_likelihood_vectorized_batch_matches_manual_loop_for_mixed_geometry() -> None:
     model, _, _ = _make_two_band_mixed_geometry_linear_model()
     theta = np.asarray(model.get_values("flat"), dtype=float)
