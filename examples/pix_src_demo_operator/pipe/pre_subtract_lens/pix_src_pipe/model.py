@@ -5,7 +5,7 @@ Stage a  : SIE + shear + Bspline lens light + Bspline source light (uniform prio
 Stage b  : build an arc feature mask from stage-A residuals
 Stage l  : arc-masked Bspline lens light refinement (Gaussian priors from stage a)
 Stage m0 : SIE + shear + uniform pixelized source — GPU grid search for
-            evidence-best lambda_reg on lens-subtracted image, builds the fixed S0 source template
+            evidence-best lambda_reg on lens-subtracted image
 Stage m1 : EPL + shear + non-adaptive pixelized source — Nautilus sampling
             of mass parameters on lens-subtracted image with lambda_reg constrained around stage-M0,
             then builds the fixed S1 source template
@@ -153,46 +153,46 @@ def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
     xmin,xmax,ymin,ymax = [float(v) for v in source_bbox]; return np.isclose(xmax-xmin,ymax-ymin,rtol=rtol,atol=atol)
 
 
-def _make_s0_scale(s0_package, rho=ADAPTIVE_REG_RHO):
-    return source_template_scale_map(s0_package["source_pixels"], int(s0_package["n"]), rho=rho)
+def _make_source_scale(source_package, rho=ADAPTIVE_REG_RHO):
+    return source_template_scale_map(source_package["source_pixels"], int(source_package["n"]), rho=rho)
 
 
-def _validate_s0_package(s0_package):
-    if [k for k in ("nx","ny") if k in s0_package]:
-        raise KeyError("S0 package uses legacy source-grid keys")
+def _validate_source_package(source_package):
+    if [k for k in ("nx","ny") if k in source_package]:
+        raise KeyError("Source package uses legacy source-grid keys")
     required = ("source_pixels","source_bbox","source_x_axis","source_y_axis","n","lambda_best","log_lambda_best")
-    missing = [k for k in required if k not in s0_package]
-    if missing: raise KeyError("S0 package missing: "+", ".join(missing))
-    n=int(s0_package["n"])
+    missing = [k for k in required if k not in source_package]
+    if missing: raise KeyError("Source package missing: "+", ".join(missing))
+    n=int(source_package["n"])
     if n!=NSRC: raise ValueError(f"S0 n={n} != configured {NSRC}")
-    sp=np.asarray(s0_package["source_pixels"])
-    if sp.shape!=(n*n,): raise ValueError(f"S0 source_pixels shape {sp.shape} != ({n*n},)")
+    sp=np.asarray(source_package["source_pixels"])
+    if sp.shape!=(n*n,): raise ValueError(f"Source source_pixels shape {sp.shape} != ({n*n},)")
     for an in ("source_x_axis","source_y_axis"):
-        a=np.asarray(s0_package[an])
+        a=np.asarray(source_package[an])
         if a.shape!=(n,): raise ValueError(f"S0 {an} shape {a.shape} != ({n},)")
-    bbox=tuple(float(v) for v in s0_package["source_bbox"])
-    if len(bbox)!=4 or not np.all(np.isfinite(bbox)): raise ValueError("S0 source_bbox invalid")
-    if not (bbox[0]<bbox[1] and bbox[2]<bbox[3]): raise ValueError("S0 source_bbox not sorted")
-    if not _is_square_bbox(bbox): raise ValueError("S0 source_bbox not square")
-    sm=s0_package.get("scale_map")
+    bbox=tuple(float(v) for v in source_package["source_bbox"])
+    if len(bbox)!=4 or not np.all(np.isfinite(bbox)): raise ValueError("Source source_bbox invalid")
+    if not (bbox[0]<bbox[1] and bbox[2]<bbox[3]): raise ValueError("Source source_bbox not sorted")
+    if not _is_square_bbox(bbox): raise ValueError("Source source_bbox not square")
+    sm=source_package.get("scale_map")
     if sm is None:
-        sm=np.asarray(_make_s0_scale(s0_package),dtype=np.float32); s0_package["scale_map"]=sm
+        sm=np.asarray(_make_source_scale(source_package),dtype=np.float32); source_package["scale_map"]=sm
     else:
         sm=np.asarray(sm,dtype=np.float32)
-        if sm.shape!=(n*n,): raise ValueError(f"S0 scale_map shape {sm.shape} != ({n*n},)")
-        if not np.all(np.isfinite(sm)&(sm>0.0)): raise ValueError("S0 scale_map invalid")
-        s0_package["scale_map"]=sm
-    return s0_package
+        if sm.shape!=(n*n,): raise ValueError(f"Source scale_map shape {sm.shape} != ({n*n},)")
+        if not np.all(np.isfinite(sm)&(sm>0.0)): raise ValueError("Source scale_map invalid")
+        source_package["scale_map"]=sm
+    return source_package
 
 
 def _fista_kwargs():
     return dict(fista_max_iter=FISTA_MAX_ITER, fista_rtol=FISTA_RTOL, fista_power_iter=FISTA_POWER_ITER, fista_step_safety=FISTA_STEP_SAFETY)
 
 
-def _s0_fixed_kwargs(s0_package):
-    s0_package=_validate_s0_package(s0_package)
-    return dict(fixed_source_bbox=tuple(float(v) for v in s0_package["source_bbox"]),
-                fixed_reg_template=jnp.asarray(s0_package["source_pixels"],dtype=jnp.float32))
+def _fixed_source_kwargs(source_package):
+    source_package=_validate_source_package(source_package)
+    return dict(fixed_source_bbox=tuple(float(v) for v in source_package["source_bbox"]),
+                fixed_reg_template=jnp.asarray(source_package["source_pixels"],dtype=jnp.float32))
 
 
 def _source_param_value(value): return value.value if hasattr(value,"value") else value
@@ -529,7 +529,7 @@ def build_stage_m0_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,cmask=None):
                                             source_bbox_padding=SOURCE_BBOX_PADDING,**_fista_kwargs())
 
 def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None):
-    print("\n"+"="*60); print(" Stage M0 : fixed SIE + shear + uniform pix source (build S0)"); print("="*60)
+    print("\n"+"="*60); print(" Stage M0 : fixed SIE + shear + uniform pix source "); print("="*60)
     t0=time.time(); ls=idata-llm
     lkl=build_stage_m0_likelihood(ls,nmap,psk,fmask,stage_a,pl,cmask)
     llb=make_likelihood(lkl,vectorized=True); ng=200
@@ -548,7 +548,7 @@ def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None):
     s0=_solve_pixel_source_for_package(lkl,{**ma,"log_lambda_reg":llb_f},["log_lambda_reg"])
     s0.update(lambda_best=float(jnp.exp(llb_f)),log_lambda_best=llb_f,evidence_lambda_best=float(jnp.exp(llb_f)),
               evidence_log_lambda_best=llb_f,stage_a_medians=dict(ma))
-    s0["scale_map"]=np.asarray(_make_s0_scale(s0),dtype=np.float32); _validate_s0_package(s0)
+    s0["scale_map"]=np.asarray(_make_source_scale(s0),dtype=np.float32); _validate_source_package(s0)
     t1=time.time(); print(f"[stage-M0] time taken: {t1-t0:.2f} seconds")
     _dump_stage("m0",None,None,["log_lambda_reg"],leb,
                 extra=dict(log_lambda_best=llb_f,evidence_lambda_best=float(jnp.exp(llb_f)),evidence_log_lambda_best=llb_f,
@@ -580,7 +580,7 @@ def run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,ll_fixed,cmask=None):
     med=stage.medians(); sm=dict(med); llm1=float(med["log_lambda_reg"])
     s1=_solve_pixel_source_for_package(lkl,sm,n)
     s1.update(lambda_best=float(jnp.exp(llm1)),log_lambda_best=llm1,stage_m1_medians=dict(med))
-    s1["scale_map"]=np.asarray(_make_s0_scale(s1),dtype=np.float32); _validate_s0_package(s1)
+    s1["scale_map"]=np.asarray(_make_source_scale(s1),dtype=np.float32); _validate_source_package(s1)
     _dump_stage("m1",s,w,n,lz,extra=dict(medians=med,m1_mass_model="EPL+Shear",
                 lambda_prior_center=float(ll_fixed),lambda_prior_sigma=0.15,
                 lambda_prior_limits=[float(ll_fixed)-0.5,float(ll_fixed)+0.5],
@@ -602,7 +602,7 @@ def build_stage_m2_likelihood(ls_img,nmap,psk,fmask,med_m1,pl,s1_pkg,cmask=None)
     if cmask is not None: cm=cm|cmask
     return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
                                             phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_fista_kwargs(),**_s0_fixed_kwargs(s1_pkg))
+                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_fista_kwargs(),**_fixed_source_kwargs(s1_pkg))
 
 def run_stage_m2(idata,nmap,psk,fmask,llm,med_m1,pl,s1_pkg,cmask=None):
     print("\n"+"="*60); print(" Stage M2 : fixed EPL + shear + adaptive pix source (fit λ, rho)"); print("="*60)
@@ -630,7 +630,7 @@ def build_stage_m3_likelihood(ls_img,nmap,psk,fmask,stage_m1,pl,rh_fixed,s1_pkg,
     if cmask is not None: cm=cm|cmask
     return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
                                             phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_fista_kwargs(),**_s0_fixed_kwargs(s1_pkg))
+                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_fista_kwargs(),**_fixed_source_kwargs(s1_pkg))
 
 def run_stage_m3(idata,nmap,psk,fmask,llm,stage_m1,pl,rh_fixed,s1_pkg,cmask=None):
     print("\n"+"="*60); print(" Stage M3 : EPL + shear + adaptive pix source (final mass fit)"); print("="*60)
@@ -676,7 +676,7 @@ def main(skip_done=False, out_dir=None):
     tm0=0.0
     if skip_done and (OUT_DIR/"stage_m0.pkl").exists():
         print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl"); d=_load_stage("m0")
-        s0=_validate_s0_package(d["extra"]["s0"]); llm0=d["extra"]["log_lambda_best"]; tm0=d["extra"].get("time_taken",0.0)
+        s0=_validate_source_package(d["extra"]["s0"]); llm0=d["extra"]["log_lambda_best"]; tm0=d["extra"].get("time_taken",0.0)
     else: s0,llm0=run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask); tm0=_load_stage("m0")["extra"].get("time_taken",0.0)
     if (OUT_DIR/"stage_m0.pkl").exists() and not (OUT_DIR/"stage_m0_model.png").exists():
         lkl=build_stage_m0_likelihood(ls,nmap,psk,fmask,stage_a,pl,cmask)
@@ -686,7 +686,7 @@ def main(skip_done=False, out_dir=None):
     tm1=0.0; s1=None
     if skip_done and (OUT_DIR/"stage_m1.pkl").exists():
         print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl"); d=_load_stage("m1")
-        try: nm1=d["param_names"]; stage_m1=_stage_from_payload(d); mm1=d["extra"]["medians"]; s1=_validate_s0_package(d["extra"]["s1"]); tm1=d["extra"].get("time_taken",0.0)
+        try: nm1=d["param_names"]; stage_m1=_stage_from_payload(d); mm1=d["extra"]["medians"]; s1=_validate_source_package(d["extra"]["s1"]); tm1=d["extra"].get("time_taken",0.0)
         except KeyError as err:
             print(f"[stage-M1] old format ({err}); recomputing.")
             stage_m1,mm1,s1=run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,llm0,cmask); nm1=stage_m1.param_names; tm1=_load_stage("m1")["extra"].get("time_taken",0.0)

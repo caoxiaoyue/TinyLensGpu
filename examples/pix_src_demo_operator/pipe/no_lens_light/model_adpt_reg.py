@@ -176,23 +176,23 @@ def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
     return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
 
 
-def _make_s0_scale(
-    s0_package,
+def _make_source_scale(
+    source_package,
     rho: float = ADAPTIVE_REG_RHO,
 ):
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
-        s0_package["source_pixels"],
-        int(s0_package["n"]),
+        source_package["source_pixels"],
+        int(source_package["n"]),
         rho=rho,
     )
 
 
-def _validate_s0_package(s0_package):
-    legacy_keys = [k for k in ("nx", "ny") if k in s0_package]
+def _validate_source_package(source_package):
+    legacy_keys = [k for k in ("nx", "ny") if k in source_package]
     if legacy_keys:
         raise KeyError(
-            "S0 package uses legacy source-grid keys "
+            "Source package uses legacy source-grid keys "
             f"{', '.join(legacy_keys)}; regenerate S0 with the single-n "
             "source-grid schema."
         )
@@ -206,68 +206,68 @@ def _validate_s0_package(s0_package):
         "lambda_best",
         "log_lambda_best",
     )
-    missing = [k for k in required if k not in s0_package]
+    missing = [k for k in required if k not in source_package]
     if missing:
-        raise KeyError("S0 package missing required keys: " + ", ".join(missing))
+        raise KeyError("Source package missing required keys: " + ", ".join(missing))
 
-    n = int(s0_package["n"])
+    n = int(source_package["n"])
     if n != NSRC:
         raise ValueError(
-            f"S0 grid dimension n={n} does not match configured n={NSRC}."
+            f"Source grid dimension n={n} does not match configured n={NSRC}."
         )
-    source_pixels = np.asarray(s0_package["source_pixels"])
+    source_pixels = np.asarray(source_package["source_pixels"])
     if source_pixels.shape != (n * n,):
         raise ValueError(
-            f"S0 source_pixels must have shape ({n * n},), "
+            f"Source source_pixels must have shape ({n * n},), "
             f"got {source_pixels.shape}."
         )
     for axis_name in ("source_x_axis", "source_y_axis"):
-        axis = np.asarray(s0_package[axis_name])
+        axis = np.asarray(source_package[axis_name])
         if axis.shape != (n,):
             raise ValueError(
                 f"S0 {axis_name} must have shape ({n},), got {axis.shape}."
             )
-    bbox = tuple(float(v) for v in s0_package["source_bbox"])
+    bbox = tuple(float(v) for v in source_package["source_bbox"])
     if len(bbox) != 4 or not np.all(np.isfinite(bbox)):
-        raise ValueError("S0 source_bbox must contain four finite values.")
+        raise ValueError("Source source_bbox must contain four finite values.")
     if not (bbox[0] < bbox[1] and bbox[2] < bbox[3]):
-        raise ValueError("S0 source_bbox must satisfy xmin < xmax and ymin < ymax.")
+        raise ValueError("Source source_bbox must satisfy xmin < xmax and ymin < ymax.")
     if not _is_square_bbox(bbox):
         raise ValueError(
-            "S0 source_bbox is rectangular; regenerate S0 with a square "
+            "Source source_bbox is rectangular; regenerate S0 with a square "
             "pixelized source bbox."
         )
 
-    scale_map = s0_package.get("scale_map")
+    scale_map = source_package.get("scale_map")
     if scale_map is None:
-        scale_map = np.asarray(_make_s0_scale(s0_package), dtype=np.float32)
-        s0_package["scale_map"] = scale_map
+        scale_map = np.asarray(_make_source_scale(source_package), dtype=np.float32)
+        source_package["scale_map"] = scale_map
     else:
         scale_map = np.asarray(scale_map, dtype=np.float32)
         if scale_map.shape != (n * n,):
             raise ValueError(
-                f"S0 scale_map must have shape ({n * n},), got {scale_map.shape}."
+                f"Source scale_map must have shape ({n * n},), got {scale_map.shape}."
             )
         if not np.all(np.isfinite(scale_map) & (scale_map > 0.0)):
-            raise ValueError("S0 scale_map values must be finite and positive.")
-        s0_package["scale_map"] = scale_map
-    return s0_package
+            raise ValueError("Source scale_map values must be finite and positive.")
+        source_package["scale_map"] = scale_map
+    return source_package
 
 
-def _s0_fingerprint(s0_package):
-    """Stable fingerprint for cache entries tied to a specific S0 package."""
-    s0_package = _validate_s0_package(s0_package)
+def _s0_fingerprint(source_package):
+    """Stable fingerprint for cache entries tied to a specific Source package."""
+    source_package = _validate_source_package(source_package)
     h = hashlib.sha256()
-    h.update(str(int(s0_package["n"])).encode("ascii"))
+    h.update(str(int(source_package["n"])).encode("ascii"))
     for key in ("source_pixels", "source_bbox"):
-        arr = np.ascontiguousarray(np.asarray(s0_package[key], dtype=np.float64))
+        arr = np.ascontiguousarray(np.asarray(source_package[key], dtype=np.float64))
         h.update(str(arr.shape).encode("ascii"))
         h.update(arr.tobytes())
     return h.hexdigest()
 
 
-def _cache_matches_s0(stage_payload, s0_package, tag):
-    expected = _s0_fingerprint(s0_package)
+def _cache_matches_s0(stage_payload, source_package, tag):
+    expected = _s0_fingerprint(source_package)
     actual = stage_payload.get("extra", {}).get("s0_fingerprint")
     if actual == expected:
         return True
@@ -278,11 +278,11 @@ def _cache_matches_s0(stage_payload, s0_package, tag):
     return False
 
 
-def _s0_fixed_kwargs(s0_package):
-    s0_package = _validate_s0_package(s0_package)
+def _fixed_source_kwargs(source_package):
+    source_package = _validate_source_package(source_package)
     return dict(
-        fixed_source_bbox=tuple(float(v) for v in s0_package["source_bbox"]),
-        fixed_reg_template=jnp.asarray(s0_package["source_pixels"], dtype=jnp.float32),
+        fixed_source_bbox=tuple(float(v) for v in source_package["source_bbox"]),
+        fixed_reg_template=jnp.asarray(source_package["source_pixels"], dtype=jnp.float32),
     )
 
 
@@ -682,7 +682,7 @@ def _epl_mass_from_stage_a(passer: StagePosterior):
 
 
 # ------------------------------------------------------------------ #
-# Stage M0 — SIE + shear + uniform pixelized source  (build S0)
+# Stage M0 — SIE + shear + uniform pixelized source  
 # ------------------------------------------------------------------ #
 def build_stage_m0_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
@@ -728,7 +728,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
                   medians_a, position_likelihood, circular_mask=None):
     """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
     print("\n" + "=" * 60)
-    print(" Stage M0 : fixed SIE + shear + uniform pix source (build S0)")
+    print(" Stage M0 : fixed SIE + shear + uniform pix source ")
     print("=" * 60)
     t0 = time.time()
 
@@ -766,19 +766,19 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
     print(f"[stage-M0] Refined best: λ = {float(jnp.exp(log_lam_best)):.4e}  (log-ev = {log_ev_best:.2f})")
 
     medians_m0 = {**medians_a, "log_lambda_reg": log_lam_best}
-    s0_package = _solve_pixel_source_for_package(
+    source_package = _solve_pixel_source_for_package(
         likelihood, medians_m0, ["log_lambda_reg"],
     )
-    s0_package.update(
+    source_package.update(
         lambda_best=float(jnp.exp(log_lam_best)),
         log_lambda_best=log_lam_best,
         stage_a_medians=dict(medians_a),
     )
-    s0_package["scale_map"] = np.asarray(_make_s0_scale(s0_package), dtype=np.float32)
-    _validate_s0_package(s0_package)
+    source_package["scale_map"] = np.asarray(_make_source_scale(source_package), dtype=np.float32)
+    _validate_source_package(source_package)
 
     t1 = time.time()
-    print(f"\n[stage-M0] Grid search summary:")
+    print("\n[stage-M0] Grid search summary:")
     print(f"    {'lambda_reg_uniform':25s} = {float(jnp.exp(log_lam_best)):+.4e}")
     print(f"[stage-M0] time taken: {t1 - t0:.2f} seconds")
 
@@ -786,11 +786,11 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
         "m0", None, None, ["log_lambda_reg"], log_ev_best,
         extra=dict(
             lambda_best=log_lam_best,
+            s0=source_package,
             lambda_grid_coarse=np.asarray(log_lam_grid_coarse, dtype=np.float64),
             log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
             lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
             log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
-            s0=s0_package,
             time_taken=t1 - t0,
         ),
     )
@@ -801,7 +801,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
     except Exception as err:
         print(f"[stage-M0] plotting failed (non-fatal): {err}")
 
-    return s0_package, log_lam_best
+    return source_package, log_lam_best
 
 
 # ------------------------------------------------------------------ #
@@ -809,7 +809,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 # ------------------------------------------------------------------ #
 def build_stage_m1_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
-    medians_a, position_likelihood, s0_package, circular_mask=None,
+    medians_a, position_likelihood, source_package, circular_mask=None,
 ):
     """Build likelihood for M1: SIE+shear fixed, source-reg hyperparams free."""
     sie, shear = _sie_mass_from_stage_a(medians_a)
@@ -853,12 +853,12 @@ def build_stage_m1_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        **_s0_fixed_kwargs(s0_package),
+        **_fixed_source_kwargs(source_package),
     )
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
-                  medians_a, position_likelihood, s0_package, circular_mask=None):
+                  medians_a, position_likelihood, source_package, circular_mask=None):
     """Stage M1: Nautilus fit for adaptive source-regularization hyperparams.
 
     ``image_data`` is already lens-subtracted so we use it directly.
@@ -870,7 +870,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
 
     likelihood = build_stage_m1_likelihood(
         image_data, noise_map, psf_kernel, feature_mask,
-        medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
+        medians_a, position_likelihood, source_package, circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
         likelihood, n_live=250, n_eff=600, tag="stage-M1", vectorized=True,
@@ -890,7 +890,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         extra=dict(
             medians=medians,
             lambda_best=reg_hyperparams["log_lambda_reg"],
-            s0_fingerprint=_s0_fingerprint(s0_package),
+            s0_fingerprint=_s0_fingerprint(source_package),
             reg_hyperparams=reg_hyperparams,
             time_taken=t1 - t0,
         ),
@@ -1075,7 +1075,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 def build_stage_m2_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
     passer: StagePosterior, position_likelihood, reg_hyperparams_fixed: dict,
-    s0_package, circular_mask=None,
+    source_package, circular_mask=None,
 ):
     """Build likelihood for M2: EPL+shear with M1 source-reg medians fixed."""
     epl, shear = _epl_mass_from_stage_a(passer)
@@ -1110,13 +1110,13 @@ def build_stage_m2_likelihood(
         phys_model=phys,
         mask=combined_mask,
         position_likelihood=position_likelihood,
-        **_s0_fixed_kwargs(s0_package),
+        **_fixed_source_kwargs(source_package),
     )
 
 
 def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a,
-                  position_likelihood, reg_hyperparams_fixed: dict, s0_package,
+                  position_likelihood, reg_hyperparams_fixed: dict, source_package,
                   circular_mask=None):
     """Stage M2: Nautilus sampling of EPL+shear with M1 source-reg medians fixed.
 
@@ -1136,7 +1136,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         passer,
         position_likelihood,
         reg_hyperparams_fixed,
-        s0_package,
+        source_package,
         circular_mask=circular_mask,
     )
     samples, weights, names, logz = _run_sampler(
@@ -1150,7 +1150,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         medians=medians,
         lambda_fixed=reg_hyperparams_fixed["log_lambda_reg"],
         reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
-        s0_fingerprint=_s0_fingerprint(s0_package),
+        s0_fingerprint=_s0_fingerprint(source_package),
         time_taken=t1 - t0,
     ))
     try:
@@ -1202,11 +1202,11 @@ def main(skip_done: bool = False):
     if skip_done and (OUT_DIR / "stage_m0.pkl").exists():
         print("[stage-M0] loading cached output_adpt_reg/stage_m0.pkl")
         d = _load_stage("m0")
-        s0_package = _validate_s0_package(d["extra"]["s0"])
+        source_package = _validate_source_package(d["extra"]["s0"])
         log_lambda_m0 = d["extra"]["lambda_best"]
         time_m0 = d["extra"].get("time_taken", 0.0)
     else:
-        s0_package, log_lambda_m0 = run_stage_m0(
+        source_package, log_lambda_m0 = run_stage_m0(
             image_data, noise_map, psf_kernel, feature_mask,
             medians_a, position_likelihood,
             circular_mask=circular_mask,
@@ -1233,7 +1233,7 @@ def main(skip_done: bool = False):
     if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
         print("[stage-M1] loading cached output_adpt_reg/stage_m1.pkl")
         d = _load_stage("m1")
-        if _cache_matches_s0(d, s0_package, "m1"):
+        if _cache_matches_s0(d, source_package, "m1"):
             try:
                 reg_hyperparams_m1 = _reg_hyperparams_from_m1_payload(d)
                 time_m1 = d["extra"].get("time_taken", 0.0)
@@ -1241,21 +1241,21 @@ def main(skip_done: bool = False):
                 print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
                 reg_hyperparams_m1 = run_stage_m1(
                     image_data, noise_map, psf_kernel, feature_mask,
-                    medians_a, position_likelihood, s0_package,
+                    medians_a, position_likelihood, source_package,
                     circular_mask=circular_mask,
                 )
                 time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
         else:
             reg_hyperparams_m1 = run_stage_m1(
                 image_data, noise_map, psf_kernel, feature_mask,
-                medians_a, position_likelihood, s0_package,
+                medians_a, position_likelihood, source_package,
                 circular_mask=circular_mask,
             )
             time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
     else:
         reg_hyperparams_m1 = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, s0_package,
+            medians_a, position_likelihood, source_package,
             circular_mask=circular_mask,
         )
         time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
@@ -1271,7 +1271,7 @@ def main(skip_done: bool = False):
         print("[stage-M1] stage_m1_model.png missing — re-plotting")
         lkl_m1_replot = build_stage_m1_likelihood(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, s0_package, circular_mask=circular_mask,
+            medians_a, position_likelihood, source_package, circular_mask=circular_mask,
         )
         medians_m1_replot = dict(reg_hyperparams_m1)
         try:
@@ -1290,7 +1290,7 @@ def main(skip_done: bool = False):
     if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
         print("[stage-M2] loading cached output_adpt_reg/stage_m2.pkl")
         d = _load_stage("m2")
-        if _cache_matches_s0(d, s0_package, "m2") and _cache_matches_reg_hyperparams(
+        if _cache_matches_s0(d, source_package, "m2") and _cache_matches_reg_hyperparams(
             d, reg_hyperparams_m1, "m2"
         ):
             samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
@@ -1301,7 +1301,7 @@ def main(skip_done: bool = False):
                 image_data, noise_map, psf_kernel, feature_mask,
                 samples_a, weights_a, names_a,
                 position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
-                s0_package=s0_package,
+                source_package=source_package,
             )
             time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
     else:
@@ -1309,7 +1309,7 @@ def main(skip_done: bool = False):
             image_data, noise_map, psf_kernel, feature_mask,
             samples_a, weights_a, names_a,
             position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
-            s0_package=s0_package,
+            source_package=source_package,
         )
         time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
 
@@ -1324,7 +1324,7 @@ def main(skip_done: bool = False):
             passer_m2,
             position_likelihood,
             reg_hyperparams_m1,
-            s0_package,
+            source_package,
             circular_mask=circular_mask,
         )
         try:
@@ -1336,7 +1336,7 @@ def main(skip_done: bool = False):
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
-    print(f" Time summary:")
+    print(" Time summary:")
     print(f"    Stage A:  {time_a/60:.2f} min")
     print(f"    Stage M0: {time_m0/60:.2f} min")
     print(f"    Stage M1: {time_m1/60:.2f} min")
