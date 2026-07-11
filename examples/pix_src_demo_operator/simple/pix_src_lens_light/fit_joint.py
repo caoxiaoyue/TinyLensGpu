@@ -137,7 +137,7 @@ lens_light = SersicEllipse(
 )
 
 pix_src = PixelizedSourceModel(
-    n=120,
+    n=80,
     regularization_type="first-order",
     log_lambda_reg=ParamU(
         "log_lambda_reg",
