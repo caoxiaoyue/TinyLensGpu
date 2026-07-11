@@ -492,10 +492,33 @@ class PixelizedImageProbModelOperator(ck.Module):
             )
 
         if self.solver_type == "fista":
+            # A block-Schur PCG solve provides a cheap curvature-aware warm
+            # start for the constrained problem. Projecting the unconstrained
+            # solution onto the non-negative orthant leaves FISTA to enforce
+            # the KKT conditions without spending thousands of iterations
+            # traversing the ill-conditioned source/MGE amplitude scales from
+            # the origin.
+            if self.fista_max_iter > 0:
+                warm_start, warm_info = pcg_solve(
+                    A_data,
+                    b,
+                    preconditioner,
+                    _A_jit_prebound,
+                    max_iter=self.pcg_max_iter,
+                    rtol=self.pcg_rtol,
+                )
+                warm_start = jnp.where(
+                    warm_info.converged,
+                    jnp.maximum(warm_start, 0.0),
+                    jnp.zeros_like(warm_start),
+                )
+            else:
+                warm_start = jnp.zeros_like(b)
             source_pixels, solver_info = fista_nnls_solve(
                 A_data,
                 b,
                 _A_jit_prebound,
+                x0=warm_start,
                 max_iter=self.fista_max_iter,
                 rtol=self.fista_rtol,
                 power_iter=self.fista_power_iter,

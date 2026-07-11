@@ -114,7 +114,7 @@ sie = SIE(
 
 # Lens light: MGE (GaussianEllipse components) with linear intensity solving
 # Shared geometric parameters, each Gaussian has fixed sigma and unit flux
-N_gaussians_lens = 20
+N_gaussians_lens = 10
 print(f"  Building {N_gaussians_lens} MGE lens light components ...")
 sigma_list_lens = generate_radial_basis_knots(
     dpix=DPIX, n_sigmas=N_gaussians_lens,
@@ -148,10 +148,10 @@ for i, sigma in enumerate(sigma_list_lens):
     gauss.flux.to_static(1.0)
     lens_light.append(gauss)
 
-pix_src = PixelizedSourceModel(n=40,
+pix_src = PixelizedSourceModel(n=80,
     regularization_type="first-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
-                      prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                      prior_type="uniform", prior_settings=[jnp.log(1e-6), jnp.log(1e3)],
                       limits=[-13.815510557964274, 13.815510557964274]),
 )
 
@@ -195,9 +195,12 @@ prob_model = PixelizedImageProbModelOperator(
     phys_model=phys_model,
     mask=mask,
     source_seed_mask=source_seed_mask,
-    nsub=2,
+    nsub=4,
+    source_bbox_padding=0.2,
     position_likelihood=position_likelihood,
     solver_type="fista",
+    fista_max_iter=500,
+    fista_rtol=1.0e-3,
 )
 
 # ------------------------------------------------------------------ #
@@ -211,7 +214,11 @@ print(f"  {len(param_names)} dynamic parameters:")
 for s in prior_specs:
     print(f"    {s.name:20s}: {s.describe()}")
 
-loglike = make_likelihood(prob_model, vectorized=False)
+loglike = make_likelihood(
+    prob_model,
+    vectorized=True,
+    vectorized_chunk_size=50,
+)
 
 # ------------------------------------------------------------------ #
 # Nautilus nested sampling
@@ -221,8 +228,9 @@ sampler = Sampler(
     prior,
     loglike,
     n_dim=len(param_names),
-    n_live=200,
-    vectorized=False,
+    n_live=300,
+    vectorized=True,
+    n_batch=200,
 )
 
 t0 = time.time()
@@ -285,10 +293,42 @@ lens_image_2d = np.asarray(lens_image_2d)
 
 resid_norm = (image_data - model_image) / noise_map
 
-# Chi-square
-dof = int((~mask).sum()) - n_source - (len(lens_amplitudes) if lens_amplitudes is not None else 0)
+# The effective degrees of freedom of a regularized semi-linear inversion is
+# not ``Ndata - Nsource``. Report chi-square per fitted datum explicitly.
+n_data = int((~mask).sum())
 chi2 = float(np.sum(resid_norm[~mask]**2))
-chi2_nu = chi2 / dof if dof > 0 else 0.0
+chi2_per_data = chi2 / n_data
+
+arc_region = (~mask) & (source_image_2d / noise_map > 3.0)
+arc_resid = resid_norm[arc_region]
+arc_template = source_image_2d[arc_region] / noise_map[arc_region]
+if arc_resid.size == 0:
+    arc_resid_mean = float("nan")
+    arc_resid_std = float("nan")
+else:
+    arc_resid_mean = float(np.mean(arc_resid))
+    arc_resid_std = float(np.std(arc_resid))
+if (
+    arc_resid.size < 2
+    or np.std(arc_resid) == 0.0
+    or np.std(arc_template) == 0.0
+):
+    arc_template_corr = float("nan")
+else:
+    arc_template_corr = float(np.corrcoef(arc_resid, arc_template)[0, 1])
+print(
+    "  Residual diagnostics: "
+    f"chi2/Ndata={chi2_per_data:.4f}, "
+    f"arc mean={arc_resid_mean:.4f}, arc std={arc_resid_std:.4f}, "
+    f"arc-template corr={arc_template_corr:.4f}"
+)
+np.savetxt(
+    "output/fit_diagnostics.csv",
+    np.asarray([[chi2_per_data, arc_resid_mean, arc_resid_std, arc_template_corr]]),
+    delimiter=",",
+    header="chi2_per_data,arc_resid_mean,arc_resid_std,arc_template_corr",
+    comments="",
+)
 
 # Source reconstruction on source plane
 source_pixels_np = np.array(source_pixels)
@@ -317,7 +357,10 @@ plt.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
 resid_display = np.where(mask, np.nan, resid_norm)
 im2 = axes[0, 2].imshow(resid_display, origin="lower", extent=ext_i,
                         cmap="RdBu_r", vmin=-3, vmax=3)
-axes[0, 2].set_title(f"Norm. residual (sigma)\nchi^2/ν = {chi2_nu:.3f}", fontsize=11)
+axes[0, 2].set_title(
+    f"Norm. residual (sigma)\nchi^2/Ndata = {chi2_per_data:.3f}",
+    fontsize=11,
+)
 axes[0, 2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
