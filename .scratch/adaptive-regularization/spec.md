@@ -327,4 +327,3 @@ The implementation SHALL avoid Python-side mutation from inside JIT-traced likel
 
 - **WHEN** a vectorized likelihood evaluates a batch of stage-m1 proposals
 - **THEN** each batch element SHALL share the same fixed source bbox and S0 source template while using its own `log_lambda_reg` and `adaptive_reg_rho`
-

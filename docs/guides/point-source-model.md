@@ -84,4 +84,3 @@ AMR-specific:
 
 By default, `source_x/source_y` are dynamic parameters and can be jointly
 sampled with lens mass parameters.
-

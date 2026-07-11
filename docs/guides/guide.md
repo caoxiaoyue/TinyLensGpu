@@ -1,8 +1,6 @@
-# TinyLensGpu Documentation
+# TinyLensGpu User Guide
 
-_Last updated: 2026-01-05_
-
-This single guide consolidates the information that previously lived in multiple Markdown files. It focuses on the essentials required to install TinyLensGpu, run models (config-driven or programmatic), verify the setup, and keep the system healthy.
+This guide covers installation, the programmatic modeling workflow, testing, and troubleshooting. Runnable scripts under `examples/` are the source of truth for complete models.
 
 ---
 
@@ -57,37 +55,35 @@ Set `XLA_PYTHON_CLIENT_PREALLOCATE=false` in your shell when working on memory-c
 
 ## 3. Quickstart
 
-### 3.1 Configuration-driven workflow (YAML + runner)
-
-The YAML runner workflow is not included in the current codebase layout. Use the programmatic API and the runnable scripts under `examples/**` as the source of truth.
-
-### 3.2 Programmatic workflow (direct module construction)
+TinyLensGpu models are constructed directly with the programmatic Python API.
 
 ```python
 import os
-import jax.numpy as jnp
-from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, Shear
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
-from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.ObservationModel.LensImage import ImageProbModel
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from nautilus import Sampler
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-# Load your FITS data (see examples utilities for reference)
-image_data = jnp.load("data/image.npy")
-noise_map = jnp.load("data/noise.npy")
-psf_kernel = jnp.load("data/psf.npy")
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, Shear, SersicEllipse
+from TinyLensGpu.ObservationModel import ImageProbModel
+from TinyLensGpu.Inference.build_prior import make_prior_transformation
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
+from TinyLensGpu.utils import load_lens_data
+from nautilus import Sampler
+
+image_data, noise_map, psf_kernel, mask = load_lens_data(
+    image_path="data/image.fits",
+    noise_path="data/noise.fits",
+    psf_path="data/psf.fits",
+)
 
 sie = SIE(theta_E=ParamU("theta_E", 1.5, prior_type="uniform",
                          prior_settings=[0.5, 3.0], limits=[0.0, 10.0]))
 shear = Shear(gamma1=ParamU("gamma1", 0.0), gamma2=ParamU("gamma2", 0.0))
 source = SersicEllipse(
-    R_sersic=ParamU("R_src", 1.0, prior_type="uniform", prior_settings=[0.1, 2.0]),
-    n_sersic=ParamU("n_src", 2.0, prior_type="uniform", prior_settings=[0.3, 6.0]),
+    R_sersic=ParamU("R_src", 1.0, prior_type="uniform",
+                    prior_settings=[0.1, 2.0], limits=[0.1, 2.0]),
+    n_sersic=ParamU("n_src", 2.0, prior_type="uniform",
+                    prior_settings=[0.3, 6.0], limits=[0.3, 6.0]),
     Ie=ParamU("Ie_src", 1.0)  # solved linearly when `use_linear=True`
 )
 
@@ -105,6 +101,7 @@ prob_model = ImageProbModel(
     nsub=3,
     phys_model=phys_model,
     use_linear=True,
+    mask=mask,
     solver_type="nnls",
 )
 
@@ -115,7 +112,7 @@ sampler = Sampler(prior, loglike, n_dim=len(prior_specs), n_live=200, vectorized
 sampler.run(verbose=True, n_eff=800)
 ```
 
-This path keeps everything in Python and avoids helper wrappers, matching the lightweight philosophy of the project.
+Run the complete example from its own directory so its relative data paths resolve correctly; see `examples/lens_src/run_model.py`.
 
 ---
 
@@ -125,11 +122,10 @@ This path keeps everything in Python and avoids helper wrappers, matching the li
   - `to_dynamic()`: sampled by samplers/optimizers
   - `to_static(value)`: fixed values
   - `use_linear: true`: solved via NNLS/normal solver during forward modeling
-  - Pointer mode: link parameters in YAML by referencing another component; internally implemented with Caskade’s native `setattr` linking
+  - Shared parameters: reuse or link Caskade parameters explicitly in Python
 
 - **Batching**
-  - Samplers (e.g., Nautilus) support `batch_size` up to 800 for high throughput
-  - Optimizers typically run with batch size 1
+  - Choose the sampler's `n_batch` or equivalent batch setting according to available GPU memory
   - Use `make_likelihood(..., vectorized=True)` for batched likelihood evaluation
 
 - **Common tuning knobs**
@@ -146,8 +142,11 @@ The repository ships with a comprehensive pytest suite.
 ```bash
 pytest                       # run everything
 pytest -m "integration"      # only integration tests
-pytest tests/test_boundary.py::TestParameterBoundaries::test_sie_zero_einstein_radius
 pytest --cov=TinyLensGpu --cov-report=term-missing
+
+# Run a specific test from the directory containing its file
+cd tests
+pytest test_boundary.py::TestParameterBoundaries::test_sie_zero_einstein_radius
 ```
 
 Useful markers & options:
@@ -155,27 +154,9 @@ Useful markers & options:
 - `-k "pattern"` to match test names
 - `-n auto` (requires `pytest-xdist`) for parallel execution
 
-Continuous Integration example (GitHub Actions):
-1. Install dependencies from `requirements-dev.txt`
-2. `pytest -m unit`
-3. `pytest -m "integration and not slow"`
-4. `pytest --cov=TinyLensGpu --cov-report=xml`
-5. Upload coverage (e.g., Codecov)
-
 ---
 
-## 6. Migration & Compatibility
-
-- Legacy ModelParser/Profile code has been fully removed (Dec 2025).
-- To migrate old scripts:
-  1. Replace `RunLensModel` with `RunCaskadeLensModel`.
-  2. Keep using the same YAML files; the parser remains backward compatible.
-  3. Trigger `runner.init_jit_likelihood()` once before long sampling runs to separate compilation time.
-- For historical reference, see git history of the `doc/` folder (previous `MIGRATION_GUIDE.md`, `LEGACY_REMOVAL_SUMMARY.md`, etc.).
-
----
-
-## 7. Troubleshooting
+## 6. Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 | --- | --- | --- |
@@ -187,14 +168,14 @@ Continuous Integration example (GitHub Actions):
 
 ---
 
-## 8. Resources
+## 7. Resources
 
 - **README**: Project overview and citation instructions.
 - **examples/**: End-to-end runnable examples (`lens_only`, `lens_src`, `lens_src_mge`, etc.).
 - **tests/**: Reference implementations for new components or regression reproduction.
-- **GitHub Issues**: https://github.com/caoxiaoyue/TinyLensGpu/issues
+- **Point-source guide**: `docs/guides/point-source-model.md`
 
-Contributions should update this single guide when behavior or workflows change.
+Contributions should update the relevant guide when behavior or workflows change.
 
 ---
 

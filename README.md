@@ -29,7 +29,7 @@ TinyLensGpu ships with a fully programmatic modeling API (see `examples/*/run_mo
 - **Sampler-ready outputs** – `make_prior_transformation` and `make_likelihood` return Nautilus/Dynesty-compatible callables.
 - **Type hints & IDE support** – All builders expose precise signatures for faster iteration.
 
-See [doc/GUIDE.md](doc/GUIDE.md) and the demos in `examples` for detailed usage patterns and migration notes.
+See the [user guide](docs/guides/guide.md) and the demos in `examples` for detailed usage patterns and migration notes.
 
 ## Installation
 
@@ -219,7 +219,8 @@ pytest tests/test_point_source_model.py     # Point source position modeling
 
 ## Documentation
 
-- **[doc/GUIDE.md](doc/GUIDE.md)** – Authoritative guide for installation, quickstart, tests, and troubleshooting.
+- **[User guide](docs/guides/guide.md)** – Installation, quickstart, tests, and troubleshooting.
+- **[Point-source modeling guide](docs/guides/point-source-model.md)** – Position-only likelihood setup and solver configuration.
 - **examples/** – Runnable examples; each subdirectory contains a `run_model.py` or `single_step_inversion.py` entry point.
 
 ## Citation

@@ -51,7 +51,7 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 ## JAX & Runtime Quirks
 
 - **Set `XLA_PYTHON_CLIENT_PREALLOCATE=false`** when working on memory-constrained GPUs (common in demos/scripts).
-- **First JIT call takes 10–15s** — expected; `init_jit_likelihood()` can separate compilation from sampling.
+- **First JIT call takes 10–15s** — expected; warm up the likelihood with a representative call before timing or sampling.
 - **GPU memory exhaustion** — reduce `batch_size` or `n_batch` in samplers.
 - **NaNs in likelihood** — check prior bounds, ensure FITS inputs have no NaN/Inf, use masks.
 
@@ -63,12 +63,22 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 - **nsub**: 1 (fast) → 3+ (high accuracy). Sub-pixel integration factor.
 - **No formatting configs**: `black`, `flake8`, `isort`, `ruff` are in dev extras but no `.flake8`, `pyproject.toml`, or `ruff.toml` exists. Use defaults.
 
-## OpenSpec Workflow
-
-This repo uses OpenSpec for structured changes. Skills are in `.opencode/skills/` and `.claude/skills/`. Use `openspec-new-change`, `openspec-apply-change`, `openspec-verify-change`, etc. for planned features. See `openspec/config.yaml`.
-
 ## References
 
-- `doc/GUIDE.md` — authoritative installation, troubleshooting, and migration guide.
+- `docs/guides/guide.md` — authoritative installation, troubleshooting, and migration guide.
 - `README.md` — capabilities matrix, demo index, and citation.
 - `setup.py` — dependency matrix and extras (`dev`, `docs`, `notebooks`, `ultranest`).
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as local Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the canonical five-role label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses the single-context layout. See `docs/agents/domain.md`.
