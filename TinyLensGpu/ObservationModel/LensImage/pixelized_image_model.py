@@ -118,8 +118,7 @@ class PixelizedImageProbModel(ck.Module):
         self.has_lens_light = self.sim_obj.has_lens_light
         self.eps_reg = float(lens_light_regularization)
 
-        (self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
-         self._pos_sigma, self._has_pos_penalty) = \
+        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
 
     def get_dynamic_params(self):
@@ -331,8 +330,7 @@ class PixelizedImageProbModel(ck.Module):
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
         return compute_position_penalty_jax(
-            self.phys_model, self._pos_px, self._pos_py, self._pos_thr,
-            self._pos_minl, self._pos_sigma,
+            self.phys_model, self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
         )
 
     def likelihood(self, debug: bool = True) -> float:

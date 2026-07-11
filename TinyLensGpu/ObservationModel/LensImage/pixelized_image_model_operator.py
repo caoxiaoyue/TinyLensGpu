@@ -190,8 +190,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.fista_power_iter = int(fista_power_iter)
         self.fista_step_safety = float(fista_step_safety)
 
-        (self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
-         self._pos_sigma, self._has_pos_penalty) = \
+        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
 
     @staticmethod
@@ -775,8 +774,7 @@ class PixelizedImageProbModelOperator(ck.Module):
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
         return compute_position_penalty_jax(
-            self.phys_model, self._pos_px, self._pos_py, self._pos_thr,
-            self._pos_minl, self._pos_sigma,
+            self.phys_model, self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
         )
 
     def likelihood(self, debug: bool = True) -> float:

@@ -174,11 +174,8 @@ pix_src.log_lambda_reg.to_dynamic()
 # ------------------------------------------------------------------ #
 position_likelihood = {
     'positions': _img_positions.tolist(),
-    # Smooth source-plane consistency likelihood. The mock positions are
-    # noise-free and solved to 5e-4 arcsec. For two images, dividing 1e-3 by
-    # sqrt(2) preserves the previously validated pair-separation penalty under
-    # the centroid-residual Gaussian definition.
-    'sigma_arcsec': 1.0e-3 / np.sqrt(2.0),
+    'threshold_arcsec': 0.3,
+    'min_log_like': -1.0e10,
 }
 
 # ------------------------------------------------------------------ #

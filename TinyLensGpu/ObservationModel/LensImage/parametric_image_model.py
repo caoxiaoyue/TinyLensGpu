@@ -144,8 +144,7 @@ class ImageProbModel(ck.Module):
         self.log_like_const = -0.5 * jnp.sum((log_sigma_sq + log_2pi) * self.unmask)
 
         # Initialize position likelihood for JIT
-        (self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
-         self._pos_sigma, self._has_pos_penalty) = \
+        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(self.position_like_config)
 
         # Precompute static flags for JIT-friendly branching
@@ -305,8 +304,7 @@ class ImageProbModel(ck.Module):
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
         return compute_position_penalty_jax(
-            self.phys_model, self._pos_px, self._pos_py, self._pos_thr,
-            self._pos_minl, self._pos_sigma,
+            self.phys_model, self._pos_px, self._pos_py, self._pos_thr, self._pos_minl,
         )
 
     def get_linear_solved_params(self, nonlinear_params: Union[Sequence, Dict]) -> Dict[str, Any]:
