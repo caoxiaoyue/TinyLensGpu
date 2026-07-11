@@ -182,26 +182,6 @@ position_likelihood = {
 # Probability model (Bayesian evidence)
 # ------------------------------------------------------------------ #
 print("[3] Building probability model ...")
-_bbox_probe = PixelizedImageProbModelOperator(
-    image_data=image_data,
-    noise_map=noise_map,
-    psf_kernel=psf_kernel,
-    dpix=DPIX,
-    phys_model=phys_model,
-    mask=mask,
-    source_seed_mask=source_seed_mask,
-    nsub=4,
-    source_bbox_padding=0.2,
-    position_likelihood=position_likelihood,
-    solver_type="pcg",
-)
-fixed_source_bbox = _bbox_probe.infer_source_bbox()
-del _bbox_probe
-print(f"  Fixed source bbox: {fixed_source_bbox}")
-
-# Keep the source coordinate system fixed throughout sampling. Re-inferring the
-# bbox for every mass model changes the pixel basis and its implicit prior
-# volume, which can move the evidence peak even for a noiseless mock.
 prob_model = PixelizedImageProbModelOperator(
     image_data=image_data,
     noise_map=noise_map,
@@ -211,7 +191,7 @@ prob_model = PixelizedImageProbModelOperator(
     mask=mask,
     source_seed_mask=source_seed_mask,
     nsub=4,
-    fixed_source_bbox=fixed_source_bbox,
+    source_bbox_padding=0.2,
     position_likelihood=position_likelihood,
     solver_type="pcg",
 )
