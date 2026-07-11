@@ -1,11 +1,10 @@
-"""Operator-based (matrix-free) pixelized source forward simulator.
+"""Operator-based (matrix-free) joint pixelized-source forward simulator.
 
 Provides :class:`PixelizedLensOperator`, a drop-in replacement for
 :class:`PixelizedLensSimulator` that avoids building the dense (Nd x Ns)
 design matrix.  Uses precomputed lens-operator data and JIT-compiled
 primitives for efficient matrix-vector products inside PCG.
 
-Phase-1 limitation: lens-light joint inversion is not yet supported.
 """
 
 from __future__ import annotations
@@ -20,6 +19,10 @@ import jax.scipy.signal as jsp_signal
 from jax import Array
 
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
+from TinyLensGpu.ForwardSimulation.LensImage.parametric import bin_image_general
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
+    validate_unit_lens_light_bases,
+)
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import (
     is_pixelized_source_model,
@@ -51,6 +54,76 @@ class LensOperatorData(NamedTuple):
     agg_segment_ids: Array | None  # (Nd_sub,) for sub→native aggregation
     agg_n_active: int
     psf_fft_conj: Array  # conj(FFT(PSF)) for adjoint convolution Bᵀ
+
+
+def _joint_A_matvec_jit(
+    x: Array,
+    source_A_data: tuple,
+    lens_matrix: Array,
+    lens_light_regularization: Array,
+    *,
+    source_matvec: Callable,
+    n_source: int,
+    H: int,
+    W: int,
+    nsub: int,
+    agg_n_active: int,
+    **_kwargs,
+) -> Array:
+    """Apply the joint source/lens-light curvature without forming F."""
+    source = x[:n_source]
+    lens = x[n_source:]
+    source_curvature = source_matvec(
+        source,
+        source_A_data[0], source_A_data[1], source_A_data[2],
+        agg_segment_ids=source_A_data[3], psf_fft=source_A_data[4],
+        psf_fft_conj=source_A_data[5], noise_var=source_A_data[6],
+        reg_data=source_A_data[7], lambda_reg=source_A_data[8],
+    )
+    noise_var = source_A_data[6]
+    lens_image = lens_matrix @ lens
+    weighted_lens_image = lens_image / noise_var
+
+    # F^T C^-1 L a, evaluated with the matrix-free source adjoint.
+    H_times_lens = _source_data_adjoint(
+        weighted_lens_image, source_A_data, H, W, n_source, nsub,
+    )
+    source_out = source_curvature + H_times_lens
+
+    source_image = _source_data_forward(
+        source, source_A_data, H, W, nsub, agg_n_active,
+    )
+    lens_out = lens_matrix.T @ (source_image / noise_var)
+    lens_out = lens_out + lens_matrix.T @ weighted_lens_image
+    lens_out = lens_out + lens_light_regularization * lens
+    return jnp.concatenate([source_out, lens_out])
+
+
+def _source_data_forward(
+    source: Array, source_A_data: tuple, H: int, W: int,
+    nsub: int, agg_n_active: int,
+) -> Array:
+    weights, indices, flat_indices, agg_segment_ids, psf_fft = source_A_data[:5]
+    full = _apply_L_jit(
+        source, weights, indices, flat_indices, H, W,
+        nsub, agg_segment_ids, agg_n_active,
+    )
+    return _psf_convolve_full_jit(full, psf_fft, H, W)[flat_indices]
+
+
+def _source_data_adjoint(
+    weighted_active: Array, source_A_data: tuple, H: int, W: int,
+    n_source: int, nsub: int,
+) -> Array:
+    weights, indices, flat_indices, agg_segment_ids = source_A_data[:4]
+    psf_fft_conj = source_A_data[5]
+    full = jnp.zeros(H * W, dtype=weighted_active.dtype)
+    full = full.at[flat_indices].set(weighted_active)
+    correlated = _psf_convolve_full_jit(full, psf_fft_conj, H, W)
+    return _apply_Lt_jit(
+        correlated, weights, indices, flat_indices, H, W,
+        n_source, nsub, agg_segment_ids,
+    )
 
 
 # ==================================================================
@@ -293,7 +366,7 @@ def _A_matvec_jit(
 # ==================================================================
 
 class PixelizedLensOperator:
-    """Matrix-free forward simulator for a single square pixelized source grid.
+    """Matrix-free simulator for a pixelized source and optional lens light.
 
     Parameters
     ----------
@@ -339,11 +412,7 @@ class PixelizedLensOperator:
 
         self.n_lens_light = len(phys_model.lens_light)
         self.has_lens_light = self.n_lens_light > 0
-        if self.has_lens_light:
-            raise NotImplementedError(
-                "Lens-light joint inversion is not yet supported in the "
-                "operator (matrix-free) backend."
-            )
+        validate_unit_lens_light_bases(phys_model)
 
         self.image_shape = tuple(sim_config.mask.shape)
         H, W = self.image_shape
@@ -523,6 +592,84 @@ class PixelizedLensOperator:
         )
         img_conv = _psf_convolve_full_jit(img_lensed, self._psf_fft, H, W)
         return img_conv[self.flat_indices]
+
+    def build_lens_light_matrix(self) -> Array:
+        """Return the PSF-convolved unit-amplitude lens-light basis matrix."""
+        if not self.has_lens_light:
+            return jnp.zeros((self.n_active, 0), dtype=self.psf_kernel.dtype)
+        if self.nsub > 1:
+            xgrid = jnp.asarray(self.sim_config.xgrid_sub)
+            ygrid = jnp.asarray(self.sim_config.ygrid_sub)
+        else:
+            xgrid = jnp.asarray(self.sim_config.xgrid)
+            ygrid = jnp.asarray(self.sim_config.ygrid)
+        images = jnp.stack([
+            component.light(x=xgrid, y=ygrid)
+            for component in self.phys_model.lens_light
+        ], axis=-1)
+        if self.nsub > 1:
+            images = bin_image_general(images, self.nsub)
+        convolved = jax.vmap(
+            lambda image: jsp_signal.fftconvolve(
+                image, self.psf_kernel, mode="same"
+            ),
+            in_axes=-1,
+            out_axes=-1,
+        )(images)
+        return convolved.reshape(self.n_full_pixels, self.n_lens_light)[
+            self.flat_indices
+        ]
+
+    def build_joint_system(
+        self, noise_1d: Array, data_1d: Array,
+        xmin, xmax, ymin, ymax, lambda_reg: Array, reg_data: tuple,
+        lens_light_regularization: Array,
+        op_data: LensOperatorData | None = None,
+    ) -> tuple[tuple, Callable, Array, Array]:
+        """Build matrix-free joint curvature data, callback, RHS, and L."""
+        source_A_data, source_matvec = self.build_A_matvec(
+            noise_1d, xmin, xmax, ymin, ymax, lambda_reg, reg_data,
+            op_data=op_data,
+        )
+        lens_matrix = self.build_lens_light_matrix()
+        eps = jnp.asarray(lens_light_regularization, dtype=lens_matrix.dtype)
+        joint_matvec = partial(
+            _joint_A_matvec_jit,
+            source_matvec=source_matvec,
+            n_source=self.n_source_pixels,
+            H=self.image_shape[0], W=self.image_shape[1],
+            nsub=self.nsub, agg_n_active=self._agg_n_active,
+        )
+        # Keep the nine-slot solver protocol; unused slots are harmless arrays.
+        dummy = jnp.asarray(0, dtype=lens_matrix.dtype)
+        joint_A_data = (
+            source_A_data, lens_matrix, eps, dummy, dummy, dummy,
+            dummy, (dummy, dummy), dummy,
+        )
+        source_rhs = self.build_rhs(
+            data_1d, noise_1d, xmin, xmax, ymin, ymax, op_data=op_data,
+        )
+        lens_rhs = lens_matrix.T @ (
+            jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2)
+        )
+        return joint_A_data, joint_matvec, jnp.concatenate(
+            [source_rhs, lens_rhs]
+        ), lens_matrix
+
+    def reconstruct_components(
+        self, source_pixels: Array, lens_light_intensities: Array,
+        xmin, xmax, ymin, ymax,
+        op_data: LensOperatorData | None = None,
+        lens_matrix: Array | None = None,
+    ) -> tuple[Array, Array]:
+        """Return active-pixel lensed-source and lens-light images."""
+        source_image = self.forward_model(
+            source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
+        )
+        if lens_matrix is None:
+            lens_matrix = self.build_lens_light_matrix()
+        lens_image = lens_matrix @ jnp.asarray(lens_light_intensities)
+        return source_image, lens_image
 
     # ------------------------------------------------------------------
     # Right-hand side: b = Mᵀ C⁻¹ d

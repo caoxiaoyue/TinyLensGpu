@@ -20,6 +20,27 @@ import jax.scipy.linalg as jsl
 from jax import Array, lax
 
 
+class BlockSchurPreconditioner(NamedTuple):
+    """Cholesky data for an arrowhead source/lens-light preconditioner."""
+    source_chols: Array
+    source_masks: Array
+    cross: Array
+    schur_chol: Array
+
+
+def solve_source_blocks(
+    block_chols: Array, block_masks: Array, rhs: Array,
+) -> Array:
+    """Apply the inverse block-diagonal source preconditioner."""
+    def _solve_one(chol: Array, rhs_block: Array) -> Array:
+        work = jsl.solve_triangular(chol, rhs_block, lower=True)
+        return jsl.solve_triangular(chol.T, work, lower=False)
+
+    rhs_blocks = rhs[block_masks]
+    solved = jax.vmap(_solve_one)(block_chols, rhs_blocks)
+    return jnp.zeros_like(rhs).at[block_masks].set(solved)
+
+
 class PCGState(NamedTuple):
     """Carry state for the PCG while_loop."""
     x: Array
@@ -97,7 +118,27 @@ def pcg_solve(
         )
 
     # Dispatch preconditioner type
-    if isinstance(preconditioner, tuple):
+    if isinstance(preconditioner, BlockSchurPreconditioner):
+        source_chols, source_masks, cross, schur_chol = preconditioner
+        n_source = cross.shape[0]
+
+        def _preconditioner_solve(r: Array) -> Array:
+            r_source = r[:n_source]
+            r_lens = r[n_source:]
+            source_inverse_rhs = solve_source_blocks(
+                source_chols, source_masks, r_source,
+            )
+            schur_rhs = r_lens - cross.T @ source_inverse_rhs
+            work = jsl.solve_triangular(schur_chol, schur_rhs, lower=True)
+            lens_solution = jsl.solve_triangular(
+                schur_chol.T, work, lower=False,
+            )
+            source_solution = solve_source_blocks(
+                source_chols, source_masks,
+                r_source - cross @ lens_solution,
+            )
+            return jnp.concatenate([source_solution, lens_solution])
+    elif isinstance(preconditioner, tuple):
         # Block-diagonal: (block_chols, block_masks)
         block_chols, block_masks = preconditioner
 
@@ -185,4 +226,7 @@ def pcg_solve(
     return final_state.x, info
 
 
-__all__ = ["pcg_solve", "PCGInfo", "PCGState"]
+__all__ = [
+    "pcg_solve", "PCGInfo", "PCGState", "BlockSchurPreconditioner",
+    "solve_source_blocks",
+]

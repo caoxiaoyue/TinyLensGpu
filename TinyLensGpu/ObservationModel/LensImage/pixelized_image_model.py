@@ -68,11 +68,14 @@ class PixelizedImageProbModel(ck.Module):
         nsub: int = 1,
         position_likelihood: Optional[Dict] = None,
         solver_type: str = "cholesky",
+        lens_light_regularization: float = EPSILON_REG,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         if solver_type not in ("nnls", "cholesky"):
             raise ValueError(f"solver_type must be 'nnls' or 'cholesky', got {solver_type}")
         self.solver_type = solver_type
+        if not np.isfinite(lens_light_regularization) or lens_light_regularization <= 0.0:
+            raise ValueError("lens_light_regularization must be finite and positive")
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
         if jnp.any(self.noise_map <= 0.0):
@@ -113,7 +116,7 @@ class PixelizedImageProbModel(ck.Module):
         # Lens-light configuration
         self.n_lens_light = self.sim_obj.n_lens_light
         self.has_lens_light = self.sim_obj.has_lens_light
-        self.eps_reg = EPSILON_REG
+        self.eps_reg = float(lens_light_regularization)
 
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)

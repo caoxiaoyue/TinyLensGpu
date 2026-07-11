@@ -187,6 +187,7 @@ prob_model = PixelizedImageProbModelOperator(
     source_seed_mask=source_seed_mask,
     nsub=2,
     position_likelihood=position_likelihood,
+    solver_type="pcg",
 )
 
 # ------------------------------------------------------------------ #
@@ -255,46 +256,22 @@ import caskade as ck
 best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
-    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
     n_source = prob_model.sim_obj.n_source_pixels
-
-    # --- Operator backend: PCG solve without building dense design matrix ---
-    # NOTE: lens-light joint inversion is not supported by the operator backend.
-    # Lens light and source are not separable in the forward model.
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
-    reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
-    op_data = prob_model.sim_obj.precompute_operator_data(
-        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
+    model_image, source_pixels, lens_amplitudes = prob_model.forward_model(
+        return_components=True
     )
-    block_chols, block_masks = prob_model.sim_obj.build_block_diag_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, prob_model.reg_builder, block_size=prob_model.block_size,
+    source_image_2d, lens_image_2d, source_bbox = (
+        prob_model.reconstruct_component_images(source_pixels, lens_amplitudes)
     )
-    preconditioner = (block_chols, block_masks)
-    source_pixels, pcg_info = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam, reg_data, preconditioner, op_data=op_data,
-    )
-    model_1d = prob_model.sim_obj.forward_model(
-        source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-    )
-
-    # Lens-light not separable in operator backend
-    has_ll = getattr(prob_model, 'has_lens_light', False)
-    lens_amplitudes = None
-    source_1d = jnp.zeros_like(model_1d)
-    lens_1d = jnp.zeros_like(model_1d)
+    xmin, xmax, ymin, ymax = source_bbox
 
 # Build 2D images
 npix = image_data.shape[0]
 flat_indices = prob_model.sim_obj.flat_indices
 
-model_image = np.zeros((npix, npix))
-model_image.flat[np.asarray(flat_indices)] = np.array(model_1d)
-
-source_image_2d = np.zeros((npix, npix))
-source_image_2d.flat[np.asarray(flat_indices)] = np.array(source_1d)
-
-lens_image_2d = np.zeros((npix, npix))
-lens_image_2d.flat[np.asarray(flat_indices)] = np.array(lens_1d)
+model_image = np.asarray(model_image)
+source_image_2d = np.asarray(source_image_2d)
+lens_image_2d = np.asarray(lens_image_2d)
 
 resid_norm = (image_data - model_image) / noise_map
 

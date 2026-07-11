@@ -4,7 +4,6 @@ This module provides :class:`PixelizedImageProbModelOperator`, which uses
 matrix-free operators and PCG or FISTA to solve the source inversion,
 avoiding explicit construction of the (Nd × Ns) design matrix.
 
-Phase-1 limitation: lens-light joint inversion is not yet supported.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Union
 
 import caskade as ck
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
@@ -22,7 +22,10 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
     LensOperatorData,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.utils.cg_solver import pcg_solve, PCGInfo
+from TinyLensGpu.utils.cg_solver import (
+    pcg_solve, PCGInfo, BlockSchurPreconditioner, solve_source_blocks,
+)
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import EPSILON_REG
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
@@ -32,14 +35,13 @@ from ._position_likelihood import resolve_position_likelihood_attrs, compute_pos
 
 
 class PixelizedImageProbModelOperator(ck.Module):
-    """Operator-based evidence model for one pixelized source.
+    """Operator evidence model for a pixelized source and optional lens light.
 
     Same public API as :class:`PixelizedImageProbModel` but uses matrix-free
     operators and iterative source solvers instead of explicit Cholesky
-    decomposition. ``solver_type="pcg"`` preserves the unconstrained source
-    solve. ``solver_type="fista"`` enforces hard source non-negativity with a
-    projected FISTA solve while retaining the existing operator logdet
-    approximation.
+    decomposition. ``solver_type="pcg"`` is unconstrained. ``solver_type="fista"``
+    enforces non-negativity on source pixels and lens-light intensities while
+    retaining the unconstrained-curvature operator logdet approximation.
 
     Parameters
     ----------
@@ -63,8 +65,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         Position likelihood constraint configuration.
     solver_type : {"pcg", "fista"}, optional
         Source solver. ``"pcg"`` is unconstrained. ``"fista"`` solves the
-        matrix-free non-negative quadratic with source pixels constrained to
-        be non-negative.
+        matrix-free non-negative quadratic with all joint linear parameters
+        constrained to be non-negative.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
         S0-based adaptive regularization.
@@ -113,6 +115,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         fista_rtol: float = 1e-5,
         fista_power_iter: int = 10,
         fista_step_safety: float = 1.2,
+        lens_light_regularization: float = EPSILON_REG,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "fista"):
@@ -121,6 +124,9 @@ class PixelizedImageProbModelOperator(ck.Module):
                 f"got {solver_type!r}"
             )
         self.solver_type = solver_type
+        if not np.isfinite(lens_light_regularization) or lens_light_regularization <= 0.0:
+            raise ValueError("lens_light_regularization must be finite and positive")
+        self.lens_light_regularization = float(lens_light_regularization)
 
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
@@ -139,6 +145,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             source_bbox_outlier_frac=source_bbox_outlier_frac,
         )
         self.sim_obj = PixelizedLensOperator(self.phys_model, sim_config)
+        self.n_lens_light = self.sim_obj.n_lens_light
+        self.has_lens_light = self.sim_obj.has_lens_light
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
         self.data_1d = self.image_data[self.unmask]
         self.noise_1d = self.noise_map[self.unmask]
@@ -363,6 +371,59 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Source solve via configured iterative solver
     # ------------------------------------------------------------------
 
+    def _build_block_schur_preconditioner(
+        self, source_chols: Array, source_masks: Array,
+        source_A_data: tuple, lens_matrix: Array,
+    ) -> BlockSchurPreconditioner:
+        """Build the coupled source/lens-light block-Schur preconditioner."""
+        noise_var = source_A_data[6]
+
+        def cross_column(_, lens_column):
+            column = self.sim_obj.build_rhs(
+                lens_column, jnp.sqrt(noise_var), 0.0, 1.0, 0.0, 1.0,
+                op_data=LensOperatorData(
+                    weights=source_A_data[0], indices=source_A_data[1],
+                    flat_indices=source_A_data[2],
+                    n_source=self.sim_obj.n_source_pixels,
+                    nsub=self.sim_obj.nsub,
+                    agg_segment_ids=source_A_data[3],
+                    agg_n_active=self.sim_obj._agg_n_active,
+                    psf_fft_conj=source_A_data[5],
+                ),
+            )
+            return None, column
+
+        _, cross_columns = jax.lax.scan(
+            cross_column, None, lens_matrix.T,
+        )
+        cross = cross_columns.T
+        lens_block = lens_matrix.T @ (lens_matrix / noise_var[:, None])
+        lens_block = lens_block + self.lens_light_regularization * jnp.eye(
+            self.n_lens_light, dtype=lens_matrix.dtype,
+        )
+        inverse_cross = jax.vmap(
+            lambda column: solve_source_blocks(
+                source_chols, source_masks, column,
+            ),
+            in_axes=1, out_axes=1,
+        )(cross)
+        schur = lens_block - cross.T @ inverse_cross
+        schur = 0.5 * (schur + schur.T)
+        jitter = jnp.asarray(10.0 * jnp.finfo(schur.dtype).eps, schur.dtype)
+        schur_chol = jnp.linalg.cholesky(
+            schur + jitter * jnp.eye(self.n_lens_light, dtype=schur.dtype)
+        )
+        return BlockSchurPreconditioner(
+            source_chols, source_masks, cross, schur_chol,
+        )
+
+    @staticmethod
+    def _logdet_block_schur(preconditioner: BlockSchurPreconditioner) -> Array:
+        return (
+            PixelizedLensOperator.logdet_block_diag(preconditioner.source_chols)
+            + 2.0 * jnp.sum(jnp.log(jnp.diag(preconditioner.schur_chol)))
+        )
+
     def _solve_source(
         self,
         xmin, xmax, ymin, ymax,
@@ -371,28 +432,31 @@ class PixelizedImageProbModelOperator(ck.Module):
         preconditioner,
         op_data=None,  # precomputed LensOperatorData
     ) -> tuple[Array, PCGInfo | FISTAInfo]:
-        """Solve for MAP source pixels using the configured source solver.
+        """Solve for joint MAP linear parameters with the configured solver.
 
         ``preconditioner`` may be a dense Cholesky factor (legacy) or a
         block-diagonal ``(block_chols, block_masks)`` tuple. It is used by PCG
         and still built for FISTA because the evidence approximation uses the
         same block-diagonal logdet term.
 
-        Returns ``(source_pixels, solver_info)``. For ``solver_type="fista"``,
-        ``source_pixels`` are projected to be non-negative.
+        Returns ``(linear_params, solver_info)``. For ``solver_type="fista"``,
+        all returned linear parameters are projected to be non-negative.
         """
-        A_data, _A_jit_prebound = self.sim_obj.build_A_matvec(
-            self.noise_1d,
-            xmin, xmax, ymin, ymax,
-            lambda_reg,
-            reg_data,
-            op_data=op_data,
-        )
-        b = self.sim_obj.build_rhs(
-            self.data_1d, self.noise_1d,
-            xmin, xmax, ymin, ymax,
-            op_data=op_data,
-        )
+        if self.has_lens_light:
+            A_data, _A_jit_prebound, b, _ = self.sim_obj.build_joint_system(
+                self.noise_1d, self.data_1d,
+                xmin, xmax, ymin, ymax, lambda_reg, reg_data,
+                self.lens_light_regularization, op_data=op_data,
+            )
+        else:
+            A_data, _A_jit_prebound = self.sim_obj.build_A_matvec(
+                self.noise_1d, xmin, xmax, ymin, ymax,
+                lambda_reg, reg_data, op_data=op_data,
+            )
+            b = self.sim_obj.build_rhs(
+                self.data_1d, self.noise_1d,
+                xmin, xmax, ymin, ymax, op_data=op_data,
+            )
 
         if self.solver_type == "fista":
             source_pixels, solver_info = fista_nnls_solve(
@@ -424,7 +488,8 @@ class PixelizedImageProbModelOperator(ck.Module):
 
         .. warning::
             This uses ``logdet(P)`` as a deterministic approximation to
-            ``logdet(A)``, where ``P`` is the block-diagonal preconditioner,
+            ``logdet(A)``. Joint models use a coupled block-Schur preconditioner;
+            source-only models use the block-diagonal source preconditioner,
             and a block-diagonal approximation (with the same partition) for
             ``logdet(R)``.  For blurred or asymmetric PSFs, ``nsub > 1``, or
             masked pixels, the evidence will deviate from the exact dense-backend
@@ -460,7 +525,17 @@ class PixelizedImageProbModelOperator(ck.Module):
             block_size=self.block_size,
             scale=scale,
         )
-        preconditioner = (block_chols, block_masks)
+        if self.has_lens_light:
+            source_A_data, _ = self.sim_obj.build_A_matvec(
+                self.noise_1d, xmin, xmax, ymin, ymax,
+                lambda_reg, reg_data, op_data=op_data,
+            )
+            preconditioner = self._build_block_schur_preconditioner(
+                block_chols, block_masks, source_A_data,
+                self.sim_obj.build_lens_light_matrix(),
+            )
+        else:
+            preconditioner = (block_chols, block_masks)
 
         # Solve source via configured matrix-free solver.
         source_pixels, solver_info = self._solve_source(
@@ -471,18 +546,22 @@ class PixelizedImageProbModelOperator(ck.Module):
             op_data=op_data,
         )
 
-        # Penalize non-converged source solves.
-        solver_penalty = jnp.where(
-            solver_info.converged, 0.0, -1.0e10
-        )
-
         # Forward model for χ² and regularization penalty (reuses op_data)
-        model_1d = self.sim_obj.forward_model(
-            source_pixels, xmin, xmax, ymin, ymax,
-            op_data=op_data,
-        )
-
         n_source = self.sim_obj.n_source_pixels
+        if self.has_lens_light:
+            lens_amplitudes = source_pixels[n_source:]
+            source_pixels = source_pixels[:n_source]
+            source_1d, lens_1d = self.sim_obj.reconstruct_components(
+                source_pixels, lens_amplitudes, xmin, xmax, ymin, ymax,
+                op_data=op_data,
+            )
+            model_1d = source_1d + lens_1d
+        else:
+            lens_amplitudes = None
+            model_1d = self.sim_obj.forward_model(
+                source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
+            )
+
         n_data = int(self.data_1d.size)
 
         resid = self.data_1d - model_1d
@@ -496,7 +575,11 @@ class PixelizedImageProbModelOperator(ck.Module):
             ),
         )
         # logdet(P) from block-diagonal Cholesky factors
-        logdet_P = PixelizedLensOperator.logdet_block_diag(block_chols)
+        logdet_P = (
+            self._logdet_block_schur(preconditioner)
+            if self.has_lens_light
+            else PixelizedLensOperator.logdet_block_diag(block_chols)
+        )
 
         # logdet regularisation matrix — deterministic block-diagonal approximation
         logdet_h = self.reg_builder.logdet_free(
@@ -511,10 +594,20 @@ class PixelizedImageProbModelOperator(ck.Module):
             + 0.5 * logdet_h
             - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
             - 0.5 * self.logdet_C
-            + solver_penalty
         )
 
-        return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
+        if self.has_lens_light:
+            e_lens = 0.5 * self.lens_light_regularization * jnp.sum(
+                lens_amplitudes ** 2
+            )
+            log_evidence = (
+                log_evidence - e_lens
+                + 0.5 * self.n_lens_light
+                * jnp.log(self.lens_light_regularization)
+            )
+
+        valid = solver_info.converged & jnp.isfinite(log_evidence)
+        return jnp.where(valid, log_evidence, -1.0e10)
 
     # ------------------------------------------------------------------
     # Forward model (public API)
@@ -526,8 +619,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     ):
         """Solve source pixels and return the reconstructed model image.
 
-        With ``solver_type="fista"``, returned source pixels are constrained
-        to be non-negative.
+        With ``solver_type="fista"``, returned source pixels and lens-light
+        intensities are constrained to be non-negative.
         """
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
@@ -552,9 +645,19 @@ class PixelizedImageProbModelOperator(ck.Module):
             block_size=self.block_size,
             scale=scale,
         )
-        preconditioner = (block_chols, block_masks)
+        if self.has_lens_light:
+            source_A_data, _ = self.sim_obj.build_A_matvec(
+                self.noise_1d, xmin, xmax, ymin, ymax,
+                lambda_reg, reg_data, op_data=op_data,
+            )
+            preconditioner = self._build_block_schur_preconditioner(
+                block_chols, block_masks, source_A_data,
+                self.sim_obj.build_lens_light_matrix(),
+            )
+        else:
+            preconditioner = (block_chols, block_masks)
 
-        source_pixels, solver_info = self._solve_source(
+        linear_params, solver_info = self._solve_source(
             xmin, xmax, ymin, ymax,
             lambda_reg,
             reg_data,
@@ -562,10 +665,20 @@ class PixelizedImageProbModelOperator(ck.Module):
             op_data=op_data,
         )
 
-        model_1d = self.sim_obj.forward_model(
-            source_pixels, xmin, xmax, ymin, ymax,
-            op_data=op_data,
-        )
+        n_source = self.sim_obj.n_source_pixels
+        source_pixels = linear_params[:n_source]
+        if self.has_lens_light:
+            lens_amplitudes = linear_params[n_source:]
+            source_1d, lens_1d = self.sim_obj.reconstruct_components(
+                source_pixels, lens_amplitudes, xmin, xmax, ymin, ymax,
+                op_data=op_data,
+            )
+            model_1d = source_1d + lens_1d
+        else:
+            lens_amplitudes = None
+            model_1d = self.sim_obj.forward_model(
+                source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
+            )
         # Zero out the model image AND the source pixels when solving fails to
         # converge — prevents silently returning partially-converged garbage.
         # Gating both keeps the (image, source) pair internally consistent for
@@ -573,15 +686,45 @@ class PixelizedImageProbModelOperator(ck.Module):
         converged = solver_info.converged
         model_1d = jnp.where(converged, model_1d, jnp.zeros_like(model_1d))
         source_pixels = jnp.where(converged, source_pixels, jnp.zeros_like(source_pixels))
+        if lens_amplitudes is not None:
+            lens_amplitudes = jnp.where(
+                converged, lens_amplitudes, jnp.zeros_like(lens_amplitudes)
+            )
 
         H, W = self.sim_obj.image_shape
         model_image = jnp.zeros(H * W, dtype=model_1d.dtype)
         model_image = model_image.at[self.sim_obj.flat_indices].set(model_1d)
         model_image = model_image.reshape(H, W)
 
+        if return_components and self.has_lens_light:
+            return model_image, source_pixels, lens_amplitudes
         if return_source:
             return model_image, source_pixels
         return model_image
+
+    def reconstruct_component_images(
+        self, source_pixels: Array, lens_light_intensities: Array,
+    ) -> tuple[Array, Array, tuple[Array, Array, Array, Array]]:
+        """Reconstruct full source/lens-light images and return the source bbox."""
+        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
+         _beta_x_seed, _beta_y_seed) = self._get_bbox()
+        op_data = self.sim_obj.precompute_operator_data(
+            xmin, xmax, ymin, ymax,
+            _betas_sub=(beta_x_sub, beta_y_sub),
+        )
+        source_1d, lens_1d = self.sim_obj.reconstruct_components(
+            source_pixels, lens_light_intensities,
+            xmin, xmax, ymin, ymax, op_data=op_data,
+        )
+        H, W = self.sim_obj.image_shape
+        source_image = jnp.zeros(H * W, dtype=source_1d.dtype)
+        source_image = source_image.at[self.sim_obj.flat_indices].set(source_1d)
+        lens_image = jnp.zeros(H * W, dtype=lens_1d.dtype)
+        lens_image = lens_image.at[self.sim_obj.flat_indices].set(lens_1d)
+        return (
+            source_image.reshape(H, W), lens_image.reshape(H, W),
+            (xmin, xmax, ymin, ymax),
+        )
 
     # ------------------------------------------------------------------
     # Evidence callable

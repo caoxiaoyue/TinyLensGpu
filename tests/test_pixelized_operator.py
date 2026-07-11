@@ -25,7 +25,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
     PixelizedSourceModel,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.utils.cg_solver import pcg_solve
+from TinyLensGpu.utils.cg_solver import pcg_solve, BlockSchurPreconditioner
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
@@ -671,8 +671,8 @@ def test_matrix_vs_operator_source_consistency():
 
 
 @pytest.mark.unit
-def test_lens_light_raises_not_implemented():
-    """Operator backend should raise NotImplementedError with lens light."""
+def test_operator_joint_inversion_returns_source_and_lens_light_intensities():
+    """Operator backend jointly reconstructs source and lens-light intensities."""
     from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 
     lens_light = SersicEllipse(
@@ -689,11 +689,243 @@ def test_lens_light_raises_not_implemented():
         lens_light=[lens_light],
     )
 
-    with pytest.raises(NotImplementedError, match="Lens-light"):
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)) * 0.05, jnp.ones((10, 10)) * 0.1,
+        _delta_psf(), 0.08, phys,
+    )
+
+    model_image, source_pixels, lens_intensities = model.forward_model(
+        return_components=True
+    )
+
+    assert model_image.shape == (10, 10)
+    assert source_pixels.shape == (25,)
+    assert lens_intensities.shape == (1,)
+    assert jnp.all(jnp.isfinite(model_image))
+    assert jnp.all(jnp.isfinite(source_pixels))
+    assert jnp.all(jnp.isfinite(lens_intensities))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("nsub", [1, 2])
+def test_operator_joint_map_matches_dense_backend(nsub):
+    """Joint source/lens-light MAP agrees with the dense reference backend."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.35, n_sersic=2.0, Ie=1.0,
+        e1=0.05, e2=-0.02, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_light=[lens_light],
+    )
+    config = _sim_config(nsub=nsub)
+    simulator = PixelizedLensSimulator(phys, config)
+    true_source = jnp.abs(jnp.linspace(-0.5, 1.0, 25))
+    image = simulator.simulate(
+        true_source, lens_light_amplitudes=jnp.asarray([0.7]),
+    )
+    noise = jnp.ones_like(image) * 0.05
+    dense = PixelizedImageProbModel(
+        image, noise, _delta_psf(), 0.08, phys, nsub=nsub,
+    )
+    operator = PixelizedImageProbModelOperator(
+        image, noise, _delta_psf(), 0.08, phys, nsub=nsub,
+    )
+
+    _, dense_source, dense_lens = dense.forward_model(return_components=True)
+    _, operator_source, operator_lens = operator.forward_model(
+        return_components=True
+    )
+
+    source_rms = jnp.linalg.norm(operator_source - dense_source) / jnp.linalg.norm(
+        dense_source
+    )
+    assert source_rms < 5e-3
+    assert jnp.allclose(operator_lens, dense_lens, rtol=5e-3, atol=5e-4)
+
+
+@pytest.mark.unit
+def test_fista_joint_inversion_constrains_source_and_lens_light_nonnegative():
+    """FISTA projects both joint linear-parameter groups to non-negative values."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.4, n_sersic=2.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_light=[lens_light],
+    )
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)) * 0.1, jnp.ones((10, 10)) * 0.1,
+        _delta_psf(), 0.08, phys, solver_type="fista",
+        fista_max_iter=1000, fista_rtol=1e-4,
+    )
+
+    _, source, lens = model.forward_model(return_components=True)
+
+    assert jnp.all(source >= 0.0)
+    assert jnp.all(lens >= 0.0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("intensity,dynamic", [(2.0, False), (1.0, True)])
+def test_joint_inversion_rejects_non_unit_or_dynamic_lens_basis(
+    intensity, dynamic,
+):
+    """Joint inversion requires a static unit-amplitude lens-light basis."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=1.0, n_sersic=4.0, Ie=intensity,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    if dynamic:
+        lens_light.Ie.to_dynamic()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_light=[lens_light],
+    )
+
+    with pytest.raises(ValueError, match="unit-amplitude"):
         PixelizedImageProbModelOperator(
             jnp.zeros((10, 10)), jnp.ones((10, 10)) * 0.1,
             _delta_psf(), 0.08, phys,
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", [0.0, -1.0, np.nan, np.inf])
+def test_joint_inversion_rejects_invalid_lens_light_regularization(value):
+    """Lens-light zero-order regularization must be finite and positive."""
+    with pytest.raises(ValueError, match="finite and positive"):
+        PixelizedImageProbModelOperator(
+            jnp.zeros((10, 10)), jnp.ones((10, 10)) * 0.1,
+            _delta_psf(), 0.08, _phys_model(),
+            lens_light_regularization=value,
+        )
+
+
+@pytest.mark.unit
+def test_block_schur_logdet_matches_explicit_preconditioner():
+    """Fast block-Schur logdet equals an explicit arrowhead reference."""
+    source_blocks = jnp.asarray([
+        [[2.0, 0.0], [0.3, 1.5]],
+        [[1.2, 0.0], [-0.1, 1.8]],
+    ])
+    source_masks = jnp.asarray([[0, 1], [2, 3]])
+    cross = jnp.asarray([
+        [0.10, -0.03], [0.02, 0.04],
+        [-0.05, 0.01], [0.03, 0.06],
+    ])
+    schur_chol = jnp.asarray([[1.4, 0.0], [0.2, 1.1]])
+    preconditioner = BlockSchurPreconditioner(
+        source_blocks, source_masks, cross, schur_chol,
+    )
+    source_precision = jnp.zeros((4, 4))
+    for chol, mask in zip(source_blocks, source_masks):
+        source_precision = source_precision.at[jnp.ix_(mask, mask)].set(
+            chol @ chol.T
+        )
+    source_inverse_cross = jnp.linalg.solve(source_precision, cross)
+    schur = schur_chol @ schur_chol.T
+    lens_precision = schur + cross.T @ source_inverse_cross
+    explicit = jnp.block([
+        [source_precision, cross], [cross.T, lens_precision],
+    ])
+    _, expected = jnp.linalg.slogdet(explicit)
+
+    actual = PixelizedImageProbModelOperator._logdet_block_schur(
+        preconditioner
+    )
+
+    assert jnp.allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_nonconverged_joint_solve_returns_exact_penalty_and_zero_components():
+    """A failed joint solve has deterministic likelihood and forward outputs."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.4, n_sersic=2.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_light=[lens_light],
+    )
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)), jnp.ones((10, 10)) * 0.1,
+        _delta_psf(), 0.08, phys,
+    )
+    model.pcg_max_iter = 0
+
+    assert model() == -1.0e10
+    image, source, lens = model.forward_model(return_components=True)
+    assert jnp.all(image == 0.0)
+    assert jnp.all(source == 0.0)
+    assert jnp.all(lens == 0.0)
+
+
+@pytest.mark.unit
+def test_weak_regularization_stabilizes_duplicate_lens_light_bases():
+    """Duplicate lens-light columns remain a finite regularized joint system."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse
+
+    lens_light = []
+    for _ in range(2):
+        component = GaussianEllipse(
+            flux=1.0, sigma=0.3, e1=0.0, e2=0.0,
+            center_x=0.0, center_y=0.0,
+        )
+        for parameter in (
+            component.flux, component.sigma, component.e1, component.e2,
+            component.center_x, component.center_y,
+        ):
+            parameter.to_static()
+        lens_light.append(component)
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_light=lens_light,
+    )
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)) * 0.1, jnp.ones((10, 10)) * 0.1,
+        _delta_psf(), 0.08, phys,
+    )
+
+    log_evidence = model()
+    _, _, intensities = model.forward_model(return_components=True)
+
+    assert jnp.isfinite(log_evidence)
+    assert jnp.all(jnp.isfinite(intensities))
 
 
 @pytest.mark.unit

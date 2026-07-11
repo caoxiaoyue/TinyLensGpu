@@ -7,6 +7,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
+import numpy as np
 from jax import Array
 
 from ...PhysicalModel.LensImage.composite import PhysicalModel
@@ -22,6 +23,34 @@ from .results import SimulationResult
 
 
 EPSILON_REG = 1e-6  # Tiny Tikhonov regularization for lens-light amplitudes
+LENS_LIGHT_INTENSITY_NAMES = ("Ie", "flux", "amp", "intensity")
+
+
+def validate_unit_lens_light_bases(phys_model: PhysicalModel) -> None:
+    """Validate the unit-amplitude basis contract for joint inversion."""
+    for index, component in enumerate(phys_model.lens_light):
+        matches = [
+            name for name in LENS_LIGHT_INTENSITY_NAMES
+            if getattr(component, name, None) is not None
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"lens_light[{index}] must expose exactly one supported intensity "
+                f"parameter ({', '.join(LENS_LIGHT_INTENSITY_NAMES)})"
+            )
+        name = matches[0]
+        parameter = getattr(component, name)
+        if not bool(getattr(parameter, "static", False)):
+            raise ValueError(
+                f"lens_light[{index}].{name} must be static for a "
+                "unit-amplitude lens-light basis"
+            )
+        value = parameter.value if hasattr(parameter, "value") else parameter
+        if not np.isclose(float(np.asarray(value)), 1.0, rtol=1e-7, atol=1e-7):
+            raise ValueError(
+                f"lens_light[{index}].{name} must equal 1.0 for a "
+                "unit-amplitude lens-light basis"
+            )
 
 
 class PixelizedLensSimulator:
@@ -81,6 +110,7 @@ class PixelizedLensSimulator:
         # Lens light
         self.n_lens_light = len(phys_model.lens_light)
         self.has_lens_light = self.n_lens_light > 0
+        validate_unit_lens_light_bases(phys_model)
 
         self.image_shape = tuple(sim_config.mask.shape)
         self.mask = jnp.asarray(sim_config.mask, dtype=bool)
