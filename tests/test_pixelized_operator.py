@@ -27,6 +27,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import pcg_solve, BlockSchurPreconditioner
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve
+from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
@@ -311,6 +312,121 @@ def test_fista_nnls_reports_invalid_step_failure():
     assert jnp.all(jnp.isfinite(x))
 
 
+@pytest.mark.unit
+def test_pnpg_nnls_resolves_ill_conditioned_active_set():
+    """PNPG should resolve low-curvature entries after equilibration."""
+    n = 64
+    eigenvalues = jnp.logspace(0, 8, n, dtype=jnp.float32)
+    A_dense = jnp.diag(eigenvalues)
+    expected = jnp.where(jnp.arange(n) % 2 == 0, 1.0, 0.0)
+    # Positive dual multipliers on zero-valued entries make ``expected`` the
+    # exact KKT solution of the bound-constrained quadratic.
+    b = jnp.where(expected > 0.0, eigenvalues, -jnp.ones_like(eigenvalues))
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = pnpg_nnls_solve(
+        A_data,
+        b,
+        jnp.diag(jnp.sqrt(eigenvalues)),
+        _simple_A,
+        max_iter=100,
+        rtol=1e-3,
+    )
+
+    relative_error = jnp.linalg.norm(x - expected) / jnp.linalg.norm(expected)
+    assert info.converged
+    assert not info.failed
+    assert info.convergence_metric <= 1e-3
+    assert relative_error < 1e-3
+    assert jnp.all(x >= 0.0)
+
+
+@pytest.mark.unit
+def test_pnpg_nnls_solves_coupled_quadratic_with_changing_active_set():
+    """PNPG should identify coupled variables that belong on the bound."""
+    factor = jnp.asarray(
+        [
+            [2.0, 0.0, 0.0, 0.0],
+            [0.8, 1.5, 0.0, 0.0],
+            [-0.4, 0.3, 1.2, 0.0],
+            [0.2, -0.5, 0.7, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    A_dense = factor @ factor.T + 0.1 * jnp.eye(4, dtype=jnp.float32)
+    expected = jnp.asarray([1.5, 0.0, 0.7, 0.0], dtype=jnp.float32)
+    dual = jnp.asarray([0.0, 0.4, 0.0, 0.2], dtype=jnp.float32)
+    b = A_dense @ expected - dual
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = pnpg_nnls_solve(
+        A_data,
+        b,
+        jnp.linalg.cholesky(A_dense),
+        _simple_A,
+        x0=jnp.ones(4, dtype=jnp.float32),
+        max_iter=1000,
+        rtol=1e-5,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(x), np.asarray(expected), rtol=2e-4, atol=2e-4
+    )
+    assert info.converged
+    assert not info.failed
+
+
+@pytest.mark.unit
+def test_pnpg_backtracks_when_power_iteration_underestimates_curvature():
+    """The line search must repair an unsafe initial Rayleigh step."""
+    size = 8
+    index = jnp.arange(size, dtype=jnp.float32)
+    power_vector = jnp.sin((index + 1.0) * 1.61803398875)
+    power_vector = power_vector / jnp.linalg.norm(power_vector)
+    dominant = jnp.eye(size, dtype=jnp.float32)[0]
+    dominant = dominant - jnp.dot(dominant, power_vector) * power_vector
+    dominant = dominant / jnp.linalg.norm(dominant)
+    A_dense = (
+        jnp.eye(size, dtype=jnp.float32)
+        + 1.0e4 * jnp.outer(dominant, dominant)
+    )
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    x, info = pnpg_nnls_solve(
+        A_data,
+        jnp.ones(size, dtype=jnp.float32),
+        jnp.eye(size, dtype=jnp.float32),
+        _simple_A,
+        max_iter=20,
+        power_iter=1,
+        rtol=1.0,
+    )
+
+    assert jnp.all(jnp.isfinite(x))
+    assert not info.failed
+    assert info.step_size < 1.0e-3
+
+
+@pytest.mark.unit
+def test_pnpg_line_search_failure_cannot_report_convergence():
+    """A failed backtracking gate must override a loose KKT tolerance."""
+    A_dense = jnp.eye(3, dtype=jnp.float32)
+    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+
+    _, info = pnpg_nnls_solve(
+        A_data,
+        jnp.ones(3, dtype=jnp.float32),
+        jnp.eye(3, dtype=jnp.float32),
+        _simple_A,
+        max_iter=1,
+        rtol=1.0,
+        max_backtracking=0,
+    )
+
+    assert info.failed
+    assert not info.converged
+
+
 # ------------------------------------------------------------------
 # PixelizedLensOperator tests
 # ------------------------------------------------------------------
@@ -422,6 +538,22 @@ def test_preconditioner_is_spd():
     all_masked = jnp.concatenate([jnp.asarray(m) for m in block_masks])
     all_sorted = jnp.sort(all_masked)
     np.testing.assert_equal(np.array(all_sorted), np.arange(25))
+
+
+@pytest.mark.unit
+def test_equilibrated_cholesky_repairs_float32_roundoff_indefiniteness():
+    """Redundant MGE-like Gram blocks should yield a finite SPD factor."""
+    matrix = jnp.asarray(
+        [[1.0, 1.0], [1.0, 1.0 - 2.0e-7]], dtype=jnp.float32
+    )
+
+    chol, stabilized = PixelizedImageProbModelOperator._equilibrated_cholesky(
+        matrix
+    )
+
+    assert jnp.all(jnp.isfinite(chol))
+    assert jnp.all(jnp.diag(chol) > 0.0)
+    assert jnp.min(jnp.linalg.eigvalsh(stabilized)) > 0.0
 
 
 @pytest.mark.unit
@@ -645,6 +777,45 @@ def test_operator_fista_matches_dense_nnls_objective_small_grid():
     )
 
     assert jnp.all(src_op >= -1e-6)
+    np.testing.assert_allclose(float(obj_op), float(obj_dense), rtol=5e-3, atol=5e-3)
+
+
+@pytest.mark.unit
+def test_operator_pnpg_matches_dense_nnls_objective_small_grid():
+    """Operator PNPG should match dense NNLS on a real lens operator."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+    source_bbox = _fixed_bbox()
+    lambda_reg = jnp.exp(jnp.asarray(phys.source_light[0].log_lambda_reg.value))
+
+    prob_dense = PixelizedImageProbModel(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        solver_type="nnls",
+    )
+    design_matrix, _ = prob_dense.sim_obj.design_matrix(source_bbox=source_bbox)
+    reg_matrix, _ = prob_dense._regularization_matrix(source_bbox)
+    src_dense, _, _ = prob_dense._solve_source(design_matrix, reg_matrix, lambda_reg)
+
+    prob_op = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        fixed_source_bbox=source_bbox,
+        solver_type="pnpg",
+        pnpg_max_iter=1000,
+        pnpg_rtol=1e-4,
+    )
+    _, src_op = prob_op.forward_model(return_source=True)
+
+    obj_dense = _dense_objective(
+        design_matrix, prob_dense.data_1d, prob_dense.noise_1d,
+        reg_matrix, lambda_reg, src_dense,
+    )
+    obj_op = _dense_objective(
+        design_matrix, prob_dense.data_1d, prob_dense.noise_1d,
+        reg_matrix, lambda_reg, src_op,
+    )
+
+    assert jnp.all(src_op >= 0.0)
     np.testing.assert_allclose(float(obj_op), float(obj_dense), rtol=5e-3, atol=5e-3)
 
 

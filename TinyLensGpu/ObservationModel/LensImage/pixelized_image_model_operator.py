@@ -1,7 +1,7 @@
 """Operator-based Bayesian evidence model for pixelized source inversions.
 
 This module provides :class:`PixelizedImageProbModelOperator`, which uses
-matrix-free operators and PCG or FISTA to solve the source inversion,
+matrix-free operators and PCG, FISTA, or PNPG to solve the source inversion,
 avoiding explicit construction of the (Nd × Ns) design matrix.
 
 """
@@ -27,6 +27,7 @@ from TinyLensGpu.utils.cg_solver import (
 )
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import EPSILON_REG
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
+from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     source_template_scale_map,
@@ -39,9 +40,11 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     Same public API as :class:`PixelizedImageProbModel` but uses matrix-free
     operators and iterative source solvers instead of explicit Cholesky
-    decomposition. ``solver_type="pcg"`` is unconstrained. ``solver_type="fista"``
-    enforces non-negativity on source pixels and lens-light intensities while
-    retaining the unconstrained-curvature operator logdet approximation.
+    decomposition. ``solver_type="pcg"`` is unconstrained. The ``"fista"`` and
+    ``"pnpg"`` solvers enforce non-negativity on source pixels and lens-light
+    intensities while retaining the unconstrained-curvature operator logdet
+    approximation. PNPG uses diagonal metric equilibration and is preferred for
+    ill-conditioned joint source/MGE systems.
 
     Parameters
     ----------
@@ -63,10 +66,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         Subsampling factor (default: 1).
     position_likelihood : dict, optional
         Position likelihood constraint configuration.
-    solver_type : {"pcg", "fista"}, optional
-        Source solver. ``"pcg"`` is unconstrained. ``"fista"`` solves the
-        matrix-free non-negative quadratic with all joint linear parameters
-        constrained to be non-negative.
+    solver_type : {"pcg", "fista", "pnpg"}, optional
+        Source solver. ``"pcg"`` is unconstrained. ``"fista"`` and
+        ``"pnpg"`` solve the matrix-free non-negative quadratic with all
+        joint linear parameters constrained to be non-negative.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
         S0-based adaptive regularization.
@@ -91,6 +94,12 @@ class PixelizedImageProbModelOperator(ck.Module):
         Number of power iterations used for FISTA step-size estimation.
     fista_step_safety : float, optional
         Safety factor applied to the estimated Lipschitz constant.
+    pnpg_max_iter : int, optional
+        Fixed projected-Nesterov iteration budget.
+    pnpg_rtol : float, optional
+        Componentwise-scaled KKT tolerance used to gate the likelihood.
+    pnpg_power_iter : int, optional
+        Power iterations used to estimate the equilibrated Lipschitz constant.
     """
 
     def __init__(
@@ -115,12 +124,15 @@ class PixelizedImageProbModelOperator(ck.Module):
         fista_rtol: float = 1e-5,
         fista_power_iter: int = 10,
         fista_step_safety: float = 1.2,
+        pnpg_max_iter: int = 1000,
+        pnpg_rtol: float = 2e-2,
+        pnpg_power_iter: int = 20,
         lens_light_regularization: float = EPSILON_REG,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
-        if solver_type not in ("pcg", "fista"):
+        if solver_type not in ("pcg", "fista", "pnpg"):
             raise ValueError(
-                "solver_type must be 'pcg' or 'fista', "
+                "solver_type must be 'pcg', 'fista', or 'pnpg', "
                 f"got {solver_type!r}"
             )
         self.solver_type = solver_type
@@ -189,6 +201,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.fista_rtol = float(fista_rtol)
         self.fista_power_iter = int(fista_power_iter)
         self.fista_step_safety = float(fista_step_safety)
+        self.pnpg_max_iter = int(pnpg_max_iter)
+        self.pnpg_rtol = float(pnpg_rtol)
+        self.pnpg_power_iter = int(pnpg_power_iter)
 
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
@@ -381,6 +396,41 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Source solve via configured iterative solver
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _equilibrated_cholesky(
+        matrix: Array,
+    ) -> tuple[Array, Array]:
+        """Return a finite Cholesky factor and its stabilized SPD matrix.
+
+        Highly redundant MGE columns can make a mathematically positive lens
+        Gram block appear slightly indefinite in float32.  The physical joint
+        operator is left untouched; only its small dense preconditioner block
+        is diagonally equilibrated and floored at the precision-resolvable
+        relative eigenvalue scale.
+        """
+        matrix = 0.5 * (matrix + matrix.T)
+        dtype = matrix.dtype
+        eps = jnp.finfo(dtype).eps
+        diagonal = jnp.maximum(jnp.diag(matrix), eps)
+        diagonal_scale = jnp.sqrt(diagonal)
+        equilibrated = matrix / (
+            diagonal_scale[:, None] * diagonal_scale[None, :]
+        )
+        equilibrated = 0.5 * (equilibrated + equilibrated.T)
+        minimum_eigenvalue = jnp.min(jnp.linalg.eigvalsh(equilibrated))
+        eigenvalue_floor = jnp.asarray(10.0 * eps, dtype=dtype)
+        jitter = jnp.maximum(
+            eigenvalue_floor,
+            eigenvalue_floor - minimum_eigenvalue,
+        )
+        stabilized_equilibrated = equilibrated + jitter * jnp.eye(
+            matrix.shape[0], dtype=dtype,
+        )
+        equilibrated_chol = jnp.linalg.cholesky(stabilized_equilibrated)
+        chol = diagonal_scale[:, None] * equilibrated_chol
+        stabilized = matrix + jitter * jnp.diag(diagonal)
+        return chol, stabilized
+
     def _build_block_schur_preconditioner(
         self, source_chols: Array, source_masks: Array,
         source_A_data: tuple, lens_matrix: Array,
@@ -424,7 +474,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         # Schur complement indefinite even though the true joint curvature is
         # SPD.  Spectrally damp only the preconditioner cross block when this
         # happens; the joint operator and physical regularization are unchanged.
-        lens_chol = jnp.linalg.cholesky(lens_block)
+        lens_chol, stabilized_lens_block = self._equilibrated_cholesky(
+            lens_block
+        )
         whitened = jax.scipy.linalg.solve_triangular(
             lens_chol, cross_curvature, lower=True,
         )
@@ -440,11 +492,10 @@ class PixelizedImageProbModelOperator(ck.Module):
             jnp.sqrt((1.0 - margin) / jnp.maximum(max_coupling, margin)),
         )
         cross = cross_scale * cross
-        schur = lens_block - (cross_scale ** 2) * cross_curvature
+        schur = stabilized_lens_block - (cross_scale ** 2) * cross_curvature
         schur = 0.5 * (schur + schur.T)
-        jitter = jnp.asarray(10.0 * jnp.finfo(schur.dtype).eps, schur.dtype)
-        schur_chol = jnp.linalg.cholesky(
-            schur + jitter * jnp.eye(self.n_lens_light, dtype=schur.dtype)
+        schur_chol, _ = self._equilibrated_cholesky(
+            schur
         )
         return BlockSchurPreconditioner(
             source_chols, source_masks, cross, schur_chol,
@@ -464,16 +515,17 @@ class PixelizedImageProbModelOperator(ck.Module):
         reg_data: tuple,
         preconditioner,
         op_data=None,  # precomputed LensOperatorData
-    ) -> tuple[Array, PCGInfo | FISTAInfo]:
+    ) -> tuple[Array, PCGInfo | FISTAInfo | PNPGInfo]:
         """Solve for joint MAP linear parameters with the configured solver.
 
         ``preconditioner`` may be a dense Cholesky factor (legacy) or a
         block-diagonal ``(block_chols, block_masks)`` tuple. It is used by PCG
-        and still built for FISTA because the evidence approximation uses the
-        same block-diagonal logdet term.
+        and still built for constrained solvers because PNPG uses its
+        diagonal for equilibration and the evidence approximation uses the same
+        block-diagonal logdet term.
 
-        Returns ``(linear_params, solver_info)``. For ``solver_type="fista"``,
-        all returned linear parameters are projected to be non-negative.
+        Returns ``(linear_params, solver_info)``. For constrained solvers, all
+        returned linear parameters are projected to be non-negative.
         """
         if self.has_lens_light:
             A_data, _A_jit_prebound, b, _ = self.sim_obj.build_joint_system(
@@ -491,14 +543,39 @@ class PixelizedImageProbModelOperator(ck.Module):
                 xmin, xmax, ymin, ymax, op_data=op_data,
             )
 
-        if self.solver_type == "fista":
+        if self.solver_type == "pnpg":
+            warm_start, warm_info = pcg_solve(
+                A_data,
+                b,
+                preconditioner,
+                _A_jit_prebound,
+                max_iter=self.pcg_max_iter,
+                rtol=self.pcg_rtol,
+            )
+            warm_start = jnp.where(
+                warm_info.converged & jnp.all(jnp.isfinite(warm_start)),
+                warm_start,
+                jnp.zeros_like(warm_start),
+            )
+            source_pixels, solver_info = pnpg_nnls_solve(
+                A_data,
+                b,
+                preconditioner,
+                _A_jit_prebound,
+                x0=warm_start,
+                max_iter=self.pnpg_max_iter,
+                rtol=self.pnpg_rtol,
+                power_iter=self.pnpg_power_iter,
+            )
+        elif self.solver_type == "fista":
             # A block-Schur PCG solve provides a cheap curvature-aware warm
             # start for the constrained problem. Projecting the unconstrained
             # solution onto the non-negative orthant leaves FISTA to enforce
             # the KKT conditions without spending thousands of iterations
             # traversing the ill-conditioned source/MGE amplitude scales from
             # the origin.
-            if self.fista_max_iter > 0:
+            constrained_max_iter = self.fista_max_iter
+            if constrained_max_iter > 0:
                 warm_start, warm_info = pcg_solve(
                     A_data,
                     b,
@@ -507,9 +584,36 @@ class PixelizedImageProbModelOperator(ck.Module):
                     max_iter=self.pcg_max_iter,
                     rtol=self.pcg_rtol,
                 )
+                projected_warm_start = jnp.maximum(warm_start, 0.0)
+                (
+                    weights, indices, flat_indices, agg_seg,
+                    psf_fft, psf_fft_conj, noise_var, solver_reg_data,
+                    solver_lambda_reg,
+                ) = A_data
+                warm_Ax = _A_jit_prebound(
+                    projected_warm_start,
+                    weights,
+                    indices,
+                    flat_indices,
+                    agg_segment_ids=agg_seg,
+                    psf_fft=psf_fft,
+                    psf_fft_conj=psf_fft_conj,
+                    noise_var=noise_var,
+                    reg_data=solver_reg_data,
+                    lambda_reg=solver_lambda_reg,
+                )
+                warm_objective = (
+                    0.5 * jnp.dot(projected_warm_start, warm_Ax)
+                    - jnp.dot(b, projected_warm_start)
+                )
+                accept_warm_start = (
+                    warm_info.converged
+                    & jnp.isfinite(warm_objective)
+                    & (warm_objective < 0.0)
+                )
                 warm_start = jnp.where(
-                    warm_info.converged,
-                    jnp.maximum(warm_start, 0.0),
+                    accept_warm_start,
+                    projected_warm_start,
                     jnp.zeros_like(warm_start),
                 )
             else:
@@ -549,7 +653,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             and a block-diagonal approximation (with the same partition) for
             ``logdet(R)``.  For blurred or asymmetric PSFs, ``nsub > 1``, or
             masked pixels, the evidence will deviate from the exact dense-backend
-            value.  For ``solver_type="fista"``, the source MAP is constrained
+            value. For a constrained solver, the source MAP is constrained
             but the logdet terms remain this same unconstrained-style operator
             approximation. Use the dense backend when exact evidence parity is
             required.
@@ -675,8 +779,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     ):
         """Solve source pixels and return the reconstructed model image.
 
-        With ``solver_type="fista"``, returned source pixels and lens-light
-        intensities are constrained to be non-negative.
+        With ``solver_type="fista"`` or ``"pnpg"``, returned source pixels
+        and lens-light intensities are constrained to be non-negative.
         """
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,

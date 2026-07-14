@@ -34,6 +34,8 @@ from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
+script_t0 = time.time()
+
 # ------------------------------------------------------------------ #
 # True parameters (for reference)
 # ------------------------------------------------------------------ #
@@ -114,7 +116,7 @@ sie = SIE(
 
 # Lens light: MGE (GaussianEllipse components) with linear intensity solving
 # Shared geometric parameters, each Gaussian has fixed sigma and unit flux
-N_gaussians_lens = 10
+N_gaussians_lens = 20
 print(f"  Building {N_gaussians_lens} MGE lens light components ...")
 sigma_list_lens = generate_radial_basis_knots(
     dpix=DPIX, n_sigmas=N_gaussians_lens,
@@ -198,9 +200,10 @@ prob_model = PixelizedImageProbModelOperator(
     nsub=4,
     source_bbox_padding=0.2,
     position_likelihood=position_likelihood,
-    solver_type="fista",
-    fista_max_iter=500,
-    fista_rtol=1.0e-3,
+    solver_type="pnpg",
+    pnpg_max_iter=1000,
+    pnpg_rtol=2.0e-2,
+    pnpg_power_iter=20,
 )
 
 # ------------------------------------------------------------------ #
@@ -228,13 +231,13 @@ sampler = Sampler(
     prior,
     loglike,
     n_dim=len(param_names),
-    n_live=300,
+    n_live=125,
     vectorized=True,
-    n_batch=200,
+    n_batch=100,
 )
 
 t0 = time.time()
-sampler.run(verbose=True, n_eff=800)
+sampler.run(verbose=True, n_eff=400, f_live=0.1)
 print(f"  Sampling done in {time.time() - t0:.1f} s")
 
 # ------------------------------------------------------------------ #
@@ -414,4 +417,5 @@ plt.show()
 
 print("\n" + "="*60)
 print("Done.")
+print(f"Total wall time: {time.time() - script_t0:.1f} s")
 print("="*60)

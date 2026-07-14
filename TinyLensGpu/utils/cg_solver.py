@@ -41,6 +41,86 @@ def solve_source_blocks(
     return jnp.zeros_like(rhs).at[block_masks].set(solved)
 
 
+def apply_preconditioner(preconditioner, rhs: Array) -> Array:
+    """Apply any preconditioner representation accepted by :func:`pcg_solve`.
+
+    Keeping this operation separate lets bound-constrained solvers reuse the
+    same block-Schur curvature approximation on a masked free-variable space.
+    The Python type dispatch happens while tracing; all numerical work remains
+    in JAX arrays and is accelerator compatible.
+    """
+    if isinstance(preconditioner, BlockSchurPreconditioner):
+        source_chols, source_masks, cross, schur_chol = preconditioner
+        n_source = cross.shape[0]
+        rhs_source = rhs[:n_source]
+        rhs_lens = rhs[n_source:]
+        source_inverse_rhs = solve_source_blocks(
+            source_chols, source_masks, rhs_source,
+        )
+        schur_rhs = rhs_lens - cross.T @ source_inverse_rhs
+        work = jsl.solve_triangular(schur_chol, schur_rhs, lower=True)
+        lens_solution = jsl.solve_triangular(
+            schur_chol.T, work, lower=False,
+        )
+        source_solution = solve_source_blocks(
+            source_chols, source_masks,
+            rhs_source - cross @ lens_solution,
+        )
+        return jnp.concatenate([source_solution, lens_solution])
+
+    if isinstance(preconditioner, tuple):
+        block_chols, block_masks = preconditioner
+        if not isinstance(block_chols, (list, tuple)):
+            def _solve_one(chol: Array, rhs_block: Array) -> Array:
+                work = jsl.solve_triangular(chol, rhs_block, lower=True)
+                return jsl.solve_triangular(chol.T, work, lower=False)
+
+            rhs_blocks = rhs[block_masks]
+            solved = jax.vmap(_solve_one)(block_chols, rhs_blocks)
+            return jnp.zeros_like(rhs).at[block_masks].set(solved)
+
+        result = jnp.zeros_like(rhs)
+        for chol, mask in zip(block_chols, block_masks):
+            work = jsl.solve_triangular(chol, rhs[mask], lower=True)
+            solved = jsl.solve_triangular(chol.T, work, lower=False)
+            result = result.at[mask].set(solved)
+        return result
+
+    work = jsl.solve_triangular(preconditioner, rhs, lower=True)
+    return jsl.solve_triangular(preconditioner.T, work, lower=False)
+
+
+def preconditioner_diagonal(preconditioner, size: int) -> Array:
+    """Recover the diagonal of the SPD matrix represented by a preconditioner."""
+    if isinstance(preconditioner, BlockSchurPreconditioner):
+        source_chols, source_masks, cross, schur_chol = preconditioner
+        source_diagonal_blocks = jnp.sum(source_chols ** 2, axis=2)
+        source_diagonal = jnp.zeros(
+            cross.shape[0], dtype=source_chols.dtype
+        ).at[source_masks].set(source_diagonal_blocks)
+        inverse_cross = jax.vmap(
+            lambda column: solve_source_blocks(
+                source_chols, source_masks, column,
+            ),
+            in_axes=1,
+            out_axes=1,
+        )(cross)
+        schur_diagonal = jnp.sum(schur_chol ** 2, axis=1)
+        lens_diagonal = schur_diagonal + jnp.sum(cross * inverse_cross, axis=0)
+        return jnp.concatenate([source_diagonal, lens_diagonal])
+
+    if isinstance(preconditioner, tuple):
+        block_chols, block_masks = preconditioner
+        diagonal = jnp.zeros(size, dtype=block_chols[0].dtype)
+        if not isinstance(block_chols, (list, tuple)):
+            return diagonal.at[block_masks].set(jnp.sum(block_chols ** 2, axis=2))
+        for chol, mask in zip(block_chols, block_masks):
+            diagonal = diagonal.at[mask].set(jnp.sum(chol ** 2, axis=1))
+        return diagonal
+
+    return jnp.sum(preconditioner ** 2, axis=1)
+
+
 class PCGState(NamedTuple):
     """Carry state for the PCG while_loop."""
     x: Array
@@ -117,59 +197,8 @@ def pcg_solve(
             noise_var=noise_var, reg_data=reg_data, lambda_reg=lambda_reg,
         )
 
-    # Dispatch preconditioner type
-    if isinstance(preconditioner, BlockSchurPreconditioner):
-        source_chols, source_masks, cross, schur_chol = preconditioner
-        n_source = cross.shape[0]
-
-        def _preconditioner_solve(r: Array) -> Array:
-            r_source = r[:n_source]
-            r_lens = r[n_source:]
-            source_inverse_rhs = solve_source_blocks(
-                source_chols, source_masks, r_source,
-            )
-            schur_rhs = r_lens - cross.T @ source_inverse_rhs
-            work = jsl.solve_triangular(schur_chol, schur_rhs, lower=True)
-            lens_solution = jsl.solve_triangular(
-                schur_chol.T, work, lower=False,
-            )
-            source_solution = solve_source_blocks(
-                source_chols, source_masks,
-                r_source - cross @ lens_solution,
-            )
-            return jnp.concatenate([source_solution, lens_solution])
-    elif isinstance(preconditioner, tuple):
-        # Block-diagonal: (block_chols, block_masks)
-        block_chols, block_masks = preconditioner
-
-        if not isinstance(block_chols, (list, tuple)):
-            def _solve_one(chol: Array, r_block: Array) -> Array:
-                w = jsl.solve_triangular(chol, r_block, lower=True)
-                return jsl.solve_triangular(chol.T, w, lower=False)
-
-            def _preconditioner_solve(r: Array) -> Array:
-                r_blocks = r[block_masks]
-                z_blocks = jax.vmap(_solve_one)(block_chols, r_blocks)
-                return jnp.zeros_like(r).at[block_masks].set(z_blocks)
-        else:
-            def _preconditioner_solve(r: Array) -> Array:
-                z = jnp.zeros_like(r)
-                for chol, mask in zip(block_chols, block_masks):
-                    r_block = r[mask]
-                    w = jsl.solve_triangular(chol, r_block, lower=True)
-                    z_block = jsl.solve_triangular(chol.T, w, lower=False)
-                    z = z.at[mask].set(z_block)
-                return z
-    else:
-        # Dense Cholesky (legacy)
-        P_chol_lower = preconditioner
-
-        def _preconditioner_solve(r: Array) -> Array:
-            w = jsl.solve_triangular(P_chol_lower, r, lower=True)
-            return jsl.solve_triangular(P_chol_lower.T, w, lower=False)
-
     r = b - _A_vec(x)
-    z = _preconditioner_solve(r)
+    z = apply_preconditioner(preconditioner, r)
     p = z
     rz_old = jnp.dot(r, z)
 
@@ -192,7 +221,7 @@ def pcg_solve(
         # Non-positive curvature → system is not SPD (numerical breakdown).
         # Conventional CG theory guarantees pAp > 0 for a true SPD operator;
         # a non-positive value signals that further iterations are futile.
-        broken = pAp <= 0
+        broken = (~jnp.isfinite(pAp)) | (pAp <= 0)
 
         safe_pAp = jnp.where(pAp > 0, pAp, 1.0)
         alpha = jnp.where(pAp > 0, state.rz_old / safe_pAp, 0.0)
@@ -200,7 +229,7 @@ def pcg_solve(
         x_new = state.x + alpha * state.p
         r_new = state.r - alpha * Ap
 
-        z_new = _preconditioner_solve(r_new)
+        z_new = apply_preconditioner(preconditioner, r_new)
         rz_new = jnp.dot(r_new, z_new)
 
         beta = jnp.where(state.rz_old > 0, rz_new / state.rz_old, 0.0)
@@ -208,7 +237,11 @@ def pcg_solve(
 
         r_norm = jnp.linalg.norm(r_new)
         converged = r_norm < tol
-        failed = broken
+        failed = (
+            broken
+            | (~jnp.isfinite(r_norm))
+            | (~jnp.isfinite(rz_new))
+        )
 
         return PCGState(
             x=x_new, r=r_new, z=z_new, p=p_new, rz_old=rz_new,
@@ -228,5 +261,5 @@ def pcg_solve(
 
 __all__ = [
     "pcg_solve", "PCGInfo", "PCGState", "BlockSchurPreconditioner",
-    "solve_source_blocks",
+    "solve_source_blocks", "apply_preconditioner", "preconditioner_diagonal",
 ]

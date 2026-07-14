@@ -133,6 +133,16 @@ Run the complete example from its own directory so its relative data paths resol
   - `solver_type`: `nnls` (physical, slightly slower), `normal` (fast, may produce negatives)
   - `position_likelihood`: optional block enforcing consistency between observed image positions
 
+- **Operator pixel-source solves**
+  - `pcg`: fast unconstrained solve; linear intensities may be negative
+  - `pnpg`: preferred non-negative solve for ill-conditioned joint pixel-source
+    and MGE lens-light systems; uses matrix-free diagonal equilibration,
+    backtracking, and a componentwise KKT convergence gate
+  - `fista`: retained for compatibility with existing scalar-step workflows
+  - Tune `pnpg_max_iter`, `pnpg_rtol`, and `pnpg_power_iter` on representative
+    likelihood points before sampling; failed convergence is gated rather than
+    accepted as a finite likelihood
+
 ---
 
 ## 5. Testing & Quality
