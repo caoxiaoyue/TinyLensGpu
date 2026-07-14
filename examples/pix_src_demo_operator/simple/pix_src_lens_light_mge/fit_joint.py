@@ -220,7 +220,7 @@ for s in prior_specs:
 loglike = make_likelihood(
     prob_model,
     vectorized=True,
-    vectorized_chunk_size=50,
+    vectorized_chunk_size=100,
 )
 
 # ------------------------------------------------------------------ #

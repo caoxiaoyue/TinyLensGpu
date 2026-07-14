@@ -9,3 +9,4 @@ solver behavior, and practical lens-modeling choices.
 
 - [Stabilizing FISTA for joint pixel-source and MGE lens-light inversion](fista-joint-pixel-source-mge.md)
 - [Replacing scalar-step FISTA with PNPG](fista-joint-pixel-source-mge.md#pnpg-replacement)
+- [GPU-memory study for the joint pixel-source + MGE operator backend](joint-pixel-source-mge-operator-memory.md)
