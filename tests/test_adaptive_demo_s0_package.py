@@ -1,4 +1,4 @@
-"""Tests for adaptive pixelized-source demo S0 package validation."""
+"""Tests for adaptive pixelized-source demo source-package validation."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _load_model_adpt_reg():
     old_cwd = os.getcwd()
     try:
         spec = importlib.util.spec_from_file_location(
-            "model_adpt_reg_s0_validation_test", module_path
+            "model_adpt_reg_source_package_validation_test", module_path
         )
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
@@ -39,7 +39,7 @@ def model_adpt_reg():
     return _load_model_adpt_reg()
 
 
-def _s0_package(module, *, n=None, source_bbox=None, source_pixels=None):
+def _source_package(module, *, n=None, source_bbox=None, source_pixels=None):
     n = module.NSRC if n is None else int(n)
     bbox = (-0.5, 0.5, -0.5, 0.5) if source_bbox is None else source_bbox
     pixels = (
@@ -59,10 +59,10 @@ def _s0_package(module, *, n=None, source_bbox=None, source_pixels=None):
 
 
 @pytest.mark.unit
-def test_validate_s0_package_accepts_square_grid_and_bbox(model_adpt_reg):
-    package = _s0_package(model_adpt_reg)
+def test_validate_source_package_accepts_square_grid_and_bbox(model_adpt_reg):
+    package = _source_package(model_adpt_reg)
 
-    validated = model_adpt_reg._validate_s0_package(package)
+    validated = model_adpt_reg._validate_source_package(package)
 
     assert validated is package
     assert validated["scale_map"].shape == (model_adpt_reg.NSRC * model_adpt_reg.NSRC,)
@@ -71,7 +71,7 @@ def test_validate_s0_package_accepts_square_grid_and_bbox(model_adpt_reg):
 
 
 @pytest.mark.unit
-def test_validate_s0_package_rejects_legacy_grid_shape_metadata(model_adpt_reg):
+def test_validate_source_package_rejects_legacy_grid_shape_metadata(model_adpt_reg):
     n = model_adpt_reg.NSRC
     bbox = (-0.5, 0.5, -0.5, 0.5)
     package = {
@@ -86,26 +86,26 @@ def test_validate_s0_package_rejects_legacy_grid_shape_metadata(model_adpt_reg):
     }
 
     with pytest.raises(KeyError, match="legacy source-grid keys"):
-        model_adpt_reg._validate_s0_package(package)
+        model_adpt_reg._validate_source_package(package)
 
 
 @pytest.mark.unit
-def test_validate_s0_package_rejects_invalid_source_vector_shape(model_adpt_reg):
-    package = _s0_package(
+def test_validate_source_package_rejects_invalid_source_vector_shape(model_adpt_reg):
+    package = _source_package(
         model_adpt_reg,
         source_pixels=np.ones(model_adpt_reg.NSRC * model_adpt_reg.NSRC - 1),
     )
 
     with pytest.raises(ValueError, match="source_pixels must have shape"):
-        model_adpt_reg._validate_s0_package(package)
+        model_adpt_reg._validate_source_package(package)
 
 
 @pytest.mark.unit
-def test_validate_s0_package_rejects_rectangular_source_bbox(model_adpt_reg):
-    package = _s0_package(
+def test_validate_source_package_rejects_rectangular_source_bbox(model_adpt_reg):
+    package = _source_package(
         model_adpt_reg,
         source_bbox=(-1.0, 1.0, -0.5, 0.5),
     )
 
     with pytest.raises(ValueError, match="source_bbox is rectangular"):
-        model_adpt_reg._validate_s0_package(package)
+        model_adpt_reg._validate_source_package(package)
