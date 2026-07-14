@@ -26,6 +26,13 @@ EPSILON_REG = 1e-6  # Tiny Tikhonov regularization for lens-light amplitudes
 LENS_LIGHT_INTENSITY_NAMES = ("Ie", "flux", "amp", "intensity")
 
 
+def validate_lens_light_regularization(value: float) -> float:
+    """Return a finite positive lens-light Tikhonov strength."""
+    if not np.isfinite(value) or value <= 0.0:
+        raise ValueError("lens_light_regularization must be finite and positive")
+    return float(value)
+
+
 def validate_unit_lens_light_bases(phys_model: PhysicalModel) -> None:
     """Validate the unit-amplitude basis contract for joint inversion."""
     for index, component in enumerate(phys_model.lens_light):

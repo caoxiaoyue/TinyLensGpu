@@ -25,7 +25,10 @@ from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import (
     pcg_solve, PCGInfo, BlockSchurPreconditioner, solve_source_blocks,
 )
-from TinyLensGpu.ForwardSimulation.LensImage.pixelized import EPSILON_REG
+from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
+    EPSILON_REG,
+    validate_lens_light_regularization,
+)
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
@@ -136,9 +139,9 @@ class PixelizedImageProbModelOperator(ck.Module):
                 f"got {solver_type!r}"
             )
         self.solver_type = solver_type
-        if not np.isfinite(lens_light_regularization) or lens_light_regularization <= 0.0:
-            raise ValueError("lens_light_regularization must be finite and positive")
-        self.lens_light_regularization = float(lens_light_regularization)
+        self.lens_light_regularization = validate_lens_light_regularization(
+            lens_light_regularization
+        )
 
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)

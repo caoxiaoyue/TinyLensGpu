@@ -56,6 +56,33 @@ class LensOperatorData(NamedTuple):
     psf_fft_conj: Array  # conj(FFT(PSF)) for adjoint convolution Bᵀ
 
 
+class JointOperatorData(NamedTuple):
+    """Named data for a joint source/lens-light curvature operator.
+
+    ``pcg_solve`` and the constrained solvers retain a legacy nine-argument
+    callback interface. Only its first three slots are meaningful to the
+    joint callback; :meth:`as_solver_protocol` adapts this structured data at
+    that boundary and marks every ignored slot explicitly as ``None``.
+    """
+    source_A_data: tuple
+    lens_matrix: Array
+    lens_light_regularization: Array
+
+    def as_solver_protocol(self) -> tuple:
+        """Adapt this joint operator to the legacy solver callback protocol."""
+        return (
+            self.source_A_data,
+            self.lens_matrix,
+            self.lens_light_regularization,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+
 def _joint_A_matvec_jit(
     x: Array,
     source_A_data: tuple,
@@ -640,19 +667,14 @@ class PixelizedLensOperator:
             H=self.image_shape[0], W=self.image_shape[1],
             nsub=self.nsub, agg_n_active=self._agg_n_active,
         )
-        # Keep the nine-slot solver protocol; unused slots are harmless arrays.
-        dummy = jnp.asarray(0, dtype=lens_matrix.dtype)
-        joint_A_data = (
-            source_A_data, lens_matrix, eps, dummy, dummy, dummy,
-            dummy, (dummy, dummy), dummy,
-        )
+        joint_data = JointOperatorData(source_A_data, lens_matrix, eps)
         source_rhs = self.build_rhs(
             data_1d, noise_1d, xmin, xmax, ymin, ymax, op_data=op_data,
         )
         lens_rhs = lens_matrix.T @ (
             jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2)
         )
-        return joint_A_data, joint_matvec, jnp.concatenate(
+        return joint_data.as_solver_protocol(), joint_matvec, jnp.concatenate(
             [source_rhs, lens_rhs]
         ), lens_matrix
 

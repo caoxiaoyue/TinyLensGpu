@@ -28,13 +28,18 @@ class BlockSchurPreconditioner(NamedTuple):
     schur_chol: Array
 
 
+def _chol_solve(chol: Array, rhs: Array) -> Array:
+    """Solve ``chol @ chol.T @ x = rhs`` for a lower Cholesky factor."""
+    work = jsl.solve_triangular(chol, rhs, lower=True)
+    return jsl.solve_triangular(chol.T, work, lower=False)
+
+
 def solve_source_blocks(
     block_chols: Array, block_masks: Array, rhs: Array,
 ) -> Array:
     """Apply the inverse block-diagonal source preconditioner."""
     def _solve_one(chol: Array, rhs_block: Array) -> Array:
-        work = jsl.solve_triangular(chol, rhs_block, lower=True)
-        return jsl.solve_triangular(chol.T, work, lower=False)
+        return _chol_solve(chol, rhs_block)
 
     rhs_blocks = rhs[block_masks]
     solved = jax.vmap(_solve_one)(block_chols, rhs_blocks)
@@ -58,10 +63,7 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
             source_chols, source_masks, rhs_source,
         )
         schur_rhs = rhs_lens - cross.T @ source_inverse_rhs
-        work = jsl.solve_triangular(schur_chol, schur_rhs, lower=True)
-        lens_solution = jsl.solve_triangular(
-            schur_chol.T, work, lower=False,
-        )
+        lens_solution = _chol_solve(schur_chol, schur_rhs)
         source_solution = solve_source_blocks(
             source_chols, source_masks,
             rhs_source - cross @ lens_solution,
@@ -72,8 +74,7 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
         block_chols, block_masks = preconditioner
         if not isinstance(block_chols, (list, tuple)):
             def _solve_one(chol: Array, rhs_block: Array) -> Array:
-                work = jsl.solve_triangular(chol, rhs_block, lower=True)
-                return jsl.solve_triangular(chol.T, work, lower=False)
+                return _chol_solve(chol, rhs_block)
 
             rhs_blocks = rhs[block_masks]
             solved = jax.vmap(_solve_one)(block_chols, rhs_blocks)
@@ -81,13 +82,11 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
 
         result = jnp.zeros_like(rhs)
         for chol, mask in zip(block_chols, block_masks):
-            work = jsl.solve_triangular(chol, rhs[mask], lower=True)
-            solved = jsl.solve_triangular(chol.T, work, lower=False)
+            solved = _chol_solve(chol, rhs[mask])
             result = result.at[mask].set(solved)
         return result
 
-    work = jsl.solve_triangular(preconditioner, rhs, lower=True)
-    return jsl.solve_triangular(preconditioner.T, work, lower=False)
+    return _chol_solve(preconditioner, rhs)
 
 
 def preconditioner_diagonal(preconditioner, size: int) -> Array:

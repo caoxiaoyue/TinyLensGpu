@@ -987,11 +987,14 @@ def test_joint_inversion_rejects_non_unit_or_dynamic_lens_basis(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
 @pytest.mark.parametrize("value", [0.0, -1.0, np.nan, np.inf])
-def test_joint_inversion_rejects_invalid_lens_light_regularization(value):
-    """Lens-light zero-order regularization must be finite and positive."""
+def test_joint_inversion_rejects_invalid_lens_light_regularization(model_cls, value):
+    """Both pixelized backends reject invalid lens-light regularization."""
     with pytest.raises(ValueError, match="finite and positive"):
-        PixelizedImageProbModelOperator(
+        model_cls(
             jnp.zeros((10, 10)), jnp.ones((10, 10)) * 0.1,
             _delta_psf(), 0.08, _phys_model(),
             lens_light_regularization=value,
