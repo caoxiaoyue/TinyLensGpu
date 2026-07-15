@@ -56,7 +56,7 @@ for LAMBDA in LAMBDA_LIST:
     
     pix_src = PixelizedSourceModel(n=40,
         regularization_type="first-order",
-        log_lambda_reg=jnp.log(max(LAMBDA, 1e-8)),
+        log_lambda_reg=np.log(max(LAMBDA, 1e-8)),
     )
 
     phys_model = PhysicalModel(
@@ -182,4 +182,3 @@ print("-" * 60)
 for res in results_summary:
     print(f"{res['lambda']:10.1e} | {res['log_ev']:15.2f} | {res['chi2_nu']:10.3f}")
 print("="*60)
-

@@ -110,6 +110,7 @@ def visualize(
     data_dict: dict,
     results: dict,
     *,
+    lens_mass,
     output_path: Path,
 ) -> None:
     """Six-panel figure: observed, model, residual, norm-residual, source, coefficients."""
@@ -172,9 +173,9 @@ def visualize(
     ax6.set_title(f"Shapelet Coefficients (n_basis={len(X_vec)})")
 
     overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
-        source_ax=axes[3],
-        lens_mass=prob_model.phys_model,
+        image_axes=[ax1, ax2, ax3],
+        source_ax=ax5,
+        lens_mass=lens_mass,
     )
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -245,7 +246,12 @@ def main() -> None:
     reduced_chi2 = chi2 / dof
 
     print(f"Saving figure to {args.save_figure}...")
-    visualize(data_dict, results, output_path=args.save_figure)
+    visualize(
+        data_dict,
+        results,
+        lens_mass=prob_model.phys_model,
+        output_path=args.save_figure,
+    )
 
     payload = {
         "n_max": args.n_max,

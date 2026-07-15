@@ -134,7 +134,7 @@ def build_prob_model(regularization_type):
     if regularization_type == "matern32":
         pix_src = PixelizedSourceModel(n=40,
             regularization_type="matern32",
-            log_lambda_reg=lambda_reg,
+            log_lambda_reg=log_lambda_reg,
             kernel_scale=ParamU(
                 "kernel_scale",
                 0.3,
@@ -146,7 +146,7 @@ def build_prob_model(regularization_type):
     else:
         pix_src = PixelizedSourceModel(n=40,
             regularization_type="first-order",
-            log_lambda_reg=lambda_reg,
+            log_lambda_reg=log_lambda_reg,
         )
 
     phys_model = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])

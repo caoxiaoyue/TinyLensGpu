@@ -32,8 +32,8 @@ from TinyLensGpu.PhysicalModel import (
     build_shapelet_basis_matrix,
 )
 from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.utils import load_lens_data
-from TinyLensGpu.visualizer import overlay_critical_and_caustics, generate_radial_basis_knots
+from TinyLensGpu.utils import generate_radial_basis_knots, load_lens_data
+from TinyLensGpu.visualizer import overlay_critical_and_caustics
 from TinyLensGpu.utils.geometry import phi_q2_ellipticity
 
 
@@ -258,7 +258,9 @@ def run_inversion(
     }
 
 
-def visualize(data_dict: dict, results: dict, *, output_path: Path) -> None:
+def visualize(
+    data_dict: dict, results: dict, *, lens_mass, output_path: Path,
+) -> None:
     """Six-panel figure: observed, model, residual, norm-residual, source, lens-light."""
     noisy_image = np.asarray(data_dict["noisy_image"])
     noise_map = np.asarray(data_dict["noise_map"])
@@ -346,9 +348,9 @@ def visualize(data_dict: dict, results: dict, *, output_path: Path) -> None:
     plt.colorbar(im8, ax=ax8, fraction=0.046, pad=0.04)
 
     overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
-        source_ax=axes[3],
-        lens_mass=prob_model.phys_model,
+        image_axes=[ax1, ax2, ax3],
+        source_ax=ax5,
+        lens_mass=lens_mass,
     )
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -437,7 +439,12 @@ def main() -> None:
     )
 
     print(f"Saving figure to {args.save_figure}...")
-    visualize(data_dict, results, output_path=args.save_figure)
+    visualize(
+        data_dict,
+        results,
+        lens_mass=prob_model.phys_model,
+        output_path=args.save_figure,
+    )
 
     payload = {
         "n_max": args.n_max,

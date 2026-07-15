@@ -1,8 +1,8 @@
 """
 MGE (Multi-Gaussian Expansion) lens light + source light modeling example.
 
-This example demonstrates how to build an MGE model for lens light
-combined with a Sersic source light profile, programmatically.
+This example demonstrates how to build MGE models for both lens and source
+light, programmatically.
 """
 
 import os

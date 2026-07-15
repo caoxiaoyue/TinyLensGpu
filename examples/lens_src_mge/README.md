@@ -2,7 +2,7 @@
 
 ## Description
 
-This demo uses Multi-Gaussian Expansion (MGE) to model the lens light distribution while also modeling the source light distribution. MGE uses multiple Gaussian components to fit complex light distributions.
+This demo uses separate Multi-Gaussian Expansions (MGEs) for the lens and source light distributions, combined with an SIE plus external-shear mass model.
 
 ## Migrating from YAML to Programmatic API
 
@@ -11,62 +11,70 @@ Since MGE contains a large number of Gaussian components (usually 10-20), manual
 ### Example Code
 
 ```python
-from TinyLensGpu.Models import ParamU, GaussianEllipse
-from TinyLensGpu.Models.builder import build_lens_model, build_likelihood
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import (
+    ImageProbModel,
+)
+from TinyLensGpu.PhysicalModel import (
+    GaussianEllipse,
+    PhysicalModel,
+    Shear,
+    SIE,
+)
 
-# MGE parameters (obtained from YAML or MGE fitting)
-mge_sigmas = [0.01, 0.015, 0.023, ...]  # Gaussian width
-mge_weights = [0.1, 0.15, 0.12, ...]    # Relative weights
+def make_mge(sigmas, prefix, center_x, center_y, e1, e2):
+    components = []
+    for i, sigma in enumerate(sigmas):
+        gaussian = GaussianEllipse(
+            sigma=ParamU(f"sigma_{prefix}_{i}", sigma),
+            center_x=center_x,
+            center_y=center_y,
+            e1=e1,
+            e2=e2,
+            flux=ParamU(f"flux_{prefix}_{i}", 1.0),
+        )
+        gaussian.sigma.to_static(sigma)
+        gaussian.flux.to_static(1.0)
+        components.append(gaussian)
+    return components
 
-# Shared geometric parameters
-center_x = ParamU("center_x", 0.0, prior_type="gaussian", 
-                  prior_settings=[0.0, 0.1], limits=[-3.0, 3.0])
-center_y = ParamU("center_y", 0.0, prior_type="gaussian",
-                  prior_settings=[0.0, 0.1], limits=[-3.0, 3.0])
-e1 = ParamU("e1", 0.0, prior_type="gaussian",
-            prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-e2 = ParamU("e2", 0.0, prior_type="gaussian",
-            prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
 
-# Create MGE component list
-gaussians = []
-for i, (sigma, weight) in enumerate(zip(mge_sigmas, mge_weights)):
-    gauss = GaussianEllipse(
-        sigma=ParamU(f"sigma_{i}", sigma),  # Fixed
-        center_x=center_x,  # Shared
-        center_y=center_y,  # Shared
-        e1=e1,  # Shared
-        e2=e2,  # Shared
-        flux=ParamU(f"flux_{i}", weight),  # Linear parameter
-    )
-    gaussians.append(gauss)
+# In the full script, each MGE has its own shared dynamic geometry.
+lens_gaussians = make_mge(
+    lens_sigmas, "lens", center_x_lens, center_y_lens, e1_lens, e2_lens
+)
+source_gaussians = make_mge(
+    source_sigmas, "source", center_x_src, center_y_src, e1_src, e2_src
+)
 
-# Set dynamic parameters
-center_x.to_dynamic()
-center_y.to_dynamic()
-e1.to_dynamic()
-e2.to_dynamic()
-
-# Build model
-phys_model = build_lens_model(lens_light=gaussians)
-
-# Subsequent steps are the same as other demos
-prob_model = build_likelihood(phys_model, image_data, ...)
+phys_model = PhysicalModel(
+    lens_mass=[sie, shear],
+    source_light=source_gaussians,
+    lens_light=lens_gaussians,
+)
+prob_model = ImageProbModel(
+    image_data=image_data,
+    noise_map=noise_map,
+    psf_kernel=psf_kernel,
+    dpix=0.074,
+    nsub=4,
+    phys_model=phys_model,
+    use_linear=True,
+    mask=mask,
+    solver_type="nnls",
+)
 ```
 
 ## Notes
 
 1. **Parameter Sharing**: All Gaussian components in MGE usually share the same center and ellipticity.
 2. **Fixed Width**: Gaussian width (sigma) is usually obtained from MGE fitting and kept fixed.
-3. **Linear Parameter**: The flux of each Gaussian is solved as a linear parameter.
+3. **Linear Amplitude**: With `use_linear=True`, NNLS jointly solves the coefficients of the lens and source bases.
 
 ## Current Status
 
-Due to the complexity of MGE configuration, it is recommended to:
-1. Use `lens_only/run_model.py` as a template.
-2. Adjust the code according to actual MGE parameters.
-3. Or continue to use YAML configuration (requires older version of code).
+`run_model.py` uses the current programmatic API. Adjust its two sets of Gaussian widths and data paths for a specific dataset.
 
 ## References
 
-- Main demo directory: `../lens_src/`
+- Complete runnable script: `run_model.py`
