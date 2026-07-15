@@ -243,7 +243,7 @@ optimization; streaming the resulting exponentials is what controls memory.
 The current joint matvec computes `C a` and `C^T s` indirectly on every
 iteration: it forms image-space lens/source vectors and applies the source
 forward/adjoint operators
-([`_joint_A_matvec_jit`](../../TinyLensGpu/ForwardSimulation/LensImage/pixelized_operator.py#L59-L99)).
+([`_joint_curvature_kernel`](../../TinyLensGpu/ForwardSimulation/LensImage/pixelized_operator.py#L127-L158)).
 But preconditioner setup already computes the exact cross block and lens Gram.
 Keeping exact `C` and `G` allows the repeated operation to be written as
 

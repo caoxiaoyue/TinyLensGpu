@@ -95,13 +95,15 @@ for src_n in GRID_SIZES:
         pm_op.noise_1d, xmi, xma, ymi, yma, lam, builder, block_size=pm_op.block_size,
     )
     preconditioner = (block_chols, block_masks)
-    A_data, _A_jit = pm_op.sim_obj.build_A_matvec(
+    operator = pm_op.sim_obj.build_source_curvature_operator(
         pm_op.noise_1d, xmi, xma, ymi, yma, lam, reg_data,
     )
     b = pm_op.sim_obj.build_rhs(
         pm_op.data_1d, pm_op.noise_1d, xmi, xma, ymi, yma,
     )
-    _, info = pcg_solve(A_data, b, preconditioner, _A_jit, max_iter=200, rtol=1e-6)
+    _, info = pcg_solve(
+        operator, b, preconditioner, max_iter=200, rtol=1e-6,
+    )
     n_iter = int(info.n_iter)
 
     print(f"{src_n}x{src_n}  | {t_mat:12.4f} | {t_op:14.4f} | {ratio:7.2%} | {n_iter:10d}")

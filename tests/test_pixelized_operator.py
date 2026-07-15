@@ -1,6 +1,5 @@
 """Tests for the operator-based (matrix-free) pixelized source backend."""
 
-import functools
 import warnings
 
 import jax
@@ -11,7 +10,9 @@ import pytest
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
+    JointCurvatureData,
     PixelizedLensOperator,
+    SourceCurvatureData,
 )
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -32,6 +33,7 @@ from TinyLensGpu.utils.cg_solver import (
     preconditioner_diagonal,
     BlockSchurPreconditioner,
 )
+from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
@@ -198,36 +200,33 @@ def test_operator_infers_square_source_bbox_for_asymmetric_betas():
 # PCG solver tests
 # ------------------------------------------------------------------
 
-# Minimal RegData placeholder for PCG tests that bypass regularisation
-# via a custom _simple_A.  Not consumed by the real _A_matvec_jit path.
-_DUMMY_REG_DATA = (
-    jnp.ones(1, dtype=jnp.float32),     # scale
-    jnp.array(1.0, dtype=jnp.float32),  # scale_factor
-)
+def _dense_curvature_kernel(coefficients, matrix, _spec):
+    return matrix @ coefficients
+
+
+def _dense_curvature_operator(matrix):
+    return CurvatureOperator(
+        data=matrix,
+        kernel=_dense_curvature_kernel,
+        spec=None,
+        size=int(matrix.shape[0]),
+    )
 
 
 @pytest.mark.unit
 def test_pcg_solves_small_spd_system():
     """PCG should solve a well-conditioned SPD system to high accuracy."""
     n = 20
-    import jax, jax.random as jrandom
+    import jax.random as jrandom
     key = jrandom.PRNGKey(42)
     B = jrandom.normal(key, (n, n))
     A_dense = B.T @ B + 0.1 * jnp.eye(n)  # SPD
     b = jnp.linspace(-1.0, 1.0, n)
 
-    # Use the new tuple-based PCG API (A_data has 9 slots)
-    import functools
-    @functools.partial(jax.jit, static_argnames=())
-    def _simple_A(s, w, idx, fi, *, agg_segment_ids=None, psf_fft=None,
-                  psf_fft_conj=None,
-                  noise_var=None, reg_data=None, lambda_reg=None, **_kw):
-        return w @ s   # 'w' = A_dense (first data slot)
-
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
     P_chol = jnp.eye(n)
 
-    x, info = pcg_solve(A_data, b, P_chol, _simple_A, max_iter=100, rtol=1e-10)
+    x, info = pcg_solve(operator, b, P_chol, max_iter=100, rtol=1e-10)
 
     expected = jnp.linalg.solve(A_dense, b)
     assert jnp.allclose(x, expected, atol=1e-4)
@@ -238,27 +237,18 @@ def test_pcg_solves_small_spd_system():
 def test_pcg_uses_preconditioner():
     """PCG with a good preconditioner converges in fewer iterations."""
     n = 30
-    import jax
     diag = jnp.logspace(-2, 2, n)
     A_dense = jnp.diag(diag)
     b = jnp.ones(n)
-
-    import functools
-    @functools.partial(jax.jit, static_argnames=())
-    def _simple_A(s, w, idx, fi, *, agg_segment_ids=None, psf_fft=None,
-                  psf_fft_conj=None,
-                  noise_var=None, reg_data=None, lambda_reg=None, **_kw):
-        return w @ s
-
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     # No preconditioner (identity)
     P_chol_id = jnp.eye(n)
-    _, info_id = pcg_solve(A_data, b, P_chol_id, _simple_A, max_iter=200, rtol=1e-8)
+    _, info_id = pcg_solve(operator, b, P_chol_id, max_iter=200, rtol=1e-8)
 
     # Good preconditioner (Cholesky of the exact A)
     P_chol_good = jnp.diag(jnp.sqrt(diag))
-    _, info_good = pcg_solve(A_data, b, P_chol_good, _simple_A, max_iter=200, rtol=1e-8)
+    _, info_good = pcg_solve(operator, b, P_chol_good, max_iter=200, rtol=1e-8)
 
     # Good preconditioner should converge faster than identity
     assert info_good.n_iter < info_id.n_iter
@@ -269,7 +259,7 @@ def test_pcg_uses_preconditioner():
 def test_pcg_detects_non_spd_failure():
     """PCG should set failed=True and converged=False for a non-SPD system."""
     n = 4
-    import jax, jax.random as jrandom
+    import jax.random as jrandom
 
     key = jrandom.PRNGKey(7)
     B = jrandom.normal(key, (n, n))
@@ -277,16 +267,10 @@ def test_pcg_detects_non_spd_failure():
     A_dense = -(B.T @ B + 0.1 * jnp.eye(n))
     b = jnp.ones(n)
 
-    @functools.partial(jax.jit, static_argnames=())
-    def _simple_A(s, w, idx, fi, *, agg_segment_ids=None, psf_fft=None,
-                  psf_fft_conj=None,
-                  noise_var=None, reg_data=None, lambda_reg=None, **_kw):
-        return w @ s
-
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
     P_chol = jnp.eye(n)
 
-    x, info = pcg_solve(A_data, b, P_chol, _simple_A, max_iter=50, rtol=1e-10)
+    x, info = pcg_solve(operator, b, P_chol, max_iter=50, rtol=1e-10)
 
     assert info.failed, f"Expected failed=True for non-SPD system, got failed={info.failed}"
     assert not info.converged, "Expected converged=False when breakdown occurs"
@@ -297,22 +281,15 @@ def test_pcg_detects_non_spd_failure():
 # FISTA NNLS solver tests
 # ------------------------------------------------------------------
 
-@functools.partial(jax.jit, static_argnames=())
-def _simple_A(s, w, idx, fi, *, agg_segment_ids=None, psf_fft=None,
-              psf_fft_conj=None,
-              noise_var=None, reg_data=None, lambda_reg=None, **_kw):
-    return w @ s
-
-
 @pytest.mark.unit
 def test_fista_nnls_solves_positive_quadratic():
     """FISTA should solve a small non-negative SPD quadratic."""
     A_dense = jnp.diag(jnp.asarray([2.0, 4.0, 8.0], dtype=jnp.float32))
     b = jnp.asarray([2.0, 8.0, 4.0], dtype=jnp.float32)
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = fista_nnls_solve(
-        A_data, b, _simple_A,
+        operator, b,
         max_iter=300, rtol=1e-5, power_iter=8,
     )
 
@@ -328,10 +305,10 @@ def test_fista_nnls_projects_negative_solution_to_zero():
     """FISTA projection should enforce x >= 0 for an all-negative drive."""
     A_dense = jnp.eye(4, dtype=jnp.float32)
     b = -jnp.ones(4, dtype=jnp.float32)
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = fista_nnls_solve(
-        A_data, b, _simple_A,
+        operator, b,
         max_iter=50, rtol=1e-5, power_iter=4,
     )
 
@@ -345,10 +322,10 @@ def test_fista_nnls_reports_invalid_step_failure():
     """Invalid explicit step sizes should fail cleanly without NaN output."""
     A_dense = jnp.eye(3, dtype=jnp.float32)
     b = jnp.ones(3, dtype=jnp.float32)
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = fista_nnls_solve(
-        A_data, b, _simple_A,
+        operator, b,
         max_iter=5, step_size=-1.0,
     )
 
@@ -367,13 +344,12 @@ def test_pnpg_nnls_resolves_ill_conditioned_active_set():
     # Positive dual multipliers on zero-valued entries make ``expected`` the
     # exact KKT solution of the bound-constrained quadratic.
     b = jnp.where(expected > 0.0, eigenvalues, -jnp.ones_like(eigenvalues))
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = pnpg_nnls_solve(
-        A_data,
+        operator,
         b,
         jnp.diag(jnp.sqrt(eigenvalues)),
-        _simple_A,
         max_iter=100,
         rtol=1e-3,
     )
@@ -402,13 +378,12 @@ def test_pnpg_nnls_solves_coupled_quadratic_with_changing_active_set():
     expected = jnp.asarray([1.5, 0.0, 0.7, 0.0], dtype=jnp.float32)
     dual = jnp.asarray([0.0, 0.4, 0.0, 0.2], dtype=jnp.float32)
     b = A_dense @ expected - dual
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = pnpg_nnls_solve(
-        A_data,
+        operator,
         b,
         jnp.linalg.cholesky(A_dense),
-        _simple_A,
         x0=jnp.ones(4, dtype=jnp.float32),
         max_iter=1000,
         rtol=1e-5,
@@ -435,13 +410,12 @@ def test_pnpg_backtracks_when_power_iteration_underestimates_curvature():
         jnp.eye(size, dtype=jnp.float32)
         + 1.0e4 * jnp.outer(dominant, dominant)
     )
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     x, info = pnpg_nnls_solve(
-        A_data,
+        operator,
         jnp.ones(size, dtype=jnp.float32),
         jnp.eye(size, dtype=jnp.float32),
-        _simple_A,
         max_iter=20,
         power_iter=1,
         rtol=1.0,
@@ -456,13 +430,12 @@ def test_pnpg_backtracks_when_power_iteration_underestimates_curvature():
 def test_pnpg_line_search_failure_cannot_report_convergence():
     """A failed backtracking gate must override a loose KKT tolerance."""
     A_dense = jnp.eye(3, dtype=jnp.float32)
-    A_data = (A_dense, None, None, None, None, None, None, _DUMMY_REG_DATA, None)
+    operator = _dense_curvature_operator(A_dense)
 
     _, info = pnpg_nnls_solve(
-        A_data,
+        operator,
         jnp.ones(3, dtype=jnp.float32),
         jnp.eye(3, dtype=jnp.float32),
-        _simple_A,
         max_iter=1,
         rtol=1.0,
         max_backtracking=0,
@@ -527,13 +500,106 @@ def test_A_matvec_matches_explicit():
     s = jnp.linspace(-1.0, 1.0, 25)
 
     # Operator A — uses compact reg_data
-    A_data, _A_jit = sim_op.build_A_matvec(n_1d, xmi, xma, ymi, yma, lam, reg_data)
-    op_result = sim_op.call_A_matvec(s, A_data, _A_jit)
+    operator = sim_op.build_source_curvature_operator(
+        n_1d, xmi, xma, ymi, yma, lam, reg_data,
+    )
+    op_result = operator.matvec(s)
     explicit_result = A_explicit @ s
 
     # Float32 operator chain vs explicit dense
     np.testing.assert_allclose(
         np.array(op_result), np.array(explicit_result), rtol=1e-3, atol=1e-3
+    )
+
+
+@pytest.mark.unit
+def test_source_and_joint_curvature_operators_match_jit_and_dense():
+    """Typed source and joint adapters preserve explicit curvature semantics."""
+    image, noise, phys = _make_joint_test_data()
+    config = _sim_config()
+    simulator = PixelizedLensOperator(phys, config)
+    _, _, beta_x, beta_y = simulator._get_beta_sub_and_seed()
+    xmin, xmax, ymin, ymax = simulator._infer_and_fix_bbox(beta_x, beta_y)
+    builder = DenseRegularizationBuilder(5, "first-order")
+    reg_data = builder.make_reg_data(
+        float(xmin), float(xmax), float(ymin), float(ymax),
+    )
+    noise_1d = noise[~config.mask].ravel()
+    image_1d = image[~config.mask].ravel()
+    lambda_reg = jnp.asarray(1.0)
+    lens_regularization = jnp.asarray(1.0e-6)
+    op_data = simulator.precompute_operator_data(xmin, xmax, ymin, ymax)
+
+    source_operator = simulator.build_source_curvature_operator(
+        noise_1d, xmin, xmax, ymin, ymax, lambda_reg, reg_data,
+        op_data=op_data,
+    )
+    joint_operator, rhs, lens_matrix = simulator.build_joint_system(
+        noise_1d,
+        image_1d,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        lambda_reg,
+        reg_data,
+        lens_regularization,
+        op_data=op_data,
+    )
+
+    assert isinstance(source_operator, CurvatureOperator)
+    assert isinstance(source_operator.data, SourceCurvatureData)
+    assert isinstance(joint_operator, CurvatureOperator)
+    assert isinstance(joint_operator.data, JointCurvatureData)
+    assert isinstance(joint_operator.data.source, SourceCurvatureData)
+    assert source_operator.size == 25
+    assert joint_operator.size == 25 + lens_matrix.shape[1]
+    assert rhs.shape == (joint_operator.size,)
+
+    apply_jit = jax.jit(lambda operator, values: operator.matvec(values))
+    source_values = jnp.linspace(-0.5, 0.5, source_operator.size)
+    joint_values = jnp.linspace(-0.5, 0.5, joint_operator.size)
+    source_result = source_operator.matvec(source_values)
+    joint_result = joint_operator.matvec(joint_values)
+    np.testing.assert_allclose(
+        apply_jit(source_operator, source_values), source_result,
+        rtol=1.0e-5, atol=5.0e-5,
+    )
+    np.testing.assert_allclose(
+        apply_jit(joint_operator, joint_values), joint_result,
+        rtol=1.0e-5, atol=5.0e-5,
+    )
+
+    source_design = jax.vmap(
+        lambda basis: simulator.forward_model(
+            basis, xmin, xmax, ymin, ymax, op_data=op_data,
+        ),
+        in_axes=1,
+        out_axes=1,
+    )(jnp.eye(source_operator.size))
+    regularization, _ = builder.matrix(
+        float(xmin), float(xmax), float(ymin), float(ymax),
+    )
+    noise_variance = noise_1d ** 2
+    source_block = (
+        source_design.T @ (source_design / noise_variance[:, None])
+        + lambda_reg * regularization
+    )
+    cross_block = source_design.T @ (
+        lens_matrix / noise_variance[:, None]
+    )
+    lens_block = lens_matrix.T @ (
+        lens_matrix / noise_variance[:, None]
+    ) + lens_regularization * jnp.eye(lens_matrix.shape[1])
+    explicit_joint = jnp.block([
+        [source_block, cross_block],
+        [cross_block.T, lens_block],
+    ])
+    np.testing.assert_allclose(
+        joint_result,
+        explicit_joint @ joint_values,
+        rtol=1.0e-3,
+        atol=1.0e-1,
     )
 
 
@@ -1897,8 +1963,10 @@ def test_nonsymmetric_psf_A_matvec_matches_explicit():
 
     s = jnp.linspace(-1.0, 1.0, 25)
 
-    A_data, _A_jit = sim_op.build_A_matvec(n_1d, xmi, xma, ymi, yma, lam, reg_data)
-    op_result = sim_op.call_A_matvec(s, A_data, _A_jit)
+    operator = sim_op.build_source_curvature_operator(
+        n_1d, xmi, xma, ymi, yma, lam, reg_data,
+    )
+    op_result = operator.matvec(s)
     explicit_result = A_explicit @ s
 
     np.testing.assert_allclose(

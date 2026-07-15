@@ -9,7 +9,6 @@ primitives for efficient matrix-vector products inside PCG.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import partial
 from typing import NamedTuple
 
@@ -29,7 +28,9 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import (
 )
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
+    RegData,
 )
+from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
     infer_source_bbox,
@@ -56,100 +57,147 @@ class LensOperatorData(NamedTuple):
     psf_fft_conj: Array  # conj(FFT(PSF)) for adjoint convolution Bᵀ
 
 
-class JointOperatorData(NamedTuple):
-    """Named data for a joint source/lens-light curvature operator.
+class SourceCurvatureData(NamedTuple):
+    """Dynamic numerical data for a source-only curvature operator."""
 
-    ``pcg_solve`` and the constrained solvers retain a legacy nine-argument
-    callback interface. Only its first three slots are meaningful to the
-    joint callback; :meth:`as_solver_protocol` adapts this structured data at
-    that boundary and marks every ignored slot explicitly as ``None``.
-    """
-    source_A_data: tuple
+    weights: Array
+    indices: Array
+    flat_indices: Array
+    agg_segment_ids: Array | None
+    psf_fft: Array
+    psf_fft_conj: Array
+    noise_variance: Array
+    regularization: RegData
+    lambda_reg: Array
+
+
+class SourceCurvatureSpec(NamedTuple):
+    """Hashable source topology used as static JIT metadata."""
+
+    height: int
+    width: int
+    n_source: int
+    nsub: int
+    agg_n_active: int
+    grid_size: int
+    regularization_type: str
+
+
+class JointCurvatureData(NamedTuple):
+    """Dynamic numerical data for joint source/lens-light curvature."""
+
+    source: SourceCurvatureData
     lens_matrix: Array
     lens_light_regularization: Array
 
-    def as_solver_protocol(self) -> tuple:
-        """Adapt this joint operator to the legacy solver callback protocol."""
-        return (
-            self.source_A_data,
-            self.lens_matrix,
-            self.lens_light_regularization,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+
+class JointCurvatureSpec(NamedTuple):
+    """Hashable topology for a joint source/lens-light operator."""
+
+    source: SourceCurvatureSpec
 
 
-def _joint_A_matvec_jit(
+def _source_curvature_kernel(
+    source: Array,
+    data: SourceCurvatureData,
+    spec: SourceCurvatureSpec,
+) -> Array:
+    """Apply source curvature from typed dynamic data and static topology."""
+    return _A_matvec_jit(
+        source,
+        data.weights,
+        data.indices,
+        data.flat_indices,
+        H=spec.height,
+        W=spec.width,
+        n_source=spec.n_source,
+        nsub=spec.nsub,
+        agg_segment_ids=data.agg_segment_ids,
+        agg_n_active=spec.agg_n_active,
+        psf_fft=data.psf_fft,
+        psf_fft_conj=data.psf_fft_conj,
+        noise_var=data.noise_variance,
+        reg_data=data.regularization,
+        lambda_reg=data.lambda_reg,
+        n=spec.grid_size,
+        reg_type=spec.regularization_type,
+    )
+
+
+def _joint_curvature_kernel(
     x: Array,
-    source_A_data: tuple,
-    lens_matrix: Array,
-    lens_light_regularization: Array,
-    *,
-    source_matvec: Callable,
-    n_source: int,
-    H: int,
-    W: int,
-    nsub: int,
-    agg_n_active: int,
-    **_kwargs,
+    data: JointCurvatureData,
+    spec: JointCurvatureSpec,
 ) -> Array:
     """Apply the joint source/lens-light curvature without forming F."""
+    source_spec = spec.source
+    n_source = source_spec.n_source
     source = x[:n_source]
     lens = x[n_source:]
-    source_curvature = source_matvec(
-        source,
-        source_A_data[0], source_A_data[1], source_A_data[2],
-        agg_segment_ids=source_A_data[3], psf_fft=source_A_data[4],
-        psf_fft_conj=source_A_data[5], noise_var=source_A_data[6],
-        reg_data=source_A_data[7], lambda_reg=source_A_data[8],
+    source_curvature = _source_curvature_kernel(
+        source, data.source, source_spec,
     )
-    noise_var = source_A_data[6]
-    lens_image = lens_matrix @ lens
-    weighted_lens_image = lens_image / noise_var
+    lens_image = data.lens_matrix @ lens
+    weighted_lens_image = lens_image / data.source.noise_variance
 
     # F^T C^-1 L a, evaluated with the matrix-free source adjoint.
     H_times_lens = _source_data_adjoint(
-        weighted_lens_image, source_A_data, H, W, n_source, nsub,
+        weighted_lens_image, data.source, source_spec,
     )
     source_out = source_curvature + H_times_lens
 
     source_image = _source_data_forward(
-        source, source_A_data, H, W, nsub, agg_n_active,
+        source, data.source, source_spec,
     )
-    lens_out = lens_matrix.T @ (source_image / noise_var)
-    lens_out = lens_out + lens_matrix.T @ weighted_lens_image
-    lens_out = lens_out + lens_light_regularization * lens
+    lens_out = data.lens_matrix.T @ (
+        source_image / data.source.noise_variance
+    )
+    lens_out = lens_out + data.lens_matrix.T @ weighted_lens_image
+    lens_out = lens_out + data.lens_light_regularization * lens
     return jnp.concatenate([source_out, lens_out])
 
 
 def _source_data_forward(
-    source: Array, source_A_data: tuple, H: int, W: int,
-    nsub: int, agg_n_active: int,
+    source: Array,
+    data: SourceCurvatureData,
+    spec: SourceCurvatureSpec,
 ) -> Array:
-    weights, indices, flat_indices, agg_segment_ids, psf_fft = source_A_data[:5]
     full = _apply_L_jit(
-        source, weights, indices, flat_indices, H, W,
-        nsub, agg_segment_ids, agg_n_active,
+        source,
+        data.weights,
+        data.indices,
+        data.flat_indices,
+        spec.height,
+        spec.width,
+        spec.nsub,
+        data.agg_segment_ids,
+        spec.agg_n_active,
     )
-    return _psf_convolve_full_jit(full, psf_fft, H, W)[flat_indices]
+    return _psf_convolve_full_jit(
+        full, data.psf_fft, spec.height, spec.width,
+    )[data.flat_indices]
 
 
 def _source_data_adjoint(
-    weighted_active: Array, source_A_data: tuple, H: int, W: int,
-    n_source: int, nsub: int,
+    weighted_active: Array,
+    data: SourceCurvatureData,
+    spec: SourceCurvatureSpec,
 ) -> Array:
-    weights, indices, flat_indices, agg_segment_ids = source_A_data[:4]
-    psf_fft_conj = source_A_data[5]
-    full = jnp.zeros(H * W, dtype=weighted_active.dtype)
-    full = full.at[flat_indices].set(weighted_active)
-    correlated = _psf_convolve_full_jit(full, psf_fft_conj, H, W)
+    full = jnp.zeros(spec.height * spec.width, dtype=weighted_active.dtype)
+    full = full.at[data.flat_indices].set(weighted_active)
+    correlated = _psf_convolve_full_jit(
+        full, data.psf_fft_conj, spec.height, spec.width,
+    )
     return _apply_Lt_jit(
-        correlated, weights, indices, flat_indices, H, W,
-        n_source, nsub, agg_segment_ids,
+        correlated,
+        data.weights,
+        data.indices,
+        data.flat_indices,
+        spec.height,
+        spec.width,
+        spec.n_source,
+        spec.nsub,
+        data.agg_segment_ids,
     )
 
 
@@ -335,7 +383,7 @@ def _A_matvec_jit(
     psf_fft: Array,
     psf_fft_conj: Array,
     noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: tuple,          # RegData: (scale, scale_factor)
+    reg_data: RegData,
     lambda_reg: Array,
     n: int,                   # static: source grid dimension
     reg_type: str,            # static: "zero-order" / "first-order" / "second-order"
@@ -501,17 +549,14 @@ class PixelizedLensOperator:
         self._psf_fft = jnp.fft.rfft2(psf_shifted)
         self._psf_fft_conj = jnp.conj(self._psf_fft)
 
-        # Pre-bind static args to _A_matvec_jit so that the closure
-        # returned by build_A_matvec only captures JAX arrays (PyTree).
-        self._A_matvec_jit_prebound = partial(
-            _A_matvec_jit,
-            H=self.image_shape[0],
-            W=self.image_shape[1],
+        self._source_curvature_spec = SourceCurvatureSpec(
+            height=self.image_shape[0],
+            width=self.image_shape[1],
             n_source=self.n_source_pixels,
             nsub=self.nsub,
             agg_n_active=self._agg_n_active if self.nsub > 1 else 0,
-            n=self.source_n,
-            reg_type=self.reg_type,
+            grid_size=self.source_n,
+            regularization_type=self.reg_type,
         )
 
     # ------------------------------------------------------------------
@@ -649,34 +694,35 @@ class PixelizedLensOperator:
 
     def build_joint_system(
         self, noise_1d: Array, data_1d: Array,
-        xmin, xmax, ymin, ymax, lambda_reg: Array, reg_data: tuple,
+        xmin, xmax, ymin, ymax, lambda_reg: Array, reg_data: RegData,
         lens_light_regularization: Array,
         op_data: LensOperatorData | None = None,
-    ) -> tuple[tuple, Callable, Array, Array]:
-        """Build matrix-free joint curvature data, callback, RHS, and L."""
-        source_A_data, source_matvec = self.build_A_matvec(
+    ) -> tuple[CurvatureOperator, Array, Array]:
+        """Build the joint curvature operator, right-hand side, and lens matrix."""
+        source_operator = self.build_source_curvature_operator(
             noise_1d, xmin, xmax, ymin, ymax, lambda_reg, reg_data,
             op_data=op_data,
         )
         lens_matrix = self.build_lens_light_matrix()
         eps = jnp.asarray(lens_light_regularization, dtype=lens_matrix.dtype)
-        joint_matvec = partial(
-            _joint_A_matvec_jit,
-            source_matvec=source_matvec,
-            n_source=self.n_source_pixels,
-            H=self.image_shape[0], W=self.image_shape[1],
-            nsub=self.nsub, agg_n_active=self._agg_n_active,
+        joint_data = JointCurvatureData(
+            source=source_operator.data,
+            lens_matrix=lens_matrix,
+            lens_light_regularization=eps,
         )
-        joint_data = JointOperatorData(source_A_data, lens_matrix, eps)
+        joint_operator = CurvatureOperator(
+            data=joint_data,
+            kernel=_joint_curvature_kernel,
+            spec=JointCurvatureSpec(source=self._source_curvature_spec),
+            size=self.n_source_pixels + self.n_lens_light,
+        )
         source_rhs = self.build_rhs(
             data_1d, noise_1d, xmin, xmax, ymin, ymax, op_data=op_data,
         )
         lens_rhs = lens_matrix.T @ (
             jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2)
         )
-        return joint_data.as_solver_protocol(), joint_matvec, jnp.concatenate(
-            [source_rhs, lens_rhs]
-        ), lens_matrix
+        return joint_operator, jnp.concatenate([source_rhs, lens_rhs]), lens_matrix
 
     def reconstruct_components(
         self, source_pixels: Array, lens_light_intensities: Array,
@@ -728,18 +774,15 @@ class PixelizedLensOperator:
     # A-operator: A(s) = Mᵀ C⁻¹ M s + λ R s   (Ns → Ns)
     # ------------------------------------------------------------------
 
-    def build_A_matvec(
+    def build_source_curvature_operator(
         self,
         noise_1d: Array,
         xmin, xmax, ymin, ymax,
         lambda_reg: Array,
-        reg_data: tuple,
+        reg_data: RegData,
         op_data: LensOperatorData | None = None,
-    ) -> tuple[tuple, callable]:
-        """Return ``(A_data, _A_jit_prebound)`` for :func:`pcg_solve`.
-
-        ``A_data`` is a tuple of JAX arrays; ``_A_jit_prebound`` is a
-        ``functools.partial`` created once at ``__init__`` (static, stable).
+    ) -> CurvatureOperator:
+        """Build source curvature as a typed JAX PyTree operator.
 
         ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
         tuple holding the per-pixel adaptive ``scale`` array and physical spacing
@@ -748,31 +791,32 @@ class PixelizedLensOperator:
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
 
-        A_data = (
-            op_data.weights,
-            op_data.indices,
-            op_data.flat_indices,
-            op_data.agg_segment_ids,
-            self._psf_fft,
-            self._psf_fft_conj,
-            jnp.asarray(noise_1d) ** 2,   # noise variance
-            reg_data,                       # RegData tuple
-            jnp.asarray(lambda_reg),
+        data = SourceCurvatureData(
+            weights=op_data.weights,
+            indices=op_data.indices,
+            flat_indices=op_data.flat_indices,
+            agg_segment_ids=op_data.agg_segment_ids,
+            psf_fft=self._psf_fft,
+            psf_fft_conj=self._psf_fft_conj,
+            noise_variance=jnp.asarray(noise_1d) ** 2,
+            regularization=reg_data,
+            lambda_reg=jnp.asarray(lambda_reg),
         )
-        return A_data, self._A_matvec_jit_prebound
+        return CurvatureOperator(
+            data=data,
+            kernel=_source_curvature_kernel,
+            spec=self._source_curvature_spec,
+            size=self.n_source_pixels,
+        )
 
-    def call_A_matvec(self, s: Array, A_data: tuple, _A_jit_prebound=None) -> Array:
-        """Apply the A-operator to ``s`` using data from :meth:`build_A_matvec`.
-
-        Convenience wrapper for testing and forward-model use.
-        """
-        if _A_jit_prebound is None:
-            _A_jit_prebound = self._A_matvec_jit_prebound
-        return _A_jit_prebound(
-            s, A_data[0], A_data[1], A_data[2],
-            agg_segment_ids=A_data[3], psf_fft=A_data[4],
-            psf_fft_conj=A_data[5],
-            noise_var=A_data[6], reg_data=A_data[7], lambda_reg=A_data[8],
+    def apply_source_data_adjoint(
+        self,
+        weighted_active: Array,
+        data: SourceCurvatureData,
+    ) -> Array:
+        """Apply the source data adjoint without exposing mapping internals."""
+        return _source_data_adjoint(
+            jnp.asarray(weighted_active), data, self._source_curvature_spec,
         )
 
     # ------------------------------------------------------------------

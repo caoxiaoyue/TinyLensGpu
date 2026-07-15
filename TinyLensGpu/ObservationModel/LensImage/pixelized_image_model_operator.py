@@ -19,7 +19,7 @@ from jax import Array
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
     PixelizedLensOperator,
-    LensOperatorData,
+    SourceCurvatureData,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import (
@@ -33,6 +33,7 @@ from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
+    RegData,
     source_template_scale_map,
 )
 from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
@@ -436,23 +437,14 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     def _build_block_schur_preconditioner(
         self, source_chols: Array, source_masks: Array,
-        source_A_data: tuple, lens_matrix: Array,
+        source_data: SourceCurvatureData, lens_matrix: Array,
     ) -> BlockSchurPreconditioner:
         """Build the coupled source/lens-light block-Schur preconditioner."""
-        noise_var = source_A_data[6]
+        noise_var = source_data.noise_variance
 
         def cross_column(_, lens_column):
-            column = self.sim_obj.build_rhs(
-                lens_column, jnp.sqrt(noise_var), 0.0, 1.0, 0.0, 1.0,
-                op_data=LensOperatorData(
-                    weights=source_A_data[0], indices=source_A_data[1],
-                    flat_indices=source_A_data[2],
-                    n_source=self.sim_obj.n_source_pixels,
-                    nsub=self.sim_obj.nsub,
-                    agg_segment_ids=source_A_data[3],
-                    agg_n_active=self.sim_obj._agg_n_active,
-                    psf_fft_conj=source_A_data[5],
-                ),
+            column = self.sim_obj.apply_source_data_adjoint(
+                lens_column / noise_var, source_data,
             )
             return None, column
 
@@ -515,7 +507,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         self,
         xmin, xmax, ymin, ymax,
         lambda_reg: Array,
-        reg_data: tuple,
+        reg_data: RegData,
         preconditioner,
         op_data=None,  # precomputed LensOperatorData
     ) -> tuple[Array, PCGInfo | FISTAInfo | PNPGInfo]:
@@ -531,13 +523,13 @@ class PixelizedImageProbModelOperator(ck.Module):
         returned linear parameters are projected to be non-negative.
         """
         if self.has_lens_light:
-            A_data, _A_jit_prebound, b, _ = self.sim_obj.build_joint_system(
+            operator, b, _ = self.sim_obj.build_joint_system(
                 self.noise_1d, self.data_1d,
                 xmin, xmax, ymin, ymax, lambda_reg, reg_data,
                 self.lens_light_regularization, op_data=op_data,
             )
         else:
-            A_data, _A_jit_prebound = self.sim_obj.build_A_matvec(
+            operator = self.sim_obj.build_source_curvature_operator(
                 self.noise_1d, xmin, xmax, ymin, ymax,
                 lambda_reg, reg_data, op_data=op_data,
             )
@@ -548,10 +540,9 @@ class PixelizedImageProbModelOperator(ck.Module):
 
         if self.solver_type == "pnpg":
             warm_start, warm_info = pcg_solve(
-                A_data,
+                operator,
                 b,
                 preconditioner,
-                _A_jit_prebound,
                 max_iter=self.pcg_max_iter,
                 rtol=self.pcg_rtol,
             )
@@ -561,10 +552,9 @@ class PixelizedImageProbModelOperator(ck.Module):
                 jnp.zeros_like(warm_start),
             )
             source_pixels, solver_info = pnpg_nnls_solve(
-                A_data,
+                operator,
                 b,
                 preconditioner,
-                _A_jit_prebound,
                 x0=warm_start,
                 max_iter=self.pnpg_max_iter,
                 rtol=self.pnpg_rtol,
@@ -580,31 +570,14 @@ class PixelizedImageProbModelOperator(ck.Module):
             constrained_max_iter = self.fista_max_iter
             if constrained_max_iter > 0:
                 warm_start, warm_info = pcg_solve(
-                    A_data,
+                    operator,
                     b,
                     preconditioner,
-                    _A_jit_prebound,
                     max_iter=self.pcg_max_iter,
                     rtol=self.pcg_rtol,
                 )
                 projected_warm_start = jnp.maximum(warm_start, 0.0)
-                (
-                    weights, indices, flat_indices, agg_seg,
-                    psf_fft, psf_fft_conj, noise_var, solver_reg_data,
-                    solver_lambda_reg,
-                ) = A_data
-                warm_Ax = _A_jit_prebound(
-                    projected_warm_start,
-                    weights,
-                    indices,
-                    flat_indices,
-                    agg_segment_ids=agg_seg,
-                    psf_fft=psf_fft,
-                    psf_fft_conj=psf_fft_conj,
-                    noise_var=noise_var,
-                    reg_data=solver_reg_data,
-                    lambda_reg=solver_lambda_reg,
-                )
+                warm_Ax = operator.matvec(projected_warm_start)
                 warm_objective = (
                     0.5 * jnp.dot(projected_warm_start, warm_Ax)
                     - jnp.dot(b, projected_warm_start)
@@ -622,9 +595,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             else:
                 warm_start = jnp.zeros_like(b)
             source_pixels, solver_info = fista_nnls_solve(
-                A_data,
+                operator,
                 b,
-                _A_jit_prebound,
                 x0=warm_start,
                 max_iter=self.fista_max_iter,
                 rtol=self.fista_rtol,
@@ -633,10 +605,9 @@ class PixelizedImageProbModelOperator(ck.Module):
             )
         else:
             source_pixels, solver_info = pcg_solve(
-                A_data,
+                operator,
                 b,
                 preconditioner,
-                _A_jit_prebound,
                 max_iter=self.pcg_max_iter,
                 rtol=self.pcg_rtol,
             )
@@ -689,12 +660,12 @@ class PixelizedImageProbModelOperator(ck.Module):
             scale=scale,
         )
         if self.has_lens_light:
-            source_A_data, _ = self.sim_obj.build_A_matvec(
+            source_operator = self.sim_obj.build_source_curvature_operator(
                 self.noise_1d, xmin, xmax, ymin, ymax,
                 lambda_reg, reg_data, op_data=op_data,
             )
             preconditioner = self._build_block_schur_preconditioner(
-                block_chols, block_masks, source_A_data,
+                block_chols, block_masks, source_operator.data,
                 self.sim_obj.build_lens_light_matrix(),
             )
         else:
@@ -809,12 +780,12 @@ class PixelizedImageProbModelOperator(ck.Module):
             scale=scale,
         )
         if self.has_lens_light:
-            source_A_data, _ = self.sim_obj.build_A_matvec(
+            source_operator = self.sim_obj.build_source_curvature_operator(
                 self.noise_1d, xmin, xmax, ymin, ymax,
                 lambda_reg, reg_data, op_data=op_data,
             )
             preconditioner = self._build_block_schur_preconditioner(
-                block_chols, block_masks, source_A_data,
+                block_chols, block_masks, source_operator.data,
                 self.sim_obj.build_lens_light_matrix(),
             )
         else:

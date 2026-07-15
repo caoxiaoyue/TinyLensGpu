@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from jax import Array, lax
 
 from TinyLensGpu.utils.cg_solver import preconditioner_diagonal
+from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 
 
 class PNPGInfo(NamedTuple):
@@ -43,7 +44,6 @@ class _LineSearchState(NamedTuple):
 @partial(
     jax.jit,
     static_argnames=(
-        "_A_jit_prebound",
         "max_iter",
         "rtol",
         "power_iter",
@@ -52,10 +52,9 @@ class _LineSearchState(NamedTuple):
     ),
 )
 def pnpg_nnls_solve(
-    A_data: tuple,
+    operator: CurvatureOperator,
     b: Array,
     preconditioner,
-    _A_jit_prebound,
     x0: Array | None = None,
     max_iter: int = 1000,
     rtol: float = 2e-2,
@@ -71,34 +70,12 @@ def pnpg_nnls_solve(
     A projected PCG estimate may be supplied as ``x0``; it is rescaled along
     its feasible ray to guarantee an objective no worse than the zero vector.
     """
-    (
-        weights,
-        indices,
-        flat_indices,
-        agg_seg,
-        psf_fft,
-        psf_fft_conj,
-        noise_var,
-        reg_data,
-        lambda_reg,
-    ) = A_data
     b = jnp.asarray(b)
     dtype = b.dtype
     eps = jnp.finfo(dtype).eps
 
     def A_vec(value: Array) -> Array:
-        return _A_jit_prebound(
-            value,
-            weights,
-            indices,
-            flat_indices,
-            agg_segment_ids=agg_seg,
-            psf_fft=psf_fft,
-            psf_fft_conj=psf_fft_conj,
-            noise_var=noise_var,
-            reg_data=reg_data,
-            lambda_reg=lambda_reg,
-        )
+        return operator.matvec(value)
 
     diagonal = preconditioner_diagonal(preconditioner, b.shape[0])
     diagonal_fallback = jnp.asarray(10.0 * eps, dtype) * jnp.maximum(

@@ -3,10 +3,8 @@
 Implements standard PCG with a Cholesky-factorized preconditioner.
 Designed to work inside a ``jax.jit`` context (e.g., from ``make_likelihood``).
 
-To avoid recompilation, the A-matrix operator is split into two parts:
-
-* ``A_data`` — a tuple-of-arrays (traced normally by jit).
-* ``_A_jit_prebound`` — a ``functools.partial`` (static, created once at init).
+The curvature operator is a JAX PyTree whose numerical data are traced
+normally while its kernel and topology remain static JIT metadata.
 """
 
 from __future__ import annotations
@@ -18,6 +16,8 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 from jax import Array, lax
+
+from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 
 
 class BlockSchurPreconditioner(NamedTuple):
@@ -145,12 +145,11 @@ class PCGInfo(NamedTuple):
     failed: Array      # True iff solver aborted (e.g. non-positive curvature)
 
 
-@partial(jax.jit, static_argnames=("_A_jit_prebound", "max_iter", "rtol", "atol"))
+@partial(jax.jit, static_argnames=("max_iter", "rtol", "atol"))
 def pcg_solve(
-    A_data: tuple,
+    operator: CurvatureOperator,
     b: Array,
     preconditioner,
-    _A_jit_prebound,
     x0: Array | None = None,
     max_iter: int = 200,
     rtol: float = 1e-6,
@@ -160,11 +159,9 @@ def pcg_solve(
 
     Parameters
     ----------
-    A_data : tuple of Arrays
-        ``(weights, indices, flat_indices, agg_seg, psf_fft, psf_fft_conj,
-          noise_var, reg_data, lambda_reg)``.
-        ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-        tuple — compact descriptor for matrix-free or GP regularisation.
+    operator : CurvatureOperator
+        Matrix-free curvature. Solvers depend only on its ``matvec`` interface
+        and do not inspect source-only or joint operator data.
     b : Array, shape ``(N,)``
     preconditioner : Array or tuple[Array | list[Array], Array | list[Array]]
         Either a dense Cholesky lower factor ``P_chol_lower`` of shape
@@ -174,32 +171,19 @@ def pcg_solve(
         the global flat source indices belonging to that block.  If all
         blocks share a size, these may be stacked arrays with shapes
         ``(n_blocks, b, b)`` and ``(n_blocks, b)``.
-    _A_jit_prebound : callable (static)
-        ``functools.partial`` of ``_A_matvec_jit`` with static ints bound.
-        Created once at ``PixelizedLensOperator.__init__`` — its identity
-        never changes, so jit caching works across lens-parameter updates.
     x0, max_iter, rtol, atol : optional
 
     Returns
     -------
     tuple[Array, PCGInfo]
     """
-    # Unpack A_data
-    (weights, indices, flat_indices, agg_seg,
-     psf_fft, psf_fft_conj, noise_var, reg_data, lambda_reg) = A_data
-
     b = jnp.asarray(b)
     N = b.shape[0]
 
     x = jnp.zeros(N, dtype=b.dtype) if x0 is None else jnp.asarray(x0, dtype=b.dtype)
 
     def _A_vec(s: Array) -> Array:
-        return _A_jit_prebound(
-            s, weights, indices, flat_indices,
-            agg_segment_ids=agg_seg, psf_fft=psf_fft,
-            psf_fft_conj=psf_fft_conj,
-            noise_var=noise_var, reg_data=reg_data, lambda_reg=lambda_reg,
-        )
+        return operator.matvec(s)
 
     r = b - _A_vec(x)
     z = apply_preconditioner(preconditioner, r)

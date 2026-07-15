@@ -1,8 +1,8 @@
 """Projected FISTA solver for matrix-free non-negative quadratic problems.
 
 Solves ``min_x 0.5 * x.T @ A @ x - b.T @ x`` subject to ``x >= 0`` using
-matrix-vector products supplied through the same ``A_data`` / prebound callback
-pattern used by the PCG solver.
+matrix-vector products supplied through the same typed curvature-operator seam
+used by the PCG solver.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 from jax import Array, lax
+
+from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 
 
 class FISTAState(NamedTuple):
@@ -39,7 +41,6 @@ class FISTAInfo(NamedTuple):
 @partial(
     jax.jit,
     static_argnames=(
-        "_A_jit_prebound",
         "max_iter",
         "rtol",
         "atol",
@@ -49,9 +50,8 @@ class FISTAInfo(NamedTuple):
     ),
 )
 def fista_nnls_solve(
-    A_data: tuple,
+    operator: CurvatureOperator,
     b: Array,
-    _A_jit_prebound,
     x0: Array | None = None,
     max_iter: int = 300,
     rtol: float = 1e-5,
@@ -64,13 +64,10 @@ def fista_nnls_solve(
 
     Parameters
     ----------
-    A_data : tuple of Arrays
-        Operator data accepted by the prebound ``A(s)`` callback.
+    operator : CurvatureOperator
+        Matrix-free curvature shared with the PCG and PNPG solvers.
     b : Array, shape ``(N,)``
         Right-hand side vector.
-    _A_jit_prebound : callable
-        Static matvec callback using the same call signature as the operator
-        PCG path.
     x0 : Array, optional
         Initial point. If omitted, starts from the zero vector.
     max_iter, rtol, atol : optional
@@ -88,21 +85,13 @@ def fista_nnls_solve(
         Positive explicit step size. When omitted, a matrix-free estimate is
         used.
     """
-    (weights, indices, flat_indices, agg_seg,
-     psf_fft, psf_fft_conj, noise_var, reg_data, lambda_reg) = A_data
-
     b = jnp.asarray(b)
     n = b.shape[0]
     dtype = b.dtype
     eps = jnp.finfo(dtype).eps
 
     def _A_vec(s: Array) -> Array:
-        return _A_jit_prebound(
-            s, weights, indices, flat_indices,
-            agg_segment_ids=agg_seg, psf_fft=psf_fft,
-            psf_fft_conj=psf_fft_conj,
-            noise_var=noise_var, reg_data=reg_data, lambda_reg=lambda_reg,
-        )
+        return operator.matvec(s)
 
     def _estimate_lipschitz() -> Array:
         idx = jnp.arange(n, dtype=dtype)
