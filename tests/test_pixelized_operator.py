@@ -131,6 +131,45 @@ def _make_test_data(psf=None, mask=None, nsub=1):
     return mock_image, noise, phys, config
 
 
+def _make_joint_test_data():
+    """Create a positive source + lens-light problem for constrained solvers."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.35,
+        n_sersic=2.0,
+        Ie=1.0,
+        e1=0.05,
+        e2=-0.02,
+        center_x=0.0,
+        center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic,
+        lens_light.n_sersic,
+        lens_light.Ie,
+        lens_light.e1,
+        lens_light.e2,
+        lens_light.center_x,
+        lens_light.center_y,
+    ):
+        parameter.to_static()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()],
+        source_light=[_pix_src()],
+        lens_light=[lens_light],
+    )
+    config = _sim_config()
+    simulator = PixelizedLensSimulator(phys, config)
+    true_source = jnp.linspace(0.05, 1.0, 25)
+    image = simulator.simulate(
+        true_source,
+        lens_light_amplitudes=jnp.asarray([0.7]),
+    )
+    noise = jnp.ones_like(image) * 0.05
+    return image, noise, phys
+
+
 def _assert_square_bbox(source_bbox):
     xmin, xmax, ymin, ymax = source_bbox
     assert jnp.allclose(xmax - xmin, ymax - ymin)
@@ -741,6 +780,29 @@ def test_operator_fista_solver_controls_are_configurable():
 
 
 @pytest.mark.unit
+def test_operator_pnpg_solver_controls_are_configurable():
+    """Constructor-level PNPG controls should be stored on the model."""
+    mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+
+    model = PixelizedImageProbModelOperator(
+        mock,
+        noise,
+        _delta_psf(),
+        0.08,
+        phys,
+        mask=config.mask,
+        solver_type="pnpg",
+        pnpg_max_iter=17,
+        pnpg_rtol=2.0e-5,
+        pnpg_power_iter=5,
+    )
+
+    assert model.pnpg_max_iter == 17
+    assert model.pnpg_rtol == 2.0e-5
+    assert model.pnpg_power_iter == 5
+
+
+@pytest.mark.unit
 def test_operator_fista_nonconvergence_penalizes_evidence():
     """FISTA gating should penalize an explicitly non-converged solve.
 
@@ -763,11 +825,47 @@ def test_operator_fista_nonconvergence_penalizes_evidence():
     assert log_ev < -1.0e9
 
 
+@pytest.mark.unit
+@pytest.mark.boundary
+def test_operator_pnpg_joint_nonconvergence_penalizes_evidence():
+    """A non-converged PNPG joint solve should return the exact penalty."""
+    image, noise, phys = _make_joint_test_data()
+    model = PixelizedImageProbModelOperator(
+        image,
+        noise,
+        _delta_psf(),
+        0.08,
+        phys,
+        solver_type="pnpg",
+        pnpg_max_iter=0,
+        pnpg_rtol=0.0,
+    )
+
+    assert model() == -1.0e10
+
+
 def _dense_objective(design_matrix, data_1d, noise_1d, reg_matrix, lambda_reg, source):
     resid = data_1d - design_matrix @ source
     e_d = 0.5 * jnp.sum((resid / noise_1d) ** 2)
     e_s = 0.5 * jnp.dot(source, reg_matrix @ source)
     return e_d + lambda_reg * e_s
+
+
+def _joint_objective(
+    model_image,
+    data,
+    noise,
+    reg_matrix,
+    lambda_reg,
+    source,
+    lens_intensities,
+    lens_light_regularization,
+):
+    resid = data - model_image
+    e_d = 0.5 * jnp.sum((resid / noise) ** 2)
+    e_source = 0.5 * lambda_reg * jnp.dot(source, reg_matrix @ source)
+    e_lens = 0.5 * lens_light_regularization * jnp.sum(lens_intensities**2)
+    return e_d + e_source + e_lens
 
 
 @pytest.mark.unit
@@ -846,6 +944,101 @@ def test_operator_pnpg_matches_dense_nnls_objective_small_grid():
 
     assert jnp.all(src_op >= 0.0)
     np.testing.assert_allclose(float(obj_op), float(obj_dense), rtol=5e-3, atol=5e-3)
+
+
+@pytest.mark.unit
+def test_operator_pnpg_joint_matches_dense_nnls_objective():
+    """PNPG joint MAP should match dense NNLS without collapsing components."""
+    image, noise, phys = _make_joint_test_data()
+    lens_reg = 1.0e-6
+    lambda_reg = jnp.exp(jnp.asarray(phys.source_light[0].log_lambda_reg.value))
+    dense = PixelizedImageProbModel(
+        image,
+        noise,
+        _delta_psf(),
+        0.08,
+        phys,
+        solver_type="nnls",
+        lens_light_regularization=lens_reg,
+    )
+    operator = PixelizedImageProbModelOperator(
+        image,
+        noise,
+        _delta_psf(),
+        0.08,
+        phys,
+        solver_type="pnpg",
+        pnpg_max_iter=1000,
+        pnpg_rtol=1.0e-4,
+        lens_light_regularization=lens_reg,
+    )
+
+    dense_image, dense_source, dense_lens = dense.forward_model(
+        return_components=True
+    )
+    operator_image, operator_source, operator_lens = operator.forward_model(
+        return_components=True
+    )
+    _, source_bbox = dense.sim_obj.design_matrix()
+    reg_matrix, _ = DenseRegularizationBuilder(
+        5, "first-order"
+    ).matrix(*source_bbox)
+    dense_objective = _joint_objective(
+        dense_image,
+        image,
+        noise,
+        reg_matrix,
+        lambda_reg,
+        dense_source,
+        dense_lens,
+        lens_reg,
+    )
+    operator_objective = _joint_objective(
+        operator_image,
+        image,
+        noise,
+        reg_matrix,
+        lambda_reg,
+        operator_source,
+        operator_lens,
+        lens_reg,
+    )
+
+    assert jnp.all(operator_source >= 0.0)
+    assert jnp.all(operator_lens >= 0.0)
+    assert jnp.any(operator_source > 1.0e-6)
+    assert jnp.any(operator_lens > 1.0e-6)
+    np.testing.assert_allclose(
+        float(operator_objective),
+        float(dense_objective),
+        rtol=5.0e-3,
+        atol=5.0e-3,
+    )
+
+
+@pytest.mark.integration
+def test_operator_pnpg_joint_forward_model_jits_end_to_end():
+    """The constrained joint forward path should compile and return components."""
+    image, noise, phys = _make_joint_test_data()
+    model = PixelizedImageProbModelOperator(
+        image,
+        noise,
+        _delta_psf(),
+        0.08,
+        phys,
+        solver_type="pnpg",
+    )
+
+    model_image, source, lens = jax.jit(
+        lambda: model.forward_model(return_components=True)
+    )()
+
+    assert jnp.all(jnp.isfinite(model_image))
+    assert jnp.any(model_image != 0.0)
+    assert jnp.all(source >= 0.0)
+    assert jnp.any(source > 1.0e-6)
+    assert jnp.all(lens >= 0.0)
+    assert jnp.any(lens > 1.0e-6)
 
 
 @pytest.mark.unit
