@@ -944,11 +944,10 @@ class PixelizedLensOperator:
                     g2l = g2l.at[g_idx].set(loc_i)
                 loc_idx = g2l[indices]
 
-                P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
-
                 wgt_i = aff_w[:, :, None]
                 wgt_j = aff_w[:, None, :]
                 w_prod = wgt_i * wgt_j * aff_we[:, None, None]
+                P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
 
                 loc_i = loc_idx[:, :, None]
                 loc_j = loc_idx[:, None, :]
@@ -963,7 +962,7 @@ class PixelizedLensOperator:
 
                 loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
                 loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
-                vals_f = w_prod.ravel() * valid_f_float
+                vals_f = (w_prod.ravel() * valid_f_float).astype(P_block.dtype)
 
                 P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
 
@@ -1039,11 +1038,10 @@ class PixelizedLensOperator:
             loc_idx = g2l[indices]  # (Nd, 4)
 
             # ---- Scatter-add Lᵀ W_eff L into block-sized matrix ----
-            P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
-
             wgt_i = aff_w[:, :, None]              # (Nd, 4, 1)
             wgt_j = aff_w[:, None, :]              # (Nd, 1, 4)
             w_prod = wgt_i * wgt_j * aff_we[:, None, None]  # (Nd, 4, 4)
+            P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
 
             loc_i = loc_idx[:, :, None]            # (Nd, 4, 1)
             loc_j = loc_idx[:, None, :]            # (Nd, 1, 4)
@@ -1058,7 +1056,7 @@ class PixelizedLensOperator:
 
             loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
             loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
-            vals_f = w_prod.ravel() * valid_f_float
+            vals_f = (w_prod.ravel() * valid_f_float).astype(P_block.dtype)
 
             P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
 

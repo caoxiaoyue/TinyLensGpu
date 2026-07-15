@@ -387,8 +387,8 @@ class DenseRegularizationBuilder:
         w_x, w_y = self._edge_weights_first_order(scale_2d)
         scale_factor = ((self.n - 1) / (xmax - xmin)) ** 2
 
-        wx_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
-        wy_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        wx_full = jnp.ones(self.n_pixels, dtype=w_x.dtype)
+        wy_full = jnp.ones(self.n_pixels, dtype=w_y.dtype)
         if self.n > 1:
             interior_x = jnp.arange(self.n_pixels).reshape(self.n, self.n)[:, :-1].ravel()
             wx_full = wx_full.at[interior_x].set(w_x.ravel())
@@ -409,8 +409,8 @@ class DenseRegularizationBuilder:
         w_x2, w_y2, w_x2_near, w_y2_near = self._edge_weights_second_order(scale_2d)
         scale_factor = ((self.n - 1) / (xmax - xmin)) ** 4
 
-        wlx_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
-        wly_full = jnp.ones(self.n_pixels, dtype=jnp.float32)
+        wlx_full = jnp.ones(self.n_pixels, dtype=w_x2.dtype)
+        wly_full = jnp.ones(self.n_pixels, dtype=w_y2.dtype)
         if self.n > 2:
             full_x = jnp.arange(self.n_pixels).reshape(self.n, self.n)[:, :-2].ravel()
             wlx_full = wlx_full.at[full_x].set(w_x2.ravel())
@@ -545,7 +545,10 @@ class DenseRegularizationBuilder:
         block_nx = x_e - x_s
         block_ny = y_e - y_s
         block_n = block_nx * block_ny
-        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+        weight_dtype = (
+            scale_2d.dtype if scale_2d is not None else scale_factor.dtype
+        )
+        R = jnp.zeros((block_n, block_n), dtype=weight_dtype)
 
         # --- Horizontal edges: (x, y) -> (x+1, y) for x in [0, n-2] ---
         # Each edge contributes w to both endpoint diagonals and -w to the
@@ -636,7 +639,10 @@ class DenseRegularizationBuilder:
         """
         bs = block_size
         block_n = bs * bs
-        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+        weight_dtype = (
+            scale_2d.dtype if scale_2d is not None else scale_factor.dtype
+        )
+        R = jnp.zeros((block_n, block_n), dtype=weight_dtype)
 
         # ---- Horizontal edges ----
         x_h_start = jnp.maximum(0, x_s - 1)
@@ -751,7 +757,10 @@ class DenseRegularizationBuilder:
         block_nx = x_e - x_s
         block_ny = y_e - y_s
         block_n = block_nx * block_ny
-        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+        weight_dtype = (
+            scale_2d.dtype if scale_2d is not None else scale_factor.dtype
+        )
+        R = jnp.zeros((block_n, block_n), dtype=weight_dtype)
 
         # --- Horizontal full-curvature: [1, -2, 1] at (x, y), x in [0, n-3] ---
         # Contribution: w * [[1, -2, 1], [-2, 4, -2], [1, -2, 1]] at (x, x+1, x+2)
@@ -954,7 +963,10 @@ class DenseRegularizationBuilder:
         """
         bs = block_size
         block_n = bs * bs
-        R = jnp.zeros((block_n, block_n), dtype=jnp.float32)
+        weight_dtype = (
+            scale_2d.dtype if scale_2d is not None else scale_factor.dtype
+        )
+        R = jnp.zeros((block_n, block_n), dtype=weight_dtype)
         yy_off = jnp.arange(bs, dtype=jnp.int32)
         xx_off = jnp.arange(bs, dtype=jnp.int32)
 
@@ -1458,8 +1470,11 @@ class DenseRegularizationBuilder:
 
         # x/y accumulators are kept separate for clarity but combined with the same
         # scale_factor because the square grid and square bbox guarantee dx == dy.
-        diag_x = jnp.zeros((self.n, self.n), dtype=jnp.float32)
-        diag_y = jnp.zeros((self.n, self.n), dtype=jnp.float32)
+        weight_dtype = (
+            scale_2d.dtype if scale_2d is not None else scale_factor.dtype
+        )
+        diag_x = jnp.zeros((self.n, self.n), dtype=weight_dtype)
+        diag_y = jnp.zeros((self.n, self.n), dtype=weight_dtype)
 
         if self.regularization_type == "first-order":
             w_x, w_y = self._edge_weights_first_order(scale_2d)

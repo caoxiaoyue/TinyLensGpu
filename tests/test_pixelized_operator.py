@@ -1,6 +1,7 @@
 """Tests for the operator-based (matrix-free) pixelized source backend."""
 
 import functools
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -582,6 +583,29 @@ def test_preconditioner_stacks_equal_sized_blocks():
     assert isinstance(block_masks, jnp.ndarray)
     assert block_chols.shape == (1, 25, 25)
     assert block_masks.shape == (1, 25)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("block_size", [3, 5])
+def test_operator_forward_model_is_warning_free_with_x64_enabled(block_size):
+    """Both ragged and uniform block paths should handle x64 inputs safely."""
+    with jax.experimental.enable_x64():
+        mock, noise, phys, config = _make_test_data(psf=_delta_psf())
+        model = PixelizedImageProbModelOperator(
+            mock,
+            noise,
+            _delta_psf(),
+            0.08,
+            phys,
+            mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+            solver_type="fista",
+            block_size=block_size,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            model.forward_model()
 
 
 # ------------------------------------------------------------------

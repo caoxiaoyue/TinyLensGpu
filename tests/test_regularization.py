@@ -7,6 +7,8 @@ difference regularization and Gaussian-process kernel regularization.
 
 # pyright: reportMissingImports=false
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -88,6 +90,107 @@ class TestDenseRegularizationBuilder:
         matrix, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0)
 
         assert jnp.allclose(matrix, jnp.eye(n * n))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["first-order", "second-order"])
+def test_adaptive_dense_matrix_is_warning_free_with_x64_enabled(
+    regularization_type,
+):
+    """Adaptive dense matrices should use the scale dtype for weight storage."""
+    with jax.experimental.enable_x64():
+        builder = DenseRegularizationBuilder(5, regularization_type)
+        scale = jnp.linspace(0.5, 1.5, 25)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            matrix, _ = builder.matrix(-1.0, 1.0, -1.0, 1.0, scale=scale)
+
+        assert matrix.dtype == jnp.float64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["first-order", "second-order"])
+def test_adaptive_diagonal_is_warning_free_with_x64_enabled(
+    regularization_type,
+):
+    """Adaptive analytic diagonals should preserve x64 scale weights."""
+    with jax.experimental.enable_x64():
+        builder = DenseRegularizationBuilder(5, regularization_type)
+        scale = jnp.linspace(0.5, 1.5, 25)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            diagonal = builder.diag_R(-1.0, 1.0, -1.0, 1.0, scale=scale)
+
+        assert diagonal.dtype == jnp.float64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["first-order", "second-order"])
+@pytest.mark.parametrize("vectorized", [False, True])
+def test_adaptive_block_matrix_is_warning_free_with_x64_enabled(
+    regularization_type,
+    vectorized,
+):
+    """Adaptive legacy and scan-compatible blocks should be x64-safe."""
+    with jax.experimental.enable_x64():
+        builder = DenseRegularizationBuilder(5, regularization_type)
+        scale = jnp.linspace(0.5, 1.5, 25)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            if vectorized:
+                block = builder.block_diag_R_vec(
+                    jnp.asarray(0, dtype=jnp.int32),
+                    jnp.asarray(5, dtype=jnp.int32),
+                    jnp.asarray(0, dtype=jnp.int32),
+                    jnp.asarray(5, dtype=jnp.int32),
+                    -1.0,
+                    1.0,
+                    -1.0,
+                    1.0,
+                    scale=scale,
+                    block_size=5,
+                )
+            else:
+                block = builder.block_diag_R(
+                    0,
+                    3,
+                    0,
+                    3,
+                    -1.0,
+                    1.0,
+                    -1.0,
+                    1.0,
+                    scale=scale,
+                )
+
+        assert block.dtype == jnp.float64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["first-order", "second-order"])
+def test_adaptive_block_logdet_is_warning_free_with_x64_enabled(
+    regularization_type,
+):
+    """Adaptive block log determinants should preserve x64 scale weights."""
+    with jax.experimental.enable_x64():
+        builder = DenseRegularizationBuilder(5, regularization_type)
+        scale = jnp.linspace(0.5, 1.5, 25)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            logdet = builder.logdet_free(
+                -1.0,
+                1.0,
+                -1.0,
+                1.0,
+                scale=scale,
+                block_size=3,
+            )
+
+        assert logdet.dtype == jnp.float64
 
 
 @pytest.mark.unit
