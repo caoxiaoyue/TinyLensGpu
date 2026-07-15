@@ -25,7 +25,12 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
     PixelizedSourceModel,
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
-from TinyLensGpu.utils.cg_solver import pcg_solve, BlockSchurPreconditioner
+from TinyLensGpu.utils.cg_solver import (
+    pcg_solve,
+    apply_preconditioner,
+    preconditioner_diagonal,
+    BlockSchurPreconditioner,
+)
 from TinyLensGpu.utils.fista_solver import fista_nnls_solve
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
@@ -878,6 +883,57 @@ def test_operator_joint_inversion_returns_source_and_lens_light_intensities():
 
 
 @pytest.mark.unit
+@pytest.mark.boundary
+@pytest.mark.parametrize("solver_type", ["pcg", "fista", "pnpg"])
+def test_operator_joint_inversion_supports_ragged_source_blocks(solver_type):
+    """Joint inversion supports source grids not divisible by block size."""
+    from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
+
+    lens_light = SersicEllipse(
+        R_sersic=0.4, n_sersic=2.0, Ie=1.0,
+        e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for parameter in (
+        lens_light.R_sersic, lens_light.n_sersic, lens_light.Ie,
+        lens_light.e1, lens_light.e2,
+        lens_light.center_x, lens_light.center_y,
+    ):
+        parameter.to_static()
+    source = PixelizedSourceModel(
+        n=12,
+        regularization_type="first-order",
+        log_lambda_reg=ParamU("log_lambda_reg_ragged", 0.0),
+    )
+    source.log_lambda_reg.to_static()
+    phys = PhysicalModel(
+        lens_mass=[_static_sie()],
+        source_light=[source],
+        lens_light=[lens_light],
+    )
+    model = PixelizedImageProbModelOperator(
+        jnp.ones((10, 10)) * 0.1,
+        jnp.ones((10, 10)) * 0.1,
+        _delta_psf(),
+        0.08,
+        phys,
+        block_size=10,
+        solver_type=solver_type,
+    )
+
+    log_evidence = model()
+    jitted_log_evidence = jax.jit(lambda: model())()
+    model_image, source_pixels, lens_intensities = model.forward_model(
+        return_components=True
+    )
+
+    assert log_evidence > -1.0e9
+    assert jitted_log_evidence > -1.0e9
+    assert jnp.any(model_image != 0.0)
+    assert jnp.all(jnp.isfinite(source_pixels))
+    assert jnp.all(jnp.isfinite(lens_intensities))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("nsub", [1, 2])
 def test_operator_joint_map_matches_dense_backend(nsub):
     """Joint source/lens-light MAP agrees with the dense reference backend."""
@@ -1035,6 +1091,58 @@ def test_block_schur_logdet_matches_explicit_preconditioner():
     )
 
     assert jnp.allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.boundary
+def test_ragged_block_schur_matches_explicit_preconditioner():
+    """Ragged block-Schur inverse and diagonal match a dense reference."""
+    source_chols = [
+        jnp.asarray([[2.0, 0.0], [0.3, 1.5]]),
+        jnp.asarray([[1.2]]),
+    ]
+    source_masks = [jnp.asarray([0, 1]), jnp.asarray([2])]
+    cross = jnp.asarray([
+        [0.10, -0.03],
+        [0.02, 0.04],
+        [-0.05, 0.01],
+    ])
+    schur_chol = jnp.asarray([[1.4, 0.0], [0.2, 1.1]])
+    preconditioner = BlockSchurPreconditioner(
+        source_chols, source_masks, cross, schur_chol,
+    )
+
+    source_precision = jnp.zeros((3, 3))
+    for chol, mask in zip(source_chols, source_masks):
+        source_precision = source_precision.at[jnp.ix_(mask, mask)].set(
+            chol @ chol.T
+        )
+    source_inverse_cross = jnp.linalg.solve(source_precision, cross)
+    lens_precision = (
+        schur_chol @ schur_chol.T
+        + cross.T @ source_inverse_cross
+    )
+    explicit = jnp.block([
+        [source_precision, cross],
+        [cross.T, lens_precision],
+    ])
+    rhs = jnp.asarray([0.4, -0.2, 0.7, 0.3, -0.5])
+
+    expected_solution = jnp.linalg.solve(explicit, rhs)
+    expected_diagonal = jnp.diag(explicit)
+    eager_solution = apply_preconditioner(preconditioner, rhs)
+    eager_diagonal = preconditioner_diagonal(preconditioner, rhs.size)
+    jitted_solution = jax.jit(
+        lambda value: apply_preconditioner(preconditioner, value)
+    )(rhs)
+    jitted_diagonal = jax.jit(
+        lambda: preconditioner_diagonal(preconditioner, rhs.size)
+    )()
+
+    np.testing.assert_allclose(eager_solution, expected_solution, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(jitted_solution, expected_solution, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(eager_diagonal, expected_diagonal, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(jitted_diagonal, expected_diagonal, rtol=1e-6, atol=1e-6)
 
 
 @pytest.mark.unit

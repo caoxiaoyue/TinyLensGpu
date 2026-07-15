@@ -22,8 +22,8 @@ from jax import Array, lax
 
 class BlockSchurPreconditioner(NamedTuple):
     """Cholesky data for an arrowhead source/lens-light preconditioner."""
-    source_chols: Array
-    source_masks: Array
+    source_chols: Array | list[Array]
+    source_masks: Array | list[Array]
     cross: Array
     schur_chol: Array
 
@@ -35,9 +35,17 @@ def _chol_solve(chol: Array, rhs: Array) -> Array:
 
 
 def solve_source_blocks(
-    block_chols: Array, block_masks: Array, rhs: Array,
+    block_chols: Array | list[Array],
+    block_masks: Array | list[Array],
+    rhs: Array,
 ) -> Array:
-    """Apply the inverse block-diagonal source preconditioner."""
+    """Apply a stacked or ragged block-diagonal source preconditioner."""
+    if isinstance(block_chols, (list, tuple)):
+        result = jnp.zeros_like(rhs)
+        for chol, mask in zip(block_chols, block_masks):
+            result = result.at[mask].set(_chol_solve(chol, rhs[mask]))
+        return result
+
     def _solve_one(chol: Array, rhs_block: Array) -> Array:
         return _chol_solve(chol, rhs_block)
 
@@ -72,19 +80,7 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
 
     if isinstance(preconditioner, tuple):
         block_chols, block_masks = preconditioner
-        if not isinstance(block_chols, (list, tuple)):
-            def _solve_one(chol: Array, rhs_block: Array) -> Array:
-                return _chol_solve(chol, rhs_block)
-
-            rhs_blocks = rhs[block_masks]
-            solved = jax.vmap(_solve_one)(block_chols, rhs_blocks)
-            return jnp.zeros_like(rhs).at[block_masks].set(solved)
-
-        result = jnp.zeros_like(rhs)
-        for chol, mask in zip(block_chols, block_masks):
-            solved = _chol_solve(chol, rhs[mask])
-            result = result.at[mask].set(solved)
-        return result
+        return solve_source_blocks(block_chols, block_masks, rhs)
 
     return _chol_solve(preconditioner, rhs)
 
@@ -93,10 +89,19 @@ def preconditioner_diagonal(preconditioner, size: int) -> Array:
     """Recover the diagonal of the SPD matrix represented by a preconditioner."""
     if isinstance(preconditioner, BlockSchurPreconditioner):
         source_chols, source_masks, cross, schur_chol = preconditioner
-        source_diagonal_blocks = jnp.sum(source_chols ** 2, axis=2)
-        source_diagonal = jnp.zeros(
-            cross.shape[0], dtype=source_chols.dtype
-        ).at[source_masks].set(source_diagonal_blocks)
+        if isinstance(source_chols, (list, tuple)):
+            source_diagonal = jnp.zeros(
+                cross.shape[0], dtype=source_chols[0].dtype
+            )
+            for chol, mask in zip(source_chols, source_masks):
+                source_diagonal = source_diagonal.at[mask].set(
+                    jnp.sum(chol ** 2, axis=1)
+                )
+        else:
+            source_diagonal_blocks = jnp.sum(source_chols ** 2, axis=2)
+            source_diagonal = jnp.zeros(
+                cross.shape[0], dtype=source_chols.dtype
+            ).at[source_masks].set(source_diagonal_blocks)
         inverse_cross = jax.vmap(
             lambda column: solve_source_blocks(
                 source_chols, source_masks, column,
