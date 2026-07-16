@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from jax import Array
 from TinyLensGpu.utils.geometry import ellipticity2phi_q, xy_transform, relocate_radii
 from TinyLensGpu.Inference.param_u import ParamU
+from .sis import _sis_deflection
 
 
 class SIE(ck.Module):
@@ -109,12 +110,17 @@ class SIE(ck.Module):
         qfact = jnp.sqrt(1.0/q - q)
         eps = 1e-8  # Small value for numerical stability
 
-        # Handle special case when q ≈ 1 (SIS case)
-        is_sis = jnp.abs(qfact) <= eps
+        # The elliptical expression suffers cancellation as q approaches one.
+        # Switch at the square root of machine epsilon, the scale at which the
+        # loss of precision in the small numerator and denominator dominates.
+        is_sis = (1.0 - q) <= jnp.sqrt(jnp.finfo(q.dtype).eps)
 
-        # SIS deflection
-        alpha_x_sis = x_new/r_new * theta_E
-        alpha_y_sis = y_new/r_new * theta_E
+        # SIS deflection in the original coordinate frame. Keeping this outside
+        # the SIE rotation also gives SIS and circular SIE the same convention
+        # at the regularized central singularity.
+        alpha_x_sis, alpha_y_sis = _sis_deflection(
+            x, y, theta_E, center_x, center_y
+        )
 
         # SIE deflection
         psi = jnp.sqrt(1.0/q**2.0 - 1.0) * x_new/r_new
@@ -124,12 +130,18 @@ class SIE(ck.Module):
         psi = jnp.clip(psi, -1e10, 1e10)
         phi = jnp.clip(phi, -1.0 + eps, 1.0 - eps)
 
-        alpha_x_sie = jnp.arcsinh(psi)/qfact * theta_E
-        alpha_y_sie = jnp.arcsin(phi)/qfact * theta_E
+        qfact_safe = jnp.where(is_sis, 1.0, qfact)
+        alpha_x_sie = jnp.arcsinh(psi)/qfact_safe * theta_E
+        alpha_y_sie = jnp.arcsin(phi)/qfact_safe * theta_E
+
+        # Transform the elliptical result back to the original frame before
+        # selecting the circular result, which is already in that frame.
+        alpha_x_sie, alpha_y_sie = xy_transform(
+            alpha_x_sie, alpha_y_sie, 0.0, 0.0, -PA
+        )
 
         # Select between SIS and SIE based on q value
         alpha_x = jnp.where(is_sis, alpha_x_sis, alpha_x_sie)
         alpha_y = jnp.where(is_sis, alpha_y_sis, alpha_y_sie)
 
-        # Transform back to original frame
-        return xy_transform(alpha_x, alpha_y, 0.0, 0.0, -PA)
+        return alpha_x, alpha_y

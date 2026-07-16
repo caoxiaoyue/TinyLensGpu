@@ -7,6 +7,7 @@ including mass profiles, light profiles, and supporting utilities.
 
 from .LensImage import (
     PhysicalModel,
+    SIS,
     SIE,
     Shear,
     EPL,
@@ -21,6 +22,7 @@ from .LensImage import (
 
 __all__ = [
     'PhysicalModel',
+    'SIS',
     'SIE',
     'Shear',
     'EPL',

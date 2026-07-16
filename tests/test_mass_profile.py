@@ -11,8 +11,132 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import (
     EPL_BOXYDISKY, EPL_BOXYDISKY_ELL,
     Dipole, Flexion, Flexionfg,
     PseudoJaffe, PseudoJaffeEllipsePotential,
-    EPL, SIE, TNFWEllipsePotential, TNFWSpherical
+    EPL, SIS, SIE, TNFWEllipsePotential, TNFWSpherical
 )
+
+
+@pytest.mark.unit
+class TestSIS:
+    def setup_method(self):
+        self.x = jnp.array([-1.7, -0.4, 0.3, 1.2, 2.1])
+        self.y = jnp.array([0.2, 1.3, -0.8, 0.7, -1.1])
+        self.theta_E = 1.4
+        self.center_x = 0.15
+        self.center_y = -0.25
+
+    def _sis_deflection(self, theta_E, center_x, center_y):
+        model = SIS()
+        return model.deriv.__wrapped__(
+            model,
+            self.x,
+            self.y,
+            theta_E=theta_E,
+            center_x=center_x,
+            center_y=center_y,
+        )
+
+    def _sie_deflection(self, theta_E, e1, e2, center_x, center_y):
+        model = SIE()
+        return model.deriv.__wrapped__(
+            model,
+            self.x,
+            self.y,
+            theta_E=theta_E,
+            e1=e1,
+            e2=e2,
+            center_x=center_x,
+            center_y=center_y,
+        )
+
+    def test_matches_independent_analytic_deflection(self):
+        alpha_x, alpha_y = self._sis_deflection(
+            self.theta_E, self.center_x, self.center_y
+        )
+        dx = self.x - self.center_x
+        dy = self.y - self.center_y
+        radius = jnp.sqrt(dx**2 + dy**2)
+
+        np.testing.assert_allclose(alpha_x, self.theta_E * dx / radius, rtol=1e-6)
+        np.testing.assert_allclose(alpha_y, self.theta_E * dy / radius, rtol=1e-6)
+        np.testing.assert_allclose(
+            jnp.sqrt(alpha_x**2 + alpha_y**2), self.theta_E, rtol=1e-6
+        )
+
+    def test_center_uses_nonzero_singular_deflection_convention(self):
+        model = SIS()
+        alpha_x, alpha_y = model.deriv.__wrapped__(
+            model,
+            jnp.array([self.center_x]),
+            jnp.array([self.center_y]),
+            theta_E=self.theta_E,
+            center_x=self.center_x,
+            center_y=self.center_y,
+        )
+
+        np.testing.assert_allclose(alpha_x, self.theta_E, rtol=1e-6)
+        np.testing.assert_allclose(alpha_y, 0.0, atol=1e-7)
+
+    @pytest.mark.parametrize(
+        "direction",
+        [(1.0, 0.0), (0.0, 1.0), (2**-0.5, 2**-0.5), (-1.0, 0.0)],
+    )
+    def test_sie_converges_to_sis_from_multiple_ellipticity_directions(
+        self, direction
+    ):
+        sis_x, sis_y = self._sis_deflection(
+            self.theta_E, self.center_x, self.center_y
+        )
+        errors = []
+        for ellipticity in (1e-2, 1e-3):
+            sie_x, sie_y = self._sie_deflection(
+                self.theta_E,
+                ellipticity * direction[0],
+                ellipticity * direction[1],
+                self.center_x,
+                self.center_y,
+            )
+            errors.append(jnp.max(jnp.hypot(sie_x - sis_x, sie_y - sis_y)))
+
+        assert errors[1] < 0.2 * errors[0]
+
+    @pytest.mark.parametrize("e1,e2", [(0.0, 0.0), (1e-6, 0.0), (0.0, -1e-6)])
+    def test_near_circular_sie_matches_sis_under_jit(self, e1, e2):
+        sis_fn = jax.jit(self._sis_deflection)
+        sie_fn = jax.jit(
+            lambda theta_E, center_x, center_y: self._sie_deflection(
+                theta_E, e1, e2, center_x, center_y
+            )
+        )
+
+        sis = sis_fn(self.theta_E, self.center_x, self.center_y)
+        sie = sie_fn(self.theta_E, self.center_x, self.center_y)
+        np.testing.assert_allclose(sie[0], sis[0], rtol=1e-6, atol=1e-7)
+        np.testing.assert_allclose(sie[1], sis[1], rtol=1e-6, atol=1e-7)
+        assert jnp.all(jnp.isfinite(sie[0]))
+        assert jnp.all(jnp.isfinite(sie[1]))
+
+    def test_near_circular_sie_and_sis_common_parameter_gradients_match(self):
+        def flatten(output):
+            return jnp.concatenate(output)
+
+        sis_jacobian = jax.jacrev(
+            lambda params: flatten(self._sis_deflection(*params))
+        )(jnp.array([self.theta_E, self.center_x, self.center_y]))
+        sie_jacobian = jax.jacrev(
+            lambda params: flatten(
+                self._sie_deflection(params[0], 1e-6, -1e-6, params[1], params[2])
+            )
+        )(jnp.array([self.theta_E, self.center_x, self.center_y]))
+
+        np.testing.assert_allclose(
+            sie_jacobian, sis_jacobian, rtol=1e-6, atol=1e-7
+        )
+        assert jnp.all(jnp.isfinite(sie_jacobian))
+
+    def test_public_import(self):
+        from TinyLensGpu.PhysicalModel import SIS as ShallowSIS
+
+        assert ShallowSIS is SIS
 
 try:
     import lenstronomy.LensModel.Profiles as lens_profiles

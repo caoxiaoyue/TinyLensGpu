@@ -1,5 +1,6 @@
 """Mass profile models implemented with caskade."""
 
+from .sis import SIS
 from .sie import SIE
 from .shear import Shear
 from .epl import EPL
@@ -15,7 +16,7 @@ from .pseudo_jaffe import PseudoJaffe
 from .pseudo_jaffe_ellipse_potential import PseudoJaffeEllipsePotential
 
 __all__ = [
-    'SIE', 'Shear', 'EPL', 'TNFWEllipsePotential', 'TNFWSpherical',
+    'SIS', 'SIE', 'Shear', 'EPL', 'TNFWEllipsePotential', 'TNFWSpherical',
     'Multipole', 'EllipticalMultipole',
     'EPL_MULTIPOLE_M3M4', 'EPL_MULTIPOLE_M3M4_ELL',
     'EPL_MULTIPOLE_M1M3M4', 'EPL_MULTIPOLE_M1M3M4_ELL',

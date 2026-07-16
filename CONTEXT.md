@@ -4,6 +4,14 @@ This context defines the modeling language used for strong-lens image reconstruc
 
 ## Language
 
+**Singular Isothermal Sphere (SIS)**:
+A circularly symmetric singular isothermal mass profile parameterized by an Einstein radius and lens center, without ellipticity parameters. It is a first-class mass profile rather than an SIE configuration.
+_Avoid_: Circular SIE, SIE wrapper
+
+**SIE circular limit**:
+The lensing behavior approached by a Singular Isothermal Ellipsoid as both ellipticity components tend to zero; it must agree with the corresponding SIS away from the shared central singularity.
+_Avoid_: SIS approximation
+
 **Joint semi-linear inversion**:
 A single linear inversion that solves pixelized lensed-source intensities and parametric lens-light component intensities together, conditional on the nonlinear model parameters. Its regularization precision is block diagonal, with source regularization on the source pixels and weak zero-order regularization on the lens-light intensities.
 _Avoid_: Lens-light subtraction, separate source/lens-light fitting
