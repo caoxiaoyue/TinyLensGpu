@@ -1,36 +1,32 @@
-"""
-Adaptive-regularization inference pipeline for the galan24_test lensing data.
+"""Adaptive-regularization pipeline for the J0946 subhalo search.
 
-The input ``obs.fits`` is treated as lens-light-subtracted, so this pipeline
-skips lens-light modelling entirely and focuses on the mass model and source
-reconstruction.
-
-Stage a  : SIE + shear + MGE source light (uniform priors, NO lens light)
-Stage b  : build an arc feature mask from obs S/N
+Stage a  : SIE + shear + two-MGE lens light + MGE source light (uniform priors)
+Stage b  : build an arc feature mask from stage-A residuals
+Stage l  : arc-masked MGE lens light refinement (uniform priors, independent from stage a)
 Stage m0 : SIE + shear + uniform pixelized source — GPU grid search for
-            evidence-best lambda_reg
+            evidence-best lambda_reg on lens-subtracted image
 Stage m1 : EPL + shear + non-adaptive pixelized source — Nautilus sampling
-            of mass parameters with lambda_reg fixed from stage-M0, then
-            builds the fixed S1 source template
+            of mass parameters on lens-subtracted image with lambda_reg constrained around stage-M0,
+            then builds the fixed S1 source template
 Stage m2 : fixed EPL + shear + adaptive pixelized source — Nautilus sampling
-            of log_lambda_reg and adaptive_reg_rho only
+            of log_lambda_reg and adaptive_reg_rho only, on lens-subtracted image
 Stage m3 : EPL + shear + adaptive pixelized source — Nautilus nested sampling
             with source-reg hyperparameters fixed from stage-M2 medians
+Stage m4 : EPL + shear + SIS subhalo + adaptive pixelized source — main-lens
+            priors inherited from stage M3 and source hyperparameters unchanged
 
 Each stage pickles its posterior samples/weights to
-``output_adpt_reg_m1epl/stage_{a,m0,m1,m2,m3}.pkl`` and is re-runnable via ``--skip-done``.
+``output/stage_{a,l,m0,m1,m2,m3,m4}.pkl`` and is re-runnable via ``--skip-done``.
 
 Usage::
 
-    # From galan24_test/
     python model.py
     python model.py --skip-done
-    python model.py --skip-done --out-dir output_adpt_reg_m1epl_fista1000
+    python model.py --out-dir output_trial
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 import pickle
 import time
@@ -40,14 +36,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-# Disable NVIDIA TF32 (10-bit mantissa) for matmul.  The λ grid search
-# spans 16 decades [1e-8, 1e8]; at the extremes the preconditioner blocks
-# contain entries separated by 10^20, which TF32 truncation turns into
-# NaN inside XLA's GEMM fusion autotuner ("nan, expected 0").  Full
-# float32 avoids this entirely at a modest matmul throughput cost.
 os.environ.setdefault("NVIDIA_TF32_OVERRIDE", "0")
-
-os.chdir(Path(__file__).parent)
 
 import jax
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -56,7 +45,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from matplotlib.colors import LogNorm
 from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
@@ -71,7 +59,7 @@ from TinyLensGpu.PhysicalModel import (
     Shear,
 )
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIS, SIE, EPL
 from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
@@ -81,30 +69,27 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
-import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
 NSRC = 100
-DPIX = 0.1
+DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4
 N_GAUSSIANS_SRC = 10
-MASK_RADIUS = 3.0
-NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
-ADAPTIVE_REG_RHO = 2.0             # 0 = uniform, >0 strengthens faint-region reg
+N_GAUSSIANS_LENS = 10
+MASK_RADIUS = 2.5
+ADAPTIVE_REG_RHO = 2.0
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
-SOURCE_BBOX_PADDING = 0.30
+SOURCE_BBOX_PADDING = 0.2
 FISTA_MAX_ITER = 1000
 FISTA_RTOL = 1.0e-5
 FISTA_POWER_ITER = 10
 FISTA_STEP_SAFETY = 1.2
-# Source solver for all pixelized stages.
-#   "pcg"  : preconditioned CG, unconstrained source, faster.
-#   "fista": non-negative constrained source, slower.
 SOLVER_TYPE = "pcg"
-OUT_DIR = Path("output_adpt_reg_m1epl")
-DATA_DIR = Path("data")
+SCRIPT_DIR = Path(__file__).resolve().parent
+OUT_DIR = SCRIPT_DIR / "output"
+DATA_DIR = SCRIPT_DIR / "data"
 
 
 # ------------------------------------------------------------------ #
@@ -211,10 +196,7 @@ def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
     return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
 
 
-def _make_source_scale(
-    source_package,
-    rho: float = ADAPTIVE_REG_RHO,
-):
+def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
         source_package["source_pixels"],
@@ -389,9 +371,9 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
 
 
 # ------------------------------------------------------------------ #
-# Stage A — SIE + shear + MGE source light  (NO lens light)
+# Stage A -- SIE + shear + two-MGE lens light + MGE source light
 # ------------------------------------------------------------------ #
-def build_stage_a_likelihood(image_data, noise_map, psf_kernel, circular_mask=None):
+def build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=None):
     sie = SIE(
         theta_E=ParamU("theta_E", 1.5, prior_type="uniform",
                        prior_settings=[0.5, 3.0], limits=[0.0, 5.0]),
@@ -440,33 +422,73 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel, circular_mask=No
         gauss.sigma.to_static(float(sigma))
         gauss.flux.to_static(1.0)
         source_gaussians.append(gauss)
-    cx_s.to_dynamic()
-    cy_s.to_dynamic()
-    e1_s.to_dynamic()
-    e2_s.to_dynamic()
+    cx_s.to_dynamic(); cy_s.to_dynamic(); e1_s.to_dynamic(); e2_s.to_dynamic()
 
-    # NO lens light — the image is already lens-light-subtracted
+    # Two-group MGE lens light
+    cx_l1 = ParamU("center_x_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l1 = ParamU("center_y_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l1 = ParamU("e1_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l1 = ParamU("e2_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
+    cx_l2 = ParamU("center_x_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l2 = ParamU("center_y_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l2 = ParamU("e1_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l2 = ParamU("e2_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
+    sigma_list_lens = generate_radial_basis_knots(
+        dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
+        log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
+    )
+
+    lens_gaussians = []
+    for group_id, center_x, center_y, e1, e2 in (
+        (1, cx_l1, cy_l1, e1_l1, e2_l1),
+        (2, cx_l2, cy_l2, e1_l2, e2_l2),
+    ):
+        for i, sigma in enumerate(sigma_list_lens):
+            gauss = GaussianEllipse(
+                sigma=ParamU(f"sigma_lens_{group_id}_{i}", float(sigma)),
+                center_x=center_x,
+                center_y=center_y,
+                e1=e1,
+                e2=e2,
+                flux=ParamU(f"flux_lens_{group_id}_{i}", 1.0),
+            )
+            gauss.sigma.to_static(float(sigma))
+            gauss.flux.to_static(1.0)
+            lens_gaussians.append(gauss)
+
+    for p in (cx_l1, cy_l1, e1_l1, e2_l1, cx_l2, cy_l2, e1_l2, e2_l2):
+        p.to_dynamic()
+
     phys = PhysicalModel(
         lens_mass=[sie, shear],
         source_light=source_gaussians,
-        lens_light=[],
+        lens_light=lens_gaussians,
     )
     return ImageProbModel(
         image_data=image_data, noise_map=noise_map,
         psf_kernel=psf_kernel, dpix=DPIX, nsub=NSUB,
         phys_model=phys, use_linear=True, solver_type="nnls",
-        mask=circular_mask,
+        mask=mask,
     )
 
 
 def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     OUT_DIR.mkdir(exist_ok=True)
     print("\n" + "=" * 60)
-    print(" Stage A : SIE + shear + MGE source light  (no lens light)")
+    print(" Stage A : SIE + shear + two-MGE lens light + MGE source light")
     print("=" * 60)
     t0 = time.time()
-    likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel,
-                                          circular_mask=circular_mask)
+    likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=circular_mask)
     stage = _run_sampler(
         likelihood, n_live=300, n_eff=2000, tag="stage-A", vectorized=True,
     )
@@ -478,10 +500,18 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     medians = stage.medians()
     q50 = [medians[n] for n in names]
 
+    likelihood.set_values(q50)
+    fwd = likelihood.forward_model(
+        use_linear=True, return_intensity=True, ret_each_plane=True,
+        image_map=likelihood.image_data, noise_map=likelihood.noise_map,
+    )
+    lens_image_model = np.asarray(fwd[1])
+
     _dump_stage(
         "a", samples, weights, names, logz,
         extra=dict(
             medians=medians,
+            lens_light_model=lens_image_model,
             time_taken=t1 - t0,
         ),
         stage=stage,
@@ -491,62 +521,43 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
         plot_model_results(
             likelihood, jnp.asarray(q50),
             save_path=str(OUT_DIR / "stage_a_model.png"),
-            title="Stage A : MGE source (no lens light)",
+            title="Stage A : MGE lens+source",
             show_critical_lines=True,
             show_caustics=True,
         )
     except Exception as err:
         print(f"[stage-A] plotting failed (non-fatal): {err}")
-    return stage, medians
+    return stage, medians, lens_image_model
 
 
 # ------------------------------------------------------------------ #
-# Stage B — build an arc mask from obs S/N
+# Stage B -- build an arc mask from stage-A residuals
 # ------------------------------------------------------------------ #
-def run_stage_b(image_data, noise_map, circular_mask=None):
-    """Build arc mask directly from the lens-subtracted image.
-
-    Since the lens light is already removed, the arc features are directly
-    visible as positive S/N excess in ``image_data``.
-    """
+def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
     print("\n" + "=" * 60)
-    print(" Stage B : build arc feature mask from lens-subtracted image")
+    print(" Stage B : build arc feature mask from stage-A residuals")
     print("=" * 60)
-
-    # Pre-masked pixels from the noise map (interfering sources, etc.)
-    noise_masked = noise_map > NOISE_MASK_THRESHOLD
-    n_noise_masked = int(noise_masked.sum())
-    print(f"[stage-B] pre-masked (noise={1e8:.0e}) pixels = {n_noise_masked} / {noise_masked.size}")
-
-    # S/N map (set S/N=0 for pre-masked pixels to avoid spurious detections)
-    snr_map = image_data / noise_map
-
-    # arc_mask_from returns True for EXCLUDED pixels (non-arc/background).
-    arc_mask = arc_mask_from(snr_map, threshold=2.0,
-                             ignor_size=20, ext_size=5, close_size=3)
-
-    # Combine: non-arc/background mask + pre-masked pixels + circular mask.
-    # The pixelized source stages fit the remaining unmasked arc pixels.
-    feature_mask = arc_mask | noise_masked
+    residual = image_data - lens_light_model
+    snr_map = residual / noise_map
+    arc_mask = arc_mask_from(snr_map, threshold=3.0,
+                             ignor_size=25, ext_size=5, close_size=3)
+    feature_mask = arc_mask
     if circular_mask is not None:
         feature_mask = feature_mask | circular_mask
-
     n_in = int((~feature_mask).sum())
-    print(f"[stage-B] arc/source pixels kept = {n_in} / {feature_mask.size}")
+    print(f"[stage-B] arc pixels kept = {n_in} / {feature_mask.size}")
 
     DATA_DIR.mkdir(exist_ok=True)
     fits.writeto(DATA_DIR / "feature_mask.fits",
                  feature_mask.astype(np.uint8), overwrite=True)
 
-    # Quick-look figure
     ny_img, nx_img = image_data.shape
-    extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2,
-              -ny_img * DPIX / 2, ny_img * DPIX / 2]
+    extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2, -ny_img * DPIX / 2, ny_img * DPIX / 2]
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-    im0 = axes[0].imshow(image_data, origin="lower", extent=extent, cmap="magma")
-    axes[0].set_title("obs (treated as lens-subtracted)")
+    im0 = axes[0].imshow(residual, origin="lower", extent=extent, cmap="viridis")
+    axes[0].set_title("residual = image - stage-A lens light")
     fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
-    im1 = axes[1].imshow(snr_map, origin="lower", extent=extent, cmap="magma",
+    im1 = axes[1].imshow(snr_map, origin="lower", extent=extent, cmap="viridis",
                          vmin=-3, vmax=np.nanpercentile(snr_map, 99.5))
     axes[1].set_title("S/N map + arc mask boundary")
     axes[1].contour(~feature_mask, levels=[0.5], origin="lower", extent=extent,
@@ -560,20 +571,155 @@ def run_stage_b(image_data, noise_map, circular_mask=None):
 
 
 # ------------------------------------------------------------------ #
+# Stage L -- arc-masked MGE lens light refinement
+# ------------------------------------------------------------------ #
+def build_stage_l_likelihood(
+    image_data,
+    noise_map,
+    psf_kernel,
+    feature_mask,
+    circular_mask=None,
+):
+    """Build a lens-light-only likelihood with two independent MGE groups."""
+    cx_l1 = ParamU("center_x_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l1 = ParamU("center_y_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l1 = ParamU("e1_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l1 = ParamU("e2_lens_1", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
+    cx_l2 = ParamU("center_x_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    cy_l2 = ParamU("center_y_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
+    e1_l2 = ParamU("e1_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+    e2_l2 = ParamU("e2_lens_2", 0.0, prior_type="gaussian",
+                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
+
+    sigma_list_lens = generate_radial_basis_knots(
+        dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
+        log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
+    )
+
+    lens_gaussians = []
+    for group_id, center_x, center_y, e1, e2 in (
+        (1, cx_l1, cy_l1, e1_l1, e2_l1),
+        (2, cx_l2, cy_l2, e1_l2, e2_l2),
+    ):
+        for i, sigma in enumerate(sigma_list_lens):
+            gauss = GaussianEllipse(
+                sigma=ParamU(f"sigma_lens_{group_id}_{i}", float(sigma)),
+                center_x=center_x,
+                center_y=center_y,
+                e1=e1,
+                e2=e2,
+                flux=ParamU(f"flux_lens_{group_id}_{i}", 1.0),
+            )
+            gauss.sigma.to_static(float(sigma))
+            gauss.flux.to_static(1.0)
+            lens_gaussians.append(gauss)
+
+    for p in (cx_l1, cy_l1, e1_l1, e2_l1, cx_l2, cy_l2, e1_l2, e2_l2):
+        p.to_dynamic()
+
+    noise_map_soft = np.array(noise_map, copy=True)
+    noise_map_soft[~feature_mask] *= 10000.0
+
+    combined_mask = circular_mask
+
+    phys = PhysicalModel(
+        lens_mass=[],
+        source_light=[],
+        lens_light=lens_gaussians,
+    )
+    return ImageProbModel(
+        image_data=image_data,
+        noise_map=noise_map_soft,
+        psf_kernel=psf_kernel,
+        dpix=DPIX,
+        nsub=NSUB,
+        phys_model=phys,
+        use_linear=True,
+        solver_type="nnls",
+        mask=combined_mask,
+    )
+
+
+def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
+                circular_mask=None):
+    print("\n" + "=" * 60)
+    print(" Stage L : arc-masked MGE lens light refinement")
+    print("=" * 60)
+    t0 = time.time()
+    n_arc    = int((~feature_mask).sum())
+    n_nonarc = feature_mask.size - n_arc
+    print(f"[stage-L] arc pixels excluded     = {n_arc}    / {feature_mask.size}")
+    print(f"[stage-L] lens-light pixels kept  = {n_nonarc} / {feature_mask.size}")
+
+    likelihood = build_stage_l_likelihood(
+        image_data,
+        noise_map,
+        psf_kernel,
+        feature_mask,
+        circular_mask=circular_mask,
+    )
+    stage = _run_sampler(
+        likelihood, n_live=200, n_eff=800, tag="stage-L", vectorized=True,
+    )
+    t1 = time.time()
+    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
+    _print_summary("stage-L", samples, weights, names)
+    print(f"[stage-L] time taken: {t1 - t0:.2f} seconds")
+
+    medians = stage.medians()
+    q50 = [medians[n] for n in names]
+
+    likelihood.set_values(q50)
+    fwd = likelihood.forward_model(
+        use_linear=True,
+        return_intensity=True,
+        ret_each_plane=True,
+        image_map=likelihood.image_data,
+        noise_map=likelihood.noise_map,
+    )
+    lens_image_model = np.asarray(fwd[1])
+
+    _dump_stage(
+        "l", samples, weights, names, logz,
+        extra=dict(
+            medians=medians,
+            lens_light_model=lens_image_model,
+            time_taken=t1 - t0,
+        ),
+        stage=stage,
+    )
+
+    try:
+        plot_model_results(
+            likelihood,
+            jnp.asarray(q50),
+            save_path=str(OUT_DIR / "stage_l_model.png"),
+            title="Stage L : arc-masked MGE lens light",
+        )
+    except Exception as err:
+        print(f"[stage-L] plotting failed (non-fatal): {err}")
+
+    return stage, medians, lens_image_model
+
+
+# ------------------------------------------------------------------ #
 # Position likelihood from stage-A medians
 # ------------------------------------------------------------------ #
 def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
     """Build a position-likelihood config dict from stage-A posterior medians."""
     required = (
-        "theta_E",
-        "e1_mass",
-        "e2_mass",
-        "center_x_mass",
-        "center_y_mass",
-        "gamma1",
-        "gamma2",
-        "center_x_src",
-        "center_y_src",
+        "theta_E", "e1_mass", "e2_mass",
+        "center_x_mass", "center_y_mass",
+        "gamma1", "gamma2",
+        "center_x_src", "center_y_src",
     )
     missing = [k for k in required if k not in medians_a]
     if missing:
@@ -603,7 +749,7 @@ def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
     solver = PointSourceProbModel(
         phys_model=mass,
         observed_positions=[[0.0, 0.0]],
-        position_sigma=[0.01],  # dummy value
+        position_sigma=[0.01],
         source_x=float(medians_a["center_x_src"]),
         source_y=float(medians_a["center_y_src"]),
         source_position_fixed=True,
@@ -643,7 +789,7 @@ def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
 
 
 # ------------------------------------------------------------------ #
-# Helpers for Stage M1 / M2
+# Helpers for Stage M0 / M1 / M2 / M3
 # ------------------------------------------------------------------ #
 def _sie_mass_from_stage_a(stage_a: StagePosterior):
     """SIE (+ shear) with all parameters FIXED at stage-A posterior medians."""
@@ -704,14 +850,8 @@ def _epl_mass_from_stage(stage: StagePosterior):
 def _epl_mass_from_medians(medians: dict):
     """EPL (+ shear) with all parameters fixed at posterior medians."""
     required = (
-        "theta_E",
-        "gamma",
-        "e1_mass",
-        "e2_mass",
-        "center_x_mass",
-        "center_y_mass",
-        "gamma1",
-        "gamma2",
+        "theta_E", "gamma", "e1_mass", "e2_mass",
+        "center_x_mass", "center_y_mass", "gamma1", "gamma2",
     )
     missing = [name for name in required if name not in medians]
     if missing:
@@ -741,7 +881,7 @@ def _epl_mass_from_medians(medians: dict):
 # Stage M0 — SIE + shear + uniform pixelized source  
 # ------------------------------------------------------------------ #
 def build_stage_m0_likelihood(
-    image_data, noise_map, psf_kernel, feature_mask,
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_a: StagePosterior, position_likelihood, circular_mask=None,
 ):
     """Build M0 likelihood: fixed SIE+shear, uniform pixelized source."""
@@ -769,7 +909,7 @@ def build_stage_m0_likelihood(
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
     return PixelizedImageProbModelOperator(
-        image_data=image_data,
+        image_data=lens_subtracted_image,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
         dpix=DPIX,
@@ -784,15 +924,17 @@ def build_stage_m0_likelihood(
 
 
 def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
-                  stage_a: StagePosterior, position_likelihood, circular_mask=None):
+                  lens_light_model, stage_a: StagePosterior,
+                  position_likelihood, circular_mask=None):
     """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
     print("\n" + "=" * 60)
     print(" Stage M0 : fixed SIE + shear + uniform pix source ")
     print("=" * 60)
     t0 = time.time()
 
+    lens_subtracted = image_data - lens_light_model
     likelihood = build_stage_m0_likelihood(
-        image_data, noise_map, psf_kernel, feature_mask,
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
         stage_a, position_likelihood, circular_mask=circular_mask,
     )
     loglike_batch = make_likelihood(likelihood, vectorized=True)
@@ -845,7 +987,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
     _dump_stage(
         "m0", None, None, ["log_lambda_reg"], log_ev_best,
         extra=dict(
-            lambda_best=log_lam_best,
+            log_lambda_best=log_lam_best,
             evidence_lambda_best=float(jnp.exp(log_lam_best)),
             evidence_log_lambda_best=log_lam_best,
             lambda_grid_coarse=np.asarray(log_lam_grid_coarse, dtype=np.float64),
@@ -869,7 +1011,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 # Stage M1 — EPL + shear + non-adaptive pixelized source  (fit mass)
 # ------------------------------------------------------------------ #
 def build_stage_m1_likelihood(
-    image_data, noise_map, psf_kernel, feature_mask,
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_a: StagePosterior, position_likelihood, log_lambda_fixed: float,
     circular_mask=None,
 ):
@@ -897,7 +1039,7 @@ def build_stage_m1_likelihood(
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
     return PixelizedImageProbModelOperator(
-        image_data=image_data,
+        image_data=lens_subtracted_image,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
         dpix=DPIX,
@@ -912,12 +1054,9 @@ def build_stage_m1_likelihood(
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
-                  stage_a: StagePosterior, position_likelihood,
-                  log_lambda_fixed: float, circular_mask=None):
-    """Stage M1: fit EPL+shear with non-adaptive source lambda fixed from M0.
-
-    ``image_data`` is already lens-subtracted so we use it directly.
-    """
+                  lens_light_model, stage_a: StagePosterior,
+                  position_likelihood, log_lambda_fixed: float, circular_mask=None):
+    """Stage M1: fit EPL+shear with non-adaptive source lambda constrained around M0."""
     print("\n" + "=" * 60)
     print(" Stage M1 : EPL + shear + non-adaptive pix source (mass fit)")
     print("=" * 60)
@@ -929,8 +1068,9 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     )
     t0 = time.time()
 
+    lens_subtracted = image_data - lens_light_model
     likelihood = build_stage_m1_likelihood(
-        image_data, noise_map, psf_kernel, feature_mask,
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
         stage_a, position_likelihood, log_lambda_fixed,
         circular_mask=circular_mask,
     )
@@ -968,7 +1108,6 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         stage=stage,
     )
 
-    # Generate M1 pixelized source reconstruction plot
     try:
         _plot_pix_stage("stage-M1", likelihood, medians, names,
                         str(OUT_DIR / "stage_m1_model.png"))
@@ -998,11 +1137,9 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
             likelihood.phys_model.source_light[0].adaptive_reg_rho
         )))
 
-        # Unpack 8-value _get_bbox (includes seed betas for adaptive reg)
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
          beta_x_seed, beta_y_seed) = likelihood._get_bbox()
 
-        # Compute adaptive regularization scale map
         scale = likelihood._get_reg_scale()
 
         reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
@@ -1022,27 +1159,6 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         model_1d_j = likelihood.sim_obj.forward_model(
             source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
         )
-
-        # N_eff = Ns - λ Tr(P⁻¹ R)  via block-diagonal preconditioner
-        n_s = likelihood.sim_obj.source_n
-        bs = likelihood.block_size
-        n_blocks = (n_s + bs - 1) // bs
-        trace_invPR = jnp.array(0.0, dtype=lambda_j.dtype)
-        for by in range(n_blocks):
-            for bx in range(n_blocks):
-                bid = bx + by * n_blocks
-                x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
-                y_s, y_e = by * bs, min((by + 1) * bs, n_s)
-                if bid >= len(block_chols):
-                    break
-                R_block = likelihood.reg_builder.block_diag_R(
-                    x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
-                    scale=scale,
-                )
-                chol = block_chols[bid]
-                inv_block = jsl.cho_solve((chol, True), R_block)
-                trace_invPR = trace_invPR + jnp.trace(inv_block)
-        N_eff = float(likelihood.sim_obj.n_source_pixels - lambda_j * trace_invPR)
 
         has_pos_penalty = likelihood._has_pos_penalty
         if has_pos_penalty:
@@ -1065,15 +1181,12 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     model_image = np.zeros(image_data.shape)
     model_image[~mask] = model_1d
     resid_norm = (image_data - model_image) / noise_map
-
-    chi2 = float(np.sum(resid_norm[~mask] ** 2))
-    dof  = int((~mask).sum()) - N_eff
-    chi2_nu = chi2 / dof if dof > 0 else 0.0
+    chi2_map = np.where(mask, np.nan, resid_norm ** 2)
+    chi2 = float(np.nansum(chi2_map))
 
     n = likelihood.phys_model.source_light[0].n
     src_img = np.array(source_pixels).reshape(n, n)
 
-    # Scale map (2D source grid)
     scale_img = np.array(scale).reshape(n, n) if scale is not None else np.ones((n, n))
     rho = rho_val
 
@@ -1081,17 +1194,10 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     ext_i = [-npix * DPIX / 2, npix * DPIX / 2, -npix * DPIX / 2, npix * DPIX / 2]
     ext_s = [float(xmin), float(xmax), float(ymin), float(ymax)]
     vmax  = np.nanpercentile(image_data[~mask], 99.5)
-    # Log-scale display range for the lensing/model/source images.
-    # 0.1% of vmax keeps faint features visible while staying strictly positive
-    # (LogNorm is undefined for non-positive values).
-    log_vmin_img = max(float(vmax) * 1e-3, 1e-3)
-    src_vmax = float(np.nanpercentile(src_img, 99.5))
-    log_vmin_src = max(src_vmax * 1e-3, 1e-3)
 
     fig, axes = plt.subplots(1, 5, figsize=(21, 4.2))
-    # Compute bounding box of unmasked pixels for panels 1-3
     rows_unmasked, cols_unmasked = np.where(~mask)
-    pad = 3  # pixels of padding
+    pad = 3
     row_min = max(rows_unmasked.min() - pad, 0)
     row_max = min(rows_unmasked.max() + pad, npix - 1)
     col_min = max(cols_unmasked.min() - pad, 0)
@@ -1101,23 +1207,27 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     ylim_unmasked = (-npix * DPIX / 2 + row_min * DPIX,
                      -npix * DPIX / 2 + (row_max + 1) * DPIX)
     for ax, img, title, kw in [
-        (axes[0], image_data,  "Data (lens-subtracted, log)",
-         dict(norm=LogNorm(vmin=log_vmin_img, vmax=vmax), cmap="magma")),
-        (axes[1], model_image, "Model image (log)",
-         dict(norm=LogNorm(vmin=log_vmin_img, vmax=vmax), cmap="magma")),
+        (axes[0], image_data,  "Data (lens-subtracted)", dict(vmin=0, vmax=vmax, cmap="viridis")),
+        (axes[1], model_image, "Model image",            dict(vmin=0, vmax=vmax, cmap="viridis")),
         (axes[2], np.where(mask, np.nan, resid_norm),
-                               f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
+                               f"Norm. residual\nχ²={chi2:.1f}",
                                dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]:
         im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
         if ax == axes[0] and has_pos_penalty:
             ax.plot(pos_px_np, pos_py_np, 'rx', markersize=8, label='Marked pos')
             ax.legend(loc='upper right', fontsize=8)
+        if ax == axes[1] and tag.lower() == "stage-m4":
+            ax.plot(
+                medians["center_x_subhalo"], medians["center_y_subhalo"],
+                marker="*", color="black", markersize=14,
+                linestyle="none", label="SIS subhalo",
+            )
+            ax.legend(loc="upper right", fontsize=8)
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("arcsec")
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="magma",
-                         norm=LogNorm(vmin=log_vmin_src, vmax=src_vmax))
+    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
     if has_pos_penalty:
         axes[3].plot(beta_x_np, beta_y_np, 'rx', markersize=8, label='Traced pos')
         axes[3].legend(loc='upper right', fontsize=8)
@@ -1125,7 +1235,6 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     axes[3].set_xlabel("arcsec")
     plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
-    # Panel 5: adaptive reg scale map
     im4 = axes[4].imshow(scale_img, origin="lower", extent=ext_s,
                          cmap="plasma", vmin=1.0, vmax=max(1.0, float(np.nanmax(scale_img))))
     axes[4].set_title(f"Reg precision scale\n(rho={rho:.2f})", fontsize=11)
@@ -1134,7 +1243,6 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                  label=r"$\lambda_i / \lambda_{\rm global}$")
 
     axes[0].set_ylabel("arcsec")
-    # Panels 1-3: zoom to unmasked pixel region
     for ax in axes[:3]:
         ax.set_xlim(*xlim_unmasked)
         ax.set_ylim(*ylim_unmasked)
@@ -1154,7 +1262,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
 
 def build_stage_m2_likelihood(
-    image_data, noise_map, psf_kernel, feature_mask,
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     medians_m1: dict, position_likelihood, s1_package, circular_mask=None,
 ):
     """Build M2: mass fixed from M1, source-reg hyperparameters free."""
@@ -1190,7 +1298,7 @@ def build_stage_m2_likelihood(
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
     return PixelizedImageProbModelOperator(
-        image_data=image_data,
+        image_data=lens_subtracted_image,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
         dpix=DPIX,
@@ -1206,23 +1314,17 @@ def build_stage_m2_likelihood(
 
 
 def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
-                  medians_m1, position_likelihood, s1_package, circular_mask=None):
-    """Stage M2: fit adaptive source-regularization hyperparameters.
-
-    ``image_data`` is already lens-subtracted so we use it directly.
-    """
+                  lens_light_model, medians_m1, position_likelihood,
+                  s1_package, circular_mask=None):
+    """Stage M2: fit adaptive source-regularization hyperparameters."""
     print("\n" + "=" * 60)
     print(" Stage M2 : fixed EPL + shear + adaptive pix source (fit λ, rho)")
     print("=" * 60)
     t0 = time.time()
+    lens_subtracted = image_data - lens_light_model
     likelihood = build_stage_m2_likelihood(
-        image_data,
-        noise_map,
-        psf_kernel,
-        feature_mask,
-        medians_m1,
-        position_likelihood,
-        s1_package,
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
+        medians_m1, position_likelihood, s1_package,
         circular_mask=circular_mask,
     )
     stage = _run_sampler(
@@ -1258,7 +1360,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
 # Stage M3 — EPL + shear + adaptive pixelized source  (final mass fit)
 # ------------------------------------------------------------------ #
 def build_stage_m3_likelihood(
-    image_data, noise_map, psf_kernel, feature_mask,
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_m1: StagePosterior, position_likelihood, reg_hyperparams_fixed: dict,
     s1_package, circular_mask=None,
 ):
@@ -1283,7 +1385,7 @@ def build_stage_m3_likelihood(
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
     return PixelizedImageProbModelOperator(
-        image_data=image_data,
+        image_data=lens_subtracted_image,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
         dpix=DPIX,
@@ -1299,27 +1401,20 @@ def build_stage_m3_likelihood(
 
 
 def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
-                  stage_m1: StagePosterior, position_likelihood,
-                  reg_hyperparams_fixed: dict, s1_package, circular_mask=None):
-    """Stage M3: final EPL+shear sampling with source-reg fixed from M2.
-
-    Mass priors are inherited from the stage-M1 EPL+shear posterior.
-    """
+                  lens_light_model, stage_m1: StagePosterior,
+                  position_likelihood, reg_hyperparams_fixed: dict,
+                  s1_package, circular_mask=None):
+    """Stage M3: final EPL+shear sampling with source-reg fixed from M2."""
     print("\n" + "=" * 60)
     print(" Stage M3 : EPL + shear + adaptive pix source (final mass fit)")
     print("=" * 60)
     print(f"[stage-M3] fixed source reg: {_format_reg_hyperparams(reg_hyperparams_fixed)}")
     t0 = time.time()
+    lens_subtracted = image_data - lens_light_model
     likelihood = build_stage_m3_likelihood(
-        image_data,
-        noise_map,
-        psf_kernel,
-        feature_mask,
-        stage_m1,
-        position_likelihood,
-        reg_hyperparams_fixed,
-        s1_package,
-        circular_mask=circular_mask,
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
+        stage_m1, position_likelihood, reg_hyperparams_fixed,
+        s1_package, circular_mask=circular_mask,
     )
     stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M3", vectorized=True,
@@ -1348,20 +1443,169 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
+# Stage M4 — EPL + shear + SIS subhalo + fixed adaptive source
+# ------------------------------------------------------------------ #
+def _epl_shear_sis_from_stage_m3(stage_m3: StagePosterior):
+    """Build the M4 mass model with conservative priors inherited from M3."""
+    epl = EPL(
+        theta_E=stage_m3.gaussian(
+            "theta_E", model="EPL", attr="theta_E", limits=[0.0, 5.0],
+        ),
+        gamma=stage_m3.gaussian(
+            "gamma", model="EPL", attr="gamma", limits=[1.0, 3.0],
+        ),
+        e1=stage_m3.gaussian(
+            "e1_mass", model="EPL", attr="e1", limits=[-1.0, 1.0],
+        ),
+        e2=stage_m3.gaussian(
+            "e2_mass", model="EPL", attr="e2", limits=[-1.0, 1.0],
+        ),
+        center_x=stage_m3.gaussian(
+            "center_x_mass", model="EPL", attr="center_x", limits=[-1.0, 1.0],
+        ),
+        center_y=stage_m3.gaussian(
+            "center_y_mass", model="EPL", attr="center_y", limits=[-1.0, 1.0],
+        ),
+    )
+    shear = Shear(
+        gamma1=stage_m3.gaussian(
+            "gamma1", model="Shear", attr="gamma1", limits=[-0.5, 0.5],
+        ),
+        gamma2=stage_m3.gaussian(
+            "gamma2", model="Shear", attr="gamma2", limits=[-0.5, 0.5],
+        ),
+    )
+
+    theta_e_subhalo = ParamU(
+        "theta_E_subhalo", 0.05,
+        prior_type="uniform", prior_settings=[0.0, 0.1], limits=[0.0, 0.1],
+    )
+    center_x_subhalo = ParamU(
+        "center_x_subhalo", -0.5,
+        prior_type="gaussian", prior_settings=[-0.5, 0.1],
+        limits=[-np.inf, np.inf],
+    )
+    center_y_subhalo = ParamU(
+        "center_y_subhalo", 1.0,
+        prior_type="gaussian", prior_settings=[1.0, 0.1],
+        limits=[-np.inf, np.inf],
+    )
+    for parameter in (theta_e_subhalo, center_x_subhalo, center_y_subhalo):
+        parameter.to_dynamic()
+    sis = SIS(
+        theta_E=theta_e_subhalo,
+        center_x=center_x_subhalo,
+        center_y=center_y_subhalo,
+    )
+    return epl, shear, sis
+
+
+def build_stage_m4_likelihood(
+    lens_subtracted_image, noise_map, psf_kernel, feature_mask,
+    stage_m3: StagePosterior, position_likelihood, reg_hyperparams_fixed: dict,
+    s1_package, circular_mask=None,
+):
+    """Build M4 with an SIS subhalo and the exact M3 source configuration."""
+    epl, shear, sis = _epl_shear_sis_from_stage_m3(stage_m3)
+    log_lam = ParamU("log_lambda_reg", float(reg_hyperparams_fixed["log_lambda_reg"]))
+    log_lam.to_static()
+    rho = ParamU("adaptive_reg_rho", float(reg_hyperparams_fixed["adaptive_reg_rho"]))
+    rho.to_static()
+
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
+        log_lambda_reg=log_lam,
+        regularization_type=PIXEL_REGULARIZATION_TYPE,
+        adaptive_reg_rho=rho,
+    )
+    phys = PhysicalModel(
+        lens_mass=[epl, shear, sis],
+        source_light=[pix_src],
+        lens_light=[],
+    )
+    combined_mask = feature_mask
+    if circular_mask is not None:
+        combined_mask = combined_mask | circular_mask
+    return PixelizedImageProbModelOperator(
+        image_data=lens_subtracted_image,
+        noise_map=noise_map,
+        psf_kernel=psf_kernel,
+        dpix=DPIX,
+        nsub=NSUB_PIX,
+        phys_model=phys,
+        mask=combined_mask,
+        position_likelihood=position_likelihood,
+        solver_type=SOLVER_TYPE,
+        source_bbox_padding=SOURCE_BBOX_PADDING,
+        **_fista_kwargs(),
+        **_fixed_source_kwargs(s1_package),
+    )
+
+
+def run_stage_m4(image_data, noise_map, psf_kernel, feature_mask,
+                 lens_light_model, stage_m3: StagePosterior,
+                 position_likelihood, reg_hyperparams_fixed: dict,
+                 s1_package, circular_mask=None):
+    """Stage M4: sample EPL+shear+SIS with M3's source fixed unchanged."""
+    print("\n" + "=" * 60)
+    print(" Stage M4 : EPL + shear + SIS subhalo + adaptive pix source")
+    print("=" * 60)
+    print(f"[stage-M4] fixed source reg: {_format_reg_hyperparams(reg_hyperparams_fixed)}")
+    t0 = time.time()
+    lens_subtracted = image_data - lens_light_model
+    likelihood = build_stage_m4_likelihood(
+        lens_subtracted, noise_map, psf_kernel, feature_mask,
+        stage_m3, position_likelihood, reg_hyperparams_fixed,
+        s1_package, circular_mask=circular_mask,
+    )
+    stage = _run_sampler(
+        likelihood, n_live=600, n_eff=1000, tag="stage-M4", vectorized=True,
+    )
+    t1 = time.time()
+    samples, weights = stage.samples, stage.weights
+    names, logz = stage.param_names, stage.log_z
+    _print_summary("stage-M4", samples, weights, names)
+    print(f"[stage-M4] time taken: {t1 - t0:.2f} seconds")
+    medians = stage.medians()
+    _dump_stage(
+        "m4", samples, weights, names, logz,
+        extra=dict(
+            medians=medians,
+            m4_mass_model="EPL+Shear+SIS",
+            reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
+            time_taken=t1 - t0,
+        ),
+        stage=stage,
+    )
+    try:
+        _plot_pix_stage(
+            "stage-M4", likelihood, medians, names,
+            str(OUT_DIR / "stage_m4_model.png"),
+        )
+    except Exception as err:
+        print(f"[stage-M4] plotting failed (non-fatal): {err}")
+    return stage, medians
+
+
+# ------------------------------------------------------------------ #
 # Main entry point
 # ------------------------------------------------------------------ #
 def main(skip_done: bool = False, out_dir: str | None = None):
     global OUT_DIR
     if out_dir is not None:
-        OUT_DIR = Path(out_dir)
+        requested_out_dir = Path(out_dir).expanduser()
+        OUT_DIR = (
+            requested_out_dir
+            if requested_out_dir.is_absolute()
+            else SCRIPT_DIR / requested_out_dir
+        )
 
     image_data, noise_map, psf_kernel, _ = load_lens_data(
-        image_path=str(DATA_DIR / "obs.fits"),
-        noise_path=str(DATA_DIR / "noise_map.fits"),
+        image_path=str(DATA_DIR / "image.fits"),
+        noise_path=str(DATA_DIR / "noise.fits"),
         psf_path=str(DATA_DIR / "psf.fits"),
     )
 
-    # Circular mask applied to all stages: exclude pixels > MASK_RADIUS arcsec from centre
     circular_mask = _make_circular_mask(image_data.shape, DPIX, radius_arcsec=MASK_RADIUS)
     n_excl = int(circular_mask.sum())
     print(f"[circular mask] excluded {n_excl} / {circular_mask.size} pixels (> {MASK_RADIUS} arcsec)")
@@ -1373,18 +1617,34 @@ def main(skip_done: bool = False, out_dir: str | None = None):
         d = _load_stage("a")
         stage_a = _stage_from_payload(d)
         medians_a = d["extra"]["medians"]
+        lens_light_model = d["extra"]["lens_light_model"]
         time_a = d["extra"].get("time_taken", 0.0)
     else:
-        stage_a, medians_a = run_stage_a(
+        stage_a, medians_a, lens_light_model = run_stage_a(
             image_data, noise_map, psf_kernel, circular_mask=circular_mask,
         )
         time_a = _load_stage("a")["extra"].get("time_taken", 0.0)
 
     # ---- stage B ---------------------------------------------------- #
-    # Build arc mask directly from lens-subtracted image (no lens_light_model needed)
-    feature_mask = run_stage_b(image_data, noise_map, circular_mask=circular_mask)
+    feature_mask = run_stage_b(image_data, noise_map, lens_light_model, circular_mask=circular_mask)
 
-    # ---- position likelihood ----------------------------------------- #
+    # ---- stage L ---------------------------------------------------- #
+    time_l = 0.0
+    if skip_done and (OUT_DIR / "stage_l.pkl").exists():
+        print(f"[stage-L] loading cached {OUT_DIR}/stage_l.pkl")
+        d = _load_stage("l")
+        stage_l = _stage_from_payload(d)
+        medians_l = d["extra"]["medians"]
+        lens_light_model = d["extra"]["lens_light_model"]
+        time_l = d["extra"].get("time_taken", 0.0)
+    else:
+        stage_l, medians_l, lens_light_model = run_stage_l(
+            image_data, noise_map, psf_kernel, feature_mask,
+            circular_mask=circular_mask,
+        )
+        time_l = _load_stage("l")["extra"].get("time_taken", 0.0)
+
+    lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
     # ---- stage M0 --------------------------------------------------- #
@@ -1392,21 +1652,20 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     if skip_done and (OUT_DIR / "stage_m0.pkl").exists():
         print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl")
         d = _load_stage("m0")
-        log_lambda_m0 = d["extra"]["lambda_best"]
+        log_lambda_m0 = d["extra"]["log_lambda_best"]
         time_m0 = d["extra"].get("time_taken", 0.0)
     else:
         log_lambda_m0 = run_stage_m0(
             image_data, noise_map, psf_kernel, feature_mask,
-            stage_a, position_likelihood,
+            lens_light_model, stage_a, position_likelihood,
             circular_mask=circular_mask,
         )
         time_m0 = _load_stage("m0")["extra"].get("time_taken", 0.0)
 
-    # If M0 output exists but the plot is missing, re-plot now.
     if (OUT_DIR / "stage_m0.pkl").exists() and not (OUT_DIR / "stage_m0_model.png").exists():
         print("[stage-M0] stage_m0_model.png missing — re-plotting")
         lkl_m0_replot = build_stage_m0_likelihood(
-            image_data, noise_map, psf_kernel, feature_mask,
+            lens_subtracted, noise_map, psf_kernel, feature_mask,
             stage_a, position_likelihood, circular_mask=circular_mask,
         )
         medians_m0_replot = {
@@ -1435,18 +1694,16 @@ def main(skip_done: bool = False, out_dir: str | None = None):
             print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
             stage_m1, medians_m1, s1_package = run_stage_m1(
                 image_data, noise_map, psf_kernel, feature_mask,
-                stage_a, position_likelihood,
-                log_lambda_m0,
-                circular_mask=circular_mask,
+                lens_light_model, stage_a, position_likelihood,
+                log_lambda_m0, circular_mask=circular_mask,
             )
             names_m1 = stage_m1.param_names
             time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
     else:
         stage_m1, medians_m1, s1_package = run_stage_m1(
             image_data, noise_map, psf_kernel, feature_mask,
-            stage_a, position_likelihood,
-            log_lambda_m0,
-            circular_mask=circular_mask,
+            lens_light_model, stage_a, position_likelihood,
+            log_lambda_m0, circular_mask=circular_mask,
         )
         names_m1 = stage_m1.param_names
         time_m1 = _load_stage("m1")["extra"].get("time_taken", 0.0)
@@ -1457,22 +1714,16 @@ def main(skip_done: bool = False, out_dir: str | None = None):
             "stage_m1.pkl may be corrupted."
         )
 
-    # If M1 posteriors exist but the plot is missing, re-plot now
     if (OUT_DIR / "stage_m1.pkl").exists() and not (OUT_DIR / "stage_m1_model.png").exists():
         print("[stage-M1] stage_m1_model.png missing — re-plotting")
         lkl_m1_replot = build_stage_m1_likelihood(
-            image_data, noise_map, psf_kernel, feature_mask,
+            lens_subtracted, noise_map, psf_kernel, feature_mask,
             stage_a, position_likelihood, log_lambda_m0,
             circular_mask=circular_mask,
         )
         try:
-            _plot_pix_stage(
-                "stage-M1",
-                lkl_m1_replot,
-                medians_m1,
-                names_m1,
-                str(OUT_DIR / "stage_m1_model.png"),
-            )
+            _plot_pix_stage("stage-M1", lkl_m1_replot, medians_m1, names_m1,
+                            str(OUT_DIR / "stage_m1_model.png"))
         except Exception as err:
             print(f"[stage-M1] re-plotting failed (non-fatal): {err}")
 
@@ -1490,22 +1741,16 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     else:
         stage_m2, medians_m2, reg_hyperparams_m2 = run_stage_m2(
             image_data, noise_map, psf_kernel, feature_mask,
-            medians_m1, position_likelihood, s1_package,
-            circular_mask=circular_mask,
+            lens_light_model, medians_m1, position_likelihood,
+            s1_package, circular_mask=circular_mask,
         )
         names_m2 = stage_m2.param_names
         time_m2 = _load_stage("m2")["extra"].get("time_taken", 0.0)
 
-    # Re-plot M2 if the png is missing but posteriors exist
     if not (OUT_DIR / "stage_m2_model.png").exists():
         lkl_m2 = build_stage_m2_likelihood(
-            image_data,
-            noise_map,
-            psf_kernel,
-            feature_mask,
-            medians_m1,
-            position_likelihood,
-            s1_package,
+            lens_subtracted, noise_map, psf_kernel, feature_mask,
+            medians_m1, position_likelihood, s1_package,
             circular_mask=circular_mask,
         )
         try:
@@ -1531,23 +1776,16 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     else:
         stage_m3, medians_m3 = run_stage_m3(
             image_data, noise_map, psf_kernel, feature_mask,
-            stage_m1,
-            position_likelihood, reg_hyperparams_m2, s1_package,
-            circular_mask=circular_mask,
+            lens_light_model, stage_m1, position_likelihood,
+            reg_hyperparams_m2, s1_package, circular_mask=circular_mask,
         )
         names_m3 = stage_m3.param_names
         time_m3 = _load_stage("m3")["extra"].get("time_taken", 0.0)
 
     if not (OUT_DIR / "stage_m3_model.png").exists():
         lkl_m3 = build_stage_m3_likelihood(
-            image_data,
-            noise_map,
-            psf_kernel,
-            feature_mask,
-            stage_m1,
-            position_likelihood,
-            reg_hyperparams_m2,
-            s1_package,
+            lens_subtracted, noise_map, psf_kernel, feature_mask,
+            stage_m1, position_likelihood, reg_hyperparams_m2, s1_package,
             circular_mask=circular_mask,
         )
         try:
@@ -1556,31 +1794,84 @@ def main(skip_done: bool = False, out_dir: str | None = None):
         except Exception as err:
             print(f"[stage-M3] plotting failed (non-fatal): {err}")
 
+    # ---- stage M4 --------------------------------------------------- #
+    time_m4 = 0.0
+    if skip_done and (OUT_DIR / "stage_m4.pkl").exists():
+        print(f"[stage-M4] loading cached {OUT_DIR}/stage_m4.pkl")
+        d = _load_stage("m4")
+        stage_m4 = _stage_from_payload(d)
+        names_m4 = stage_m4.param_names
+        medians_m4 = d["extra"]["medians"]
+        time_m4 = d["extra"].get("time_taken", 0.0)
+    else:
+        stage_m4, medians_m4 = run_stage_m4(
+            image_data, noise_map, psf_kernel, feature_mask,
+            lens_light_model, stage_m3, position_likelihood,
+            reg_hyperparams_m2, s1_package, circular_mask=circular_mask,
+        )
+        names_m4 = stage_m4.param_names
+        time_m4 = _load_stage("m4")["extra"].get("time_taken", 0.0)
+
+    if not (OUT_DIR / "stage_m4_model.png").exists():
+        lkl_m4 = build_stage_m4_likelihood(
+            lens_subtracted, noise_map, psf_kernel, feature_mask,
+            stage_m3, position_likelihood, reg_hyperparams_m2, s1_package,
+            circular_mask=circular_mask,
+        )
+        try:
+            _plot_pix_stage(
+                "stage-M4", lkl_m4, medians_m4, names_m4,
+                str(OUT_DIR / "stage_m4_model.png"),
+            )
+        except Exception as err:
+            print(f"[stage-M4] plotting failed (non-fatal): {err}")
+
+    logz_m3 = float(stage_m3.log_z)
+    logz_m4 = float(stage_m4.log_z)
+    delta_logz = logz_m4 - logz_m3
+
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
     print(" Time summary:")
     print(f"    Stage A:  {time_a/60:.2f} min")
+    print(f"    Stage L:  {time_l/60:.2f} min")
     print(f"    Stage M0: {time_m0/60:.2f} min")
     print(f"    Stage M1: {time_m1/60:.2f} min")
     print(f"    Stage M2: {time_m2/60:.2f} min")
     print(f"    Stage M3: {time_m3/60:.2f} min")
-    print(f"    Total:    {(time_a + time_m0 + time_m1 + time_m2 + time_m3)/60:.2f} min\n")
+    print(f"    Stage M4: {time_m4/60:.2f} min")
+    total_time = time_a + time_l + time_m0 + time_m1 + time_m2 + time_m3 + time_m4
+    print(f"    Total:    {total_time/60:.2f} min\n")
     print(f"    M0 best lambda_reg     = {float(jnp.exp(log_lambda_m0)):.4e}")
     print(f"    M1 median gamma        = {medians_m1.get('gamma', np.nan):+.4f}")
     print(f"    M2 median source reg   = {_format_reg_hyperparams(reg_hyperparams_m2)}")
+    print(f"    logZ(M3)               = {logz_m3:+.3f}")
+    print(f"    logZ(M4)               = {logz_m4:+.3f}")
+    print(f"    delta logZ (M4 - M3)   = {delta_logz:+.3f}")
 
     for k in ("theta_E", "gamma", "e1_mass", "e2_mass",
-              "center_x_mass", "center_y_mass", "gamma1", "gamma2"):
-        if k in medians_m3:
-            print(f"    final  {k:15s} = {medians_m3[k]:+.4f}")
+              "center_x_mass", "center_y_mass", "gamma1", "gamma2",
+              "theta_E_subhalo", "center_x_subhalo", "center_y_subhalo"):
+        if k in medians_m4:
+            print(f"    final  {k:20s} = {medians_m4[k]:+.4f}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--skip-done", action="store_true",
-                        help=f"Re-use cached posteriors in {OUT_DIR}/stage_*.pkl")
-    parser.add_argument("--out-dir", default=None,
-                        help="Output directory relative to this script.")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Run the self-contained J0946 EPL+shear+SIS pipeline.",
+    )
+    parser.add_argument(
+        "--skip-done",
+        action="store_true",
+        help="Reuse cached posteriors in output/stage_*.pkl.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output directory; relative paths are resolved from this script.",
+    )
     args = parser.parse_args()
     main(skip_done=args.skip_done, out_dir=args.out_dir)
