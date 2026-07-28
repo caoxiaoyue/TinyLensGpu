@@ -47,6 +47,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from caskade import Module as ckModule
+from matplotlib.path import Path
 
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 
@@ -184,12 +185,26 @@ def _extract_contours(
     try:
         cs = plt.contour(x_grid, y_grid, z, levels=[level])
         paths: List[Tuple[np.ndarray, np.ndarray]] = []
-        # Matplotlib ≥ 3.8 exposes get_paths() directly on QuadContourSet.
+        # Matplotlib ≥ 3.8 exposes get_paths() directly on QuadContourSet,
+        # with disconnected contours combined into compound Path objects.
         for path in cs.get_paths():
-            v = path.vertices
-            if len(v) > 1:
+            vertices = np.asarray(path.vertices)
+            codes = path.codes
+            starts = (
+                np.flatnonzero(codes == Path.MOVETO)
+                if codes is not None
+                else np.array([0])
+            )
+            stops: np.ndarray = np.append(starts[1:], len(vertices))
+            for start, stop in zip(starts, stops):
+                segment = vertices[start:stop]
+                if len(segment) <= 1:
+                    continue
                 paths.append(
-                    (np.asarray(v[:, 0]), np.asarray(v[:, 1]))
+                    (
+                        np.asarray(segment[:, 0]),
+                        np.asarray(segment[:, 1]),
+                    )
                 )
     finally:
         plt.close(fig)
