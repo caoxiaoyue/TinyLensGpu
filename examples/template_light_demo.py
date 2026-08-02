@@ -1,3 +1,4 @@
+# %%
 """
 ImageTemplateLight demo.
 
@@ -27,8 +28,14 @@ def make_galaxy_template(n=8, pixel_size=0.05):
 
 
 def main():
-    template = make_galaxy_template()
+    # Template parameters: 8x8 grid, 0.05 arcsec per pixel.
+    n_pix = 8
     pixel_size = 0.05
+    # Spatial extent of the template image (edges, not pixel centers).
+    # For an n x n grid with pixel size p: span = n/2 * p.
+    template_span = n_pix / 2 * pixel_size  # = 0.2 arcsec
+
+    template = make_galaxy_template(n=n_pix, pixel_size=pixel_size)
 
     model = ImageTemplateLight(image=template, pixel_size=pixel_size, scale=10.0)
     model.scale.to_static()
@@ -36,8 +43,8 @@ def main():
     model.center_y.to_static()
 
     # Evaluate on a fine image grid spanning a bit beyond the template.
-    span = 0.5
-    x = jnp.linspace(-span, span, 201)
+    eval_span = 0.5
+    x = jnp.linspace(-eval_span, eval_span, 201)
     X, Y = jnp.meshgrid(x, x)
     brightness = model.light(X, Y)
 
@@ -47,14 +54,18 @@ def main():
     qb = model.light(qx, qy)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.6))
-    im0 = axes[0].imshow(template, origin="lower", extent=[-span, span] * 2,
+    # Left panel: show the raw template at its true physical extent [-0.2, 0.2].
+    im0 = axes[0].imshow(template, origin="lower",
+                         extent=[-template_span, template_span] * 2,
                          cmap="magma")
     axes[0].set_title(f"Template ({template.shape[0]}x{template.shape[0]}, "
                       f"pixel={pixel_size:.2f} arcsec)")
     axes[0].set_xlabel("arcsec")
     fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
-    im1 = axes[1].imshow(brightness, origin="lower", extent=[-span, span] * 2,
+    # Right panel: interpolated brightness evaluated on the [-0.5, 0.5] grid.
+    im1 = axes[1].imshow(brightness, origin="lower",
+                         extent=[-eval_span, eval_span] * 2,
                          cmap="magma")
     axes[1].set_title("Bilinear interpolation (x10 scale)")
     axes[1].set_xlabel("arcsec")
@@ -79,3 +90,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# %%
