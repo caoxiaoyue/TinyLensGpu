@@ -22,7 +22,7 @@ from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
     PixelizedImageProbModelOperator,
 )
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import EPL, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import (
     PixelizedSourceModel,
 )
@@ -730,6 +730,52 @@ def test_operator_prob_model_returns_finite_evidence():
     log_ev = model()
     assert jnp.shape(log_ev) == ()
     assert jnp.isfinite(log_ev)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_position_likelihood_sanitizes_non_finite_epl_deflection(model_cls):
+    """A non-finite position penalty must reject, not poison, a proposal."""
+    mass = EPL(
+        theta_E=0.0,
+        gamma=1.9857056,
+        e1=0.0,
+        e2=0.0,
+        center_x=0.0,
+        center_y=0.0,
+    )
+    for parameter in (
+        mass.theta_E,
+        mass.gamma,
+        mass.e1,
+        mass.e2,
+        mass.center_x,
+        mass.center_y,
+    ):
+        parameter.to_static()
+    physical_model = PhysicalModel(
+        lens_mass=[mass], source_light=[_pix_src()], lens_light=[],
+    )
+    model = model_cls(
+        jnp.zeros((10, 10)),
+        jnp.ones((10, 10)) * 0.1,
+        _delta_psf(),
+        0.08,
+        physical_model,
+        position_likelihood={
+            "positions": [(0.1, 0.0), (0.0, 0.1)],
+            "threshold_arcsec": 0.1,
+            "min_log_like": -1.0e10,
+        },
+    )
+
+    log_evidence = model()
+
+    assert jnp.shape(log_evidence) == ()
+    assert jnp.isfinite(log_evidence)
+    assert log_evidence == -1.0e10
 
 
 @pytest.mark.unit

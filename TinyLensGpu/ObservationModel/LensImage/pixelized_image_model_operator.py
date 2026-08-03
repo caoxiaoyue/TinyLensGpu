@@ -870,7 +870,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         log_ev = self._log_evidence()
         if self._has_pos_penalty:
             log_ev = log_ev + self._position_likelihood_penalty_jax()
-        return log_ev
+        return jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
 
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
