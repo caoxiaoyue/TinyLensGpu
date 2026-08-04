@@ -9,6 +9,10 @@ from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, Shear
+from TinyLensGpu.utils.lensing import (
+    post_process_images,
+    select_unique_images_fixed,
+)
 
 
 def _build_phys_model(theta_e: float = 1.1, gamma1: float = 0.04, gamma2: float = -0.02):
@@ -74,6 +78,141 @@ def _build_observed_positions(
     if images.shape[0] < 2:
         raise RuntimeError("Failed to generate at least two image positions for fixture")
     return np.asarray(images[:2])
+
+
+@pytest.mark.unit
+def test_post_process_images_breaks_residual_ties_by_coordinate():
+    """Cluster representatives do not depend on tied-candidate input order."""
+    images = jnp.array(
+        [[0.01, 0.0], [0.0, 0.0], [1.0, 0.0]], dtype=jnp.float32
+    )
+    dists = jnp.full((3,), 1.0e-6, dtype=jnp.float32)
+
+    result_a = post_process_images(
+        images, dists, tolerance=1.0e-4, cluster_tol=0.05
+    )
+    result_b = post_process_images(
+        images[jnp.array([1, 0, 2])],
+        dists,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+
+    np.testing.assert_allclose(result_a[0], result_b[0])
+    np.testing.assert_allclose(result_a[1], result_b[1])
+    np.testing.assert_allclose(result_a[0], [[0.0, 0.0], [1.0, 0.0]])
+
+
+@pytest.mark.unit
+def test_select_unique_images_fixed_pads_when_candidates_are_insufficient():
+    """The fixed selector always returns exactly ``n_select`` rows."""
+    selected, selected_mask, count = select_unique_images_fixed(
+        images=jnp.array([[1.0, 0.0], [-1.0, 0.0]], dtype=jnp.float32),
+        dists=jnp.array([1.0e-6, 2.0e-6], dtype=jnp.float32),
+        n_select=3,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+
+    assert selected.shape == (3, 2)
+    assert selected_mask.shape == (3,)
+    np.testing.assert_array_equal(selected_mask, [True, True, False])
+    assert int(count) == 2
+
+
+@pytest.mark.unit
+def test_select_unique_images_fixed_returns_selected_roots_in_residual_order():
+    """Select and return the best roots in residual-ranked order."""
+    selected, selected_mask, _ = select_unique_images_fixed(
+        images=jnp.array(
+            [[-5.0, 0.0], [0.0, 0.0], [5.0, 0.0]], dtype=jnp.float32
+        ),
+        dists=jnp.array([9.0e-5, 2.0e-6, 1.0e-6], dtype=jnp.float32),
+        n_select=2,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+
+    np.testing.assert_allclose(selected, [[5.0, 0.0], [0.0, 0.0]])
+    np.testing.assert_array_equal(selected_mask, [True, True])
+
+
+@pytest.mark.unit
+def test_fixed_selector_matches_residual_ranked_post_processing_subset():
+    """Both post-processing paths select the same best-residual roots."""
+    images = jnp.array(
+        [[-1.0, 0.0], [-0.5, 0.0], [0.1, 0.0], [1.0, 0.0]],
+        dtype=jnp.float32,
+    )
+    dists = jnp.array([4.0e-5, 2.0e-6, 3.0e-5, 1.0e-6], dtype=jnp.float32)
+
+    processed_images, _ = post_process_images(
+        images,
+        dists,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+    selected_images, selected_mask, count = select_unique_images_fixed(
+        images=images,
+        dists=dists,
+        n_select=2,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+
+    np.testing.assert_allclose(selected_images, processed_images[:2])
+    np.testing.assert_array_equal(selected_mask, [True, True])
+    assert int(count) == 2
+
+
+@pytest.mark.unit
+def test_selectors_ignore_sub_precision_residual_jitter():
+    """Numerically equivalent roots retain the same canonical subset."""
+    images = jnp.array(
+        [[-1.0, 0.0], [-0.5, 0.0], [0.1, 0.0], [1.0, 0.0]],
+        dtype=jnp.float32,
+    )
+    jittered_dists = (
+        jnp.array([4.0e-8, 1.0e-8, 3.0e-8, 2.0e-8], dtype=jnp.float32),
+        jnp.array([1.0e-8, 4.0e-8, 2.0e-8, 3.0e-8], dtype=jnp.float32),
+    )
+
+    expected = np.array([[-1.0, 0.0], [-0.5, 0.0]], dtype=np.float32)
+    for dists in jittered_dists:
+        processed_images, _ = post_process_images(
+            images,
+            dists,
+            tolerance=1.0e-4,
+            cluster_tol=0.05,
+        )
+        selected_images, selected_mask, count = select_unique_images_fixed(
+            images=images,
+            dists=dists,
+            n_select=2,
+            tolerance=1.0e-4,
+            cluster_tol=0.05,
+        )
+
+        np.testing.assert_allclose(processed_images[:2], expected)
+        np.testing.assert_allclose(selected_images, expected)
+        np.testing.assert_array_equal(selected_mask, [True, True])
+        assert int(count) == 2
+
+
+@pytest.mark.unit
+def test_select_unique_images_fixed_handles_empty_candidates():
+    selected, selected_mask, count = select_unique_images_fixed(
+        images=jnp.empty((0, 2), dtype=jnp.float32),
+        dists=jnp.empty((0,), dtype=jnp.float32),
+        n_select=3,
+        tolerance=1.0e-4,
+        cluster_tol=0.05,
+    )
+
+    assert selected.shape == (3, 2)
+    assert selected_mask.shape == (3,)
+    np.testing.assert_array_equal(selected_mask, [False, False, False])
+    assert int(count) == 0
 
 
 @pytest.mark.unit
@@ -259,6 +398,32 @@ def test_point_source_returns_min_log_like_when_insufficient_images():
             "cluster_tol": 0.08,
         },
     )
+    assert np.isclose(model.likelihood(), -12345.0)
+
+
+@pytest.mark.unit
+def test_point_source_returns_floor_when_candidates_fewer_than_observations():
+    """A short candidate array remains safe for fixed-shape assignment."""
+    model = PointSourceProbModel(
+        phys_model=_build_phys_model(),
+        observed_positions=np.zeros((5, 2), dtype=np.float32),
+        position_sigma=0.01,
+        source_x=0.1,
+        source_y=0.0,
+        source_position_fixed=True,
+        solver="optimization",
+        min_log_like=-12345.0,
+        solver_config={
+            "initial_range": 3.0,
+            "n_x": 8,
+            "n_y": 8,
+            "k_keep": 2,
+            "num_iters": 2,
+            "tolerance": 5.0e-4,
+            "cluster_tol": 0.08,
+        },
+    )
+
     assert np.isclose(model.likelihood(), -12345.0)
 
 

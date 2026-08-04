@@ -271,7 +271,20 @@ def _compute_cluster_mask(
     tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
         Sorted images, sorted residuals, and keep-mask after deduplication.
     """
-    sort_idx = jnp.argsort(dists)
+    if images.shape[0] == 0:
+        return images, dists, jnp.zeros(dists.shape, dtype=bool)
+
+    # Residual remains the primary key so the best numerical root represents
+    # each cluster. Values within two machine epsilons of zero are numerically
+    # equivalent; treating them as ties prevents eager and fused JIT evaluation
+    # from selecting different roots because of insignificant rounding noise.
+    residual_resolution = 2.0 * jnp.finfo(dists.dtype).eps
+    residual_key = jnp.where(
+        dists <= residual_resolution,
+        jnp.zeros_like(dists),
+        dists,
+    )
+    sort_idx = jnp.lexsort((images[:, 1], images[:, 0], residual_key))
     sorted_images = images[sort_idx]
     sorted_dists = dists[sort_idx]
 
@@ -312,7 +325,8 @@ def post_process_images(
     Returns
     -------
     tuple[jnp.ndarray, jnp.ndarray]
-        Filtered unique images and corresponding residuals.
+        Filtered unique images and corresponding residuals, ordered by
+        residual rank with coordinate tie-breakers.
     """
     if images.shape[0] == 0:
         return images, dists
@@ -323,7 +337,13 @@ def post_process_images(
         tolerance=tolerance,
         cluster_tol=cluster_tol,
     )
-    return sorted_images[final_mask], sorted_dists[final_mask]
+    unique_images = sorted_images[final_mask]
+    unique_dists = sorted_dists[final_mask]
+
+    # Preserve the residual-first order established by ``_compute_cluster_mask``.
+    # Its coordinate tie-breakers make equal-residual roots deterministic while
+    # keeping prefixes consistent with ``select_unique_images_fixed``.
+    return unique_images, unique_dists
 
 
 def solve_lens_equation_optimization(
@@ -431,8 +451,10 @@ def select_unique_images_fixed(
     1. Numerical validity: The distance (residual) must be within `tolerance`.
     2. Uniqueness: The image must not be within `cluster_tol` of already selected images.
     
-    It uses a fixed output shape and JAX control flow (`lax.scan`, `lax.cond`) to ensure
-    the function is JIT-compilable and efficient on GPUs, avoiding dynamic array shapes.
+    It delegates filtering and deduplication to ``_compute_cluster_mask``, then
+    stable-partitions valid roots ahead of rejected candidates and pads with a
+    dummy zero row, so the output keeps a fixed shape and stays JIT-compilable
+    and efficient on GPUs without dynamic array shapes.
 
     Parameters
     ----------
@@ -450,60 +472,54 @@ def select_unique_images_fixed(
     Returns
     -------
     selected_images : jnp.ndarray
-        Array of selected image positions, shape (n_select, 2).
+        Array of selected image positions, shape (n_select, 2). Valid rows
+        retain residual-first order with coordinate tie-breakers.
     selected_mask : jnp.ndarray
         Boolean mask indicating valid entries in selected_images, shape (n_select,).
     count : jnp.ndarray
         Scalar integer indicating the total number of valid images found.
     """
-    # Sort by residual distance to prioritize better solutions
-    sort_idx = jnp.argsort(dists)
-    sorted_images = images[sort_idx]
-    sorted_dists = dists[sort_idx]
-
-    init_images = jnp.zeros((n_select, 2), dtype=sorted_images.dtype)
-    init_mask = jnp.zeros((n_select,), dtype=bool)
-    init_count = jnp.array(0, dtype=jnp.int32)
-
-    def body_fn(carry, idx):
-        """Scan one candidate and update fixed-size selected set."""
-        selected, selected_mask, count = carry
-        curr_img = sorted_images[idx]
-        curr_dist = sorted_dists[idx]
-
-        # Check for duplicates against all previously selected images
-        sep = jnp.linalg.norm(selected - curr_img, axis=-1)
-        duplicated = jnp.any(jnp.logical_and(selected_mask, sep < cluster_tol))
-
-        # Filtering conditions
-        valid_dist = curr_dist < tolerance
-        has_slot = count < n_select
-        can_add = jnp.logical_and(jnp.logical_and(valid_dist, ~duplicated), has_slot)
-
-        # Update state using JAX conditional updates to keep shapes static
-        selected = lax.cond(
-            can_add,
-            lambda arr: arr.at[count].set(curr_img),
-            lambda arr: arr,
-            selected,
-        )
-        selected_mask = lax.cond(
-            can_add,
-            lambda arr: arr.at[count].set(True),
-            lambda arr: arr,
-            selected_mask,
-        )
-        count = count + can_add.astype(jnp.int32)
-
-        return (selected, selected_mask, count), None
-
-    # Scan through all sorted candidates
-    final_state, _ = lax.scan(
-        body_fn,
-        (init_images, init_mask, init_count),
-        jnp.arange(sorted_images.shape[0]),
+    sorted_images, _, unique_mask = _compute_cluster_mask(
+        images=images,
+        dists=dists,
+        tolerance=tolerance,
+        cluster_tol=cluster_tol,
     )
-    return final_state
+
+    # ``sorted_images`` is already ordered by residual (with coordinates as
+    # exact-tie breakers). Move valid unique roots ahead of rejected candidates
+    # without changing that ranking, so truncation retains the best roots.
+    candidate_idx = jnp.arange(sorted_images.shape[0])
+    priority_idx = jnp.lexsort(
+        (candidate_idx, (~unique_mask).astype(jnp.int32))
+    )
+    ranked_images = sorted_images[priority_idx]
+    ranked_mask = unique_mask[priority_idx]
+
+    # A dummy row supplies fixed-shape zero padding when fewer than
+    # ``n_select`` candidates exist.
+    n_candidates = ranked_images.shape[0]
+    padded_images = jnp.concatenate(
+        (
+            ranked_images,
+            jnp.zeros((1, ranked_images.shape[1]), dtype=ranked_images.dtype),
+        ),
+        axis=0,
+    )
+    padded_mask = jnp.concatenate((ranked_mask, jnp.zeros((1,), dtype=bool)))
+    selected_idx = jnp.minimum(jnp.arange(n_select), n_candidates)
+    selected_images = padded_images[selected_idx]
+    selected_mask = padded_mask[selected_idx]
+
+    # Preserve the residual-first order established by
+    # ``_compute_cluster_mask`` so this result matches the corresponding
+    # prefix from ``post_process_images``. Invalid fixed-shape slots are
+    # already ranked last and are normalized to zero padding here.
+    selected_images = jnp.where(
+        selected_mask[:, None], selected_images, jnp.zeros_like(selected_images)
+    )
+    count = jnp.sum(selected_mask, dtype=jnp.int32)
+    return selected_images, selected_mask, count
 
 
 def build_permutation_indices(n_points: int) -> jnp.ndarray:

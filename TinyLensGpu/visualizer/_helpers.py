@@ -9,7 +9,6 @@ from typing import Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 
-from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.utils.misc import get_mask_bounding_box
 
 
@@ -43,46 +42,6 @@ def image_extent(npix: int, dpix: float) -> Tuple[float, float, float, float]:
     half = npix * dpix / 2.0
     return (-half, half, -half, half)
 
-
-
-# ---------------------------------------------------------------------------
-# Source-plane grid builder (replicated logic from plot_model_results)
-# ---------------------------------------------------------------------------
-
-def make_source_grid(
-    dpix: float,
-    cx: float = 0.0,
-    cy: float = 0.0,
-    scale: float = 3.0,
-):
-    """Build a default source-plane grid for light model evaluation.
-
-    Parameters
-    ----------
-    dpix : float
-        Pixel scale used to set the grid resolution.
-    cx, cy : float
-        Source-plane centre (arcsec).
-    scale : float
-        Half-width of the grid in arcsec.
-
-    Returns
-    -------
-    sx, sy : jnp.ndarray
-        2-D coordinate grids.
-    s_npix : int
-        Number of pixels per side.
-    s_dpix : float
-        Pixel width.
-    """
-    import jax.numpy as jnp
-
-    s_dpix = dpix / 2.0
-    s_npix = int(np.ceil(2.0 * scale / s_dpix))
-    sx, sy = make_grid_2d(s_npix, s_dpix, 1)
-    sx = jnp.array(sx) + cx
-    sy = jnp.array(sy) + cy
-    return sx, sy, s_npix, s_dpix
 
 
 # ---------------------------------------------------------------------------

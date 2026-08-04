@@ -110,8 +110,13 @@ class TestSIS:
 
         sis = sis_fn(self.theta_E, self.center_x, self.center_y)
         sie = sie_fn(self.theta_E, self.center_x, self.center_y)
-        np.testing.assert_allclose(sie[0], sis[0], rtol=1e-6, atol=1e-7)
-        np.testing.assert_allclose(sie[1], sis[1], rtol=1e-6, atol=1e-7)
+        # SIE with ellipticity |e| ~ 1.4e-6 differs from SIS at O(|e|) relative,
+        # and float32 jacrev/jit noise adds ~1e-6 relative scatter on GPU.
+        # rtol=1e-4/atol=1e-6 check structural agreement two orders above the
+        # physical + numerical floor; the e->0 convergence is asserted by
+        # test_sie_converges_to_sis_from_multiple_ellipticity_directions.
+        np.testing.assert_allclose(sie[0], sis[0], rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(sie[1], sis[1], rtol=1e-4, atol=1e-6)
         assert jnp.all(jnp.isfinite(sie[0]))
         assert jnp.all(jnp.isfinite(sie[1]))
 
@@ -128,8 +133,11 @@ class TestSIS:
             )
         )(jnp.array([self.theta_E, self.center_x, self.center_y]))
 
+        # Same calibration as test_near_circular_sie_matches_sis_under_jit:
+        # the SIE(e=1e-6) vs SIS comparison sits at the O(|e|) physical floor
+        # plus float32 gradient noise, so assert at rtol=1e-4/atol=1e-6.
         np.testing.assert_allclose(
-            sie_jacobian, sis_jacobian, rtol=1e-6, atol=1e-7
+            sie_jacobian, sis_jacobian, rtol=1e-4, atol=1e-6
         )
         assert jnp.all(jnp.isfinite(sie_jacobian))
 

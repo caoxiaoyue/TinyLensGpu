@@ -21,8 +21,8 @@ from ._helpers import (
     apply_mask,
     compute_residuals,
     image_extent,
-    make_source_grid,
 )
+from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from ._overlays import overlay_critical_and_caustics
 
 
@@ -36,6 +36,8 @@ def plot_model_results(
     crit_x_range: Tuple[float, float] = (-3.0, 3.0),
     crit_y_range: Tuple[float, float] = (-3.0, 3.0),
     crit_n_grid: int = 512,
+    source_npix: int = 200,
+    source_dpix: float = 0.01,
 ) -> Tuple[plt.Figure, np.ndarray]:
     """Plot model results in a 2×3 grid.
 
@@ -70,6 +72,11 @@ def plot_model_results(
         Image-plane coordinate range for critical-line search (arcsec).
     crit_n_grid : int
         Grid resolution for critical-line contour extraction.
+    source_npix : int
+        Number of source-plane pixels per side for the source panel
+        (default 200 → ±1 arcsec at ``source_dpix=0.01``).
+    source_dpix : float
+        Source-plane pixel width in arcsec (default 0.01).
 
     Returns
     -------
@@ -77,6 +84,25 @@ def plot_model_results(
     axes : np.ndarray of matplotlib.axes.Axes
         The 2×3 Axes array.
     """
+    # -------- source-grid parameter validation ---------------------------
+    if (
+        not isinstance(source_npix, (int, np.integer))
+        or isinstance(source_npix, bool)
+        or source_npix <= 0
+    ):
+        raise ValueError(
+            f"source_npix must be a positive integer, got {source_npix!r}"
+        )
+    if (
+        not isinstance(source_dpix, (int, float, np.integer, np.floating))
+        or isinstance(source_dpix, bool)
+        or not np.isfinite(source_dpix)
+        or source_dpix <= 0
+    ):
+        raise ValueError(
+            f"source_dpix must be a positive finite number, got {source_dpix!r}"
+        )
+
     # -------- parameter setup -------------------------------------------
     if isinstance(theta, (np.ndarray, jnp.ndarray)):
         theta = theta.tolist()
@@ -114,7 +140,9 @@ def plot_model_results(
 
     # -------- source plane -----------------------------------------------
     cx, cy = 0.0, 0.0
-    sx, sy, s_npix, s_dpix = make_source_grid(sim_config.dpix, cx, cy, scale=3.0)
+    sx, sy = make_grid_2d(source_npix, source_dpix, 1)
+    sx = jnp.array(sx) + cx
+    sy = jnp.array(sy) + cy
 
     source_light = getattr(
         likelihood_obj.sim_obj.phys_model, "source_light", []
@@ -156,10 +184,10 @@ def plot_model_results(
     # -------- extent & bounding box --------------------------------------
     extent = image_extent(sim_config.npix, sim_config.dpix)
     s_extent = (
-        float(cx - s_npix * s_dpix / 2),
-        float(cx + s_npix * s_dpix / 2),
-        float(cy - s_npix * s_dpix / 2),
-        float(cy + s_npix * s_dpix / 2),
+        float(cx - source_npix * source_dpix / 2),
+        float(cx + source_npix * source_dpix / 2),
+        float(cy - source_npix * source_dpix / 2),
+        float(cy + source_npix * source_dpix / 2),
     )
 
     # -------- figure -----------------------------------------------------
