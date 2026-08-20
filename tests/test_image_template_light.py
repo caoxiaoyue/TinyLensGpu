@@ -7,9 +7,22 @@ onto arbitrary (x, y) coordinates in arcseconds, given a pixel size.
 
 import numpy as np
 import pytest
+import jax
 import jax.numpy as jnp
 
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ImageTemplateLight
+
+
+def _make_positive_x_marker_model(**kwargs):
+    """Build a normalized template with one bright pixel at positive x."""
+    image = jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0],
+        ]
+    )
+    return ImageTemplateLight(image=image, pixel_size=1.0, **kwargs)
 
 
 @pytest.mark.unit
@@ -22,6 +35,7 @@ class TestPixelCenterHit:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # Pixel (0,0) center at ((-(2-1)/2)*0.1, (-(2-1)/2)*0.1) = (-0.05, -0.05)
         # Pixel (1,1) center at (+0.05, +0.05)
@@ -47,6 +61,7 @@ class TestBilinearInterpolation:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # Query at arcsec origin (0, 0) = index (0.5, 0.5).
         b = float(model.light(jnp.array(0.0), jnp.array(0.0)))
@@ -61,6 +76,7 @@ class TestBilinearInterpolation:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # Index coordinates (u=0.25, v=0.75) -> arcsec (-0.025, +0.025).
         x = jnp.array(-0.025)
@@ -78,6 +94,146 @@ class TestBilinearInterpolation:
 
 
 @pytest.mark.unit
+class TestRotation:
+    """The fixed template rotates counter-clockwise in world coordinates."""
+
+    def test_positive_quarter_turn_moves_positive_x_to_positive_y(self):
+        model = _make_positive_x_marker_model(angle=jnp.pi / 2)
+        model.scale.to_static()
+        model.center_x.to_static()
+        model.center_y.to_static()
+        model.angle.to_static()
+
+        brightness = model.light(jnp.array(0.0), jnp.array(1.0))
+
+        assert jnp.isclose(brightness, 1.0, atol=1e-6)
+
+    @pytest.mark.parametrize(
+        ("angle", "query_x", "query_y"),
+        [
+            (jnp.pi, -1.0, 0.0),
+            (-jnp.pi / 2, 0.0, -1.0),
+        ],
+    )
+    def test_signed_special_angles(self, angle, query_x, query_y):
+        model = _make_positive_x_marker_model()
+
+        brightness = model.light(
+            jnp.array(query_x),
+            jnp.array(query_y),
+            angle=angle,
+        )
+
+        assert jnp.isclose(brightness, 1.0, atol=1e-6)
+
+    def test_full_turn_is_periodic(self):
+        image = jnp.array(
+            [
+                [0.0, 0.2, 0.0],
+                [0.1, 0.4, 1.0],
+                [0.0, 0.3, 0.0],
+            ]
+        )
+        model = ImageTemplateLight(image=image, pixel_size=0.2)
+        x = jnp.array([0.11, -0.07])
+        y = jnp.array([0.03, 0.09])
+        angle = jnp.array(0.37)
+
+        actual = model.light(x, y, angle=angle)
+        wrapped = model.light(x, y, angle=angle + 2 * jnp.pi)
+
+        assert jnp.allclose(actual, wrapped, rtol=1e-5, atol=1e-6)
+
+    def test_nonzero_center_is_rotation_pivot(self):
+        model = _make_positive_x_marker_model(
+            center_x=2.0,
+            center_y=-3.0,
+        )
+
+        brightness = model.light(
+            jnp.array(2.0),
+            jnp.array(-2.0),
+            angle=jnp.pi / 2,
+        )
+
+        assert jnp.isclose(brightness, 1.0, atol=1e-6)
+
+    def test_rotated_square_outside_returns_zero(self):
+        model = ImageTemplateLight(image=jnp.ones((3, 3)), pixel_size=1.0)
+
+        brightness = model.light(
+            jnp.array(jnp.sqrt(2.0) + 0.01),
+            jnp.array(0.0),
+            angle=jnp.pi / 4,
+        )
+
+        assert brightness == 0.0
+
+    def test_rotated_off_grid_point_matches_hand_bilinear_value(self):
+        model = _make_positive_x_marker_model()
+        angle = jnp.pi / 6
+        # Template coordinate (u, v) = (0.25, 0.5) relative to its center.
+        x = jnp.cos(angle) * 0.25 - jnp.sin(angle) * 0.5
+        y = jnp.sin(angle) * 0.25 + jnp.cos(angle) * 0.5
+
+        brightness = model.light(x, y, angle=angle)
+
+        # Only the center-right pixel is non-zero: u weight 0.25, v weight 0.5.
+        assert jnp.isclose(brightness, 0.125, atol=1e-6)
+
+    def test_dynamic_angle_is_jittable(self):
+        model = _make_positive_x_marker_model()
+        evaluate = jax.jit(
+            lambda angle: model.light(
+                jnp.array(0.0), jnp.array(1.0), angle=angle,
+            )
+        )
+
+        quarter_turn = evaluate(jnp.pi / 2)
+        no_turn = evaluate(jnp.array(0.0))
+
+        assert jnp.isclose(quarter_turn, 1.0, atol=1e-6)
+        assert jnp.isclose(no_turn, 0.0, atol=1e-6)
+
+    def test_dynamic_angle_is_vmappable_across_realizations(self):
+        model = _make_positive_x_marker_model()
+        angles = jnp.array([0.0, jnp.pi / 2, jnp.pi])
+        query_x = jnp.array([1.0, 0.0, -1.0])
+        query_y = jnp.array([0.0, 1.0, 0.0])
+
+        vmapped = jax.vmap(
+            lambda angle: model.light(query_x, query_y, angle=angle)
+        )(angles)
+        eager = jnp.stack(
+            [
+                model.light(query_x, query_y, angle=angle)
+                for angle in angles
+            ]
+        )
+
+        assert vmapped.shape == (angles.size, query_x.size)
+        assert jnp.allclose(vmapped, eager, atol=1e-6)
+        assert jnp.allclose(vmapped, jnp.eye(3), atol=1e-6)
+
+    def test_angle_gradient_is_finite_away_from_boundaries(self):
+        image = jnp.array(
+            [
+                [0.1, 0.2, 0.4],
+                [0.3, 0.6, 1.0],
+                [0.2, 0.5, 0.7],
+            ]
+        )
+        model = ImageTemplateLight(image=image, pixel_size=1.0)
+        derivative = jax.grad(
+            lambda angle: model.light(
+                jnp.array(0.23), jnp.array(0.31), angle=angle,
+            )
+        )(jnp.array(0.37))
+
+        assert jnp.isfinite(derivative)
+
+
+@pytest.mark.unit
 class TestBoundary:
     """Query points outside the pixel-center grid return zero."""
 
@@ -87,6 +243,7 @@ class TestBoundary:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # Pixel-center grid spans [-0.05, 0.05] in both axes.
         x = jnp.array([0.06, -0.06, 0.0, 0.0])
@@ -100,6 +257,7 @@ class TestBoundary:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         x = jnp.array([-0.05, 0.05, 0.2])
         y = jnp.array([-0.05, 0.05, -0.2])
@@ -118,6 +276,7 @@ class TestScaleAndCenter:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         b = model.light(jnp.array(-0.05), jnp.array(-0.05))
         # Normalized img[0,0] = 0.25, scaled by 2 -> 0.5.
@@ -129,6 +288,7 @@ class TestScaleAndCenter:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # With center_x = 0.1 the template shifts +0.1 in x; the query
         # (0.05, 0.05) now lands on pixel (1, 0) center -> img[1, 0] = 0.75.
@@ -141,6 +301,7 @@ class TestScaleAndCenter:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         # With center_y = 0.1 the template shifts +0.1 in y; the query
         # (0.05, 0.05) now lands on pixel (0, 1) center -> img[0, 1] = 0.5.
@@ -153,6 +314,7 @@ class TestScaleAndCenter:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         b = model.light(jnp.array(0.0), jnp.array(0.0))
         assert float(b) == 0.0
@@ -164,6 +326,7 @@ class TestScaleAndCenter:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         x = jnp.linspace(-0.15, 0.15, 7)
         y = jnp.linspace(-0.15, 0.15, 9)
@@ -203,6 +366,7 @@ class TestPhysicalModelAssembly:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
         return model
 
     def test_as_lens_light(self):
@@ -230,6 +394,23 @@ class TestPhysicalModelAssembly:
         assert jnp.allclose(b, model.light(beta_x, beta_y)), \
             "assembly must match direct call"
 
+    def test_as_rotated_source_light(self):
+        from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
+
+        model = _make_positive_x_marker_model(angle=jnp.pi / 2)
+        model.scale.to_static()
+        model.center_x.to_static()
+        model.center_y.to_static()
+        model.angle.to_static()
+        physical_model = PhysicalModel(source_light=[model])
+        beta_x = jnp.array([0.0, 1.0])
+        beta_y = jnp.array([1.0, 0.0])
+
+        assembled = physical_model.source_surface_brightness(beta_x, beta_y)
+
+        assert jnp.allclose(assembled, model.light(beta_x, beta_y))
+        assert jnp.allclose(assembled, jnp.array([1.0, 0.0]), atol=1e-6)
+
 
 @pytest.mark.unit
 class TestConsistencyWithMappingMatrix:
@@ -246,10 +427,18 @@ class TestConsistencyWithMappingMatrix:
         model.scale.to_static()
         model.center_x.to_static()
         model.center_y.to_static()
+        model.angle.to_static()
 
         n = 3
         half = 0.5 * (n - 1) * 0.2
         x_axis, y_axis, _, _ = build_source_grid(n, -half, half, -half, half)
+        # The sparse interpolation operator intentionally evaluates template
+        # coordinates in float32.  Pin the dense reference axes to the same
+        # dtype so this comparison is independent of a prior test enabling
+        # JAX x64 globally (whose float64 bounds otherwise reject rounded
+        # float32 boundary coordinates).
+        x_axis = x_axis.astype(jnp.float32)
+        y_axis = y_axis.astype(jnp.float32)
 
         x = jnp.linspace(-half, half, 5)
         y = jnp.linspace(-half, half, 7)

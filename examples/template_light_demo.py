@@ -2,9 +2,8 @@
 """
 ImageTemplateLight demo.
 
-Builds a small analytic galaxy template, evaluates the interpolated
-brightness field of an ImageTemplateLight model on an image grid, and
-saves a side-by-side comparison of the template and the interpolation.
+Builds a small analytic galaxy template, evaluates unrotated and rotated
+ImageTemplateLight brightness fields on an image grid, and saves a comparison.
 
 Run from the repo root:
 
@@ -37,23 +36,31 @@ def main():
 
     template = make_galaxy_template(n=n_pix, pixel_size=pixel_size)
 
-    model = ImageTemplateLight(image=template, pixel_size=pixel_size, scale=10.0)
+    angle = jnp.pi / 3
+    model = ImageTemplateLight(
+        image=template,
+        pixel_size=pixel_size,
+        scale=10.0,
+        angle=angle,
+    )
     model.scale.to_static()
     model.center_x.to_static()
     model.center_y.to_static()
+    model.angle.to_static()
 
     # Evaluate on a fine image grid spanning a bit beyond the template.
     eval_span = 0.5
     x = jnp.linspace(-eval_span, eval_span, 201)
     X, Y = jnp.meshgrid(x, x)
-    brightness = model.light(X, Y)
+    brightness_unrotated = model.light(X, Y, angle=0.0)
+    brightness_rotated = model.light(X, Y)
 
     # A few arbitrary off-grid query points (linear interpolation).
     qx = jnp.array([-0.0317, 0.0123, 0.3])
     qy = jnp.array([0.0214, -0.0456, 0.3])
     qb = model.light(qx, qy)
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.6))
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.6))
     # Left panel: show the raw template at its true physical extent [-0.2, 0.2].
     im0 = axes[0].imshow(template, origin="lower",
                          extent=[-template_span, template_span] * 2,
@@ -63,15 +70,23 @@ def main():
     axes[0].set_xlabel("arcsec")
     fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
-    # Right panel: interpolated brightness evaluated on the [-0.5, 0.5] grid.
-    im1 = axes[1].imshow(brightness, origin="lower",
+    # Middle panel: unrotated interpolation on the [-0.5, 0.5] grid.
+    im1 = axes[1].imshow(brightness_unrotated, origin="lower",
                          extent=[-eval_span, eval_span] * 2,
                          cmap="magma")
-    axes[1].set_title("Bilinear interpolation (x10 scale)")
+    axes[1].set_title("angle = 0")
     axes[1].set_xlabel("arcsec")
-    axes[1].plot(qx, qy, "cx", markersize=7, label="query points")
-    axes[1].legend(loc="upper right", fontsize=8)
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    # Right panel: positive angles rotate the visible template CCW.
+    im2 = axes[2].imshow(brightness_rotated, origin="lower",
+                         extent=[-eval_span, eval_span] * 2,
+                         cmap="magma")
+    axes[2].set_title(r"angle = $\pi/3$ (CCW)")
+    axes[2].set_xlabel("arcsec")
+    axes[2].plot(qx, qy, "cx", markersize=7, label="query points")
+    axes[2].legend(loc="upper right", fontsize=8)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
     fig.tight_layout()
 
     out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -83,8 +98,8 @@ def main():
     for xi, yi, bi in zip(qx, qy, qb):
         print(f"  x={float(xi):+.4f}  y={float(yi):+.4f}  ->  {float(bi):.4f}")
 
-    print(f"\nGrid statistics: min={float(jnp.min(brightness)):.4f}  "
-          f"max={float(jnp.max(brightness)):.4f}  "
+    print(f"\nRotated-grid statistics: min={float(jnp.min(brightness_rotated)):.4f}  "
+          f"max={float(jnp.max(brightness_rotated)):.4f}  "
           f"(template peak=1 x scale=10)")
 
 
