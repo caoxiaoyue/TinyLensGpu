@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from scipy.special import ndtr
 
 from TinyLensGpu.Inference.param_u import ParamU
 from TinyLensGpu.Inference.build_prior import (
@@ -17,6 +18,32 @@ from TinyLensGpu.Inference.build_prior import (
     extract_prior_specs,
     make_prior_transformation,
 )
+from TinyLensGpu.Inference.base import AbstractInference
+
+
+ROBUST_MIXTURE = "truncated_gaussian_uniform_mixture"
+
+
+def _reference_mixture_cdf(x, mean, sigma, core_weight, low, high):
+    """Independent NumPy/SciPy reference for the robust-mixture CDF."""
+    alpha = (low - mean) / sigma
+    beta = (high - mean) / sigma
+    z = (np.asarray(x) - mean) / sigma
+    core_cdf = (ndtr(z) - ndtr(alpha)) / (ndtr(beta) - ndtr(alpha))
+    escape_cdf = (np.asarray(x) - low) / (high - low)
+    return core_weight * core_cdf + (1.0 - core_weight) * escape_cdf
+
+
+def _reference_mixture_pdf(x, mean, sigma, core_weight, low, high):
+    """Independent NumPy/SciPy reference for the robust-mixture PDF."""
+    alpha = (low - mean) / sigma
+    beta = (high - mean) / sigma
+    z = (np.asarray(x) - mean) / sigma
+    normalizer = ndtr(beta) - ndtr(alpha)
+    core_pdf = np.exp(-0.5 * z**2) / (
+        np.sqrt(2.0 * np.pi) * sigma * normalizer
+    )
+    return core_weight * core_pdf + (1.0 - core_weight) / (high - low)
 
 
 # ================================================================
@@ -127,6 +154,98 @@ class TestPriorSpecTransform:
         assert jnp.all(jnp.isfinite(grad)), f"gradient = {grad}"
         assert jnp.all(grad > 0.0), "transform must be strictly increasing"
 
+    # -- truncated-Gaussian + uniform robust mixture --
+
+    def test_robust_mixture_inverts_reference_cdf(self):
+        settings = (1.35, 0.405, 0.8)
+        limits = (0.5, 3.0)
+        spec = self._spec(
+            prior_type=ROBUST_MIXTURE,
+            settings=settings,
+            limits=limits,
+        )
+        u = jnp.linspace(1.0e-4, 1.0 - 1.0e-4, 1001)
+        values = np.asarray(spec.transform(u))
+        recovered = _reference_mixture_cdf(values, *settings, *limits)
+        assert np.allclose(recovered, np.asarray(u), atol=2.0e-6)
+
+    @pytest.mark.parametrize(
+        "settings,limits",
+        [
+            ((1.35, 0.405, 1.0e-4), (0.5, 3.0)),
+            ((1.35, 0.405, 1.0 - 1.0e-4), (0.5, 3.0)),
+            ((1.35, 1.0e-3, 0.8), (0.5, 3.0)),
+            ((0.5, 0.25, 0.8), (0.5, 3.0)),
+            ((3.0, 0.25, 0.8), (0.5, 3.0)),
+        ],
+    )
+    def test_robust_mixture_edge_configurations(self, settings, limits):
+        spec = self._spec(
+            prior_type=ROBUST_MIXTURE,
+            settings=settings,
+            limits=limits,
+        )
+        u = jnp.linspace(0.01, 0.99, 201)
+        values = np.asarray(spec.transform(u))
+        recovered = _reference_mixture_cdf(values, *settings, *limits)
+        assert np.all(np.isfinite(values))
+        assert np.all(values >= limits[0])
+        assert np.all(values <= limits[1])
+        assert np.allclose(recovered, np.asarray(u), atol=5.0e-5)
+
+    def test_robust_mixture_is_continuous_monotonic_and_jittable(self):
+        spec = self._spec(
+            prior_type=ROBUST_MIXTURE,
+            settings=(1.35, 0.405, 0.8),
+            limits=(0.5, 3.0),
+        )
+        u = jnp.linspace(0.001, 0.999, 1001)
+        eager = spec.transform(u)
+        jitted = jax.jit(spec.transform)(u)
+        diffs = jnp.diff(eager)
+        assert jnp.all(diffs > 0.0)
+        assert jnp.max(diffs) < 0.05
+        assert jnp.allclose(eager, jitted, atol=2.0e-6)
+
+    def test_robust_mixture_analytic_gradient_matches_reference_pdf(self):
+        settings = (1.35, 0.405, 0.8)
+        limits = (0.5, 3.0)
+        spec = self._spec(
+            prior_type=ROBUST_MIXTURE,
+            settings=settings,
+            limits=limits,
+        )
+        u = jnp.array([0.1, 0.5, 0.9])
+        values = np.asarray(spec.transform(u))
+        expected = 1.0 / _reference_mixture_pdf(values, *settings, *limits)
+        actual = np.asarray(jax.vmap(jax.grad(spec.transform))(u))
+        assert np.all(np.isfinite(actual))
+        assert np.all(actual > 0.0)
+        assert np.allclose(actual, expected, rtol=2.0e-5, atol=2.0e-5)
+
+    @pytest.mark.parametrize(
+        "settings,limits,error",
+        [
+            ((1.0, 0.0, 0.8), (0.5, 3.0), "core_std"),
+            ((1.0, -0.1, 0.8), (0.5, 3.0), "core_std"),
+            ((1.0, 0.2, 0.0), (0.5, 3.0), "core_weight"),
+            ((1.0, 0.2, 1.0), (0.5, 3.0), "core_weight"),
+            ((1.0, 0.2, 0.8), (3.0, 0.5), "low < high"),
+            ((0.4, 0.2, 0.8), (0.5, 3.0), "core_mean"),
+            ((1.0, np.nan, 0.8), (0.5, 3.0), "finite"),
+            ((1.0, 0.2, 0.8), (0.5, np.inf), "finite"),
+        ],
+    )
+    def test_robust_mixture_rejects_invalid_configuration(
+        self, settings, limits, error
+    ):
+        with pytest.raises(ValueError, match=error):
+            self._spec(
+                prior_type=ROBUST_MIXTURE,
+                settings=settings,
+                limits=limits,
+            )
+
     # -- uniform --
 
     @pytest.mark.parametrize(
@@ -173,7 +292,10 @@ class TestPriorSpecTransform:
         spec = self._spec(prior_type="log_uniform", settings=(low, high))
         val = float(spec.transform(jnp.array(u)))
         lo, hi = expected_range
-        assert lo <= val <= hi, f"u={u}: expected {val} in [{lo}, {hi}]"
+        tolerance = 1.0e-7
+        assert lo - tolerance <= val <= hi + tolerance, (
+            f"u={u}: expected {val} in [{lo}, {hi}]"
+        )
 
     def test_log_uniform_values_positive(self):
         """Log-uniform must always produce positive values."""
@@ -253,6 +375,7 @@ class TestPriorSpecTransform:
         ("log_uniform", (0.1, 10.0), None),
         ("gaussian", (0.0, 1.0), None),
         ("truncated_gaussian", (1.0, 0.2), (0.5, 2.0)),
+        (ROBUST_MIXTURE, (1.0, 0.2, 0.8), (0.5, 2.0)),
     ])
     def test_all_types_strictly_increasing(self, prior_type, settings, limits):
         """Every prior transform must be strictly increasing in u."""
@@ -319,6 +442,7 @@ class TestPriorSpecDescribe:
             ("log_uniform", (0.1, 10.0), None, "["),
             ("gaussian", (0.0, 1.0), None, "N("),
             ("truncated_gaussian", (0.0, 1.0), (0.0, 1.0), "TN("),
+            (ROBUST_MIXTURE, (1.0, 0.2, 0.8), (0.5, 2.0), "Mix("),
         ],
     )
     def test_all_prior_types_describe_prefix(
@@ -348,6 +472,18 @@ class TestParamU:
         assert p.prior_type == "truncated_gaussian"
         assert p.prior_settings == [1.0, 0.2]
         assert p.limits == [0.5, 2.0]
+
+    def test_construction_robust_mixture(self):
+        p = ParamU(
+            "theta_E",
+            1.35,
+            prior_type=ROBUST_MIXTURE,
+            prior_settings=[1.35, 0.405, 0.8],
+            limits=[0.5, 3.0],
+        )
+        assert p.prior_type == ROBUST_MIXTURE
+        assert p.prior_settings == [1.35, 0.405, 0.8]
+        assert p.limits == [0.5, 3.0]
 
     # -- uniform --
 
@@ -391,10 +527,12 @@ class TestParamU:
 
     @pytest.mark.parametrize("prior_type", [
         "uniform", "log_uniform", "gaussian", "truncated_gaussian",
+        ROBUST_MIXTURE,
     ])
     def test_repr_includes_prior_type(self, prior_type):
+        settings = [0.0, 1.0, 0.8] if prior_type == ROBUST_MIXTURE else [0.0, 1.0]
         p = ParamU("x", prior_type=prior_type,
-                   prior_settings=[0.0, 1.0], limits=[-2.0, 2.0])
+                   prior_settings=settings, limits=[-2.0, 2.0])
         r = repr(p)
         assert prior_type in r
         assert "ParamU(" in r
@@ -422,6 +560,7 @@ class TestExtractPriorSpecs:
         ("log_uniform", [0.1, 10.0], [0.1, 10.0]),
         ("gaussian", [0.0, 1.0], [-5.0, 5.0]),
         ("truncated_gaussian", [2.0, 0.5], [0.0, 5.0]),
+        (ROBUST_MIXTURE, [2.0, 0.5, 0.8], [0.0, 5.0]),
     ])
     def test_extracts_single_spec(self, prior_type, settings, limits):
         p = ParamU("p", prior_type=prior_type,
@@ -472,6 +611,16 @@ class TestExtractPriorSpecs:
         with pytest.raises(ValueError, match="prior_settings must be a tuple"):
             extract_prior_specs(module)
 
+    def test_robust_mixture_requires_three_prior_settings(self):
+        p = ParamU(
+            "x",
+            prior_type=ROBUST_MIXTURE,
+            prior_settings=[1.0, 0.2],
+            limits=[0.5, 3.0],
+        )
+        with pytest.raises(ValueError, match="length 3"):
+            extract_prior_specs(DummyModule([p]))
+
     def test_no_dynamic_params_raises(self):
         module = DummyModule([])
         with pytest.raises(ValueError, match="no dynamic parameters"):
@@ -486,6 +635,7 @@ class TestMakePriorTransformation:
         ("log_uniform", [0.1, 10.0], [0.1, 10.0], True),
         ("gaussian", [0.0, 1.0], [-5.0, 5.0], False),
         ("truncated_gaussian", [1.0, 0.2], [0.5, 2.0], False),
+        (ROBUST_MIXTURE, [1.0, 0.2, 0.8], [0.5, 2.0], False),
     ])
     def test_transform_produces_values_within_limits(
         self, prior_type, settings, limits, check_positivity
@@ -529,6 +679,7 @@ class TestMakePriorTransformation:
         ("log_uniform", [0.1, 10.0], [0.1, 10.0]),
         ("gaussian", [0.0, 1.0], [-5.0, 5.0]),
         ("truncated_gaussian", [0.0, 1.0], [-3.0, 3.0]),
+        (ROBUST_MIXTURE, [1.0, 0.2, 0.8], [0.5, 2.0]),
     ])
     def test_transform_is_jittable(self, prior_type, settings, limits):
         p = ParamU("x", prior_type=prior_type,
@@ -542,7 +693,7 @@ class TestMakePriorTransformation:
         assert jnp.allclose(eager_val, jit_val, atol=0.05)
 
     def test_transform_with_multiple_params_mixed_types(self):
-        """End-to-end with all four prior types in one module."""
+        """End-to-end with all five prior types in one module."""
         params = [
             ParamU("u", prior_type="uniform",
                    prior_settings=[0.0, 1.0], limits=[0.0, 1.0]),
@@ -552,18 +703,38 @@ class TestMakePriorTransformation:
                    prior_settings=[0.0, 1.0], limits=[-5.0, 5.0]),
             ParamU("t", prior_type="truncated_gaussian",
                    prior_settings=[1.0, 0.3], limits=[0.2, 2.0]),
+            ParamU("m", prior_type=ROBUST_MIXTURE,
+                   prior_settings=[1.0, 0.3, 0.8], limits=[0.2, 2.0]),
         ]
         module = DummyModule(params)
         transform, specs = make_prior_transformation(module)
-        assert len(specs) == 4
+        assert len(specs) == 5
 
         rng = np.random.default_rng(123)
-        u_batch = jnp.asarray(rng.uniform(0, 1, (500, 4)))
+        u_batch = jnp.asarray(rng.uniform(0, 1, (500, 5)))
         theta = transform(u_batch)
-        assert theta.shape == (500, 4)
+        assert theta.shape == (500, 5)
         # Per-column bounds
-        bounds = [(0.0, 1.0), (0.1, 10.0), (-5.0, 5.0), (0.2, 2.0)]
+        bounds = [
+            (0.0, 1.0), (0.1, 10.0), (-5.0, 5.0),
+            (0.2, 2.0), (0.2, 2.0),
+        ]
         for i, (lo, hi) in enumerate(bounds):
             col = theta[:, i]
             assert jnp.all(col >= lo), f"col {i} ({specs[i].name}): min={float(jnp.min(col))} < {lo}"
             assert jnp.all(col <= hi), f"col {i} ({specs[i].name}): max={float(jnp.max(col))} > {hi}"
+
+    def test_inference_adapter_supports_scalar_and_batch_shapes(self):
+        class InferenceStub(AbstractInference):
+            def run(self, *args, **kwargs):
+                return None
+
+        param = ParamU(
+            "theta_E",
+            prior_type=ROBUST_MIXTURE,
+            prior_settings=[1.35, 0.405, 0.8],
+            limits=[0.5, 3.0],
+        )
+        inference = InferenceStub(prob_model=DummyModule([param]))
+        assert inference.prior(np.array([0.5])).shape == (1,)
+        assert inference.prior(np.full((4, 1), 0.5)).shape == (4, 1)

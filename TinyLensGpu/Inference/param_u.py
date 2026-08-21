@@ -22,7 +22,9 @@ class ParamU(ck.Param):
         Parameter name
     value : float, optional
         Initial parameter value
-    prior_type : {'uniform', 'gaussian', 'log_uniform', 'truncated_gaussian'}
+    prior_type : {'uniform', 'gaussian', 'log_uniform',
+                  'truncated_gaussian',
+                  'truncated_gaussian_uniform_mixture'}
         Type of prior distribution
     prior_settings : sequence of float, optional
         Prior distribution parameters:
@@ -30,6 +32,8 @@ class ParamU(ck.Param):
         - gaussian: [mean, std]
         - log_uniform: [min, max]
         - truncated_gaussian: [mean, std]
+        - truncated_gaussian_uniform_mixture:
+          [core_mean, core_std, core_weight]
     limits : sequence of float, optional
         Hard limits [min, max] to clip parameter values.
         For truncated_gaussian, these are the truncation bounds.
@@ -58,6 +62,13 @@ class ParamU(ck.Param):
     >>> # Truncated Gaussian prior
     >>> param = ParamU("theta_E", 1.0, prior_type="truncated_gaussian",
     ...                prior_settings=[1.0, 0.2], limits=[0.5, 2.0])
+    >>>
+    >>> # Robust mixture prior with a broad uniform escape component
+    >>> param = ParamU(
+    ...     "theta_E", 1.0,
+    ...     prior_type="truncated_gaussian_uniform_mixture",
+    ...     prior_settings=[1.0, 0.2, 0.8], limits=[0.5, 3.0],
+    ... )
     """
     
     def __init__(
@@ -65,7 +76,13 @@ class ParamU(ck.Param):
         name: str,
         value: Optional[float] = None,
         *,
-        prior_type: Literal["uniform", "gaussian", "log_uniform", "truncated_gaussian"] = "uniform",
+        prior_type: Literal[
+            "uniform",
+            "gaussian",
+            "log_uniform",
+            "truncated_gaussian",
+            "truncated_gaussian_uniform_mixture",
+        ] = "uniform",
         prior_settings: Optional[Sequence[float]] = None,
         limits: Optional[Sequence[float]] = None,
         **kwargs: Any,
@@ -79,14 +96,17 @@ class ParamU(ck.Param):
             Parameter name.
         value : float, optional
             Initial parameter value.
-        prior_type : {'uniform', 'gaussian', 'log_uniform', 'truncated_gaussian'}, optional
+        prior_type : {'uniform', 'gaussian', 'log_uniform',
+                      'truncated_gaussian',
+                      'truncated_gaussian_uniform_mixture'}, optional
             Prior family used during unit-cube transformation.
         prior_settings : sequence of float, optional
-            Prior parameters (``[min, max]`` or ``[mean, std]`` depending on
-            ``prior_type``).
+            Prior parameters (``[min, max]``, ``[mean, std]``, or
+            ``[core_mean, core_std, core_weight]`` depending on ``prior_type``).
         limits : sequence of float, optional
             Hard clipping limits ``[min, max]`` in physical parameter space.
-            For ``truncated_gaussian``, these are the truncation bounds.
+            For ``truncated_gaussian`` and
+            ``truncated_gaussian_uniform_mixture``, these are intrinsic bounds.
         **kwargs
             Forwarded to ``ck.Param``.
         """

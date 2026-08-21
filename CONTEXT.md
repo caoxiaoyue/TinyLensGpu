@@ -27,3 +27,7 @@ _Avoid_: Lens-light pixel, lens-light nonlinear parameter
 **Unit-amplitude lens-light basis**:
 A parametric lens-light component whose sole internal intensity parameter is static and equal to one, leaving its fitted lens-light intensity as the only amplitude scale.
 _Avoid_: Dynamically normalized lens-light component, doubly scaled lens-light component
+
+**Robust mixture prior**:
+A Bayesian inference prior that combines a bounded informative core with a broad component on the same physical support, preserving nonzero prior mass away from the core estimate. It changes the posterior and evidence measure rather than acting only as a sampling proposal.
+_Avoid_: Search hint, proposal distribution, physical-model improvement

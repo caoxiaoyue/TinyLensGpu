@@ -124,6 +124,26 @@ Run the complete example from its own directory so its relative data paths resol
   - `use_linear: true`: solved via NNLS/normal solver during forward modeling
   - Shared parameters: reuse or link Caskade parameters explicitly in Python
 
+- **Robust mixture prior**
+
+  Use a bounded truncated-Gaussian core plus a uniform escape component when an
+  informative estimate should guide, but not exclude, a wider parameter range:
+
+  ```python
+  theta_e = ParamU(
+      "theta_E",
+      1.35,
+      prior_type="truncated_gaussian_uniform_mixture",
+      prior_settings=[1.35, 0.405, 0.8],
+      limits=[0.5, 3.0],
+  )
+  ```
+
+  The settings are `[core_mean, core_std, core_weight]`; the remaining weight
+  belongs to a uniform component on `limits`. Both components share that finite
+  support. This is the inference prior itself, so it changes the posterior and
+  evidence measure rather than acting only as a sampler proposal.
+
 - **Batching**
   - Choose the sampler's `n_batch` or equivalent batch setting according to available GPU memory
   - Use `make_likelihood(..., vectorized=True)` for batched likelihood evaluation

@@ -1,0 +1,3 @@
+# Use a dedicated robust mixture prior
+
+TinyLensGpu will represent the first robust mixture prior as a bounded truncated-Gaussian core plus a uniform escape component on the same support, with explicit core mean, core width, core weight, and limits. The prior transform will invert the continuous mixture CDF in one unit-cube dimension and provide an analytic gradient with respect to that unit-cube coordinate; this preserves nested-sampler geometry and schema compatibility better than a discontinuous component selector, while avoiding the recursive configuration and public API commitments of a general-purpose mixture framework. This distribution is an actual Bayesian prior that changes the posterior and evidence measure, not a proposal-only search hint.

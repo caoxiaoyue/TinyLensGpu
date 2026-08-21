@@ -178,3 +178,30 @@ def test_schema_payload_round_trip():
     assert restored.param_names == ["x"]
     assert restored.median("x") == pytest.approx(stage.median("x"))
     assert restored.log_z == 4.0
+
+
+def test_robust_mixture_schema_payload_round_trip():
+    param = ParamU(
+        "theta_E",
+        1.35,
+        prior_type="truncated_gaussian_uniform_mixture",
+        prior_settings=[1.35, 0.405, 0.8],
+        limits=[0.5, 3.0],
+    )
+    stage = StagePosterior.from_likelihood(
+        DummyModule([param]),
+        np.array([[1.2], [1.5]]),
+        np.ones(2),
+    )
+
+    payload = stage.cache_payload()
+    restored = StagePosterior.from_schema(
+        payload["samples"],
+        payload["weights"],
+        prior_specs=payload["prior_specs"],
+    )
+
+    spec = restored.prior_specs[0]
+    assert spec.prior_type == "truncated_gaussian_uniform_mixture"
+    assert spec.settings == pytest.approx((1.35, 0.405, 0.8))
+    assert spec.limits == pytest.approx((0.5, 3.0))
