@@ -84,10 +84,11 @@ class PixelizedImageProbModelOperator(ck.Module):
         from current ``adaptive_reg_rho`` values.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
-        ``fixed_source_bbox`` is not supplied.
+        ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
     source_bbox_outlier_frac : float, optional
         Fraction of ray-traced source-plane points trimmed from each tail
-        during bbox inference when ``fixed_source_bbox`` is not supplied.
+        during bbox inference when ``fixed_source_bbox`` is not supplied
+        (default: 0.0 — use absolute min/max).
     fista_max_iter : int, optional
         Fixed iteration budget for ``solver_type="fista"``. The default is
         intentionally conservative because evidence evaluation penalizes
@@ -122,8 +123,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
         fixed_reg_scale: Union[np.ndarray, Array, None] = None,
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
-        source_bbox_padding: float = 0.0,
-        source_bbox_outlier_frac: float = 0.01,
+        source_bbox_padding: float = 0.05,
+        source_bbox_outlier_frac: float = 0.0,
         fista_max_iter: int = 1000,
         fista_rtol: float = 1e-5,
         fista_power_iter: int = 10,

@@ -179,7 +179,7 @@ def _assert_square_bbox(source_bbox):
 
 @pytest.mark.unit
 def test_operator_infers_square_source_bbox_for_asymmetric_betas():
-    """Test operator bbox helper expands asymmetric seed-ray extents to square."""
+    """Test operator bbox helper applies default padding and makes a square."""
     config = _sim_config()
     config.source_bbox_outlier_frac = 0.0
     operator = PixelizedLensOperator(_phys_model(), config)
@@ -190,10 +190,10 @@ def test_operator_infers_square_source_bbox_for_asymmetric_betas():
 
     _assert_square_bbox(source_bbox)
     xmin, xmax, ymin, ymax = source_bbox
-    assert jnp.allclose(xmin, 0.0)
-    assert jnp.allclose(xmax, 3.0)
-    assert jnp.allclose(ymin, -1.5)
-    assert jnp.allclose(ymax, 1.5)
+    assert jnp.allclose(xmin, -0.15)
+    assert jnp.allclose(xmax, 3.15)
+    assert jnp.allclose(ymin, -1.65)
+    assert jnp.allclose(ymax, 1.65)
 
 
 # ------------------------------------------------------------------

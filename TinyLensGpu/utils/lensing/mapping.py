@@ -112,15 +112,14 @@ def make_square_bbox(xmin, xmax, ymin, ymax):
     return xmid - half, xmid + half, ymid - half, ymid + half
 
 
-def infer_source_bbox(beta_x, beta_y, padding=0.0, outlier_frac=0.01):
+def infer_source_bbox(beta_x, beta_y, padding=0.05, outlier_frac=0.0):
     """Infer a square source-plane bounding box from ray-traced beta points.
 
     Computes robust quantile bounds of beta coordinates and adds a
-    fractional padding margin on each side (default 0 — no padding).
-    ``outlier_frac`` (default 0.01) is trimmed from each tail, so the
-    default uses the 1st and 99th percentiles instead of the absolute
-    min/max.  Set ``outlier_frac=0.0`` to recover the previous min/max
-    behaviour.  Ensures a minimum span of 1e-6 in each direction so that
+    fractional padding margin on each side (default 0.05 — 5% per side).
+    ``outlier_frac`` is trimmed from each tail.  The default of 0 uses the
+    absolute min/max; set a positive fraction to enable robust quantile
+    trimming.  Ensures a minimum span of 1e-6 in each direction so that
     downstream grid construction is well-defined.  The shorter span is
     always expanded around its center after padding/flooring so the
     returned source-plane bbox has equal x/y extent.

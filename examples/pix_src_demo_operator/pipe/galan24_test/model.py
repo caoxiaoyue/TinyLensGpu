@@ -94,7 +94,8 @@ NOISE_MASK_THRESHOLD = 1e7  # noise_map pixels above this are pre-masked
 ADAPTIVE_REG_RHO = 2.0             # 0 = uniform, >0 strengthens faint-region reg
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
-SOURCE_BBOX_PADDING = 0.30
+SOURCE_BBOX_PADDING = 0.05
+SOURCE_BBOX_OUTLIER_FRAC = 0.0
 FISTA_MAX_ITER = 1000
 FISTA_RTOL = 1.0e-5
 FISTA_POWER_ITER = 10
@@ -779,6 +780,7 @@ def build_stage_m0_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
+        source_bbox_outlier_frac=SOURCE_BBOX_OUTLIER_FRAC,
         **_fista_kwargs(),
     )
 
@@ -907,6 +909,7 @@ def build_stage_m1_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
+        source_bbox_outlier_frac=SOURCE_BBOX_OUTLIER_FRAC,
         **_fista_kwargs(),
     )
 
@@ -1200,6 +1203,7 @@ def build_stage_m2_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
+        source_bbox_outlier_frac=SOURCE_BBOX_OUTLIER_FRAC,
         **_fista_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
@@ -1293,6 +1297,7 @@ def build_stage_m3_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
+        source_bbox_outlier_frac=SOURCE_BBOX_OUTLIER_FRAC,
         **_fista_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
