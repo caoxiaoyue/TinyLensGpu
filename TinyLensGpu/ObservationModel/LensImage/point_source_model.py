@@ -249,6 +249,32 @@ class PointSourceProbModel(ck.Module):
         beta_x, beta_y = self.phys_model.deflection(x, y)
         return jnp.stack([beta_x, beta_y], axis=-1)
 
+    def _solve_image_position_candidates(self, source_pos: Array) -> Tuple[Array, Array]:
+        """Generate the fixed number of raw candidates for the configured backend."""
+        if self._use_amr:
+            return solve_lens_equation_mesh_refine_core(
+                source_pos=source_pos,
+                ray_trace_fn=self._ray_trace,
+                initial_range=self._cfg_initial_range,
+                n_x=self._cfg_n_x,
+                n_y=self._cfg_n_y,
+                k_keep=self._cfg_k_keep,
+                subgrid_res=self._cfg_subgrid_res,
+                depth=self._cfg_depth,
+                search_factor=self._cfg_search_factor,
+            )
+
+        return solve_lens_equation_optimization_core(
+            source_pos=source_pos,
+            ray_trace_fn=self._ray_trace,
+            initial_range=self._cfg_initial_range,
+            n_x=self._cfg_n_x,
+            n_y=self._cfg_n_y,
+            k_keep=self._cfg_k_keep,
+            num_iters=self._cfg_num_iters,
+            jacobian_eps=self._cfg_jacobian_eps,
+        )
+
     @ck.forward
     @functools.partial(jit, static_argnums=(0,))
     def solve_image_positions_fixed(self) -> Tuple[Array, Array, Array, Array]:
@@ -261,30 +287,7 @@ class PointSourceProbModel(ck.Module):
             for valid roots, and their count. Invalid rows are zero padded.
         """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
-
-        if self._use_amr:
-            candidates, dists = solve_lens_equation_mesh_refine_core(
-                source_pos=source_pos,
-                ray_trace_fn=self._ray_trace,
-                initial_range=self._cfg_initial_range,
-                n_x=self._cfg_n_x,
-                n_y=self._cfg_n_y,
-                k_keep=self._cfg_k_keep,
-                subgrid_res=self._cfg_subgrid_res,
-                depth=self._cfg_depth,
-                search_factor=self._cfg_search_factor,
-            )
-        else:
-            candidates, dists = solve_lens_equation_optimization_core(
-                source_pos=source_pos,
-                ray_trace_fn=self._ray_trace,
-                initial_range=self._cfg_initial_range,
-                n_x=self._cfg_n_x,
-                n_y=self._cfg_n_y,
-                k_keep=self._cfg_k_keep,
-                num_iters=self._cfg_num_iters,
-                jacobian_eps=self._cfg_jacobian_eps,
-            )
+        candidates, dists = self._solve_image_position_candidates(source_pos)
 
         return select_unique_images_and_dists_fixed(
             images=candidates,
@@ -333,29 +336,7 @@ class PointSourceProbModel(ck.Module):
         """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
-        if self._use_amr:
-            candidates, dists = solve_lens_equation_mesh_refine_core(
-                source_pos=source_pos,
-                ray_trace_fn=self._ray_trace,
-                initial_range=self._cfg_initial_range,
-                n_x=self._cfg_n_x,
-                n_y=self._cfg_n_y,
-                k_keep=self._cfg_k_keep,
-                subgrid_res=self._cfg_subgrid_res,
-                depth=self._cfg_depth,
-                search_factor=self._cfg_search_factor,
-            )
-        else:
-            candidates, dists = solve_lens_equation_optimization_core(
-                source_pos=source_pos,
-                ray_trace_fn=self._ray_trace,
-                initial_range=self._cfg_initial_range,
-                n_x=self._cfg_n_x,
-                n_y=self._cfg_n_y,
-                k_keep=self._cfg_k_keep,
-                num_iters=self._cfg_num_iters,
-                jacobian_eps=self._cfg_jacobian_eps,
-            )
+        candidates, dists = self._solve_image_position_candidates(source_pos)
 
         selected, _, selected_mask, count = select_unique_images_and_dists_fixed(
             images=candidates,

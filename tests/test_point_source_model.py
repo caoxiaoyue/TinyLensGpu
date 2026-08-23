@@ -449,6 +449,46 @@ def test_point_source_likelihood_matches_observations_to_subset_of_extra_roots()
 
 
 @pytest.mark.unit
+def test_point_source_likelihood_matches_all_four_observed_roots():
+    """The subset matcher also handles a complete, unordered quad system."""
+    phys_model = _build_phys_model(theta_e=1.2)
+    solver_config = {
+        "initial_range": 3.0,
+        "n_x": 60,
+        "n_y": 60,
+        "k_keep": 24,
+        "num_iters": 18,
+        "tolerance": 5.0e-4,
+        "cluster_tol": 0.08,
+    }
+    generator = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=[[0.0, 0.0]],
+        position_sigma=[0.01],
+        source_x=0.0,
+        source_y=0.0,
+        source_position_fixed=True,
+        solver="optimization",
+        solver_config=solver_config,
+    )
+    all_images, _ = generator.solve_image_positions()
+    assert all_images.shape[0] == 4
+
+    model = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=np.asarray(all_images)[[2, 0, 3, 1]],
+        position_sigma=[0.01, 0.01, 0.01, 0.01],
+        source_x=0.0,
+        source_y=0.0,
+        source_position_fixed=True,
+        solver="optimization",
+        solver_config=solver_config,
+    )
+
+    assert model.likelihood() > -100.0
+
+
+@pytest.mark.unit
 def test_point_source_sigma_controls_penalty_strength():
     phys_model = _build_phys_model()
     source_true = jnp.array([0.03, -0.01], dtype=jnp.float32)
