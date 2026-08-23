@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import itertools
 from functools import partial
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 import jax
 import numpy as np
@@ -437,13 +437,13 @@ def solve_lens_equation_mesh_refine(
 
 
 @partial(jax.jit, static_argnames=('n_select',))
-def select_unique_images_fixed(
+def select_unique_images_and_dists_fixed(
     images: jnp.ndarray,
     dists: jnp.ndarray,
     n_select: int,
     tolerance: float,
     cluster_tol: float,
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Select a fixed number of unique valid images from candidates.
 
@@ -474,12 +474,15 @@ def select_unique_images_fixed(
     selected_images : jnp.ndarray
         Array of selected image positions, shape (n_select, 2). Valid rows
         retain residual-first order with coordinate tie-breakers.
+    selected_dists : jnp.ndarray
+        Residual norms aligned with ``selected_images``. Invalid rows are zero
+        padded.
     selected_mask : jnp.ndarray
         Boolean mask indicating valid entries in selected_images, shape (n_select,).
     count : jnp.ndarray
-        Scalar integer indicating the total number of valid images found.
+        Scalar integer indicating the number of valid returned rows.
     """
-    sorted_images, _, unique_mask = _compute_cluster_mask(
+    sorted_images, sorted_dists, unique_mask = _compute_cluster_mask(
         images=images,
         dists=dists,
         tolerance=tolerance,
@@ -494,6 +497,7 @@ def select_unique_images_fixed(
         (candidate_idx, (~unique_mask).astype(jnp.int32))
     )
     ranked_images = sorted_images[priority_idx]
+    ranked_dists = sorted_dists[priority_idx]
     ranked_mask = unique_mask[priority_idx]
 
     # A dummy row supplies fixed-shape zero padding when fewer than
@@ -506,9 +510,13 @@ def select_unique_images_fixed(
         ),
         axis=0,
     )
+    padded_dists = jnp.concatenate(
+        (ranked_dists, jnp.zeros((1,), dtype=ranked_dists.dtype)), axis=0
+    )
     padded_mask = jnp.concatenate((ranked_mask, jnp.zeros((1,), dtype=bool)))
     selected_idx = jnp.minimum(jnp.arange(n_select), n_candidates)
     selected_images = padded_images[selected_idx]
+    selected_dists = padded_dists[selected_idx]
     selected_mask = padded_mask[selected_idx]
 
     # Preserve the residual-first order established by
@@ -518,7 +526,29 @@ def select_unique_images_fixed(
     selected_images = jnp.where(
         selected_mask[:, None], selected_images, jnp.zeros_like(selected_images)
     )
+    selected_dists = jnp.where(
+        selected_mask, selected_dists, jnp.zeros_like(selected_dists)
+    )
     count = jnp.sum(selected_mask, dtype=jnp.int32)
+    return selected_images, selected_dists, selected_mask, count
+
+
+@partial(jax.jit, static_argnames=('n_select',))
+def select_unique_images_fixed(
+    images: jnp.ndarray,
+    dists: jnp.ndarray,
+    n_select: int,
+    tolerance: float,
+    cluster_tol: float,
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return fixed-shape unique image positions for compatibility callers."""
+    selected_images, _, selected_mask, count = select_unique_images_and_dists_fixed(
+        images=images,
+        dists=dists,
+        n_select=n_select,
+        tolerance=tolerance,
+        cluster_tol=cluster_tol,
+    )
     return selected_images, selected_mask, count
 
 
@@ -619,6 +649,52 @@ def min_assignment_chi2(
     return jnp.min(perm_cost)
 
 
+@jax.jit
+def min_assignment_chi2_subset(
+    observed_positions: jnp.ndarray,
+    predicted_positions: jnp.ndarray,
+    sigma_pos: jnp.ndarray,
+    predicted_valid: jnp.ndarray,
+) -> jnp.ndarray:
+    """Match observations to the best one-to-one subset of predicted roots.
+
+    Extra predicted roots are skipped without penalty. The dynamic program has
+    one state per subset of observations already assigned, which is practical
+    for the small point-image multiplicities handled by this GPU path.
+    """
+    n_observed = observed_positions.shape[0]
+    n_states = 1 << n_observed
+    sigma2 = jnp.square(sigma_pos) + 1.0e-12
+
+    residual = observed_positions[:, None, :] - predicted_positions[None, :, :]
+    sqdist = jnp.sum(jnp.square(residual), axis=-1)
+    cost_matrix = sqdist / sigma2[:, None]
+    cost_matrix = jnp.where(predicted_valid[None, :], cost_matrix, jnp.inf)
+
+    state_masks = jnp.arange(n_states, dtype=jnp.int32)
+    initial_costs = jnp.full((n_states,), jnp.inf, dtype=cost_matrix.dtype)
+    initial_costs = initial_costs.at[0].set(0.0)
+
+    def process_candidate(candidate_idx: int, costs: jnp.ndarray) -> jnp.ndarray:
+        def assign_observation(observed_idx: int, next_costs: jnp.ndarray) -> jnp.ndarray:
+            bit = jnp.left_shift(jnp.int32(1), jnp.int32(observed_idx))
+            destinations = jnp.bitwise_or(state_masks, bit)
+            can_assign = jnp.equal(jnp.bitwise_and(state_masks, bit), 0)
+            proposals = jnp.where(
+                can_assign,
+                costs + cost_matrix[observed_idx, candidate_idx],
+                jnp.inf,
+            )
+            return next_costs.at[destinations].min(proposals)
+
+        return lax.fori_loop(0, n_observed, assign_observation, costs)
+
+    final_costs = lax.fori_loop(
+        0, predicted_positions.shape[0], process_candidate, initial_costs
+    )
+    return final_costs[-1]
+
+
 def _hungarian_assignment_callback(cost_matrix):
     """
     NumPy/SciPy callback for Hungarian assignment.
@@ -644,6 +720,7 @@ def min_assignment_chi2_hungarian(
     observed_positions: jnp.ndarray,
     predicted_positions: jnp.ndarray,
     sigma_pos: jnp.ndarray,
+    predicted_valid: Optional[jnp.ndarray] = None,
 ) -> jnp.ndarray:
     """
     Compute minimum assignment chi-square using Hungarian algorithm.
@@ -653,9 +730,12 @@ def min_assignment_chi2_hungarian(
     observed_positions : jnp.ndarray
         Observed image positions, shape ``(n_obs, 2)``.
     predicted_positions : jnp.ndarray
-        Predicted image positions, shape ``(n_obs, 2)``.
+        Predicted image positions, shape ``(n_pred, 2)``.
     sigma_pos : jnp.ndarray
         Positional 1-sigma uncertainties, shape ``(n_obs,)``.
+    predicted_valid : jnp.ndarray, optional
+        Mask for valid rows in ``predicted_positions``. Invalid rows cannot be
+        selected by the assignment.
 
     Returns
     -------
@@ -668,6 +748,8 @@ def min_assignment_chi2_hungarian(
     residual = observed_positions[:, None, :] - predicted_positions[None, :, :]
     sqdist = jnp.sum(jnp.square(residual), axis=-1)
     cost_matrix = sqdist / sigma2[:, None]
+    if predicted_valid is not None:
+        cost_matrix = jnp.where(predicted_valid[None, :], cost_matrix, jnp.inf)
 
     n_obs = observed_positions.shape[0]
     
@@ -700,5 +782,6 @@ __all__ = [
     'select_unique_images_fixed',
     'build_permutation_indices',
     'min_assignment_chi2',
+    'min_assignment_chi2_subset',
     'min_assignment_chi2_hungarian',
 ]

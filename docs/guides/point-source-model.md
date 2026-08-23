@@ -75,6 +75,30 @@ AMR-specific:
 - `depth=10`
 - `search_factor=2.0`
 
+## Image-Position Solver APIs
+
+`solve_image_positions()` preserves the original convenience interface and
+returns dynamically sized `(images, dists)` arrays containing every valid,
+unique root found by the configured solver.
+
+For repeated GPU work, use `solve_image_positions_fixed()` instead:
+
+```python
+images, dists, valid_mask, count = model.solve_image_positions_fixed()
+valid_images = images[valid_mask]
+```
+
+It is outer-JITed and returns static shapes `(k_keep, 2)` and `(k_keep,)`.
+Invalid rows are zero padded and identified by `valid_mask`. The dynamic
+method trims this fixed result only at its Python-facing boundary, so both APIs
+have the same valid roots and residual ordering.
+
+The position likelihood permits unobserved extra images: it requires at least
+as many valid predicted roots as observed positions, then matches the observed
+positions one-to-one to the best subset of all valid predicted roots. Extra
+predicted roots are not penalized, which is appropriate when demagnified or
+lens-light-contaminated images may be absent from the catalog.
+
 ## Inference Integration
 
 `PointSourceProbModel` is compatible with existing inference utilities:

@@ -216,6 +216,92 @@ def test_select_unique_images_fixed_handles_empty_candidates():
 
 
 @pytest.mark.unit
+def test_fixed_position_solver_preserves_dynamic_position_results():
+    """The fixed-shape solver exposes every valid root from the dynamic API."""
+    phys_model = _build_phys_model()
+    source_true = jnp.array([0.03, -0.01], dtype=jnp.float32)
+    model = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=[[0.0, 0.0]],
+        position_sigma=[0.01],
+        source_x=float(source_true[0]),
+        source_y=float(source_true[1]),
+        source_position_fixed=True,
+        solver="optimization",
+        solver_config={
+            "initial_range": 3.0,
+            "n_x": 60,
+            "n_y": 60,
+            "k_keep": 24,
+            "num_iters": 18,
+            "tolerance": 5.0e-4,
+            "cluster_tol": 0.08,
+        },
+    )
+
+    dynamic_images, dynamic_dists = model.solve_image_positions()
+    fixed_images, fixed_dists, valid_mask, count = model.solve_image_positions_fixed()
+
+    assert fixed_images.shape == (24, 2)
+    assert fixed_dists.shape == (24,)
+    assert int(count) == dynamic_images.shape[0]
+    np.testing.assert_array_equal(np.asarray(valid_mask[: int(count)]), True)
+    np.testing.assert_array_equal(np.asarray(valid_mask[int(count) :]), False)
+    np.testing.assert_allclose(
+        np.asarray(fixed_images)[np.asarray(valid_mask)],
+        np.asarray(dynamic_images),
+        atol=1.0e-6,
+    )
+    np.testing.assert_allclose(
+        np.asarray(fixed_dists)[np.asarray(valid_mask)],
+        np.asarray(dynamic_dists),
+        atol=1.0e-6,
+    )
+
+
+@pytest.mark.unit
+def test_fixed_amr_position_solver_preserves_dynamic_position_results():
+    """The AMR backend shares the same fixed and dynamic result contract."""
+    phys_model = _build_phys_model()
+    source_true = jnp.array([0.03, -0.01], dtype=jnp.float32)
+    model = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=[[0.0, 0.0]],
+        position_sigma=[0.01],
+        source_x=float(source_true[0]),
+        source_y=float(source_true[1]),
+        source_position_fixed=True,
+        solver="amr",
+        solver_config={
+            "initial_range": 3.0,
+            "n_x": 60,
+            "n_y": 60,
+            "k_keep": 24,
+            "subgrid_res": 12,
+            "depth": 8,
+            "search_factor": 2.0,
+            "tolerance": 5.0e-4,
+            "cluster_tol": 0.08,
+        },
+    )
+
+    dynamic_images, dynamic_dists = model.solve_image_positions()
+    fixed_images, fixed_dists, valid_mask, count = model.solve_image_positions_fixed()
+
+    assert int(count) == dynamic_images.shape[0]
+    np.testing.assert_allclose(
+        np.asarray(fixed_images)[np.asarray(valid_mask)],
+        np.asarray(dynamic_images),
+        atol=1.0e-6,
+    )
+    np.testing.assert_allclose(
+        np.asarray(fixed_dists)[np.asarray(valid_mask)],
+        np.asarray(dynamic_dists),
+        atol=1.0e-6,
+    )
+
+
+@pytest.mark.unit
 def test_point_source_model_optimization_solver_returns_finite_loglike():
     phys_model = _build_phys_model()
     source_true = jnp.array([0.03, -0.01], dtype=jnp.float32)
@@ -320,6 +406,46 @@ def test_point_source_matching_invariant_to_observed_order():
     )
 
     assert np.isclose(model_a.likelihood(), model_b.likelihood(), atol=1e-5)
+
+
+@pytest.mark.unit
+def test_point_source_likelihood_matches_observations_to_subset_of_extra_roots():
+    """Unobserved roots do not prevent matching the observed image subset."""
+    phys_model = _build_phys_model(theta_e=1.2)
+    solver_config = {
+        "initial_range": 3.0,
+        "n_x": 60,
+        "n_y": 60,
+        "k_keep": 24,
+        "num_iters": 18,
+        "tolerance": 5.0e-4,
+        "cluster_tol": 0.08,
+    }
+    generator = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=[[0.0, 0.0]],
+        position_sigma=[0.01],
+        source_x=0.0,
+        source_y=0.0,
+        source_position_fixed=True,
+        solver="optimization",
+        solver_config=solver_config,
+    )
+    all_images, _ = generator.solve_image_positions()
+    assert all_images.shape[0] == 4
+
+    model = PointSourceProbModel(
+        phys_model=phys_model,
+        observed_positions=np.asarray(all_images[-2:]),
+        position_sigma=[0.01, 0.01],
+        source_x=0.0,
+        source_y=0.0,
+        source_position_fixed=True,
+        solver="optimization",
+        solver_config=solver_config,
+    )
+
+    assert model.likelihood() > -100.0
 
 
 @pytest.mark.unit

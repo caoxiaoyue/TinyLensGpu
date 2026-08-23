@@ -13,18 +13,15 @@ from typing import Dict, Optional, Sequence, Tuple, Union
 import caskade as ck
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, jit
+from jax import Array, jit, lax
 
 from TinyLensGpu.Inference.param_u import ParamU
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.lensing.point_source_solver import (
-    build_permutation_indices,
-    min_assignment_chi2,
     min_assignment_chi2_hungarian,
-    select_unique_images_fixed,
-    solve_lens_equation_mesh_refine,
+    min_assignment_chi2_subset,
+    select_unique_images_and_dists_fixed,
     solve_lens_equation_mesh_refine_core,
-    solve_lens_equation_optimization,
     solve_lens_equation_optimization_core,
 )
 
@@ -173,15 +170,10 @@ class PointSourceProbModel(ck.Module):
         object.__setattr__(self, "_cfg_depth", int(cfg.get("depth", 10)))
         object.__setattr__(self, "_cfg_search_factor", float(cfg.get("search_factor", 2.0)))
 
-        # Use Hungarian algorithm if N > 4 to avoid combinatorial explosion
-        # Otherwise use permutation indices for GPU efficiency
-        self._use_hungarian = self.n_observed > 4
-        
-        if self._use_hungarian:
-            object.__setattr__(self, "_perm_indices", None)
-        else:
-            perms = build_permutation_indices(self.n_observed)
-            object.__setattr__(self, "_perm_indices", perms)
+        # The pure-JAX subset matcher has O(K * N * 2**N) complexity. It is
+        # efficient for normal double/quad systems; larger multiplicities keep
+        # the existing SciPy Hungarian fallback for compatibility.
+        object.__setattr__(self, "_use_subset_dp", self.n_observed <= 8)
 
         # Precompute log-normalization constant for Gaussian likelihood: sum(log(2 * pi * sigma^2))
         # This corresponds to the constant term in the 2D Gaussian log-likelihood for N points.
@@ -258,67 +250,15 @@ class PointSourceProbModel(ck.Module):
         return jnp.stack([beta_x, beta_y], axis=-1)
 
     @ck.forward
-    def solve_image_positions(self) -> Tuple[Array, Array]:
-        """
-        Solve the lens equation to find image positions for the current source position.
-
-        Uses the configured solver (Optimization or AMR) to find roots of the lens equation.
-
-        Returns
-        -------
-        candidates : Array
-            The found image positions (x, y).
-        dists : Array
-            The distance in the source plane between the ray-traced image position and the true source position.
-            Used to filter valid solutions.
-        """
-        source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
-
-        if self._use_amr:
-            return solve_lens_equation_mesh_refine(
-                source_pos=source_pos,
-                ray_trace_fn=self._ray_trace,
-                initial_range=self._cfg_initial_range,
-                n_x=self._cfg_n_x,
-                n_y=self._cfg_n_y,
-                k_keep=self._cfg_k_keep,
-                subgrid_res=self._cfg_subgrid_res,
-                depth=self._cfg_depth,
-                search_factor=self._cfg_search_factor,
-                tolerance=self._cfg_tolerance,
-                cluster_tol=self._cfg_cluster_tol,
-            )
-
-        return solve_lens_equation_optimization(
-            source_pos=source_pos,
-            ray_trace_fn=self._ray_trace,
-            initial_range=self._cfg_initial_range,
-            n_x=self._cfg_n_x,
-            n_y=self._cfg_n_y,
-            k_keep=self._cfg_k_keep,
-            num_iters=self._cfg_num_iters,
-            tolerance=self._cfg_tolerance,
-            cluster_tol=self._cfg_cluster_tol,
-            jacobian_eps=self._cfg_jacobian_eps,
-        )
-
-    @ck.forward
     @functools.partial(jit, static_argnums=(0,))
-    def __call__(self) -> Array:
-        """
-        Compute the log-likelihood of the observed point source positions.
-
-        1. Solves the lens equation to find predicted image positions.
-        2. Filters valid images based on the source plane distance threshold.
-        3. Matches predicted images to observed images (via Hungarian algorithm or permutation)
-           to minimize the total squared distance.
-        4. Computes the Gaussian log-likelihood.
+    def solve_image_positions_fixed(self) -> Tuple[Array, Array, Array, Array]:
+        """Solve image positions with a static output shape for JIT reuse.
 
         Returns
         -------
-        log_like : Array
-            The log-likelihood value. Returns `min_log_like` if no valid images are found
-            or if the number of predicted images does not match the observed count.
+        images, dists, valid_mask, count
+            Padded arrays of shape ``(k_keep, 2)`` and ``(k_keep,)``, a mask
+            for valid roots, and their count. Invalid rows are zero padded.
         """
         source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
 
@@ -346,10 +286,81 @@ class PointSourceProbModel(ck.Module):
                 jacobian_eps=self._cfg_jacobian_eps,
             )
 
-        selected, selected_mask, count = select_unique_images_fixed(
+        return select_unique_images_and_dists_fixed(
             images=candidates,
             dists=dists,
-            n_select=self.n_observed,
+            n_select=self._cfg_k_keep,
+            tolerance=self._cfg_tolerance,
+            cluster_tol=self._cfg_cluster_tol,
+        )
+
+    @ck.forward
+    def solve_image_positions(self) -> Tuple[Array, Array]:
+        """
+        Solve the lens equation to find image positions for the current source position.
+
+        Uses the configured solver (Optimization or AMR) to find roots of the lens equation.
+
+        Returns
+        -------
+        candidates : Array
+            The found image positions (x, y).
+        dists : Array
+            The distance in the source plane between the ray-traced image position and the true source position.
+            Used to filter valid solutions.
+        """
+        images, dists, _, count = self.solve_image_positions_fixed()
+        valid_count = int(np.asarray(count))
+        return images[:valid_count], dists[:valid_count]
+
+    @ck.forward
+    @functools.partial(jit, static_argnums=(0,))
+    def __call__(self) -> Array:
+        """
+        Compute the log-likelihood of the observed point source positions.
+
+        1. Solves the lens equation to find predicted image positions.
+        2. Filters valid images based on the source plane distance threshold.
+        3. Matches observed images one-to-one to the best subset of all valid
+           predicted images, without penalizing unobserved extra roots.
+        4. Computes the Gaussian log-likelihood.
+
+        Returns
+        -------
+        log_like : Array
+            The log-likelihood value. Returns `min_log_like` if there are
+            fewer valid predicted images than observed positions.
+        """
+        source_pos = jnp.asarray([self.source_x.value, self.source_y.value], dtype=jnp.float32)
+
+        if self._use_amr:
+            candidates, dists = solve_lens_equation_mesh_refine_core(
+                source_pos=source_pos,
+                ray_trace_fn=self._ray_trace,
+                initial_range=self._cfg_initial_range,
+                n_x=self._cfg_n_x,
+                n_y=self._cfg_n_y,
+                k_keep=self._cfg_k_keep,
+                subgrid_res=self._cfg_subgrid_res,
+                depth=self._cfg_depth,
+                search_factor=self._cfg_search_factor,
+            )
+        else:
+            candidates, dists = solve_lens_equation_optimization_core(
+                source_pos=source_pos,
+                ray_trace_fn=self._ray_trace,
+                initial_range=self._cfg_initial_range,
+                n_x=self._cfg_n_x,
+                n_y=self._cfg_n_y,
+                k_keep=self._cfg_k_keep,
+                num_iters=self._cfg_num_iters,
+                jacobian_eps=self._cfg_jacobian_eps,
+            )
+
+        selected, _, selected_mask, count = select_unique_images_and_dists_fixed(
+            images=candidates,
+            dists=dists,
+            n_select=self._cfg_k_keep,
             tolerance=self._cfg_tolerance,
             cluster_tol=self._cfg_cluster_tol,
         )
@@ -358,22 +369,27 @@ class PointSourceProbModel(ck.Module):
             jnp.all(jnp.isfinite(candidates)),
             jnp.all(jnp.isfinite(dists)),
         )
-        enough_images = count == self.n_observed
-        enough_mask = jnp.all(selected_mask)
-        valid = jnp.logical_and(finite_ok, jnp.logical_and(enough_images, enough_mask))
+        enough_images = count >= self.n_observed
+        valid = jnp.logical_and(finite_ok, enough_images)
 
-        if self._use_hungarian:
-            chi2 = min_assignment_chi2_hungarian(
+        if self._use_subset_dp:
+            chi2 = min_assignment_chi2_subset(
                 observed_positions=self.observed_positions,
                 predicted_positions=selected,
                 sigma_pos=self.position_sigma,
+                predicted_valid=selected_mask,
             )
         else:
-            chi2 = min_assignment_chi2(
-                observed_positions=self.observed_positions,
-                predicted_positions=selected,
-                sigma_pos=self.position_sigma,
-                permutation_indices=self._perm_indices,
+            chi2 = lax.cond(
+                enough_images,
+                lambda _: min_assignment_chi2_hungarian(
+                    observed_positions=self.observed_positions,
+                    predicted_positions=selected,
+                    sigma_pos=self.position_sigma,
+                    predicted_valid=selected_mask,
+                ),
+                lambda _: jnp.asarray(jnp.inf, dtype=jnp.float32),
+                operand=None,
             )
         log_like = -0.5 * chi2 - self._log_norm
 
