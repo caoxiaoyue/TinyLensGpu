@@ -36,11 +36,18 @@ pip install -e .                       # editable install
 ```bash
 conda create -n tinylens_gpu python=3.11
 conda activate tinylens_gpu
-conda install -c conda-forge cudatoolkit=12.0  # or match your driver
 pip install -U "jax[cuda12]"
 pip install -r requirements.txt        # includes jaxnnls for the linear NNLS backend
 pip install -e .
 ```
+
+Notes:
+- `cudatoolkit` from `conda-forge` is no longer required: the `jax[cuda12]` wheels bundle their own CUDA runtime.
+- `requirements.txt` pins `numpy<2.0`, so pip will resolve a JAX version compatible with NumPy 1.x (e.g. `jax==0.7.1`).
+- If `pip install -e .` fails inside a build-isolation step with SSL/proxy errors, use the already-installed build tools:
+  ```bash
+  pip install -e . --no-build-isolation
+  ```
 
 ### 2.3 Verify the environment
 
