@@ -9,7 +9,45 @@ Key Features:
 """
 
 import os
+import subprocess
+
+
+def pick_least_used_gpu():
+    """Return the GPU index with the most free memory, fallback to '0'."""
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+        )
+    except Exception:
+        return "0"
+
+    best_idx = "0"
+    best_free = -1.0
+    for line in output.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        idx, used, total = parts[:3]
+        try:
+            free = float(total) - float(used)
+        except ValueError:
+            continue
+        if free > best_free:
+            best_free = free
+            best_idx = idx
+    return best_idx
+
+
+selected_gpu = pick_least_used_gpu()
+print(f"[Auto GPU select] Using CUDA device {selected_gpu}")
+os.environ["CUDA_VISIBLE_DEVICES"] = selected_gpu
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["JAX_ENABLE_X64"] = "1"              # Enable JAX float64
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
