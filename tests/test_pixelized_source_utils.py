@@ -8,6 +8,7 @@ pixelized reconstructions.
 # pyright: reportMissingImports=false
 
 import pytest
+import jax
 import jax.numpy as jnp
 
 from TinyLensGpu.utils.lensing.mapping import (
@@ -15,6 +16,7 @@ from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
     infer_source_bbox,
     make_square_bbox,
+    source_bbox_from_center_reff,
 )
 
 
@@ -297,6 +299,40 @@ class TestInferSquareSourceBbox:
         assert xmax > xmin
         assert ymax > ymin
         assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+
+@pytest.mark.unit
+class TestSourceBboxFromCenterReff:
+    """Test source bbox construction from photometric estimates."""
+
+    def test_default_factor_preserves_center_and_sets_expected_half_size(self):
+        """Test the default box extends 2.5 effective radii from an offset center."""
+        bbox = source_bbox_from_center_reff(0.2, -0.1, 0.4)
+        xmin, xmax, ymin, ymax = bbox
+
+        assert jnp.allclose(jnp.asarray(bbox), jnp.asarray([-0.8, 1.2, -1.1, 0.9]))
+        assert jnp.allclose(0.5 * (xmin + xmax), 0.2)
+        assert jnp.allclose(0.5 * (ymin + ymax), -0.1)
+        assert jnp.allclose(xmax - xmin, ymax - ymin)
+
+        x_axis, y_axis, x_mesh, y_mesh = build_source_grid(5, *bbox)
+        assert x_mesh.shape == (5, 5)
+        assert y_mesh.shape == (5, 5)
+        assert jnp.allclose(x_axis[jnp.asarray([0, 4])], jnp.asarray([-0.8, 1.2]))
+        assert jnp.allclose(y_axis[jnp.asarray([0, 4])], jnp.asarray([-1.1, 0.9]))
+
+    def test_custom_factor_accepts_jax_scalars_under_jit(self):
+        """Test callers can choose the radius multiplier without breaking JAX tracing."""
+        build_bbox = jax.jit(source_bbox_from_center_reff)
+
+        bbox = build_bbox(
+            jnp.asarray(1.0),
+            jnp.asarray(2.0),
+            jnp.asarray(0.5),
+            jnp.asarray(3.0),
+        )
+
+        assert jnp.allclose(jnp.asarray(bbox), jnp.asarray([-0.5, 2.5, 0.5, 3.5]))
 
 
 @pytest.mark.unit

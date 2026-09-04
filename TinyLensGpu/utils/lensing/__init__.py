@@ -6,6 +6,7 @@ from .mapping import (
     build_source_grid,
     build_lens_mapping_matrix,
     make_square_bbox,
+    source_bbox_from_center_reff,
     infer_source_bbox,
 )
 from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
@@ -32,6 +33,7 @@ __all__ = [
     'build_source_grid',
     'build_lens_mapping_matrix',
     'make_square_bbox',
+    'source_bbox_from_center_reff',
     'infer_source_bbox',
     'build_psf_matrix_dense',
     'build_psf_matrix_sparse',

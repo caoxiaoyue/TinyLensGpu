@@ -112,6 +112,33 @@ def make_square_bbox(xmin, xmax, ymin, ymax):
     return xmid - half, xmid + half, ymid - half, ymid + half
 
 
+def source_bbox_from_center_reff(
+    center_x,
+    center_y,
+    effective_radius,
+    radius_factor=2.5,
+):
+    """Build a square source-plane bbox from a source center and half-light radius.
+
+    The box half-size is ``radius_factor * effective_radius``; consequently,
+    its full side length is ``2 * radius_factor * effective_radius``.
+    ``effective_radius`` and ``radius_factor`` must be positive. Inputs may be
+    Python scalars or JAX scalar arrays, and the returned
+    ``(xmin, xmax, ymin, ymax)`` values remain JAX compatible.
+    """
+    center_x = jnp.asarray(center_x)
+    center_y = jnp.asarray(center_y)
+    effective_radius = jnp.asarray(effective_radius)
+    radius_factor = jnp.asarray(radius_factor)
+    half_size = radius_factor * effective_radius
+    return (
+        center_x - half_size,
+        center_x + half_size,
+        center_y - half_size,
+        center_y + half_size,
+    )
+
+
 def infer_source_bbox(beta_x, beta_y, padding=0.05, outlier_frac=0.0):
     """Infer a square source-plane bounding box from ray-traced beta points.
 
@@ -190,5 +217,6 @@ __all__ = [
     "build_source_grid",
     "build_lens_mapping_matrix",
     "make_square_bbox",
+    "source_bbox_from_center_reff",
     "infer_source_bbox",
 ]
