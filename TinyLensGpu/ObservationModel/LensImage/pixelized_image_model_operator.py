@@ -200,8 +200,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.block_size = int(block_size)
 
         # PCG settings
-        self.pcg_max_iter = 200
-        self.pcg_rtol = 1e-6
+        self.pcg_max_iter = 400
+        self.pcg_rtol = 1e-5
         self.fista_max_iter = int(fista_max_iter)
         self.fista_rtol = float(fista_rtol)
         self.fista_power_iter = int(fista_power_iter)

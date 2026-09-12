@@ -151,8 +151,8 @@ def pcg_solve(
     b: Array,
     preconditioner,
     x0: Array | None = None,
-    max_iter: int = 200,
-    rtol: float = 1e-6,
+    max_iter: int = 400,
+    rtol: float = 1e-5,
     atol: float = 1e-12,
 ) -> tuple[Array, PCGInfo]:
     r"""Solve ``A @ x = b`` with preconditioned conjugate gradient.
