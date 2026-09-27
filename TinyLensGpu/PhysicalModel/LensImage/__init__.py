@@ -1,6 +1,6 @@
 """Lens Image physical models."""
 
-from .Parametric.Mass import SIS, SIE, Shear, EPL
+from .Parametric.Mass import SIS, SIE, Shear, EPL, PseudoJaffeSubhalo
 from .Parametric.Light import (
     SersicEllipse,
     GaussianEllipse,
@@ -18,6 +18,7 @@ __all__ = [
     'SIE',
     'Shear',
     'EPL',
+    'PseudoJaffeSubhalo',
     'SersicEllipse',
     'GaussianEllipse',
     'ConstantBackground',

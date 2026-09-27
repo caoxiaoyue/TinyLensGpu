@@ -12,3 +12,4 @@ solver behavior, and practical lens-modeling choices.
 - [GPU-memory study for the joint pixel-source + MGE operator backend](joint-pixel-source-mge-operator-memory.md)
 - [Point-source image-position solver performance study](point-source-position-solver-performance.md)
 - [Fixed pixelized-source grids and source-bbox boundary behavior](fixed-pixelized-source-grid-and-bbox-boundaries.md)
+- [Untruncated SIS subhalo perturbers: a degeneracy with the main lens](untruncated-sis-subhalo-perturber-degeneracy.md)

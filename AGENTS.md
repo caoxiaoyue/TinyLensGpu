@@ -69,6 +69,16 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 - `README.md` — capabilities matrix, demo index, and citation.
 - `setup.py` — dependency matrix and extras (`dev`, `docs`, `notebooks`, `ultranest`).
 
+## Specs and experiment records
+
+For spec-based reviews, use an explicitly designated spec or an issue-tracker
+`spec.md`/issue as the requirements source. `docs/technical-notes/` and research
+notes under `.scratch/` record experiments, hypotheses, and recommendations;
+use them as evidence and context unless the user explicitly designates one as a
+spec. If no spec is identified, report that the spec axis is unavailable.
+Attribute numerical findings to the model and configuration that produced them
+before using them to assess a changed model.
+
 ## Agent skills
 
 ### Issue tracker

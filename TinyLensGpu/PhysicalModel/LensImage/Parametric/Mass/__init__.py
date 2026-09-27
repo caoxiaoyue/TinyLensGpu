@@ -13,6 +13,7 @@ from .dipole import Dipole
 from .flexion import Flexion
 from .flexionfg import Flexionfg
 from .pseudo_jaffe import PseudoJaffe
+from .pseudo_jaffe_subhalo import PseudoJaffeSubhalo
 from .pseudo_jaffe_ellipse_potential import PseudoJaffeEllipsePotential
 
 __all__ = [
@@ -23,5 +24,5 @@ __all__ = [
     'EPL_BOXYDISKY', 'EPL_BOXYDISKY_ELL',
     'Dipole',
     'Flexion', 'Flexionfg',
-    'PseudoJaffe', 'PseudoJaffeEllipsePotential'
+    'PseudoJaffe', 'PseudoJaffeSubhalo', 'PseudoJaffeEllipsePotential'
 ]

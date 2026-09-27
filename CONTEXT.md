@@ -13,7 +13,7 @@ The lensing behavior approached by a Singular Isothermal Ellipsoid as both ellip
 _Avoid_: SIS approximation
 
 **Subhalo mass component**:
-An additional localized mass profile inferred alongside the main lens mass and external shear; in the subhalo-search pipeline it is represented by an SIS with its own center and Einstein radius.
+An additional localized mass profile inferred alongside the main lens mass and external shear, with its own center and mass or lens-strength parameter.
 _Avoid_: Main-lens SIS, circular main lens
 
 **Joint semi-linear inversion**:
