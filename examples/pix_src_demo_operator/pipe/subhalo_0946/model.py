@@ -1,20 +1,19 @@
 """Adaptive-regularization pipeline for the J0946 subhalo search.
 
-Stage a  : SIE + shear + two-MGE lens light + MGE source light (uniform priors)
+Stage a  : SIE + shear + two-MGE lens light + MGE source light
 Stage b  : build an arc feature mask from stage-A residuals
-Stage l  : arc-masked MGE lens light refinement (uniform priors, independent from stage a)
 Stage m0 : SIE + shear + uniform pixelized source — GPU grid search for
             evidence-best lambda_reg on lens-subtracted image
-Stage m1 : EPL + shear + non-adaptive pixelized source — Nautilus sampling
+Stage m1 : SIE + shear + non-adaptive pixelized source — Nautilus sampling
             of mass parameters on lens-subtracted image with lambda_reg constrained around stage-M0,
             then builds the fixed S1 source template
-Stage m2 : fixed EPL + shear + adaptive pixelized source — Nautilus sampling
+Stage m2 : fixed SIE + shear + adaptive pixelized source — Nautilus sampling
             of log_lambda_reg and adaptive_reg_rho only, on lens-subtracted image
 Stage m3 : EPL + shear + adaptive pixelized source — Nautilus nested sampling
             with source-reg hyperparameters fixed from stage-M2 medians
 Stage m4 : smooth EPL + shear + adaptive pixelized source — the null model of the
-            subhalo comparison. Smooth-mass priors are uniform top-hats derived
-            from the stage-M3 posterior (0.5-99.5% quantiles plus padding), and
+            subhalo comparison. Smooth-mass priors are uniform top-hats centered
+            on the stage-M3 medians with trial physical half-widths, and
             the source regularization strength is re-sampled from a log-uniform
             prior centered on the stage-M2 median (±0.5 dex)
 Stage m5 : identical to stage M4 plus a tidally truncated singular Pseudo-Jaffe
@@ -28,9 +27,11 @@ Stage m5 : identical to stage M4 plus a tidally truncated singular Pseudo-Jaffe
             evidence is NOT a comparison baseline.
 
 Each stage pickles its posterior samples/weights to
-``output/stage_{a,l,m0,m1,m2,m3,m4,m5}.pkl``, including the sampler's actual
+``output/stage_{a,m0,m1,m2,m3,m4,m5}.pkl``, including the sampler's actual
 prior specifications. Global variables below control both comparison stages;
 there is no separate configuration file. Stages are re-runnable via ``--skip-done``.
+The M5 cache also stores the derived Pseudo-Jaffe mass posterior summary, and
+``output/stage_m5_mass.json`` provides the same result in a readable form.
 
 Usage::
 
@@ -60,6 +61,9 @@ jax.config.update("jax_default_matmul_precision", "float32")
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy import constants as astro_constants
+from astropy import units as u
+from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
 from nautilus import Sampler
 
@@ -95,18 +99,16 @@ NSRC = 100
 DPIX = 0.05
 NSUB = 4
 NSUB_PIX = 4
-N_GAUSSIANS_SRC = 10
-N_GAUSSIANS_LENS = 10
+N_GAUSSIANS_SRC = 20
+N_GAUSSIANS_LENS = 20
 MASK_RADIUS = 2.5
 ADAPTIVE_REG_RHO = 2.0
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
-SOURCE_BBOX_PADDING = 0.2
-FISTA_MAX_ITER = 1000
-FISTA_RTOL = 1.0e-5
-FISTA_POWER_ITER = 10
-FISTA_STEP_SAFETY = 1.2
+SOURCE_BBOX_PADDING = 0.0
+SOURCE_BBOX_HALF_WIDTH = 0.5  # arcsec about the stage-A source center
 SOLVER_TYPE = "pcg"
+VECTORIZED_CHUNK_SIZE = 8  # Bound peak GPU memory during batched FFTs/solves.
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUT_DIR = SCRIPT_DIR / "output"
 DATA_DIR = SCRIPT_DIR / "data"
@@ -114,22 +116,18 @@ DATA_DIR = SCRIPT_DIR / "data"
 # ------------------------------------------------------------------ #
 # M4 / M5 comparison configuration
 # ------------------------------------------------------------------ #
-# Bumped whenever the M4/M5 stage semantics change, so that cached stage
-# pickles produced by an older pipeline are never silently reused.
-PIPELINE_SCHEMA = "smooth_vs_subhalo.v6"
-
-# Shared smooth-mass priors: stage-M3 posterior quantiles plus a fractional pad,
-# clipped to the hard physical limits. M4 and M5 calculate these bounds using
-# the same globals and stage-M3 posterior.
-SMOOTH_PRIOR_QUANTILES = (0.005, 0.995)
-SMOOTH_PRIOR_PAD_FRACTION = 0.10
-# Minimum half-width of each shared top-hat, in units of the stage-M3 posterior
-# standard deviation. The quantile+padding rule alone can leave a prior only
-# ~2.9 sigma wide; a subhalo may shift the main lens toward a prior edge.
-# Keep this >= 5 sigma and re-run both arms whenever _prior_edge_report flags
-# either of them. Prior-width behavior of the Pseudo-Jaffe model still needs
-# to be measured.
-SMOOTH_PRIOR_MIN_HALF_WIDTH_SIGMA = 5.0
+# Trial half-widths for the shared M4/M5 uniform priors. M3 supplies only the
+# center, not the width. These widths are not observationally calibrated.
+SMOOTH_PRIOR_THETA_E_RELATIVE_HALF_WIDTH = 0.10
+SMOOTH_PRIOR_ABSOLUTE_HALF_WIDTHS = {
+    "gamma": 0.2,
+    "e1_mass": 0.1,
+    "e2_mass": 0.1,
+    "center_x_mass": 0.05,  # arcsec
+    "center_y_mass": 0.05,  # arcsec
+    "gamma1": 0.05,
+    "gamma2": 0.05,
+}
 SMOOTH_MASS_PRIOR_LIMITS = {
     "theta_E": (0.0, 5.0),
     "gamma": (1.0, 3.0),
@@ -147,6 +145,13 @@ SMOOTH_MASS_PRIOR_LIMITS = {
 LAMBDA_PRIOR_HALF_WIDTH_DEX = 0.5
 
 SUBHALO_B_RANGE = (0.0, 0.1)
+# Vegetti et al. (2010) cosmology and Ring-1 lens/source redshifts. The
+# Pseudo-Jaffe mass below is the profile's finite total projected mass, not a
+# mass inside a sharp tidal aperture or a pre-accretion virial mass.
+SUBHALO_MASS_H0 = 73.0  # km / s / Mpc
+SUBHALO_MASS_OMEGA_M = 0.25
+SUBHALO_MASS_Z_LENS = 0.222
+SUBHALO_MASS_Z_SOURCE = 0.609
 # Subhalo position prior region:
 #   "gaussian_local" -> truncated Gaussian centred on SUBHALO_POSITION_CENTER with
 #                     width SUBHALO_POSITION_SIGMA, truncated at
@@ -204,7 +209,11 @@ def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool
     for spec in prior_specs:
         print(f"    {spec.name:25s} {spec.describe()}")
 
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
+    loglike = make_likelihood(
+        likelihood,
+        vectorized=vectorized,
+        vectorized_chunk_size=VECTORIZED_CHUNK_SIZE if vectorized else None,
+    )
     sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
     if vectorized:
         sampler_kwargs["n_batch"] = 100
@@ -250,7 +259,7 @@ def _comparison_cache_schema(
         _subhalo_position_bounds(lens_subtracted_image.shape, DPIX),
         position_config,
         NSRC, DPIX, NSUB_PIX, PIXEL_REGULARIZATION_TYPE,
-        SOLVER_TYPE, SOURCE_BBOX_PADDING, _fista_kwargs(),
+        SOLVER_TYPE, SOURCE_BBOX_PADDING,
         tuple(float(v) for v in s1_package["source_bbox"]),
         (M4_N_LIVE, M4_N_EFF, M5_N_LIVE, M5_N_EFF),
     )
@@ -270,7 +279,7 @@ def _comparison_cache_schema(
         array = np.ascontiguousarray(np.asarray(value))
         digest.update(json.dumps((name, array.dtype.str, array.shape)).encode("utf-8"))
         digest.update(memoryview(array).cast("B"))
-    return f"{PIPELINE_SCHEMA}.{digest.hexdigest()}"
+    return digest.hexdigest()
 
 
 def _comparison_cache_matches(
@@ -289,7 +298,6 @@ def _comparison_cache_matches(
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
     OUT_DIR.mkdir(exist_ok=True)
     extra = dict(extra or {})
-    extra.setdefault("pipeline_schema", PIPELINE_SCHEMA)
     if stage is not None:
         stage_payload = stage.cache_payload()
         payload = dict(
@@ -360,6 +368,15 @@ def _source_axes_from_bbox(source_bbox, n=NSRC):
         np.linspace(xmin, xmax, int(n), dtype=np.float64),
         np.linspace(ymin, ymax, int(n), dtype=np.float64),
     )
+
+
+def _stage_a_source_bbox(stage_a: StagePosterior):
+    """Fixed square source grid centered on the stage-A source posterior."""
+    cx = stage_a.median("center_x_src")
+    cy = stage_a.median("center_y_src")
+    half_width = SOURCE_BBOX_HALF_WIDTH
+    return (cx - half_width, cx + half_width,
+            cy - half_width, cy + half_width)
 
 
 def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
@@ -440,15 +457,6 @@ def _validate_source_package(source_package):
             raise ValueError("Source scale_map values must be finite and positive.")
         source_package["scale_map"] = scale_map
     return source_package
-
-
-def _fista_kwargs():
-    return dict(
-        fista_max_iter=FISTA_MAX_ITER,
-        fista_rtol=FISTA_RTOL,
-        fista_power_iter=FISTA_POWER_ITER,
-        fista_step_safety=FISTA_STEP_SAFETY,
-    )
 
 
 def _fixed_source_kwargs(source_package):
@@ -742,146 +750,6 @@ def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
 
 
 # ------------------------------------------------------------------ #
-# Stage L -- arc-masked MGE lens light refinement
-# ------------------------------------------------------------------ #
-def build_stage_l_likelihood(
-    image_data,
-    noise_map,
-    psf_kernel,
-    feature_mask,
-    circular_mask=None,
-):
-    """Build a lens-light-only likelihood with two independent MGE groups."""
-    cx_l1 = ParamU("center_x_lens_1", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    cy_l1 = ParamU("center_y_lens_1", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    e1_l1 = ParamU("e1_lens_1", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-    e2_l1 = ParamU("e2_lens_1", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-
-    cx_l2 = ParamU("center_x_lens_2", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    cy_l2 = ParamU("center_y_lens_2", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.1], limits=[-1.0, 1.0])
-    e1_l2 = ParamU("e1_lens_2", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-    e2_l2 = ParamU("e2_lens_2", 0.0, prior_type="gaussian",
-                   prior_settings=[0.0, 0.3], limits=[-1.0, 1.0])
-
-    sigma_list_lens = generate_radial_basis_knots(
-        dpix=DPIX, n_sigmas=N_GAUSSIANS_LENS,
-        log_rmin=-2.0, log_rmax=np.log10(MASK_RADIUS), mode="mge"
-    )
-
-    lens_gaussians = []
-    for group_id, center_x, center_y, e1, e2 in (
-        (1, cx_l1, cy_l1, e1_l1, e2_l1),
-        (2, cx_l2, cy_l2, e1_l2, e2_l2),
-    ):
-        for i, sigma in enumerate(sigma_list_lens):
-            gauss = GaussianEllipse(
-                sigma=ParamU(f"sigma_lens_{group_id}_{i}", float(sigma)),
-                center_x=center_x,
-                center_y=center_y,
-                e1=e1,
-                e2=e2,
-                flux=ParamU(f"flux_lens_{group_id}_{i}", 1.0),
-            )
-            gauss.sigma.to_static(float(sigma))
-            gauss.flux.to_static(1.0)
-            lens_gaussians.append(gauss)
-
-    for p in (cx_l1, cy_l1, e1_l1, e2_l1, cx_l2, cy_l2, e1_l2, e2_l2):
-        p.to_dynamic()
-
-    noise_map_soft = np.array(noise_map, copy=True)
-    noise_map_soft[~feature_mask] *= 10000.0
-
-    combined_mask = circular_mask
-
-    phys = PhysicalModel(
-        lens_mass=[],
-        source_light=[],
-        lens_light=lens_gaussians,
-    )
-    return ImageProbModel(
-        image_data=image_data,
-        noise_map=noise_map_soft,
-        psf_kernel=psf_kernel,
-        dpix=DPIX,
-        nsub=NSUB,
-        phys_model=phys,
-        use_linear=True,
-        solver_type="nnls",
-        mask=combined_mask,
-    )
-
-
-def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
-                circular_mask=None):
-    print("\n" + "=" * 60)
-    print(" Stage L : arc-masked MGE lens light refinement")
-    print("=" * 60)
-    t0 = time.time()
-    n_arc    = int((~feature_mask).sum())
-    n_nonarc = feature_mask.size - n_arc
-    print(f"[stage-L] arc pixels excluded     = {n_arc}    / {feature_mask.size}")
-    print(f"[stage-L] lens-light pixels kept  = {n_nonarc} / {feature_mask.size}")
-
-    likelihood = build_stage_l_likelihood(
-        image_data,
-        noise_map,
-        psf_kernel,
-        feature_mask,
-        circular_mask=circular_mask,
-    )
-    stage = _run_sampler(
-        likelihood, n_live=200, n_eff=800, tag="stage-L", vectorized=True,
-    )
-    t1 = time.time()
-    samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
-    _print_summary("stage-L", samples, weights, names)
-    print(f"[stage-L] time taken: {t1 - t0:.2f} seconds")
-
-    medians = stage.medians()
-    q50 = [medians[n] for n in names]
-
-    likelihood.set_values(q50)
-    fwd = likelihood.forward_model(
-        use_linear=True,
-        return_intensity=True,
-        ret_each_plane=True,
-        image_map=likelihood.image_data,
-        noise_map=likelihood.noise_map,
-    )
-    lens_image_model = np.asarray(fwd[1])
-
-    _dump_stage(
-        "l", samples, weights, names, logz,
-        extra=dict(
-            medians=medians,
-            lens_light_model=lens_image_model,
-            time_taken=t1 - t0,
-        ),
-        stage=stage,
-    )
-
-    try:
-        plot_model_results(
-            likelihood,
-            jnp.asarray(q50),
-            save_path=str(OUT_DIR / "stage_l_model.png"),
-            title="Stage L : arc-masked MGE lens light",
-        )
-    except Exception as err:
-        print(f"[stage-L] plotting failed (non-fatal): {err}")
-
-    return stage, medians, lens_image_model
-
-
-# ------------------------------------------------------------------ #
 # Position likelihood from stage-A medians
 # ------------------------------------------------------------------ #
 def _position_likelihood_from_stage_a(medians_a: dict) -> dict:
@@ -979,6 +847,22 @@ def _sie_mass_from_stage_a(stage_a: StagePosterior):
     return sie, shear
 
 
+def _sie_mass_from_stage(stage: StagePosterior):
+    """SIE (+ shear) with Gaussian priors inherited from a stage posterior."""
+    sie = SIE(
+        theta_E=stage.gaussian("theta_E", model="SIE", attr="theta_E", limits=[0.0, 5.0]),
+        e1=stage.gaussian("e1_mass", model="SIE", attr="e1", limits=[-1.0, 1.0]),
+        e2=stage.gaussian("e2_mass", model="SIE", attr="e2", limits=[-1.0, 1.0]),
+        center_x=stage.gaussian("center_x_mass", model="SIE", attr="center_x", limits=[-1.0, 1.0]),
+        center_y=stage.gaussian("center_y_mass", model="SIE", attr="center_y", limits=[-1.0, 1.0]),
+    )
+    shear = Shear(
+        gamma1=stage.gaussian("gamma1", model="Shear", attr="gamma1", limits=[-0.5, 0.5]),
+        gamma2=stage.gaussian("gamma2", model="Shear", attr="gamma2", limits=[-0.5, 0.5]),
+    )
+    return sie, shear
+
+
 def _epl_mass_from_stage(stage: StagePosterior):
     """EPL (+ shear) with Gaussian priors inherited from a stage posterior."""
     theta_E = stage.gaussian(
@@ -1018,25 +902,24 @@ def _epl_mass_from_stage(stage: StagePosterior):
     return epl, shear
 
 
-def _epl_mass_from_medians(medians: dict):
-    """EPL (+ shear) with all parameters fixed at posterior medians."""
+def _sie_mass_from_medians(medians: dict):
+    """SIE (+ shear) with all parameters fixed at posterior medians."""
     required = (
-        "theta_E", "gamma", "e1_mass", "e2_mass",
+        "theta_E", "e1_mass", "e2_mass",
         "center_x_mass", "center_y_mass", "gamma1", "gamma2",
     )
     missing = [name for name in required if name not in medians]
     if missing:
-        raise KeyError("EPL medians missing required keys: " + ", ".join(missing))
+        raise KeyError("SIE medians missing required keys: " + ", ".join(missing))
 
-    epl = EPL(
+    sie = SIE(
         theta_E=ParamU("theta_E", float(medians["theta_E"])),
-        gamma=ParamU("gamma", float(medians["gamma"])),
         e1=ParamU("e1_mass", float(medians["e1_mass"])),
         e2=ParamU("e2_mass", float(medians["e2_mass"])),
         center_x=ParamU("center_x_mass", float(medians["center_x_mass"])),
         center_y=ParamU("center_y_mass", float(medians["center_y_mass"])),
     )
-    for p in (epl.theta_E, epl.gamma, epl.e1, epl.e2, epl.center_x, epl.center_y):
+    for p in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
         p.to_static()
 
     shear = Shear(
@@ -1045,7 +928,7 @@ def _epl_mass_from_medians(medians: dict):
     )
     shear.gamma1.to_static()
     shear.gamma2.to_static()
-    return epl, shear
+    return sie, shear
 
 
 # ------------------------------------------------------------------ #
@@ -1117,12 +1000,13 @@ def _subhalo_position_bounds(image_shape, dpix):
 
 def _smooth_mass_prior_bounds(stage_m3: StagePosterior, name: str):
     """Calculate one shared top-hat from M3 and the current global settings."""
-    q_lo, q_hi = _posterior_quantiles(stage_m3, name, SMOOTH_PRIOR_QUANTILES)
-    centre = 0.5 * (q_lo + q_hi)
-    half = max(
-        0.5 * (q_hi - q_lo) * (1.0 + 2.0 * SMOOTH_PRIOR_PAD_FRACTION),
-        SMOOTH_PRIOR_MIN_HALF_WIDTH_SIGMA * stage_m3.std(name),
+    centre = float(stage_m3.median(name))
+    half = (
+        abs(centre) * SMOOTH_PRIOR_THETA_E_RELATIVE_HALF_WIDTH
+        if name == "theta_E" else SMOOTH_PRIOR_ABSOLUTE_HALF_WIDTHS[name]
     )
+    if not np.isfinite(half) or half <= 0:
+        raise ValueError(f"Shared smooth prior for '{name}' has invalid half-width {half}.")
     hard_lo, hard_hi = SMOOTH_MASS_PRIOR_LIMITS[name]
     lo, hi = max(hard_lo, centre - half), min(hard_hi, centre + half)
     if not np.all(np.isfinite([lo, hi])) or hi <= lo:
@@ -1305,6 +1189,76 @@ def _subhalo_strength_report(tag: str, stage: StagePosterior) -> dict:
                 near_zero_limit=near_zero_limit, near_zero_weight=near_zero_weight)
 
 
+def _subhalo_mass_report(stage: StagePosterior) -> dict:
+    """Convert every joint M5 sample to a Vegetti-style Pseudo-Jaffe mass.
+
+    The sampled strengths are angles in arcsec. Both b_subhalo and the derived
+    tidal radius must be multiplied by D_l before using the physical critical
+    surface density in Msun/kpc^2. The tidal relation here uses the host
+    Einstein radius, as implemented by PseudoJaffeSubhalo.
+    """
+    b_sub = np.asarray(
+        stage.samples[:, stage.param_names.index("b_subhalo")], dtype=np.float64
+    )
+    theta_e = np.asarray(
+        stage.samples[:, stage.param_names.index("theta_E")], dtype=np.float64
+    )
+    if np.any(b_sub < 0) or np.any(theta_e <= 0):
+        raise ValueError("Pseudo-Jaffe mass requires b_subhalo >= 0 and theta_E > 0.")
+
+    cosmology = FlatLambdaCDM(
+        H0=SUBHALO_MASS_H0 * u.km / u.s / u.Mpc,
+        Om0=SUBHALO_MASS_OMEGA_M,
+        Tcmb0=0 * u.K,
+    )
+    d_l = cosmology.angular_diameter_distance(SUBHALO_MASS_Z_LENS)
+    d_s = cosmology.angular_diameter_distance(SUBHALO_MASS_Z_SOURCE)
+    d_ls = cosmology.angular_diameter_distance_z1z2(
+        SUBHALO_MASS_Z_LENS, SUBHALO_MASS_Z_SOURCE
+    )
+    sigma_crit = (
+        astro_constants.c**2 / (4 * np.pi * astro_constants.G)
+        * d_s / (d_l * d_ls)
+    ).to_value(u.Msun / u.kpc**2)
+    kpc_per_arcsec = d_l.to_value(u.kpc) * u.arcsec.to(u.rad)
+
+    tidal_radius_arcsec = np.sqrt(b_sub * theta_e)
+    mass_msun = (
+        np.pi * sigma_crit * kpc_per_arcsec**2 * b_sub * tidal_radius_arcsec
+    )
+
+    def quantiles(values):
+        q16, q50, q84 = weighted_quantile(values, stage.weights, [0.16, 0.5, 0.84])
+        return dict(q16=float(q16), q50=float(q50), q84=float(q84))
+
+    return dict(
+        mass_msun=quantiles(mass_msun),
+        tidal_radius_arcsec=quantiles(tidal_radius_arcsec),
+        tidal_radius_kpc=quantiles(tidal_radius_arcsec * kpc_per_arcsec),
+        cosmology=dict(
+            H0_km_s_Mpc=SUBHALO_MASS_H0,
+            omega_m=SUBHALO_MASS_OMEGA_M,
+            z_lens=SUBHALO_MASS_Z_LENS,
+            z_source=SUBHALO_MASS_Z_SOURCE,
+        ),
+        sigma_crit_msun_kpc2=float(sigma_crit),
+        kpc_per_arcsec=float(kpc_per_arcsec),
+        tidal_relation="r_t = sqrt(b_subhalo * theta_E_host)",
+        mass_definition="M_sub = pi * (D_l * r_t) * (D_l * b_subhalo) * Sigma_crit",
+    )
+
+
+def _print_subhalo_mass_report(tag: str, report: dict) -> None:
+    mass = report["mass_msun"]
+    radius = report["tidal_radius_kpc"]
+    print(f"[{tag}] Pseudo-Jaffe M_sub = "
+          f"{mass['q50']/1e9:.3f} (-{(mass['q50']-mass['q16'])/1e9:.3f}, "
+          f"+{(mass['q84']-mass['q50'])/1e9:.3f}) x 10^9 Msun (68% posterior)")
+    print(f"[{tag}] tidal radius = "
+          f"{radius['q50']:.3f} (-{radius['q50']-radius['q16']:.3f}, "
+          f"+{radius['q84']-radius['q50']:.3f}) kpc")
+
+
 def _refresh_cached_boundary_reports(stage_id: str, payload: dict,
                                      stage: StagePosterior) -> None:
     """Update stale boundary summaries in a matching M4/M5 posterior cache."""
@@ -1317,6 +1271,8 @@ def _refresh_cached_boundary_reports(stage_id: str, payload: dict,
             _subhalo_strength_report(tag, stage) if stage_id == "m5" else None
         ),
     )
+    if stage_id == "m5":
+        reports["subhalo_mass_report"] = _subhalo_mass_report(stage)
     extra = payload["extra"]
     if any(extra.get(name) != value for name, value in reports.items()):
         extra.update(reports)
@@ -1363,8 +1319,9 @@ def build_stage_m0_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_a: StagePosterior, position_likelihood, circular_mask=None,
 ):
-    """Build M0 likelihood: fixed SIE+shear, uniform pixelized source."""
+    """Build M0 on the fixed stage-A-centered grid with SIE+shear fixed."""
     sie, shear = _sie_mass_from_stage_a(stage_a)
+    source_bbox = _stage_a_source_bbox(stage_a)
 
     log_lam = ParamU(
         "log_lambda_reg",
@@ -1398,7 +1355,7 @@ def build_stage_m0_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        fixed_source_bbox=source_bbox,
     )
 
 
@@ -1416,7 +1373,9 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
         lens_subtracted, noise_map, psf_kernel, feature_mask,
         stage_a, position_likelihood, circular_mask=circular_mask,
     )
-    loglike_batch = make_likelihood(likelihood, vectorized=True)
+    loglike_batch = make_likelihood(
+        likelihood, vectorized=True, vectorized_chunk_size=VECTORIZED_CHUNK_SIZE,
+    )
     n_grid = 200
 
     log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
@@ -1466,6 +1425,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
     _dump_stage(
         "m0", None, None, ["log_lambda_reg"], log_ev_best,
         extra=dict(
+            source_bbox=_stage_a_source_bbox(stage_a),
             log_lambda_best=log_lam_best,
             evidence_lambda_best=float(jnp.exp(log_lam_best)),
             evidence_log_lambda_best=log_lam_best,
@@ -1487,15 +1447,16 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
-# Stage M1 — EPL + shear + non-adaptive pixelized source  (fit mass)
+# Stage M1 — SIE + shear + non-adaptive pixelized source  (fit mass)
 # ------------------------------------------------------------------ #
 def build_stage_m1_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_a: StagePosterior, position_likelihood, log_lambda_fixed: float,
     circular_mask=None,
 ):
-    """Build M1: EPL+shear free, source lambda as truncated Gaussian around M0."""
-    epl, shear = _epl_mass_from_stage(stage_a)
+    """Build M1: SIE+shear free, source lambda constrained around M0."""
+    sie, shear = _sie_mass_from_stage(stage_a)
+    source_bbox = _stage_a_source_bbox(stage_a)
     log_lam = ParamU(
         "log_lambda_reg",
         float(log_lambda_fixed),
@@ -1510,7 +1471,7 @@ def build_stage_m1_likelihood(
         regularization_type=PIXEL_REGULARIZATION_TYPE,
     )
     phys = PhysicalModel(
-        lens_mass=[epl, shear],
+        lens_mass=[sie, shear],
         source_light=[pix_src],
         lens_light=[],
     )
@@ -1528,16 +1489,16 @@ def build_stage_m1_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        fixed_source_bbox=source_bbox,
     )
 
 
 def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
                   lens_light_model, stage_a: StagePosterior,
                   position_likelihood, log_lambda_fixed: float, circular_mask=None):
-    """Stage M1: fit EPL+shear with non-adaptive source lambda constrained around M0."""
+    """Stage M1: fit SIE+shear with source lambda constrained around M0."""
     print("\n" + "=" * 60)
-    print(" Stage M1 : EPL + shear + non-adaptive pix source (mass fit)")
+    print(" Stage M1 : SIE + shear + non-adaptive pix source (mass fit)")
     print("=" * 60)
     print(
         f"[stage-M1] lambda_reg prior from M0: "
@@ -1577,7 +1538,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         "m1", samples, weights, names, logz,
         extra=dict(
             medians=medians,
-            m1_mass_model="EPL+Shear",
+            m1_mass_model="SIE+Shear",
             lambda_prior_center=float(log_lambda_fixed),
             lambda_prior_sigma=0.15,
             lambda_prior_limits=[float(log_lambda_fixed - 0.5), float(log_lambda_fixed + 0.5)],
@@ -1597,7 +1558,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
 
 
 # ------------------------------------------------------------------ #
-# Stage M2 — fixed EPL + shear + adaptive pixelized source  (fit source reg)
+# Stage M2 — fixed SIE + shear + adaptive pixelized source  (fit source reg)
 # ------------------------------------------------------------------ #
 def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     """5-panel diagnostic: data | model | norm-residual | source | reg-scale."""
@@ -1745,7 +1706,7 @@ def build_stage_m2_likelihood(
     medians_m1: dict, position_likelihood, s1_package, circular_mask=None,
 ):
     """Build M2: mass fixed from M1, source-reg hyperparameters free."""
-    epl, shear = _epl_mass_from_medians(medians_m1)
+    sie, shear = _sie_mass_from_medians(medians_m1)
     log_lam = ParamU(
         "log_lambda_reg",
         float(s1_package["log_lambda_best"]),
@@ -1769,7 +1730,7 @@ def build_stage_m2_likelihood(
         adaptive_reg_rho=rho,
     )
     phys = PhysicalModel(
-        lens_mass=[epl, shear],
+        lens_mass=[sie, shear],
         source_light=[pix_src],
         lens_light=[],
     )
@@ -1787,7 +1748,6 @@ def build_stage_m2_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 
@@ -1797,7 +1757,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
                   s1_package, circular_mask=None):
     """Stage M2: fit adaptive source-regularization hyperparameters."""
     print("\n" + "=" * 60)
-    print(" Stage M2 : fixed EPL + shear + adaptive pix source (fit λ, rho)")
+    print(" Stage M2 : fixed SIE + shear + adaptive pix source (fit λ, rho)")
     print("=" * 60)
     t0 = time.time()
     lens_subtracted = image_data - lens_light_model
@@ -1821,7 +1781,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
     print(f"[stage-M2] median source reg: {_format_reg_hyperparams(reg_hyperparams_m2)}")
     extra = dict(
         medians=medians,
-        m2_mass_model="fixed-EPL+Shear",
+        m2_mass_model="fixed-SIE+Shear",
         mass_medians_fixed=dict(medians_m1),
         reg_hyperparams=reg_hyperparams_m2,
         time_taken=t1 - t0,
@@ -1874,7 +1834,6 @@ def build_stage_m3_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 
@@ -1974,7 +1933,6 @@ def build_comparison_likelihood(
         ),
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 
@@ -2011,6 +1969,9 @@ def _run_comparison_stage(
     medians = stage.medians()
     edge_report = _prior_edge_report(tag, stage)
     strength_report = _subhalo_strength_report(tag, stage) if with_subhalo else None
+    mass_report = _subhalo_mass_report(stage) if with_subhalo else None
+    if mass_report is not None:
+        _print_subhalo_mass_report(tag, mass_report)
     drift_report = _solution_drift_report(tag, stage, stage_m3)
     _dump_stage(
         stage_id, samples, weights, names, logz,
@@ -2028,6 +1989,7 @@ def _run_comparison_stage(
             ),
             prior_edge_report=edge_report,
             subhalo_strength_report=strength_report,
+            subhalo_mass_report=mass_report,
             solution_drift_report=drift_report,
             position_likelihood_used=bool(COMPARISON_USE_POSITION_LIKELIHOOD),
             sampler_settings=dict(n_live=int(n_live), n_eff=int(n_eff)),
@@ -2115,24 +2077,10 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     # ---- stage B ---------------------------------------------------- #
     feature_mask = run_stage_b(image_data, noise_map, lens_light_model, circular_mask=circular_mask)
 
-    # ---- stage L ---------------------------------------------------- #
-    time_l = 0.0
-    if skip_done and (OUT_DIR / "stage_l.pkl").exists():
-        print(f"[stage-L] loading cached {OUT_DIR}/stage_l.pkl")
-        d = _load_stage("l")
-        stage_l = _stage_from_payload(d)
-        medians_l = d["extra"]["medians"]
-        lens_light_model = d["extra"]["lens_light_model"]
-        time_l = d["extra"].get("time_taken", 0.0)
-    else:
-        stage_l, medians_l, lens_light_model = run_stage_l(
-            image_data, noise_map, psf_kernel, feature_mask,
-            circular_mask=circular_mask,
-        )
-        time_l = _load_stage("l")["extra"].get("time_taken", 0.0)
-
     lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
+    source_bbox = _stage_a_source_bbox(stage_a)
+    print(f"[stage-A] pixelized stages will use fixed source bbox {source_bbox}")
 
     # ---- stage M0 --------------------------------------------------- #
     time_m0 = 0.0
@@ -2398,30 +2346,36 @@ def main(skip_done: bool = False, out_dir: str | None = None):
     logz_m4 = float(stage_m4.log_z)
     logz_m5 = float(stage_m5.log_z)
     delta_logz = logz_m5 - logz_m4
+    mass_report = _subhalo_mass_report(stage_m5)
+    mass_path = OUT_DIR / "stage_m5_mass.json"
+    with mass_path.open("w", encoding="utf-8") as f:
+        json.dump(mass_report, f, indent=2)
+        f.write("\n")
+    print(f"[stage-M5] mass summary saved to {mass_path}")
 
     print("\n" + "=" * 60)
     print(" Pipeline complete")
     print("=" * 60)
     print(" Time summary:")
     print(f"    Stage A:  {time_a/60:.2f} min")
-    print(f"    Stage L:  {time_l/60:.2f} min")
     print(f"    Stage M0: {time_m0/60:.2f} min")
     print(f"    Stage M1: {time_m1/60:.2f} min")
     print(f"    Stage M2: {time_m2/60:.2f} min")
     print(f"    Stage M3: {time_m3/60:.2f} min")
     print(f"    Stage M4: {time_m4/60:.2f} min")
     print(f"    Stage M5: {time_m5/60:.2f} min")
-    total_time = (time_a + time_l + time_m0 + time_m1 + time_m2 + time_m3
+    total_time = (time_a + time_m0 + time_m1 + time_m2 + time_m3
                   + time_m4 + time_m5)
     print(f"    Total:    {total_time/60:.2f} min\n")
     print(f"    M0 best lambda_reg     = {float(jnp.exp(log_lambda_m0)):.4e}")
-    print(f"    M1 median gamma        = {medians_m1.get('gamma', np.nan):+.4f}")
+    print(f"    M3 median gamma        = {medians_m3['gamma']:+.4f}")
     print(f"    M2 median source reg   = {_format_reg_hyperparams(reg_hyperparams_m2)}")
     print("    Subhalo Bayes factor (both arms share every nuisance prior):")
     print(f"    logZ(M4, smooth null)  = {logz_m4:+.3f}")
     print(f"    logZ(M5, +Pseudo-Jaffe subhalo) = {logz_m5:+.3f}")
     print(f"    delta logZ (M5 - M4)   = {delta_logz:+.3f}")
     print(f"    logZ(M3) (reference only, NOT the comparison baseline) = {logz_m3:+.3f}")
+    _print_subhalo_mass_report("stage-M5", mass_report)
 
     # Large smooth-parameter drift can signal a prior-width sensitivity. This
     # diagnostic alone does not establish how the Pseudo-Jaffe evidence behaves.
@@ -2474,15 +2428,6 @@ if __name__ == "__main__":
         help="Output directory; relative paths are resolved from this script.",
     )
     parser.add_argument(
-        "--smooth-sigma-floor",
-        type=float,
-        default=None,
-        help="Override SMOOTH_PRIOR_MIN_HALF_WIDTH_SIGMA: minimum half-width of "
-             "each shared smooth-mass top-hat in units of the stage-M3 posterior "
-             "sigma. Used for the prior-width sensitivity study; the value is part "
-             "of the pipeline schema, so a change forces a recompute.",
-    )
-    parser.add_argument(
         "--subhalo-position",
         type=float,
         nargs=2,
@@ -2499,10 +2444,6 @@ if __name__ == "__main__":
         help="Width (sigma, arcsec) of the localised subhalo position prior.",
     )
     args = parser.parse_args()
-    if args.smooth_sigma_floor is not None:
-        globals()["SMOOTH_PRIOR_MIN_HALF_WIDTH_SIGMA"] = float(args.smooth_sigma_floor)
-        print(f"[pipeline] smooth-prior sigma floor set to "
-              f"{args.smooth_sigma_floor:g} sigma")
     if args.subhalo_position is not None:
         globals()["SUBHALO_POSITION_MODE"] = "gaussian_local"
         globals()["SUBHALO_POSITION_CENTER"] = tuple(args.subhalo_position)
