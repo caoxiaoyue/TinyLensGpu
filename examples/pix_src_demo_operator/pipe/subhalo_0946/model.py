@@ -153,20 +153,16 @@ SUBHALO_MASS_OMEGA_M = 0.25
 SUBHALO_MASS_Z_LENS = 0.222
 SUBHALO_MASS_Z_SOURCE = 0.609
 # Subhalo position prior region:
+#   "lensing_square" -> independent uniform priors on x and y in [-2, 2]
+#                     arcsec, covering the lensing image for this experiment.
 #   "gaussian_local" -> truncated Gaussian centred on SUBHALO_POSITION_CENTER with
 #                     width SUBHALO_POSITION_SIGMA, truncated at
 #                     SUBHALO_POSITION_TRUNCATE_SIGMA sigma per axis. Use this for
 #                     the localised control experiment / per-cell search: with the
 #                     position constrained, this tests position-dependent
 #                     smooth-parameter drift.
-#   "full_image"   -> uniform over the whole detector field of view, i.e. the
-#                     honest look-elsewhere volume for "is a subhalo anywhere?".
-#                     Historical SIS experiments on J0946 did not converge in
-#                     this mode; Pseudo-Jaffe behavior is untested (see
-#                     .scratch/subhalo-prior-audit/sensitivity-study.md).
-#   "model_square" -> uniform over the square circumscribing the circular
-#                     modeling mask; its corners lie outside the modeled circle.
-SUBHALO_POSITION_MODE = "gaussian_local"
+SUBHALO_POSITION_MODE = "lensing_square"
+SUBHALO_POSITION_HALF_WIDTH = 2.0
 # Centre of the localised position prior, in arcsec. Default is the position of
 # the correlated residual on the upper-left arc (the location recovered by the
 # original single-cell search on this dataset).
@@ -949,7 +945,7 @@ def _posterior_quantiles(stage: StagePosterior, name: str, quantiles):
     ]
 
 
-def _subhalo_position_bounds(image_shape, dpix):
+def _subhalo_position_bounds(_image_shape, _dpix):
     """Return the image-plane specification of the subhalo position prior.
 
     ``prior_type`` is either ``"uniform"`` over ``[x_lo, x_hi] x [y_lo, y_hi]``
@@ -960,23 +956,15 @@ def _subhalo_position_bounds(image_shape, dpix):
     equivalence, i.e. the integral of the density divided by its peak).
     """
     mode = SUBHALO_POSITION_MODE
-    ny, nx = int(image_shape[0]), int(image_shape[1])
-    if mode == "full_image":
-        x_half = nx * float(dpix) / 2.0
-        y_half = ny * float(dpix) / 2.0
+    if mode == "lensing_square":
+        half = float(SUBHALO_POSITION_HALF_WIDTH)
+        if not np.isfinite(half) or half <= 0:
+            raise ValueError("SUBHALO_POSITION_HALF_WIDTH must be positive and finite.")
         return dict(
             mode=mode, prior_type="uniform",
-            x_lo=float(-x_half), x_hi=float(x_half),
-            y_lo=float(-y_half), y_hi=float(y_half),
-            area_arcsec2=float((2.0 * x_half) * (2.0 * y_half)),
-        )
-    if mode == "model_square":
-        x_half = y_half = float(MASK_RADIUS)
-        return dict(
-            mode=mode, prior_type="uniform",
-            x_lo=float(-x_half), x_hi=float(x_half),
-            y_lo=float(-y_half), y_hi=float(y_half),
-            area_arcsec2=float((2.0 * x_half) * (2.0 * y_half)),
+            x_lo=-half, x_hi=half,
+            y_lo=-half, y_hi=half,
+            area_arcsec2=(2.0 * half) ** 2,
         )
     if mode == "gaussian_local":
         centre_x, centre_y = (float(v) for v in SUBHALO_POSITION_CENTER)
@@ -994,7 +982,7 @@ def _subhalo_position_bounds(image_shape, dpix):
         )
     raise ValueError(
         f"Unknown SUBHALO_POSITION_MODE {mode!r} "
-        "(use 'gaussian_local', 'full_image' or 'model_square')."
+        "(use 'lensing_square' or 'gaussian_local')."
     )
 
 
@@ -1690,11 +1678,18 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
-    overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1]],
-        source_ax=axes[3],
-        lens_mass=likelihood.phys_model,
-    )
+    # ActiveContext restores the model's initial parameters on exit. Evaluate
+    # the overlays while the same posterior medians used for the image are live.
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(jnp.array(q50))
+        overlay_critical_and_caustics(
+            image_axes=[axes[0], axes[1]],
+            source_ax=axes[3],
+            lens_mass=likelihood.phys_model,
+        )
+    # Caustic paths may extend beyond the reconstructed pixel source grid.
+    axes[3].set_xlim(ext_s[0], ext_s[1])
+    axes[3].set_ylim(ext_s[2], ext_s[3])
     plt.tight_layout()
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
@@ -2034,6 +2029,130 @@ def run_stage_m5(image_data, noise_map, psf_kernel, feature_mask,
         stage_m2, stage_m3, position_likelihood, s1_package,
         circular_mask=circular_mask,
     )
+
+
+def run_m5_from_cache(cache_dir: str, out_dir: str):
+    """Run M5 alone, reusing the earlier stages and M4 null from a prior run."""
+    global OUT_DIR
+    cache_dir = Path(cache_dir).expanduser().resolve()
+    out_dir = Path(out_dir).expanduser().resolve()
+    if cache_dir == out_dir:
+        raise ValueError("M5 output must differ from the reference cache directory.")
+    if (out_dir / "stage_m5.pkl").exists():
+        raise FileExistsError(f"Refusing to overwrite {out_dir / 'stage_m5.pkl'}")
+
+    def cached(tag):
+        with (cache_dir / f"stage_{tag}.pkl").open("rb") as f:
+            return pickle.load(f)
+
+    a, m1, m2, m3, m4, reference_m5 = (
+        cached(tag) for tag in ("a", "m1", "m2", "m3", "m4", "m5")
+    )
+    if m4["extra"].get("pipeline_schema") != reference_m5["extra"].get("pipeline_schema"):
+        raise ValueError("Reference M4 and M5 caches have different comparison schemas.")
+
+    image_data, noise_map, psf_kernel, _ = load_lens_data(
+        image_path=str(DATA_DIR / "image.fits"),
+        noise_path=str(DATA_DIR / "noise.fits"),
+        psf_path=str(DATA_DIR / "psf.fits"),
+    )
+    circular_mask = _make_circular_mask(image_data.shape, DPIX, MASK_RADIUS)
+    lens_light_model = a["extra"]["lens_light_model"]
+    snr_map = (image_data - lens_light_model) / noise_map
+    feature_mask = arc_mask_from(
+        snr_map, threshold=3.0, ignor_size=25, ext_size=5, close_size=3,
+    ) | circular_mask
+    stage_m2, stage_m3 = _stage_from_payload(m2), _stage_from_payload(m3)
+    s1_package = _validate_source_package(m1["extra"]["s1"])
+    position_likelihood = _position_likelihood_from_stage_a(a["extra"]["medians"])
+
+    # The null likelihood does not depend on the subhalo position prior. Verify
+    # that the cached null used the same data and shared priors as this run.
+    current_mode = SUBHALO_POSITION_MODE
+    current_m4_counts = (M4_N_LIVE, M4_N_EFF)
+    current_m5_counts = (M5_N_LIVE, M5_N_EFF)
+    try:
+        globals()["SUBHALO_POSITION_MODE"] = "gaussian_local"
+        m4_settings = m4["extra"]["sampler_settings"]
+        m5_settings = reference_m5["extra"]["sampler_settings"]
+        globals()["M4_N_LIVE"] = int(m4_settings["n_live"])
+        globals()["M4_N_EFF"] = int(m4_settings["n_eff"])
+        globals()["M5_N_LIVE"] = int(m5_settings["n_live"])
+        globals()["M5_N_EFF"] = int(m5_settings["n_eff"])
+        reference_schema = _comparison_cache_schema(
+            stage_m2, stage_m3, image_data - lens_light_model, noise_map,
+            psf_kernel, feature_mask, position_likelihood, s1_package,
+            circular_mask=circular_mask,
+        )
+    finally:
+        globals()["SUBHALO_POSITION_MODE"] = current_mode
+        globals()["M4_N_LIVE"], globals()["M4_N_EFF"] = current_m4_counts
+        globals()["M5_N_LIVE"], globals()["M5_N_EFF"] = current_m5_counts
+    null_schema_matches = reference_schema == m4["extra"].get("pipeline_schema")
+    if not null_schema_matches:
+        print("[M5-only] WARNING: the reference M4 cache has a different pipeline "
+              "schema. Its logZ is not a valid Bayes-factor denominator for this run.")
+
+    OUT_DIR = out_dir
+    print(f"[M5-only] reference cache: {cache_dir}")
+    print(f"[M5-only] output: {OUT_DIR}")
+    print(f"[M5-only] position prior: {_subhalo_position_bounds(image_data.shape, DPIX)}")
+    stage_m5, medians_m5 = run_stage_m5(
+        image_data, noise_map, psf_kernel, feature_mask, lens_light_model,
+        stage_m2, stage_m3, position_likelihood, s1_package,
+        circular_mask=circular_mask,
+    )
+    mass_report = _subhalo_mass_report(stage_m5)
+    with (OUT_DIR / "stage_m5_mass.json").open("w", encoding="utf-8") as f:
+        json.dump(mass_report, f, indent=2)
+        f.write("\n")
+    reference = _stage_from_payload(reference_m5)
+    position_names = ("center_x_subhalo", "center_y_subhalo")
+    position_quantiles = {}
+    for name in position_names:
+        index = stage_m5.param_names.index(name)
+        q16, q50, q84 = weighted_quantile(
+            stage_m5.samples[:, index], stage_m5.weights, [0.16, 0.5, 0.84]
+        )
+        position_quantiles[name] = dict(q16=float(q16), q50=float(q50), q84=float(q84))
+    reference_xy = np.array([reference.median(name) for name in position_names])
+    sample_xy = stage_m5.samples[
+        :, [stage_m5.param_names.index(name) for name in position_names]
+    ]
+    distance_from_reference = np.linalg.norm(sample_xy - reference_xy, axis=1)
+    summary = dict(
+        position_prior=_subhalo_position_bounds(image_data.shape, DPIX),
+        sampler_settings=dict(n_live=M5_N_LIVE, n_eff=M5_N_EFF),
+        reference_cache=str(cache_dir),
+        reference_log_z_m4=float(m4["log_z"]),
+        reference_log_z_m5=float(reference.log_z),
+        log_z_m5=float(stage_m5.log_z),
+        reference_m4_schema_matches=bool(null_schema_matches),
+        delta_log_z_m5_m4=(
+            float(stage_m5.log_z - m4["log_z"]) if null_schema_matches else None
+        ),
+        reference_medians={
+            name: float(reference.median(name))
+            for name in ("b_subhalo", "center_x_subhalo", "center_y_subhalo")
+        },
+        medians={
+            name: float(medians_m5[name])
+            for name in ("b_subhalo", "center_x_subhalo", "center_y_subhalo")
+        },
+        position_quantiles=position_quantiles,
+        position_offset_from_reference_arcsec=float(np.linalg.norm(
+            np.array([medians_m5[name] for name in position_names]) - reference_xy
+        )),
+        posterior_weight_within_0p1_arcsec_of_reference=float(
+            stage_m5.weights[distance_from_reference < 0.1].sum()
+        ),
+        mass_msun=mass_report["mass_msun"],
+    )
+    with (OUT_DIR / "blind_search_summary.json").open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+        f.write("\n")
+    print(f"[M5-only] comparison saved to {OUT_DIR / 'blind_search_summary.json'}")
+    return summary
 
 
 # ------------------------------------------------------------------ #
@@ -2428,6 +2547,23 @@ if __name__ == "__main__":
         help="Output directory; relative paths are resolved from this script.",
     )
     parser.add_argument(
+        "--m5-only-from",
+        default=None,
+        help="Run only M5 using A/M1/M2/M3 and M4 caches from this directory; "
+             "requires a separate --out-dir.",
+    )
+    parser.add_argument("--m5-n-live", type=int, default=None,
+                        help="Override M5 live points for a pilot run.")
+    parser.add_argument("--m5-n-eff", type=int, default=None,
+                        help="Override M5 effective samples for a pilot run.")
+    parser.add_argument(
+        "--subhalo-position-mode",
+        choices=("lensing_square", "gaussian_local"),
+        default=None,
+        help="Position prior for the M5 subhalo (default: lensing_square, "
+             "uniform x,y in [-2, 2] arcsec).",
+    )
+    parser.add_argument(
         "--subhalo-position",
         type=float,
         nargs=2,
@@ -2444,6 +2580,13 @@ if __name__ == "__main__":
         help="Width (sigma, arcsec) of the localised subhalo position prior.",
     )
     args = parser.parse_args()
+    if args.subhalo_position_mode is not None:
+        globals()["SUBHALO_POSITION_MODE"] = args.subhalo_position_mode
+    if args.subhalo_position_mode not in (None, "gaussian_local") and (
+        args.subhalo_position is not None or args.subhalo_position_sigma is not None
+    ):
+        parser.error("--subhalo-position and --subhalo-position-sigma require "
+                     "--subhalo-position-mode gaussian_local")
     if args.subhalo_position is not None:
         globals()["SUBHALO_POSITION_MODE"] = "gaussian_local"
         globals()["SUBHALO_POSITION_CENTER"] = tuple(args.subhalo_position)
@@ -2454,4 +2597,18 @@ if __name__ == "__main__":
         globals()["SUBHALO_POSITION_SIGMA"] = float(args.subhalo_position_sigma)
         print(f"[pipeline] subhalo position sigma = "
               f"{args.subhalo_position_sigma:g} arcsec")
-    main(skip_done=args.skip_done, out_dir=args.out_dir)
+    if args.m5_only_from is not None:
+        if args.out_dir is None:
+            parser.error("--m5-only-from requires --out-dir")
+        # The cache check inside run_m5_from_cache temporarily restores the
+        # reference sampler counts, so pilot overrides do not invalidate it.
+        if args.m5_n_live is not None or args.m5_n_eff is not None:
+            if min(v for v in (args.m5_n_live, args.m5_n_eff) if v is not None) <= 0:
+                parser.error("M5 sampler counts must be positive")
+            globals()["M5_N_LIVE"] = args.m5_n_live or M5_N_LIVE
+            globals()["M5_N_EFF"] = args.m5_n_eff or M5_N_EFF
+        run_m5_from_cache(args.m5_only_from, args.out_dir)
+    else:
+        if args.m5_n_live is not None or args.m5_n_eff is not None:
+            parser.error("M5 sampler overrides require --m5-only-from")
+        main(skip_done=args.skip_done, out_dir=args.out_dir)
