@@ -503,23 +503,10 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
     q50 = [medians[n] for n in param_names]
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        lambda_j = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-         beta_x_seed, beta_y_seed) = likelihood._get_bbox()
-        scale = likelihood._get_reg_scale()
-        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
-        op_data = likelihood.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
-        )
-        block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
-            likelihood.noise_1d, xmin, xmax, ymin, ymax, lambda_j,
-            likelihood.reg_builder, block_size=likelihood.block_size,
-            scale=scale,
-        )
-        source_pixels, solver_info = likelihood._solve_source(
-            xmin, xmax, ymin, ymax, lambda_j, reg_data, (block_chols, block_masks),
-            op_data=op_data,
-        )
+        result = likelihood.evaluate()
+        source_pixels = result.source_pixels
+        solver_info = result.solver_info
+        xmin, xmax, ymin, ymax = result.source_bbox
         if not bool(np.asarray(solver_info.converged)):
             if hasattr(solver_info, "residual_norm"):
                 metric_label = "residual"
@@ -1559,34 +1546,14 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        lambda_j = jnp.asarray(lam_val)
 
         rho_val = float(np.asarray(_source_param_value(
             likelihood.phys_model.source_light[0].adaptive_reg_rho
         )))
-
-        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-         beta_x_seed, beta_y_seed) = likelihood._get_bbox()
-
+        result = likelihood.evaluate()
+        source_pixels = result.source_pixels
+        xmin, xmax, ymin, ymax = result.source_bbox
         scale = likelihood._get_reg_scale()
-
-        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
-        op_data = likelihood.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
-        )
-        block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
-            likelihood.noise_1d, xmin, xmax, ymin, ymax, lambda_j,
-            likelihood.reg_builder, block_size=likelihood.block_size,
-            scale=scale,
-        )
-        preconditioner = (block_chols, block_masks)
-        source_pixels, solver_info = likelihood._solve_source(
-            xmin, xmax, ymin, ymax, lambda_j, reg_data, preconditioner,
-            op_data=op_data,
-        )
-        model_1d_j = likelihood.sim_obj.forward_model(
-            source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-        )
 
         has_pos_penalty = likelihood._has_pos_penalty
         if has_pos_penalty:
@@ -1605,9 +1572,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
             pos_px_np = np.array(likelihood._pos_px)
             pos_py_np = np.array(likelihood._pos_py)
 
-    model_1d = np.array(model_1d_j)
-    model_image = np.zeros(image_data.shape)
-    model_image[~mask] = model_1d
+    model_image = np.asarray(result.model_image)
     resid_norm = (image_data - model_image) / noise_map
     chi2_map = np.where(mask, np.nan, resid_norm ** 2)
     chi2 = float(np.nansum(chi2_map))

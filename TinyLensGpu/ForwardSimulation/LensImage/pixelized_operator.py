@@ -29,6 +29,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import (
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     RegData,
+    map_source_blocks,
 )
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from TinyLensGpu.utils.lensing.mapping import (
@@ -37,10 +38,10 @@ from TinyLensGpu.utils.lensing.mapping import (
     lens_mapping_operator_bilinear_from,
 )
 
-
 # ==================================================================
 # Operator data — precomputed once per bbox, reused across matvecs
 # ==================================================================
+
 
 class LensOperatorData(NamedTuple):
     """Precomputed data for lens mapping operator matvec / rmatvec.
@@ -204,6 +205,7 @@ def _source_data_adjoint(
 # ==================================================================
 # JIT-compiled operator primitives  (no ``self`` — pure array args)
 # ==================================================================
+
 
 @partial(jax.jit, static_argnames=("H", "W"))
 def _psf_convolve_full_jit(img_flat: Array, psf_fft: Array, H: int, W: int) -> Array:
@@ -439,6 +441,7 @@ def _A_matvec_jit(
 # ==================================================================
 # Main class
 # ==================================================================
+
 
 class PixelizedLensOperator:
     """Matrix-free simulator for a pixelized source and optional lens light.
@@ -693,17 +696,34 @@ class PixelizedLensOperator:
         ]
 
     def build_joint_system(
-        self, noise_1d: Array, data_1d: Array,
-        xmin, xmax, ymin, ymax, lambda_reg: Array, reg_data: RegData,
+        self,
+        noise_1d: Array,
+        data_1d: Array,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        lambda_reg: Array,
+        reg_data: RegData,
         lens_light_regularization: Array,
         op_data: LensOperatorData | None = None,
+        image_adjoint: Array | None = None,
+        source_rhs: Array | None = None,
+        lens_matrix: Array | None = None,
     ) -> tuple[CurvatureOperator, Array, Array]:
         """Build the joint curvature operator, right-hand side, and lens matrix."""
         source_operator = self.build_source_curvature_operator(
-            noise_1d, xmin, xmax, ymin, ymax, lambda_reg, reg_data,
+            noise_1d,
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            lambda_reg,
+            reg_data,
             op_data=op_data,
         )
-        lens_matrix = self.build_lens_light_matrix()
+        if lens_matrix is None:
+            lens_matrix = self.build_lens_light_matrix()
         eps = jnp.asarray(lens_light_regularization, dtype=lens_matrix.dtype)
         joint_data = JointCurvatureData(
             source=source_operator.data,
@@ -716,12 +736,18 @@ class PixelizedLensOperator:
             spec=JointCurvatureSpec(source=self._source_curvature_spec),
             size=self.n_source_pixels + self.n_lens_light,
         )
-        source_rhs = self.build_rhs(
-            data_1d, noise_1d, xmin, xmax, ymin, ymax, op_data=op_data,
-        )
-        lens_rhs = lens_matrix.T @ (
-            jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2)
-        )
+        if source_rhs is None:
+            source_rhs = self.build_rhs(
+                data_1d,
+                noise_1d,
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+                op_data=op_data,
+                image_adjoint=image_adjoint,
+            )
+        lens_rhs = lens_matrix.T @ (jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2))
         return joint_operator, jnp.concatenate([source_rhs, lens_rhs]), lens_matrix
 
     def reconstruct_components(
@@ -743,31 +769,56 @@ class PixelizedLensOperator:
     # Right-hand side: b = Mᵀ C⁻¹ d
     # ------------------------------------------------------------------
 
+    def prepare_observation(self, data_1d: Array, noise_1d: Array):
+        """Precompute the data adjoint and the preconditioner's noise weights."""
+        H, W = self.image_shape
+        weighted_data = data_1d / noise_1d**2
+        weighted = jnp.zeros(H * W, dtype=weighted_data.dtype)
+        weighted = weighted.at[self.flat_indices].set(weighted_data)
+        image_adjoint = _psf_convolve_full_jit(weighted, self._psf_fft_conj, H, W)
+        return image_adjoint, self._effective_noise_weights(noise_1d)
+
+    def _effective_noise_weights(self, noise_1d):
+        H, W = self.image_shape
+        noise_map = jnp.zeros(H * W, dtype=noise_1d.dtype)
+        noise_map = noise_map.at[self.flat_indices].set(1.0 / noise_1d**2)
+        weights = jsp_signal.fftconvolve(
+            noise_map.reshape(H, W),
+            (self.psf_kernel**2)[::-1, ::-1],
+            mode="same",
+        )
+        return weights.ravel()[self.flat_indices]
+
     def build_rhs(
         self,
         data_1d: Array,
         noise_1d: Array,
-        xmin, xmax, ymin, ymax,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
         op_data: LensOperatorData | None = None,
+        image_adjoint: Array | None = None,
     ) -> Array:
-        """Compute b = Lᵀ Bᵀ C⁻¹ d.
-
-        If ``op_data`` is provided, it is reused; otherwise computed fresh.
-        """
+        """Compute b = Lᵀ Bᵀ C⁻¹ d, optionally reusing the fixed data adjoint."""
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
         H, W = self.image_shape
-
-        weighted = jnp.asarray(data_1d) / (jnp.asarray(noise_1d) ** 2)
-
-        img_full = jnp.zeros(H * W, dtype=weighted.dtype)
-        img_full = img_full.at[op_data.flat_indices].set(weighted)
-        img_corr = _psf_convolve_full_jit(img_full, self._psf_fft_conj, H, W)
-
+        if image_adjoint is None:
+            weighted = jnp.asarray(data_1d) / jnp.asarray(noise_1d) ** 2
+            full = jnp.zeros(H * W, dtype=weighted.dtype)
+            full = full.at[op_data.flat_indices].set(weighted)
+            image_adjoint = _psf_convolve_full_jit(full, self._psf_fft_conj, H, W)
         return _apply_Lt_jit(
-            img_corr,
-            op_data.weights, op_data.indices, op_data.flat_indices,
-            H, W, op_data.n_source, op_data.nsub, op_data.agg_segment_ids,
+            image_adjoint,
+            op_data.weights,
+            op_data.indices,
+            op_data.flat_indices,
+            H,
+            W,
+            op_data.n_source,
+            op_data.nsub,
+            op_data.agg_segment_ids,
         )
 
     # ------------------------------------------------------------------
@@ -823,312 +874,109 @@ class PixelizedLensOperator:
     # Block-diagonal preconditioner
     # ------------------------------------------------------------------
 
+    def build_data_blocks(
+        self,
+        noise_1d,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        block_size=10,
+        noise_weights=None,
+    ):
+        """Build native-resolution data blocks and their source pixel indices.
+
+        This approximation deliberately uses a separate native mapping even
+        when the curvature operator integrates a sub-grid (nsub > 1).
+        """
+        if noise_weights is None:
+            noise_weights = self._effective_noise_weights(jnp.asarray(noise_1d))
+        beta_x, beta_y = self.phys_model.deflection(
+            x=self.image_x_active,
+            y=self.image_y_active,
+        )
+        weights, indices, _ = lens_mapping_operator_bilinear_from(
+            jnp.stack([beta_x.ravel(), beta_y.ravel()], axis=1),
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            self.source_n,
+        )
+
+        def build(x, xe, y, ye, pixels):
+            local = -jnp.ones(self.n_source_pixels, dtype=jnp.int32)
+            local = local.at[pixels].set(jnp.arange(pixels.size, dtype=jnp.int32))
+            neighbors = local[indices]
+            valid = (neighbors[:, :, None] >= 0) & (neighbors[:, None, :] >= 0)
+            rows = jnp.broadcast_to(neighbors[:, :, None], valid.shape)
+            cols = jnp.broadcast_to(neighbors[:, None, :], valid.shape)
+            values = (
+                weights[:, :, None] * weights[:, None, :] * noise_weights[:, None, None]
+            )
+            block = jnp.zeros((pixels.size, pixels.size), dtype=weights.dtype)
+            return block.at[
+                jnp.where(valid, rows, 0).ravel(),
+                jnp.where(valid, cols, 0).ravel(),
+            ].add((values * valid).astype(block.dtype).ravel())
+
+        return map_source_blocks(self.source_n, block_size, build)
+
     def build_block_diag_preconditioner(
         self,
         noise_1d: Array,
-        xmin, xmax, ymin, ymax,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
         lambda_reg: Array,
         reg_builder: DenseRegularizationBuilder,
         block_size: int = 10,
         scale: Array | None = None,
+        *,
+        noise_weights=None,
+        data_blocks=None,
+        reg_blocks=None,
     ) -> tuple[Array | list[Array], Array | list[Array]]:
-        r"""Build a block-diagonal preconditioner P and its Cholesky factors.
+        """Factor G_k + lambda R_k, reusing fixed blocks when available.
 
-        Partitions the source grid into ``block_size × block_size`` blocks
-        (default 10×10), constructs the submatrix of
-        :math:`P = L^T W_{\rm eff} L + \lambda R` for each block, and
-        Cholesky-factors each one independently.
-
-        When the source grid is uniformly divisible by ``block_size``, uses
-        ``jax.lax.scan`` to avoid Python-loop unrolling during JIT tracing
-        (significant compilation speedup).  Otherwise falls back to the
-        legacy Python-loop path.
-
-        Only finite-difference regularization types are supported.
-
-        Parameters
-        ----------
-        noise_1d : Array
-            Per-pixel noise std at active pixels, shape ``(Nd,)``.
-        xmin, xmax, ymin, ymax : float
-            Source-plane bounding box.
-        lambda_reg : Array
-            Regularization strength λ (scalar or broadcastable).
-        reg_builder : DenseRegularizationBuilder
-            Source-plane regularization builder (provides per-block R).
-        block_size : int, optional
-            Source-grid block size in pixels (default 10).
-        scale : Array or None, optional
-            Per-pixel regularization scale of shape ``(Ns,)``.  When
-            provided, each block's regularization submatrix incorporates
-            the corresponding subset of the scale array.
-
-        Returns
-        -------
-        tuple[Array | list[Array], Array | list[Array]]
-            ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
-            lower-triangular Cholesky factor of the i-th block's P submatrix,
-            and ``block_masks[i]`` contains the global flat source indices
-            belonging to that block.  When all blocks have the same size the
-            result is stacked into arrays with shapes ``(n_blocks, b, b)`` and
-            ``(n_blocks, b)`` so the PCG preconditioner can be vmapped.
+        Uniform grids are stacked; ragged edge blocks retain their individual
+        shapes. Jitter and the native-mapping approximation are unchanged.
         """
-        H, W = self.image_shape
-        noise_1d_j = jnp.asarray(noise_1d)
-
-        # ---- W_eff = diag(Bᵀ C⁻¹ B) on full image ----
-        w_map = jnp.zeros(H * W, dtype=noise_1d_j.dtype)
-        w_map = w_map.at[self.flat_indices].set(1.0 / (noise_1d_j ** 2))
-        w_map_2d = w_map.reshape(H, W)
-
-        psf_sq = self.psf_kernel ** 2
-        psf_sq_flipped = psf_sq[::-1, ::-1]
-        w_eff_2d = jsp_signal.fftconvolve(w_map_2d, psf_sq_flipped, mode="same")
-        w_eff_full = w_eff_2d.ravel()
-
-        # ---- Native-resolution weights/indices ----
-        beta_x, beta_y = self.phys_model.deflection(
-            x=self.image_x_active, y=self.image_y_active
-        )
-        source_x_axis, source_y_axis, _, _ = build_source_grid(
-            self.source_n, xmin, xmax, ymin, ymax,
-        )
-        data_mesh = jnp.stack(
-            [jnp.ravel(beta_x), jnp.ravel(beta_y)], axis=1
-        )
-        weights, indices, _ = lens_mapping_operator_bilinear_from(
-            data_mesh,
-            source_x_axis[0], source_x_axis[-1],
-            source_y_axis[0], source_y_axis[-1],
-            self.source_n,
-        )
-        Ns = self.n_source_pixels
-        n = self.source_n
-        w_eff_active = w_eff_full[self.flat_indices]
-
-        # ---- Block partitioning ----
-        n_blocks = (n + block_size - 1) // block_size
-
-        # Source pixel → block mapping  (column-major: s = x + y * n)
-        sx = jnp.arange(Ns) % n
-        sy = jnp.arange(Ns) // n
-        block_x = sx // block_size
-        block_y = sy // block_size
-        block_id = block_x + block_y * n_blocks  # (Ns,)
-
-        # Which blocks does each image pixel's bilinear stencil touch?
-        bid_per_neighbor = block_id[indices]  # (Nd, 4)
-
-        # Dispatch: scan for uniform grids, legacy loop otherwise
-        is_uniform = (n % block_size == 0)
-        if is_uniform:
-            chols, masks = self._build_block_diag_precond_scan(
-                weights, indices, bid_per_neighbor, w_eff_active,
-                lambda_reg, reg_builder, block_size,
-                xmin, xmax, ymin, ymax, scale,
-                n_blocks,
+        if data_blocks is None:
+            data_blocks = self.build_data_blocks(
+                noise_1d,
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+                block_size,
+                noise_weights,
             )
+        if reg_blocks is None:
+            reg_blocks = reg_builder.block_matrices(
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+                scale=scale,
+                block_size=block_size,
+            )
+        matrices, masks = data_blocks
+
+        def factor(data, regularization):
+            block = data + lambda_reg * regularization
+            block = 0.5 * (block + block.T)
+            jitter = 1e-6 * jnp.maximum(jnp.mean(jnp.abs(jnp.diag(block))), 1e-8)
+            return jnp.linalg.cholesky(
+                block + jitter * jnp.eye(block.shape[0], dtype=block.dtype)
+            )
+
+        if isinstance(matrices, (list, tuple)):
+            chols = [factor(data, reg) for data, reg in zip(matrices, reg_blocks)]
         else:
-            chols, masks = self._build_block_diag_precond_legacy(
-                weights, indices, bid_per_neighbor, w_eff_active,
-                lambda_reg, reg_builder, block_size,
-                xmin, xmax, ymin, ymax, scale,
-                n_blocks,
-            )
-
-        # Stack if uniform
-        if isinstance(chols, (list, tuple)) and chols:
-            block_sizes = {int(chol.shape[0]) for chol in chols}
-            if len(block_sizes) == 1:
-                return jnp.stack(chols, axis=0), jnp.stack(masks, axis=0)
-
+            chols = jax.vmap(factor)(matrices, reg_blocks)
         return chols, masks
-
-    def _build_block_diag_precond_legacy(
-        self,
-        weights, indices, bid_per_neighbor, w_eff_active,
-        lambda_reg, reg_builder, block_size,
-        xmin, xmax, ymin, ymax, scale,
-        n_blocks,
-    ):
-        """Legacy Python-loop block-diagonal preconditioner (non-uniform grids)."""
-        Ns = self.n_source_pixels
-        block_chols = []
-        block_masks = []
-
-        for by in range(n_blocks):
-            for bx in range(n_blocks):
-                bid = bx + by * n_blocks
-                x_s = bx * block_size
-                x_e = min(x_s + block_size, self.source_n)
-                y_s = by * block_size
-                y_e = min(y_s + block_size, self.source_n)
-                block_nx_b = x_e - x_s
-                block_ny_b = y_e - y_s
-                block_n = block_nx_b * block_ny_b
-
-                if block_n == 0:
-                    continue
-
-                bf = jnp.array(
-                    [x + y * self.source_n
-                     for y in range(y_s, y_e)
-                     for x in range(x_s, x_e)],
-                    dtype=jnp.int32,
-                )
-
-                affected = jnp.any(bid_per_neighbor == bid, axis=1)
-                mask_w = affected[:, None].astype(weights.dtype)
-                aff_w = weights * mask_w
-                aff_we = w_eff_active * affected.astype(w_eff_active.dtype)
-                in_block = bid_per_neighbor == bid
-
-                g2l = -jnp.ones(Ns, dtype=jnp.int32)
-                for loc_i, g_idx in enumerate(bf):
-                    g2l = g2l.at[g_idx].set(loc_i)
-                loc_idx = g2l[indices]
-
-                wgt_i = aff_w[:, :, None]
-                wgt_j = aff_w[:, None, :]
-                w_prod = wgt_i * wgt_j * aff_we[:, None, None]
-                P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
-
-                loc_i = loc_idx[:, :, None]
-                loc_j = loc_idx[:, None, :]
-                in_i = in_block[:, :, None]
-                in_j = in_block[:, None, :]
-                valid = in_i & in_j
-
-                loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
-                loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
-                valid_f = valid.ravel()
-                valid_f_float = valid_f.astype(w_prod.dtype)
-
-                loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
-                loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
-                vals_f = (w_prod.ravel() * valid_f_float).astype(P_block.dtype)
-
-                P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
-
-                R_block = reg_builder.block_diag_R(
-                    x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
-                    scale=scale,
-                )
-                P_block = P_block + lambda_reg * R_block
-                P_block = 0.5 * (P_block + P_block.T)
-
-                diag_P = jnp.diag(P_block)
-                diag_mean = jnp.mean(jnp.abs(diag_P))
-                jitter_scale = jnp.maximum(diag_mean, 1e-8)
-                jitter = 1e-6 * jitter_scale * jnp.eye(
-                    block_n, dtype=P_block.dtype,
-                )
-                P_block = P_block + jitter
-
-                chol_block = jnp.linalg.cholesky(P_block)
-                block_chols.append(chol_block)
-                block_masks.append(bf)
-
-        return block_chols, block_masks
-
-    def _build_block_diag_precond_scan(
-        self,
-        weights, indices, bid_per_neighbor, w_eff_active,
-        lambda_reg, reg_builder, block_size,
-        xmin, xmax, ymin, ymax, scale,
-        n_blocks,
-    ):
-        """``lax.scan``-based block-diagonal preconditioner (uniform grids).
-
-        Compiles the block body once and executes it dynamically, avoiding
-        the ~100× loop unrolling that dominates JIT compilation time.
-        """
-        bs = block_size
-        block_n = bs * bs
-        Ns = self.n_source_pixels
-
-        # Precompute scan inputs: (bid, x_s, y_s) for each block
-        bx_arr = jnp.arange(n_blocks, dtype=jnp.int32)
-        by_arr = jnp.arange(n_blocks, dtype=jnp.int32)
-        bxs, bys = jnp.meshgrid(bx_arr, by_arr, indexing="xy")
-        bids = (bxs + bys * n_blocks).ravel().astype(jnp.int32)
-        x_starts = (bxs * bs).ravel().astype(jnp.int32)
-        y_starts = (bys * bs).ravel().astype(jnp.int32)
-        scan_inputs = jnp.stack([bids, x_starts, y_starts], axis=-1)
-
-        # Pre-compute local index template (column-major): [0, 1, ..., block_n-1]
-        local_i = jnp.arange(block_n, dtype=jnp.int32)
-        loc_x_template = local_i % bs
-        loc_y_template = local_i // bs
-
-        def scan_body(carry, xs):
-            bid = xs[0]
-            x_s = xs[1]
-            y_s = xs[2]
-
-            # Flat source indices for this block (column-major, vectorized)
-            bf = (x_s + loc_x_template) + (y_s + loc_y_template) * self.source_n  # (block_n,)
-
-            # Affected pixels mask
-            affected = jnp.any(bid_per_neighbor == bid, axis=1)  # (Nd,)
-            mask_w = affected[:, None].astype(weights.dtype)
-            aff_w = weights * mask_w
-            aff_we = w_eff_active * affected.astype(w_eff_active.dtype)
-            in_block = bid_per_neighbor == bid  # (Nd, 4)
-
-            # Global → local index mapping (vectorized, no Python loop)
-            g2l = -jnp.ones(Ns, dtype=jnp.int32)
-            g2l = g2l.at[bf].set(jnp.arange(block_n, dtype=jnp.int32))
-            loc_idx = g2l[indices]  # (Nd, 4)
-
-            # ---- Scatter-add Lᵀ W_eff L into block-sized matrix ----
-            wgt_i = aff_w[:, :, None]              # (Nd, 4, 1)
-            wgt_j = aff_w[:, None, :]              # (Nd, 1, 4)
-            w_prod = wgt_i * wgt_j * aff_we[:, None, None]  # (Nd, 4, 4)
-            P_block = jnp.zeros((block_n, block_n), dtype=aff_w.dtype)
-
-            loc_i = loc_idx[:, :, None]            # (Nd, 4, 1)
-            loc_j = loc_idx[:, None, :]            # (Nd, 1, 4)
-            in_i = in_block[:, :, None]            # (Nd, 4, 1)
-            in_j = in_block[:, None, :]            # (Nd, 1, 4)
-            valid = in_i & in_j                    # (Nd, 4, 4)
-
-            loc_i_b = jnp.broadcast_to(loc_i, valid.shape)
-            loc_j_b = jnp.broadcast_to(loc_j, valid.shape)
-            valid_f = valid.ravel()
-            valid_f_float = valid_f.astype(w_prod.dtype)
-
-            loc_i_f = jnp.where(valid_f, loc_i_b.ravel(), 0)
-            loc_j_f = jnp.where(valid_f, loc_j_b.ravel(), 0)
-            vals_f = (w_prod.ravel() * valid_f_float).astype(P_block.dtype)
-
-            P_block = P_block.at[loc_i_f, loc_j_f].add(vals_f)
-
-            # ---- + λ R_block (vectorized stencil methods) ----
-            R_block = reg_builder.block_diag_R_vec(
-                x_s, x_s + bs, y_s, y_s + bs,
-                xmin, xmax, ymin, ymax,
-                scale=scale, block_size=bs,
-            )
-            P_block = P_block + lambda_reg * R_block
-            P_block = 0.5 * (P_block + P_block.T)
-
-            # ---- Cholesky with scale-adaptive diagonal jitter ----
-            diag_P = jnp.diag(P_block)
-            diag_mean = jnp.mean(jnp.abs(diag_P))
-            jitter_scale = jnp.maximum(diag_mean, 1e-8)
-            jitter = 1e-6 * jitter_scale * jnp.eye(
-                block_n, dtype=P_block.dtype,
-            )
-            P_block = P_block + jitter
-
-            chol_block = jnp.linalg.cholesky(P_block)
-            return carry, (chol_block, bf)
-
-        init_carry = jnp.array(0, dtype=jnp.int32)
-        _, (chols, masks) = jax.lax.scan(scan_body, init_carry, scan_inputs)
-        # Convert to lists for uniform post-processing
-        return list(chols), list(masks)
 
     # ------------------------------------------------------------------
     # Legacy: dense preconditioner  (for testing / small grids)

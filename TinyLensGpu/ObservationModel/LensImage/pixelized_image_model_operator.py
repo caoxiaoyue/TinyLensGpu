@@ -8,7 +8,7 @@ avoiding explicit construction of the (Nd × Ns) design matrix.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Union
+from typing import Dict, NamedTuple, Optional, Union
 
 import caskade as ck
 import jax
@@ -23,7 +23,10 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
 )
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import (
-    pcg_solve, PCGInfo, BlockSchurPreconditioner, solve_source_blocks,
+    pcg_solve,
+    PCGInfo,
+    BlockSchurPreconditioner,
+    solve_source_blocks,
 )
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
     EPSILON_REG,
@@ -34,9 +37,38 @@ from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     RegData,
-    source_template_scale_map,
 )
-from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
+from ._position_likelihood import (
+    resolve_position_likelihood_attrs,
+    compute_position_penalty_jax,
+)
+
+
+class InversionResult(NamedTuple):
+    """Outputs of one inversion; failed solves have zero reconstruction arrays."""
+
+    log_evidence: Array | None
+    model_image: Array
+    source_pixels: Array
+    lens_amplitudes: Array | None
+    source_bbox: tuple[Array, Array, Array, Array]
+    solver_info: PCGInfo | FISTAInfo | PNPGInfo
+
+
+class _PreparedData(NamedTuple):
+    image_adjoint: Array
+    noise_weights: Array
+    template_u: Array | None
+    regularization: tuple | None = None
+    mapping: tuple | None = None
+
+
+def _is_fixed(value):
+    """Use registered transitive dependencies, including pointer parameters."""
+    if not isinstance(value, (ck.Module, ck.Param)):
+        return True
+    params = (p for p in value.topological_ordering() if isinstance(p, ck.Param))
+    return all(not p.dynamic and (not p.pointer or bool(p.children)) for p in params)
 
 
 class PixelizedImageProbModelOperator(ck.Module):
@@ -49,6 +81,12 @@ class PixelizedImageProbModelOperator(ck.Module):
     intensities while retaining the unconstrained-curvature operator logdet
     approximation. PNPG uses diagonal metric equilibration and is preferred for
     ill-conditioned joint source/MGE systems.
+
+    Fixed inputs are prepared at construction. Configure parameter modes first;
+    rebuild this model and its compiled likelihood after changing fixed physical
+    parameters, parameter modes, observation data, or source-grid settings.
+    Dynamic parameter values and solver controls are not cached. ``evaluate``
+    returns evidence and reconstruction from the same solve.
 
     Parameters
     ----------
@@ -137,8 +175,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "fista", "pnpg"):
             raise ValueError(
-                "solver_type must be 'pcg', 'fista', or 'pnpg', "
-                f"got {solver_type!r}"
+                "solver_type must be 'pcg', 'fista', or 'pnpg', " f"got {solver_type!r}"
             )
         self.solver_type = solver_type
         self.lens_light_regularization = validate_lens_light_regularization(
@@ -172,11 +209,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         source_n = int(self.source_model.n)
         self.reg_type = self.source_model.regularization_type
         self.reg_builder = DenseRegularizationBuilder(
-            source_n, self.reg_type,
+            source_n,
+            self.reg_type,
         )
-        self._fixed_source_bbox = self._validate_fixed_source_bbox(
-            fixed_source_bbox
-        )
+        self._fixed_source_bbox = self._validate_fixed_source_bbox(fixed_source_bbox)
         self._fixed_reg_scale = self._validate_fixed_reg_scale(
             fixed_reg_scale, source_n * source_n
         )
@@ -210,8 +246,73 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.pnpg_rtol = float(pnpg_rtol)
         self.pnpg_power_iter = int(pnpg_power_iter)
 
-        self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
-            resolve_position_likelihood_attrs(position_likelihood)
+        (
+            self._pos_px,
+            self._pos_py,
+            self._pos_thr,
+            self._pos_minl,
+            self._has_pos_penalty,
+        ) = resolve_position_likelihood_attrs(position_likelihood)
+
+        with ck.ActiveContext(self):
+            image_adjoint, noise_weights = self.sim_obj.prepare_observation(
+                self.data_1d,
+                self.noise_1d,
+            )
+            template_u = None
+            if self._fixed_reg_template is not None:
+                positive = jnp.maximum(self._fixed_reg_template, 0.0)
+                template_u = jnp.clip(
+                    positive / jnp.maximum(jnp.percentile(positive, 99.5), 1e-10),
+                    0.0,
+                    1.0,
+                )
+            object.__setattr__(
+                self,
+                "_prepared",
+                _PreparedData(
+                    image_adjoint,
+                    noise_weights,
+                    template_u,
+                ),
+            )
+            regularization = mapping = None
+            if self._fixed_source_bbox is not None:
+                bbox = self._fixed_source_bbox
+                if self._fixed_reg_template is None or _is_fixed(
+                    self.source_model.adaptive_reg_rho
+                ):
+                    scale = self._get_reg_scale()
+                    reg_data, blocks = self._build_regularization(bbox, scale)
+                    regularization = (
+                        reg_data,
+                        blocks,
+                        self._regularization_logdet(bbox, scale, blocks),
+                    )
+                if all(_is_fixed(mass) for mass in self.phys_model.lens_mass):
+                    op_data = self.sim_obj.precompute_operator_data(*bbox)
+                    rhs = self.sim_obj.build_rhs(
+                        self.data_1d,
+                        self.noise_1d,
+                        *bbox,
+                        op_data=op_data,
+                        image_adjoint=image_adjoint,
+                    )
+                    data_blocks = self.sim_obj.build_data_blocks(
+                        self.noise_1d,
+                        *bbox,
+                        self.block_size,
+                        noise_weights,
+                    )
+                    mapping = (op_data, rhs, data_blocks)
+            object.__setattr__(
+                self,
+                "_prepared",
+                self._prepared._replace(
+                    regularization=regularization,
+                    mapping=mapping,
+                ),
+            )
 
     @staticmethod
     def _validate_fixed_source_bbox(
@@ -302,7 +403,7 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     def _adaptive_reg_enabled(self) -> bool:
         rho = self.source_model.adaptive_reg_rho
-        if bool(getattr(rho, "dynamic", False)):
+        if not _is_fixed(rho):
             return True
         rho_value = self._param_value(rho)
         try:
@@ -384,12 +485,15 @@ class PixelizedImageProbModelOperator(ck.Module):
         if not self._adaptive_reg_enabled():
             return None
         if self._fixed_reg_template is not None:
-            source = self.source_model
-            return source_template_scale_map(
-                self._fixed_reg_template,
-                int(source.n),
-                rho=self._param_value(source.adaptive_reg_rho),
+            rho = jnp.maximum(
+                jnp.asarray(
+                    self._param_value(self.source_model.adaptive_reg_rho),
+                    dtype=jnp.float32,
+                ),
+                0.0,
             )
+            scale = jnp.exp(rho * (1.0 - self._prepared.template_u))
+            return jnp.where(jnp.abs(rho) < 1e-10, jnp.ones_like(scale), scale)
         if self._fixed_reg_scale is None:
             raise ValueError(
                 "fixed_reg_scale or fixed_reg_template is required when "
@@ -506,11 +610,16 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     def _solve_source(
         self,
-        xmin, xmax, ymin, ymax,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
         lambda_reg: Array,
         reg_data: RegData,
         preconditioner,
         op_data=None,  # precomputed LensOperatorData
+        source_rhs=None,
+        lens_matrix=None,
     ) -> tuple[Array, PCGInfo | FISTAInfo | PNPGInfo]:
         """Solve for joint MAP linear parameters with the configured solver.
 
@@ -525,19 +634,43 @@ class PixelizedImageProbModelOperator(ck.Module):
         """
         if self.has_lens_light:
             operator, b, _ = self.sim_obj.build_joint_system(
-                self.noise_1d, self.data_1d,
-                xmin, xmax, ymin, ymax, lambda_reg, reg_data,
-                self.lens_light_regularization, op_data=op_data,
+                self.noise_1d,
+                self.data_1d,
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+                lambda_reg,
+                reg_data,
+                self.lens_light_regularization,
+                op_data=op_data,
+                image_adjoint=self._prepared.image_adjoint,
+                source_rhs=source_rhs,
+                lens_matrix=lens_matrix,
             )
         else:
             operator = self.sim_obj.build_source_curvature_operator(
-                self.noise_1d, xmin, xmax, ymin, ymax,
-                lambda_reg, reg_data, op_data=op_data,
+                self.noise_1d,
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+                lambda_reg,
+                reg_data,
+                op_data=op_data,
             )
-            b = self.sim_obj.build_rhs(
-                self.data_1d, self.noise_1d,
-                xmin, xmax, ymin, ymax, op_data=op_data,
-            )
+            b = source_rhs
+            if b is None:
+                b = self.sim_obj.build_rhs(
+                    self.data_1d,
+                    self.noise_1d,
+                    xmin,
+                    xmax,
+                    ymin,
+                    ymax,
+                    op_data=op_data,
+                    image_adjoint=self._prepared.image_adjoint,
+                )
 
         if self.solver_type == "pnpg":
             warm_start, warm_info = pcg_solve(
@@ -579,9 +712,8 @@ class PixelizedImageProbModelOperator(ck.Module):
                 )
                 projected_warm_start = jnp.maximum(warm_start, 0.0)
                 warm_Ax = operator.matvec(projected_warm_start)
-                warm_objective = (
-                    0.5 * jnp.dot(projected_warm_start, warm_Ax)
-                    - jnp.dot(b, projected_warm_start)
+                warm_objective = 0.5 * jnp.dot(projected_warm_start, warm_Ax) - jnp.dot(
+                    b, projected_warm_start
                 )
                 accept_warm_start = (
                     warm_info.converged
@@ -618,224 +750,163 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Log evidence
     # ------------------------------------------------------------------
 
-    def _log_evidence(self) -> Array:
-        """Evaluate log evidence using the configured matrix-free solver.
-
-        .. warning::
-            This uses ``logdet(P)`` as a deterministic approximation to
-            ``logdet(A)``. Joint models use a coupled block-Schur preconditioner;
-            source-only models use the block-diagonal source preconditioner,
-            and a block-diagonal approximation (with the same partition) for
-            ``logdet(R)``.  For blurred or asymmetric PSFs, ``nsub > 1``, or
-            masked pixels, the evidence will deviate from the exact dense-backend
-            value. For a constrained solver, the source MAP is constrained
-            but the logdet terms remain this same unconstrained-style operator
-            approximation. Use the dense backend when exact evidence parity is
-            required.
-        """
-        log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
-        lambda_reg = jnp.exp(log_lambda_reg)
-        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-         beta_x_seed, beta_y_seed) = self._get_bbox()
-
-        # Compute adaptive regularization scale map (zero extra tracing)
-        scale = self._get_reg_scale()
-
-        # reg_data: compact edge-weighted Laplacian descriptor for matrix-free PCG.
-        reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
-
-        # ---- Precompute lens-operator data ONCE ----
-        # Reuse sub-grid betas from _get_bbox to avoid a second deflection call.
-        op_data = self.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax,
-            _betas_sub=(beta_x_sub, beta_y_sub),
-        )
-
-        # Build block-diagonal preconditioner
-        block_chols, block_masks = self.sim_obj.build_block_diag_preconditioner(
-            self.noise_1d,
-            xmin, xmax, ymin, ymax,
-            lambda_reg,
-            self.reg_builder,
-            block_size=self.block_size,
-            scale=scale,
-        )
-        if self.has_lens_light:
-            source_operator = self.sim_obj.build_source_curvature_operator(
-                self.noise_1d, xmin, xmax, ymin, ymax,
-                lambda_reg, reg_data, op_data=op_data,
-            )
-            preconditioner = self._build_block_schur_preconditioner(
-                block_chols, block_masks, source_operator.data,
-                self.sim_obj.build_lens_light_matrix(),
-            )
-        else:
-            preconditioner = (block_chols, block_masks)
-
-        # Solve source via configured matrix-free solver.
-        source_pixels, solver_info = self._solve_source(
-            xmin, xmax, ymin, ymax,
-            lambda_reg,
-            reg_data,
-            preconditioner,
-            op_data=op_data,
-        )
-
-        # Forward model for χ² and regularization penalty (reuses op_data)
-        n_source = self.sim_obj.n_source_pixels
-        if self.has_lens_light:
-            lens_amplitudes = source_pixels[n_source:]
-            source_pixels = source_pixels[:n_source]
-            source_1d, lens_1d = self.sim_obj.reconstruct_components(
-                source_pixels, lens_amplitudes, xmin, xmax, ymin, ymax,
-                op_data=op_data,
-            )
-            model_1d = source_1d + lens_1d
-        else:
-            lens_amplitudes = None
-            model_1d = self.sim_obj.forward_model(
-                source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-            )
-
-        n_data = int(self.data_1d.size)
-
-        resid = self.data_1d - model_1d
-        e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
-
-        # Regularisation energy — matrix-free via edge-weighted Laplacian matvec.
-        e_s = 0.5 * jnp.dot(
-            source_pixels,
-            self.reg_builder.matvec_free(
-                source_pixels, xmin, xmax, ymin, ymax, scale=scale,
+    def _build_regularization(self, bbox, scale):
+        return (
+            self._regularization_data(*bbox, scale=scale),
+            self.reg_builder.block_matrices(
+                *bbox, scale=scale, block_size=self.block_size
             ),
         )
-        # logdet(P) from block-diagonal Cholesky factors
-        logdet_P = (
-            self._logdet_block_schur(preconditioner)
-            if self.has_lens_light
-            else PixelizedLensOperator.logdet_block_diag(block_chols)
-        )
 
-        # logdet regularisation matrix — deterministic block-diagonal approximation
-        logdet_h = self.reg_builder.logdet_free(
-            xmin, xmax, ymin, ymax, scale=scale, block_size=self.block_size,
-        )
-
-        log_evidence = (
-            -e_d
-            - lambda_reg * e_s
-            - 0.5 * logdet_P
-            + 0.5 * n_source * log_lambda_reg
-            + 0.5 * logdet_h
-            - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
-            - 0.5 * self.logdet_C
-        )
-
-        if self.has_lens_light:
-            e_lens = 0.5 * self.lens_light_regularization * jnp.sum(
-                lens_amplitudes ** 2
+    def _regularization_logdet(self, bbox, scale, blocks):
+        if self.reg_type == "zero-order":
+            return self.reg_builder.logdet_free(
+                *bbox, scale=scale, block_size=self.block_size
             )
-            log_evidence = (
-                log_evidence - e_lens
-                + 0.5 * self.n_lens_light
-                * jnp.log(self.lens_light_regularization)
-            )
+        return self.reg_builder.logdet_blocks(blocks)
 
-        valid = solver_info.converged & jnp.isfinite(log_evidence)
-        return jnp.where(valid, log_evidence, -1.0e10)
+    def _evaluate(self, *, compute_evidence):
+        """Prepare, solve and reconstruct once; optionally compute evidence."""
+        log_lambda = jnp.asarray(self.source_model.log_lambda_reg.value)
+        lambda_reg = jnp.exp(log_lambda)
+        source_rhs = data_blocks = None
+        if self._prepared.mapping is not None:
+            bbox = self._fixed_source_bbox
+            op_data, source_rhs, data_blocks = self._prepared.mapping
+        else:
+            *bbox_values, bx, by, _, _ = self._get_bbox()
+            bbox = tuple(bbox_values)
+            op_data = self.sim_obj.precompute_operator_data(*bbox, _betas_sub=(bx, by))
 
-    # ------------------------------------------------------------------
-    # Forward model (public API)
-    # ------------------------------------------------------------------
-
-    @ck.forward
-    def forward_model(
-        self, *, return_source: bool = False, return_components: bool = False
-    ):
-        """Solve source pixels and return the reconstructed model image.
-
-        With ``solver_type="fista"`` or ``"pnpg"``, returned source pixels
-        and lens-light intensities are constrained to be non-negative.
-        """
-        lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
-        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-         beta_x_seed, beta_y_seed) = self._get_bbox()
-
-        scale = self._get_reg_scale()
-
-        reg_data = self._regularization_data(xmin, xmax, ymin, ymax, scale=scale)
-
-        # Precompute operator data once (reuse betas from _get_bbox).
-        op_data = self.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax,
-            _betas_sub=(beta_x_sub, beta_y_sub),
-        )
-
-        # Build block-diagonal preconditioner and solve
+        logdet_h = None
+        if self._prepared.regularization is not None:
+            reg_data, reg_blocks, logdet_h = self._prepared.regularization
+            scale = reg_data.scale
+        else:
+            scale = self._get_reg_scale()
+            reg_data, reg_blocks = self._build_regularization(bbox, scale)
         block_chols, block_masks = self.sim_obj.build_block_diag_preconditioner(
             self.noise_1d,
-            xmin, xmax, ymin, ymax,
+            *bbox,
             lambda_reg,
             self.reg_builder,
             block_size=self.block_size,
             scale=scale,
+            noise_weights=self._prepared.noise_weights,
+            data_blocks=data_blocks,
+            reg_blocks=reg_blocks,
         )
+        lens_matrix = None
         if self.has_lens_light:
-            source_operator = self.sim_obj.build_source_curvature_operator(
-                self.noise_1d, xmin, xmax, ymin, ymax,
-                lambda_reg, reg_data, op_data=op_data,
+            lens_matrix = self.sim_obj.build_lens_light_matrix()
+            operator = self.sim_obj.build_source_curvature_operator(
+                self.noise_1d,
+                *bbox,
+                lambda_reg,
+                reg_data,
+                op_data=op_data,
             )
             preconditioner = self._build_block_schur_preconditioner(
-                block_chols, block_masks, source_operator.data,
-                self.sim_obj.build_lens_light_matrix(),
+                block_chols,
+                block_masks,
+                operator.data,
+                lens_matrix,
             )
         else:
             preconditioner = (block_chols, block_masks)
-
         linear_params, solver_info = self._solve_source(
-            xmin, xmax, ymin, ymax,
+            *bbox,
             lambda_reg,
             reg_data,
             preconditioner,
             op_data=op_data,
+            source_rhs=source_rhs,
+            lens_matrix=lens_matrix,
+        )
+        n_source = self.sim_obj.n_source_pixels
+        source = linear_params[:n_source]
+        lens = linear_params[n_source:] if self.has_lens_light else None
+        model = self.sim_obj.forward_model(source, *bbox, op_data=op_data)
+        if lens is not None:
+            model = model + lens_matrix @ lens
+
+        log_evidence = None
+        if compute_evidence:
+            e_d = 0.5 * jnp.sum(((self.data_1d - model) / self.noise_1d) ** 2)
+            e_s = 0.5 * jnp.dot(
+                source, self.reg_builder.matvec_free(source, *bbox, scale=scale)
+            )
+            logdet_p = (
+                self._logdet_block_schur(preconditioner)
+                if self.has_lens_light
+                else self.sim_obj.logdet_block_diag(block_chols)
+            )
+            if logdet_h is None:
+                logdet_h = self._regularization_logdet(bbox, scale, reg_blocks)
+            log_evidence = (
+                -e_d
+                - lambda_reg * e_s
+                - 0.5 * logdet_p
+                + 0.5 * n_source * log_lambda
+                + 0.5 * logdet_h
+                - 0.5 * self.data_1d.size * jnp.log(2.0 * jnp.pi)
+                - 0.5 * self.logdet_C
+            )
+            if lens is not None:
+                log_evidence = (
+                    log_evidence
+                    - 0.5 * self.lens_light_regularization * jnp.sum(lens**2)
+                    + 0.5 * self.n_lens_light * jnp.log(self.lens_light_regularization)
+                )
+            valid = solver_info.converged & jnp.isfinite(log_evidence)
+            log_evidence = jnp.where(valid, log_evidence, -1.0e10)
+
+        # Preserve forward_model's failure contract for every reconstruction output.
+        source = jnp.where(solver_info.converged, source, jnp.zeros_like(source))
+        model = jnp.where(solver_info.converged, model, jnp.zeros_like(model))
+        if lens is not None:
+            lens = jnp.where(solver_info.converged, lens, jnp.zeros_like(lens))
+        image = jnp.zeros(self.image_data.size, dtype=model.dtype)
+        image = (
+            image.at[self.sim_obj.flat_indices]
+            .set(model)
+            .reshape(self.image_data.shape)
+        )
+        return InversionResult(log_evidence, image, source, lens, bbox, solver_info)
+
+    def _log_evidence(self) -> Array:
+        """Evidence with log|P| and block log|R| approximations, as before.
+
+        Constrained solvers retain the unconstrained-style determinant terms;
+        this is not the exact evidence of a truncated non-negative prior.
+        """
+        return self._evaluate(compute_evidence=True).log_evidence
+
+    @ck.forward
+    def evaluate(self) -> InversionResult:
+        """Return evidence, model image, source and solver status from one solve.
+
+        Includes the configured position penalty. Failed solves return the same
+        evidence penalty and zero reconstruction arrays as the legacy methods.
+        This method is JIT/vmap compatible and keeps no last-result cache.
+        """
+        result = self._evaluate(compute_evidence=True)
+        log_ev = result.log_evidence
+        if self._has_pos_penalty:
+            log_ev = log_ev + self._position_likelihood_penalty_jax()
+        return result._replace(
+            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
         )
 
-        n_source = self.sim_obj.n_source_pixels
-        source_pixels = linear_params[:n_source]
-        if self.has_lens_light:
-            lens_amplitudes = linear_params[n_source:]
-            source_1d, lens_1d = self.sim_obj.reconstruct_components(
-                source_pixels, lens_amplitudes, xmin, xmax, ymin, ymax,
-                op_data=op_data,
-            )
-            model_1d = source_1d + lens_1d
-        else:
-            lens_amplitudes = None
-            model_1d = self.sim_obj.forward_model(
-                source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-            )
-        # Zero out the model image AND the source pixels when solving fails to
-        # converge — prevents silently returning partially-converged garbage.
-        # Gating both keeps the (image, source) pair internally consistent for
-        # callers that destructure ``forward_model(return_source=True)``.
-        converged = solver_info.converged
-        model_1d = jnp.where(converged, model_1d, jnp.zeros_like(model_1d))
-        source_pixels = jnp.where(converged, source_pixels, jnp.zeros_like(source_pixels))
-        if lens_amplitudes is not None:
-            lens_amplitudes = jnp.where(
-                converged, lens_amplitudes, jnp.zeros_like(lens_amplitudes)
-            )
-
-        H, W = self.sim_obj.image_shape
-        model_image = jnp.zeros(H * W, dtype=model_1d.dtype)
-        model_image = model_image.at[self.sim_obj.flat_indices].set(model_1d)
-        model_image = model_image.reshape(H, W)
-
+    @ck.forward
+    def forward_model(self, *, return_source=False, return_components=False):
+        """Reconstruct without computing evidence; preserve legacy return formats."""
+        result = self._evaluate(compute_evidence=False)
         if return_components and self.has_lens_light:
-            return model_image, source_pixels, lens_amplitudes
+            return result.model_image, result.source_pixels, result.lens_amplitudes
         if return_source:
-            return model_image, source_pixels
-        return model_image
+            return result.model_image, result.source_pixels
+        return result.model_image
 
     def reconstruct_component_images(
         self, source_pixels: Array, lens_light_intensities: Array,
@@ -868,10 +939,7 @@ class PixelizedImageProbModelOperator(ck.Module):
     @ck.forward
     def __call__(self):
         """Return a finite scalar log evidence approximation."""
-        log_ev = self._log_evidence()
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        return jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        return self.evaluate().log_evidence
 
     def _position_likelihood_penalty_jax(self) -> Array:
         """Compute position-likelihood penalty via shared utility (see ``_position_likelihood``)."""
@@ -884,4 +952,4 @@ class PixelizedImageProbModelOperator(ck.Module):
         return float(np.asarray(self.__call__()))
 
 
-__all__ = ["PixelizedImageProbModelOperator"]
+__all__ = ["PixelizedImageProbModelOperator", "InversionResult"]

@@ -178,6 +178,149 @@ def _assert_square_bbox(source_bbox):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("solver", ["pcg", "fista", "pnpg"])
+@pytest.mark.parametrize("joint", [False, True])
+def test_evaluate_shares_one_solve_and_preserves_legacy_outputs(monkeypatch, solver, joint):
+    if joint:
+        image, noise, phys = _make_joint_test_data()
+    else:
+        image, noise, phys, _ = _make_test_data()
+    model = PixelizedImageProbModelOperator(
+        image, noise, _delta_psf(), 0.08, phys, solver_type=solver,
+        fixed_source_bbox=_fixed_bbox(),
+        position_likelihood=dict(positions=[[0.2, 0.0], [-0.2, 0.0]],
+                                 threshold_arcsec=0.01, min_log_like=-20.0),
+    )
+    solve = model._solve_source
+    calls = []
+
+    def counted_solve(*args, **kwargs):
+        calls.append(None)
+        return solve(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_solve_source", counted_solve)
+    result = model.evaluate(jnp.asarray([0.0]))
+    assert len(calls) == 1
+    assert result.solver_info.converged
+    np.testing.assert_allclose(result.log_evidence, model(jnp.asarray([0.0])),
+                               rtol=1e-5, atol=1e-4)
+    image_old, source_old = model.forward_model(jnp.asarray([0.0]), return_source=True)
+    np.testing.assert_allclose(result.model_image, image_old, rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(result.source_pixels, source_old, rtol=1e-5, atol=1e-5)
+    assert (result.lens_amplitudes is not None) == joint
+    if joint:
+        _, _, lens_old = model.forward_model(jnp.asarray([0.0]), return_components=True)
+        np.testing.assert_allclose(result.lens_amplitudes, lens_old, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("n,block_size,reg_type", [
+    (5, 3, "zero-order"), (8, 4, "first-order"), (5, 3, "second-order"),
+])
+def test_fixed_cache_bypasses_preparation_and_matches_dynamic_path(
+    monkeypatch, n, block_size, reg_type,
+):
+    psf = jnp.asarray([[0.0, 0.15, 0.05], [0.0, 0.5, 0.2], [0.0, 0.1, 0.0]])
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[0, :] = True
+    image, noise, _, _ = _make_test_data(psf=psf, mask=mask, nsub=4)
+    source = PixelizedSourceModel(
+        n=n, log_lambda_reg=_pix_src().log_lambda_reg,
+        regularization_type=reg_type, adaptive_reg_rho=1.0,
+    )
+    phys = _phys_model(source)
+    kwargs = dict(mask=mask, nsub=4, block_size=block_size,
+                  fixed_source_bbox=_fixed_bbox(), fixed_reg_template=_fixed_template(n))
+    cached = PixelizedImageProbModelOperator(image, noise, psf, 0.08, phys, **kwargs)
+    reference = PixelizedImageProbModelOperator(image, noise, psf, 0.08, phys, **kwargs)
+    reference._prepared = reference._prepared._replace(regularization=None, mapping=None)
+    # Tighten the solve so early stopping does not dominate the cache comparison.
+    cached.pcg_rtol = reference.pcg_rtol = 1e-7
+    proposals = jnp.asarray([[0.0], [1.0]])
+    expected = jax.jit(jax.vmap(reference.evaluate))(proposals)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("fixed preparation was repeated")
+
+    for name in ("precompute_operator_data", "build_rhs", "build_data_blocks"):
+        monkeypatch.setattr(cached.sim_obj, name, unexpected)
+    monkeypatch.setattr(cached.reg_builder, "block_matrices", unexpected)
+    monkeypatch.setattr(cached, "_regularization_logdet", unexpected)
+    actual = jax.jit(jax.vmap(cached.evaluate))(proposals)
+    assert jnp.all(actual.solver_info.converged)
+    for field in ("log_evidence", "model_image", "source_pixels"):
+        np.testing.assert_allclose(getattr(actual, field), getattr(expected, field),
+                                   rtol=3e-5, atol=3e-5)
+    assert not jnp.allclose(actual.source_pixels[0], actual.source_pixels[1])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("vary", ["mass_pointer", "rho", "fixed_scale"])
+def test_cache_tracks_transitive_and_actual_regularization_dependencies(vary):
+    source = _pix_src_dynamic_adaptive() if vary != "mass_pointer" else _pix_src(adaptive_reg_rho=1.0)
+    mass = _static_sie()
+    if vary == "mass_pointer":
+        driver = ParamU("driver", 0.12)
+        driver.to_dynamic()
+        mass.theta_E = ck.Param("theta_E", lambda _: driver.value, link=(driver,))
+    phys = PhysicalModel(lens_mass=[mass], source_light=[source])
+    image, noise, _, _ = _make_test_data()
+    kwargs = dict(fixed_source_bbox=_fixed_bbox())
+    if vary == "fixed_scale":
+        kwargs["fixed_reg_scale"] = _fixed_scale()
+    else:
+        kwargs["fixed_reg_template"] = _fixed_template()
+    model = PixelizedImageProbModelOperator(image, noise, _blur_psf(), 0.08, phys, **kwargs)
+    assert (model._prepared.mapping is None) == (vary == "mass_pointer")
+    assert (model._prepared.regularization is None) == (vary == "rho")
+    changing = "driver" if vary == "mass_pointer" else "adaptive_reg_rho"
+    proposals = jnp.asarray([
+        [0.0 if p.name == "log_lambda_reg" else value for p in model.dynamic_params]
+        for value in ([0.1, 0.15] if vary == "mass_pointer" else [0.5, 2.0])
+    ])
+    result = jax.jit(jax.vmap(model.evaluate))(proposals)
+    assert jnp.all(result.solver_info.converged)
+    if vary == "fixed_scale":
+        np.testing.assert_allclose(result.source_pixels[0], result.source_pixels[1])
+    else:
+        assert not jnp.allclose(result.source_pixels[0], result.source_pixels[1]), changing
+
+
+@pytest.mark.unit
+def test_reconstruction_skips_evidence_determinants(monkeypatch):
+    image, noise, _, _ = _make_test_data()
+    model = PixelizedImageProbModelOperator(
+        image, noise, _delta_psf(), 0.08, _phys_model(_pix_src_dynamic_adaptive()),
+        fixed_source_bbox=_fixed_bbox(), fixed_reg_template=_fixed_template(),
+    )
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("evidence determinant requested")
+
+    monkeypatch.setattr(model, "_regularization_logdet", unexpected)
+    image, source = model.forward_model(jnp.asarray([0.0, 1.0]), return_source=True)
+    assert jnp.all(jnp.isfinite(image)) and jnp.any(source != 0)
+    with pytest.raises(AssertionError, match="evidence determinant"):
+        model.evaluate(jnp.asarray([0.0, 1.0]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["pcg", "fista", "pnpg"])
+def test_evaluate_failure_returns_status_penalty_and_zero_arrays(solver):
+    image, noise, phys, _ = _make_test_data()
+    model = PixelizedImageProbModelOperator(
+        image, noise, _delta_psf(), 0.08, phys, solver_type=solver,
+        fixed_source_bbox=_fixed_bbox(),
+    )
+    setattr(model, solver + "_max_iter", 0)
+    setattr(model, solver + "_rtol", 0.0)
+    result = model.evaluate(jnp.asarray([0.0]))
+    assert not result.solver_info.converged
+    assert result.log_evidence == -1e10
+    assert jnp.all(result.model_image == 0) and jnp.all(result.source_pixels == 0)
+
+
+@pytest.mark.unit
 def test_operator_infers_square_source_bbox_for_asymmetric_betas():
     """Test operator bbox helper applies default padding and makes a square."""
     config = _sim_config()

@@ -116,6 +116,34 @@ def source_template_scale_map(
     return jnp.asarray(scale, dtype=jnp.float32)
 
 
+def map_source_blocks(n, block_size, build_block):
+    """Build blocks and pixel indices in row-major order, including ragged edges.
+
+    Uniform grids use scan so JIT compiles one block body instead of unrolling
+    a Python loop. ``build_block`` accepts x/y bounds and flat pixel indices.
+    """
+    if block_size < 1:
+        raise ValueError("block_size must be positive")
+    bounds = [(x, min(x + block_size, n), y, min(y + block_size, n))
+              for y in range(0, n, block_size)
+              for x in range(0, n, block_size)]
+    if n % block_size == 0:
+        axis = jnp.arange(block_size, dtype=jnp.int32)
+
+        def body(_, bound):
+            x, xe, y, ye = bound
+            pixels = ((y + axis[:, None]) * n + x + axis).ravel()
+            return None, (build_block(x, xe, y, ye, pixels), pixels)
+
+        return jax.lax.scan(body, None, jnp.asarray(bounds, dtype=jnp.int32))[1]
+    pixels = [jnp.asarray([iy * n + ix for iy in range(y, ye)
+                          for ix in range(x, xe)], dtype=jnp.int32) for x, xe, y, ye in bounds]
+    blocks = [build_block(*bound, indices) for bound, indices in zip(bounds, pixels)]
+    if len({indices.size for indices in pixels}) == 1:
+        return jnp.stack(blocks), jnp.stack(pixels)
+    return blocks, pixels
+
+
 class RegData(NamedTuple):
     """Compact finite-difference regularisation data for matrix-free matvec / logdet.
 
@@ -1167,113 +1195,44 @@ class DenseRegularizationBuilder:
 
         return 0.5 * (R + R.T)
 
-    def _logdet_block_diag(
-        self,
-        xmin: float, xmax: float, ymin: float, ymax: float,
-        scale: "jax.Array | None",
-        block_size: int,
-    ) -> "jax.Array":
-        r"""Block-diagonal approximation of :math:`\log\det R`.
+    def block_matrices(self, xmin, xmax, ymin, ymax, *, scale=None, block_size=10):
+        """Return regularization principal blocks without forming the full R."""
+        scale = self._check_scale(scale)
 
-        When the source grid is uniformly divisible by ``block_size``, uses
-        ``jax.lax.scan`` to avoid Python-loop unrolling during JIT tracing.
-        Otherwise falls back to the legacy Python-loop path.
-        """
-        n_blocks = (self.n + block_size - 1) // block_size
-        is_uniform = (self.n % block_size == 0) 
-
-        if is_uniform:
-            return self._logdet_block_diag_scan(
-                xmin, xmax, ymin, ymax, scale, block_size, n_blocks,
-            )
-        return self._logdet_block_diag_legacy(
-            xmin, xmax, ymin, ymax, scale, block_size, n_blocks,
-        )
-
-    def _logdet_block_diag_legacy(
-        self,
-        xmin: float, xmax: float, ymin: float, ymax: float,
-        scale: "jax.Array | None",
-        block_size: int,
-        n_blocks: int,
-    ) -> "jax.Array":
-        """Legacy Python-loop path for non-uniform source grids."""
-        scale_factor = self._get_scale(xmin, xmax, ymin, ymax)
-        scale_2d = self._scale_to_2d(scale)
-        logdet = jnp.array(0.0, dtype=jnp.float32)
-
-        for by in range(n_blocks):
-            for bx in range(n_blocks):
-                x_s = bx * block_size
-                x_e = min(x_s + block_size, self.n)
-                y_s = by * block_size
-                y_e = min(y_s + block_size, self.n)
-
-                if self.regularization_type == "zero-order":
-                    if scale_2d is not None:
-                        block_scale = scale_2d[y_s:y_e, x_s:x_e].ravel()
-                    else:
-                        block_scale = jnp.ones(
-                            (y_e - y_s) * (x_e - x_s), dtype=jnp.float32,
-                        )
-                    R_block = jnp.diag(block_scale)
-                elif self.regularization_type == "first-order":
-                    R_block = self._weighted_first_order_block(
-                        x_s, x_e, y_s, y_e, scale_2d, scale_factor)
-                else:
-                    R_block = self._weighted_second_order_block(
-                        x_s, x_e, y_s, y_e, scale_2d, scale_factor)
-
-                diag_mean = jnp.mean(jnp.abs(jnp.diag(R_block)))
-                jitter_scale = jnp.maximum(diag_mean, 1.0)
-                jitter = 1e-6 * jitter_scale * jnp.eye(
-                    R_block.shape[0], dtype=R_block.dtype,
+        def build(x, xe, y, ye, _):
+            if self.n % block_size == 0:
+                return self.block_diag_R_vec(
+                    x, xe, y, ye, xmin, xmax, ymin, ymax,
+                    scale=scale, block_size=block_size,
                 )
-                chol = jnp.linalg.cholesky(R_block + jitter)
-                logdet = logdet + 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+            return self.block_diag_R(x, xe, y, ye, xmin, xmax, ymin, ymax, scale=scale)
 
-        return logdet
+        return map_source_blocks(self.n, block_size, build)[0]
 
-    def _logdet_block_diag_scan(
-        self,
-        xmin: float, xmax: float, ymin: float, ymax: float,
-        scale: "jax.Array | None",
-        block_size: int,
-        n_blocks: int,
-    ) -> "jax.Array":
-        """``lax.scan``-based logdet for uniform source grids."""
-        # Precompute block start positions
-        block_indices = jnp.arange(n_blocks, dtype=jnp.int32)
-        bxs, bys = jnp.meshgrid(block_indices, block_indices, indexing="xy")
-        x_starts = (bxs * block_size).ravel().astype(jnp.int32)
-        y_starts = (bys * block_size).ravel().astype(jnp.int32)
-        scan_inputs = jnp.stack([x_starts, y_starts], axis=-1)
-
-        def scan_body(carry, xs):
-            logdet = carry
-            x_s = xs[0]
-            y_s = xs[1]
-            x_e = x_s + block_size
-            y_e = y_s + block_size
-
-            R_block = self.block_diag_R_vec(
-                x_s, x_e, y_s, y_e,
-                xmin, xmax, ymin, ymax,
-                scale=scale, block_size=block_size,
+    @staticmethod
+    def logdet_blocks(blocks):
+        """Sum block log determinants using the existing regularization jitter."""
+        def block_logdet(matrix):
+            diag_mean = jnp.mean(jnp.abs(jnp.diag(matrix)))
+            jitter = 1e-6 * jnp.maximum(diag_mean, 1.0)
+            chol = jnp.linalg.cholesky(
+                matrix + jitter * jnp.eye(matrix.shape[0], dtype=matrix.dtype)
             )
+            return 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
 
-            diag_mean = jnp.mean(jnp.abs(jnp.diag(R_block)))
-            jitter_scale = jnp.maximum(diag_mean, 1.0)
-            jitter = 1e-6 * jitter_scale * jnp.eye(
-                block_size * block_size, dtype=R_block.dtype,
-            )
-            chol = jnp.linalg.cholesky(R_block + jitter)
-            block_logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
-            return logdet + block_logdet, ()
+        if isinstance(blocks, (list, tuple)):
+            return sum((block_logdet(block) for block in blocks),
+                       jnp.array(0.0, dtype=jnp.float32))
 
-        init_logdet = jnp.array(0.0, dtype=jnp.float32)
-        final_logdet, _ = jax.lax.scan(scan_body, init_logdet, scan_inputs)
-        return final_logdet
+        def body(total, block):
+            return total + block_logdet(block), None
+
+        return jax.lax.scan(body, jnp.zeros((), dtype=blocks.dtype), blocks)[0]
+
+    def _logdet_block_diag(self, xmin, xmax, ymin, ymax, scale, block_size):
+        return self.logdet_blocks(self.block_matrices(
+            xmin, xmax, ymin, ymax, scale=scale, block_size=block_size,
+        ))
 
     def logdet_free(
         self, xmin: float, xmax: float, ymin: float, ymax: float,

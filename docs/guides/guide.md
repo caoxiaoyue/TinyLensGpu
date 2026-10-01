@@ -169,6 +169,21 @@ Run the complete example from its own directory so its relative data paths resol
   - Tune `pnpg_max_iter`, `pnpg_rtol`, and `pnpg_power_iter` on representative
     likelihood points before sampling; failed convergence is gated rather than
     accepted as a finite likelihood
+  - Configure parameter modes before constructing `PixelizedImageProbModelOperator`.
+    It precomputes fixed observation terms; with `fixed_source_bbox`, it also
+    caches fixed regularization blocks/log determinants and, when lens mass is
+    fixed, mapping data, the source right-hand side and data curvature blocks.
+    Registered pointer dependencies are included in the fixedness check.
+    Rebuild the model **and its compiled likelihood** after changing fixed physical
+    parameters, parameter modes, observation data or grid settings. Dynamic
+    parameter values and solver controls are not part of the data cache.
+  - Use `result = prob_model.evaluate(theta)` to obtain `log_evidence`,
+    `model_image`, `source_pixels`, `lens_amplitudes`, `source_bbox` and
+    `solver_info` from one inversion. It includes any position penalty; failed
+    solves return the existing evidence penalty and zero reconstruction arrays.
+    `prob_model(theta)` and `forward_model(theta, return_source=True)` remain
+    compatible but are independent calls. Reconstruction alone does not compute
+    evidence determinants. All three interfaces support JIT/vmap.
 
 ---
 
