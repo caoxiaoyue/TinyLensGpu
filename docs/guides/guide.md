@@ -184,6 +184,34 @@ Run the complete example from its own directory so its relative data paths resol
     `prob_model(theta)` and `forward_model(theta, return_source=True)` remain
     compatible but are independent calls. Reconstruction alone does not compute
     evidence determinants. All three interfaces support JIT/vmap.
+  - With a **fixed source bbox**, `pcg` and `fista` also support first-order
+    reverse-mode gradients of source/lens-light reconstructions and evidence.
+    Pass the parameter vector through the model's public interface:
+
+    ```python
+    theta = prob_model.get_values()  # order: prob_model.get_dynamic_params()
+    value, gradient = jax.jit(jax.value_and_grad(prob_model))(theta)
+    source_jacobian = jax.jit(jax.jacrev(
+        lambda p: prob_model.forward_model(p, return_source=True)[1]
+    ))(theta)
+    ```
+
+    Use this array-returning model interface for autodiff; the scalar
+    `make_likelihood` convenience wrapper converts its result to a Python float.
+    The solver gradients use implicit differentiation, not differentiation of
+    the finite iteration sequence. FISTA requires a locally stable active set
+    with strict complementarity. Forward/adjoint non-convergence or an invalid
+    active set produces **NaN gradients**, while forward failure retains the
+    existing evidence penalty and zero reconstruction. Check `solver_info`
+    before accepting a gradient; the FISTA wrapper also reports
+    `kkt_violation`, the largest componentwise KKT residual normalized by
+    `1 + abs(b_i) + abs((Ax)_i)`, and the unnormalized `min_active_residual`
+    (infinity when every variable is free). KKT tolerances are checked per
+    component so a bright coefficient cannot hide another component's error.
+    Its complementarity check uses component scales
+    and the free-variable stationarity error. Stop or adjust solver settings
+    when gradients are non-finite. PNPG and higher-order derivatives are not
+    covered by this gradient interface.
 
 ---
 

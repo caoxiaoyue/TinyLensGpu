@@ -24,6 +24,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
 from TinyLensGpu.utils.cg_solver import (
     pcg_solve,
+    pcg_solve_with_implicit_grad,
     PCGInfo,
     BlockSchurPreconditioner,
     solve_source_blocks,
@@ -32,7 +33,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
     EPSILON_REG,
     validate_lens_light_regularization,
 )
-from TinyLensGpu.utils.fista_solver import fista_nnls_solve, FISTAInfo
+from TinyLensGpu.utils.fista_solver import fista_nnls_solve_with_implicit_grad, FISTAInfo
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
@@ -87,6 +88,13 @@ class PixelizedImageProbModelOperator(ck.Module):
     parameters, parameter modes, observation data, or source-grid settings.
     Dynamic parameter values and solver controls are not cached. ``evaluate``
     returns evidence and reconstruction from the same solve.
+
+    With ``fixed_source_bbox``, PCG and FISTA support first-order reverse-mode
+    derivatives of reconstructions and evidence via implicit differentiation.
+    FISTA requires a locally stable active set. Failed forward/adjoint solves
+    or invalid active sets yield NaN gradients; the existing finite evidence
+    penalty and zero reconstruction on forward failure are unchanged. PNPG
+    does not currently provide this implicit-gradient path.
 
     Parameters
     ----------
@@ -727,22 +735,28 @@ class PixelizedImageProbModelOperator(ck.Module):
                 )
             else:
                 warm_start = jnp.zeros_like(b)
-            source_pixels, solver_info = fista_nnls_solve(
+            warm_start = jax.lax.stop_gradient(warm_start)
+            source_pixels, solver_info = fista_nnls_solve_with_implicit_grad(
                 operator,
                 b,
                 x0=warm_start,
+                preconditioner=preconditioner,
                 max_iter=self.fista_max_iter,
                 rtol=self.fista_rtol,
                 power_iter=self.fista_power_iter,
                 step_safety=self.fista_step_safety,
+                backward_pcg_max_iter=2 * self.pcg_max_iter,
+                backward_pcg_rtol=min(self.pcg_rtol, 1e-7),
             )
         else:
-            source_pixels, solver_info = pcg_solve(
+            source_pixels, solver_info = pcg_solve_with_implicit_grad(
                 operator,
                 b,
                 preconditioner,
                 max_iter=self.pcg_max_iter,
                 rtol=self.pcg_rtol,
+                backward_max_iter=2 * self.pcg_max_iter,
+                backward_rtol=min(self.pcg_rtol, 1e-7),
             )
         return source_pixels, solver_info
 

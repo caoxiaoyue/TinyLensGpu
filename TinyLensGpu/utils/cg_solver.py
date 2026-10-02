@@ -10,7 +10,7 @@ normally while its kernel and topology remain static JIT metadata.
 from __future__ import annotations
 
 from functools import partial
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -26,6 +26,12 @@ class BlockSchurPreconditioner(NamedTuple):
     source_masks: Array | list[Array]
     cross: Array
     schur_chol: Array
+
+
+class MaskedPreconditioner(NamedTuple):
+    """Apply a base inverse on free variables and identity on active ones."""
+    base: Any
+    mask: Array
 
 
 def _chol_solve(chol: Array, rhs: Array) -> Array:
@@ -62,6 +68,13 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
     The Python type dispatch happens while tracing; all numerical work remains
     in JAX arrays and is accelerator compatible.
     """
+    if isinstance(preconditioner, MaskedPreconditioner):
+        base, mask = preconditioner
+        return (
+            mask * apply_preconditioner(base, mask * rhs)
+            + (1.0 - mask) * rhs
+        )
+
     if isinstance(preconditioner, BlockSchurPreconditioner):
         source_chols, source_masks, cross, schur_chol = preconditioner
         n_source = cross.shape[0]
@@ -247,7 +260,74 @@ def pcg_solve(
     return final_state.x, info
 
 
+@jax.custom_vjp
+def _check_solve_gradient(x: Array, converged: Array) -> Array:
+    """Identity in the primal; reject every cotangent after a failed solve."""
+    return x
+
+
+def _check_solve_gradient_fwd(x, converged):
+    return x, converged
+
+
+def _check_solve_gradient_bwd(converged, cotangent):
+    return jnp.where(converged, cotangent, jnp.full_like(cotangent, jnp.nan)), None
+
+
+_check_solve_gradient.defvjp(_check_solve_gradient_fwd, _check_solve_gradient_bwd)
+
+
+def pcg_solve_with_implicit_grad(
+    operator: CurvatureOperator,
+    b: Array,
+    preconditioner,
+    x0: Array | None = None,
+    max_iter: int = 400,
+    rtol: float = 1e-5,
+    atol: float = 1e-12,
+    *,
+    backward_max_iter: int | None = None,
+    backward_rtol: float | None = None,
+    backward_atol: float = 1e-12,
+) -> tuple[Array, PCGInfo]:
+    """Solve an SPD system with implicit derivatives of its converged solution.
+
+    The forward iterations and diagnostics match :func:`pcg_solve`. Numerical
+    preconditioning and the initial guess do not enter the solution derivative.
+    The transpose solve has an independent budget and always starts from zero.
+    A failed forward or adjoint solve yields NaN gradients, including with
+    respect to b alone, while leaving the forward result unchanged. Only
+    first-order reverse-mode differentiation is supported by this wrapper.
+    """
+    if backward_max_iter is None:
+        backward_max_iter = max(2 * max_iter, 100)
+    if backward_rtol is None:
+        backward_rtol = min(rtol, 1e-7)
+
+    def solve(matvec, rhs):
+        return pcg_solve(
+            operator, rhs, preconditioner, x0=x0,
+            max_iter=max_iter, rtol=rtol, atol=atol,
+        )
+
+    def transpose_solve(matvec, rhs):
+        x, info = pcg_solve(
+            operator, rhs, preconditioner, max_iter=backward_max_iter,
+            rtol=backward_rtol, atol=backward_atol,
+        )
+        valid = info.converged & (~info.failed) & jnp.all(jnp.isfinite(x))
+        return jnp.where(valid, x, jnp.full_like(x, jnp.nan)), info
+
+    x, info = lax.custom_linear_solve(
+        operator.matvec, b, solve, transpose_solve=transpose_solve,
+        symmetric=True, has_aux=True,
+    )
+    valid = info.converged & (~info.failed) & jnp.all(jnp.isfinite(x))
+    return _check_solve_gradient(x, valid), info
+
+
 __all__ = [
+    "pcg_solve_with_implicit_grad", "MaskedPreconditioner",
     "pcg_solve", "PCGInfo", "PCGState", "BlockSchurPreconditioner",
     "solve_source_blocks", "apply_preconditioner", "preconditioner_diagonal",
 ]

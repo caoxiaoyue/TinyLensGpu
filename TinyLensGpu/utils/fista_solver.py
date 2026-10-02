@@ -15,6 +15,7 @@ import jax.numpy as jnp
 from jax import Array, lax
 
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
+from TinyLensGpu.utils.cg_solver import MaskedPreconditioner, pcg_solve
 
 
 class FISTAState(NamedTuple):
@@ -30,12 +31,19 @@ class FISTAInfo(NamedTuple):
     ``n_iter`` is the fixed iteration budget executed by the current scan-based
     solver, not the first iteration at which the convergence metric passed
     tolerance.  This keeps the loop shape stable for JIT-compiled likelihoods.
+
+    The implicit-gradient wrapper additionally fills ``kkt_violation`` (scaled
+    stationarity/dual violation) and ``min_active_residual`` (unscaled, infinity
+    for an empty active set). These two fields are NaN for the raw solver.
     """
     n_iter: Array
     convergence_metric: Array
     converged: Array
     failed: Array
     step_size: Array
+    # Populated by the implicit-gradient wrapper; unavailable for the raw solve.
+    kkt_violation: Array
+    min_active_residual: Array
 
 
 @partial(
@@ -160,8 +168,121 @@ def fista_nnls_solve(
         converged=converged,
         failed=failed,
         step_size=step,
+        kkt_violation=jnp.asarray(jnp.nan, dtype=dtype),
+        min_active_residual=jnp.asarray(jnp.nan, dtype=dtype),
     )
     return final_state.x, info
 
 
-__all__ = ["fista_nnls_solve", "FISTAInfo", "FISTAState"]
+def _masked_curvature_matvec(vector, data, spec):
+    """Stable kernel: the operator and mask are dynamic PyTree children."""
+    operator, free = data
+    return free * operator.matvec(free * vector) + (1.0 - free) * vector
+
+
+def _checked_cotangent(leaf, valid):
+    # Operator data include integer indices. Their cotangents have dtype float0,
+    # which must not be subjected to floating-point arithmetic or NaN filling.
+    if leaf.dtype == jax.dtypes.float0:
+        return leaf
+    return jnp.where(valid, leaf, jnp.full_like(leaf, jnp.nan))
+
+
+def fista_nnls_solve_with_implicit_grad(
+    operator: CurvatureOperator,
+    b: Array,
+    x0: Array | None,
+    preconditioner,
+    *,
+    active_tol: float = 1e-8,
+    kkt_rel_tol: float = 1e-4,
+    kkt_abs_tol: float = 1e-8,
+    comp_rel_tol: float = 1e-4,
+    comp_abs_tol: float = 1e-8,
+    backward_pcg_max_iter: int = 800,
+    backward_pcg_rtol: float = 1e-6,
+    backward_pcg_atol: float = 1e-12,
+    **kwargs,
+) -> tuple[Array, FISTAInfo]:
+    """FISTA with a first-order, fixed-active-set implicit reverse derivative.
+
+    Forward iterates match :func:`fista_nnls_solve`, even on failure. Gradients
+    of the solution with respect to operator data and b are NaN if the forward
+    solve, KKT checks, strict complementarity or adjoint solve fail. Diagnostic
+    fields are auxiliary outputs, not differentiable objectives. No derivative
+    is taken through the initial guess or numerical preconditioner.
+
+    Each KKT residual is checked against ``kkt_abs_tol + kkt_rel_tol *
+    (1 + abs(b_i) + abs((Ax)_i))``. ``kkt_violation`` reports the largest
+    componentwise normalized residual. On active variables,
+    the dual residual must exceed ``comp_abs_tol + comp_rel_tol *
+    max(abs(b_i), abs((Ax)_i))`` plus the largest free-variable stationarity
+    error. This uses the local amplitude scale instead of allowing a bright,
+    unrelated lens-light coefficient to set every variable's threshold.
+    Near active-set changes the classical derivative need not exist.
+    """
+    # A zero numerical cotangent alone does not prevent transposition of an
+    # external warm-start while_loop. Detach before entering the custom VJP.
+    if x0 is not None:
+        x0 = lax.stop_gradient(x0)
+
+    def forward(op, rhs, initial, precond):
+        x, info = fista_nnls_solve(op, rhs, x0=initial, **kwargs)
+        Ax = op.matvec(x)
+        residual = Ax - rhs
+        free = x > active_tol
+        stationarity_error = jnp.max(jnp.where(free, jnp.abs(residual), 0.0))
+        kkt_error = jnp.where(free, jnp.abs(residual), jnp.maximum(-residual, 0.0))
+        # A global norm lets a bright, unrelated coefficient hide an incorrect
+        # free set in a faint component, producing a finite but wrong VJP.
+        scale = 1.0 + jnp.abs(rhs) + jnp.abs(Ax)
+        violation = jnp.max(kkt_error / scale)
+        min_active = jnp.min(jnp.where(free, jnp.inf, residual))
+        margin = (
+            comp_abs_tol
+            + comp_rel_tol * jnp.maximum(jnp.abs(rhs), jnp.abs(Ax))
+            + stationarity_error
+        )
+        strict_ok = jnp.all(free | (residual > margin))
+        kkt_ok = jnp.all(kkt_error <= kkt_abs_tol + kkt_rel_tol * scale)
+        valid = (
+            info.converged & (~info.failed) & kkt_ok & strict_ok
+            & jnp.all(jnp.isfinite(x))
+        )
+        info = info._replace(kkt_violation=violation, min_active_residual=min_active)
+        return (x, info), (op, x, precond, free.astype(x.dtype), valid)
+
+    @jax.custom_vjp
+    def solve(op, rhs, initial, precond):
+        return forward(op, rhs, initial, precond)[0]
+
+    def backward(saved, cotangents):
+        op, x, precond, free, forward_valid = saved
+        g_x, _ = cotangents
+        masked_op = CurvatureOperator(
+            data=(op, free), kernel=_masked_curvature_matvec,
+            spec=None, size=op.size,
+        )
+        adjoint, info = pcg_solve(
+            masked_op, free * g_x, MaskedPreconditioner(precond, free),
+            max_iter=backward_pcg_max_iter,
+            rtol=backward_pcg_rtol, atol=backward_pcg_atol,
+        )
+        valid = (
+            forward_valid & info.converged & (~info.failed)
+            & jnp.all(jnp.isfinite(adjoint))
+        )
+        adjoint = free * adjoint
+        _, pullback = jax.vjp(lambda operator: operator.matvec(x), op)
+        g_op = pullback(-adjoint)[0]
+        g_op = jax.tree_util.tree_map(lambda v: _checked_cotangent(v, valid), g_op)
+        g_b = _checked_cotangent(adjoint, valid)
+        return g_op, g_b, None, None
+
+    solve.defvjp(forward, backward)
+    return solve(operator, b, x0, preconditioner)
+
+
+__all__ = [
+    "fista_nnls_solve", "fista_nnls_solve_with_implicit_grad", "FISTAInfo", "FISTAState",
+]
