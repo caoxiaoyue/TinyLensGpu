@@ -881,8 +881,10 @@ def test_operator_prob_model_returns_finite_evidence():
 )
 def test_position_likelihood_sanitizes_non_finite_epl_deflection(model_cls):
     """A non-finite position penalty must reject, not poison, a proposal."""
+    # A negative Einstein radius with a non-integer slope is outside the EPL
+    # domain and produces a genuinely non-finite deflection.
     mass = EPL(
-        theta_E=0.0,
+        theta_E=-1.0,
         gamma=1.9857056,
         e1=0.0,
         e2=0.0,

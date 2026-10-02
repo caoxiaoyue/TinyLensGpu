@@ -164,6 +164,27 @@ class EPL(ck.Module):
         b = theta_E * jnp.sqrt(q)
         t = gamma - 1.0
 
+        # The angle of a circular lens is undefined, but the deflection has a
+        # regular first-order expansion in Cartesian ellipticity components.
+        # Keeping that term gives the correct e1/e2 gradient at circularity.
+        use_circular_series = (1.0 - q) <= jnp.sqrt(jnp.finfo(q.dtype).eps)
+        # Match the elliptical branch's radius floor, including inside the
+        # regularized core. Keep the direction independent of that floor.
+        min_radius = 1e-9
+        dx, dy = x - center_x, y - center_y
+        radius = jnp.maximum(jnp.hypot(dx, dy), min_radius)
+        angle = jnp.arctan2(dy, dx)
+        u, v = jnp.cos(angle), jnp.sin(angle)
+        cos2, sin2 = u**2 - v**2, 2.0 * u * v
+        radial_ellipticity = e1 * cos2 + e2 * sin2
+        tangential_ellipticity = e1 * sin2 - e2 * cos2
+        p = 2.0 - t
+        amplitude = theta_E**t * radius**(1.0 - t)
+        radial = amplitude * (1.0 - p**2 / (4.0 - t) * radial_ellipticity)
+        tangential = amplitude * 2.0 * p / (4.0 - t) * tangential_ellipticity
+        alpha_x_series = radial * u - tangential * v
+        alpha_y_series = radial * v + tangential * u
+
         # Transform coordinates to aligned frame
         # lenstronomy uses rotation by phi_G (angle of major axis)
         x_new, y_new = xy_transform(x, y, center_x, center_y, phi_rot)
@@ -174,7 +195,7 @@ class EPL(ck.Module):
         # zz = x * q + 1j * y
         zz = x_new * q + 1j * y_new
         R = jnp.abs(zz)
-        R = jnp.maximum(R, 1e-9) # Numerical stability
+        R = jnp.maximum(R, min_radius) # Numerical stability
         phi_ell = jnp.angle(zz)
         
         # Calculate Omega
@@ -190,4 +211,6 @@ class EPL(ck.Module):
         alpha_y_new = jnp.imag(alpha_complex)
 
         # Transform back to original frame
-        return xy_transform(alpha_x_new, alpha_y_new, 0.0, 0.0, -phi_rot)
+        alpha_x, alpha_y = xy_transform(alpha_x_new, alpha_y_new, 0.0, 0.0, -phi_rot)
+        return (jnp.where(use_circular_series, alpha_x_series, alpha_x),
+                jnp.where(use_circular_series, alpha_y_series, alpha_y))

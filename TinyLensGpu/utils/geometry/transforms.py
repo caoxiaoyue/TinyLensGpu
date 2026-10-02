@@ -48,13 +48,28 @@ def ellipticity2phi_q(e1: Array, e2: Array) -> Tuple[Array, Array]:
     tuple[Array, Array]
         Position angle ``phi`` (radians) and axis ratio ``q``.
     """
-    e1 = jnp.where(e1 == 0., 1e-12, e1)
-    e2 = jnp.where(e2 == 0., 1e-12, e2)
-    phi = jnp.arctan2(e2, e1) / 2.
-    c = jnp.sqrt(e1**2 + e2**2)
+    dtype = jnp.result_type(e1, e2, 1.0)
+    e1, e2 = jnp.asarray(e1, dtype=dtype), jnp.asarray(e2, dtype=dtype)
+    c2 = e1**2 + e2**2
+    # The orientation is arbitrary at the circular point. Only that point
+    # needs a substitute; replacing either zero component kills its derivative
+    # along an otherwise perfectly regular axis.
+    phi = jnp.arctan2(jnp.where(c2 == 0, 0., e2),
+                      jnp.where(c2 == 0, 1., e1)) / 2.
+    c = jnp.sqrt(jnp.maximum(c2, jnp.finfo(c2.dtype).tiny))
     c = jnp.minimum(c, 0.9999)
     q = (1. - c) / (1. + c)
     return phi, q
+
+
+def _bounded_ellipticity(e1: Array, e2: Array) -> Tuple[Array, Array]:
+    """Apply the same radial bound as ``ellipticity2phi_q`` to components."""
+    dtype = jnp.result_type(e1, e2, 1.0)
+    e1, e2 = jnp.asarray(e1, dtype=dtype), jnp.asarray(e2, dtype=dtype)
+    c2 = e1**2 + e2**2
+    c_safe = jnp.sqrt(jnp.maximum(c2, jnp.finfo(c2.dtype).tiny))
+    scale = jnp.minimum(1., 0.9999 / c_safe)
+    return e1 * scale, e2 * scale
 
 
 def xy_transform(x: Array, y: Array, xc: Array, yc: Array, phi: Array) -> Tuple[Array, Array]:
@@ -169,11 +184,17 @@ def ellipse2circle_transform(x: Array, y: Array, e1: Array, e2: Array,
     Returns
     -------
     tuple[Array, Array]
-        Circularized coordinates ``(x_circ, y_circ)``.
+        Circularized coordinates ``(x_circ, y_circ)``. Their orientation is
+        the symmetric square-root convention; their radius matches the
+        rotated principal-axis convention.
     """
-    phi_G, q = ellipticity2phi_q(e1, e2)
-    xt1, xt2 = xy_transform(x, y, center_x, center_y, phi_G)
-    return xt1 * jnp.sqrt(q), xt2 / jnp.sqrt(q)
+    # Symmetric square root of the elliptical metric. Its squared norm is
+    # q*x_rot**2 + y_rot**2/q, without an undefined position angle at e=0.
+    e1, e2 = _bounded_ellipticity(e1, e2)
+    dx, dy = x - center_x, y - center_y
+    normalizer = jnp.sqrt(1. - e1**2 - e2**2)
+    return ((1. - e1) * dx - e2 * dy) / normalizer, \
+           ((1. + e1) * dy - e2 * dx) / normalizer
 
 
 def q2e(q: Array) -> Array:
@@ -211,17 +232,16 @@ def transform_e1e2_square_average(x: Array, y: Array, e1: Array, e2: Array,
     Returns
     -------
     tuple[Array, Array]
-        Transformed coordinates in the square-averaged convention.
+        Transformed coordinates in the square-averaged convention, using the
+        symmetric square root of its metric.
     """
-    phi_g, q = ellipticity2phi_q(e1, e2)
-    x_shift = x - center_x
-    y_shift = y - center_y
-    cos_phi = jnp.cos(phi_g)
-    sin_phi = jnp.sin(phi_g)
-    e = q2e(q)
-    x_ = (cos_phi * x_shift + sin_phi * y_shift) * jnp.sqrt(1 - e)
-    y_ = (-sin_phi * x_shift + cos_phi * y_shift) * jnp.sqrt(1 + e)
-    return x_, y_
+    # The symmetric square root gives the same radius as the rotated
+    # square-average metric and stays differentiable at circularity.
+    e1, e2 = _bounded_ellipticity(e1, e2)
+    dx, dy = x - center_x, y - center_y
+    normalizer = jnp.sqrt(1. + e1**2 + e2**2)
+    return ((1. - e1) * dx - e2 * dy) / normalizer, \
+           ((1. + e1) * dy - e2 * dx) / normalizer
 
 
 __all__ = [

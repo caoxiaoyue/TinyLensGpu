@@ -6,7 +6,8 @@ import caskade as ck
 import jax.numpy as jnp
 from jax import Array
 from TinyLensGpu.Inference.param_u import ParamU
-from TinyLensGpu.utils.geometry import ellipticity2phi_q, q2e, transform_e1e2_square_average
+from TinyLensGpu.utils.geometry import transform_e1e2_square_average
+from TinyLensGpu.utils.geometry.transforms import _bounded_ellipticity
 from .pseudo_jaffe import PseudoJaffe
 
 
@@ -82,23 +83,19 @@ class PseudoJaffeEllipsePotential(ck.Module):
         center_x = jnp.asarray(center_x)
         center_y = jnp.asarray(center_y)
         
-        phi_G, q = ellipticity2phi_q(e1, e2)
-        
         x_, y_ = transform_e1e2_square_average(x, y, e1, e2, center_x, center_y)
         
-        e = q2e(q)
-        cos_phi = jnp.cos(phi_G)
-        sin_phi = jnp.sin(phi_G)
-        
-        # Call spherical deriv. Pass 0 for center because coordinates are already shifted and rotated.
+        # Call spherical deriv. Pass 0 for center because coordinates are
+        # already centered and circularized.
         spherical = PseudoJaffe()
         f_x_prim, f_y_prim = spherical.deriv.__wrapped__(spherical, x_, y_, sigma0=sigma0, Ra=Ra, Rs=Rs, 
                                                   center_x=0., center_y=0.)
         
-        f_x_prim *= jnp.sqrt(1 - e)
-        f_y_prim *= jnp.sqrt(1 + e)
-        
-        f_x = cos_phi * f_x_prim - sin_phi * f_y_prim
-        f_y = sin_phi * f_x_prim + cos_phi * f_y_prim
+        # The symmetric square-average transform is its own transpose, so
+        # the chain rule applies the same matrix to the spherical deflection.
+        e1, e2 = _bounded_ellipticity(e1, e2)
+        normalizer = jnp.sqrt(1. + e1**2 + e2**2)
+        f_x = ((1. - e1) * f_x_prim - e2 * f_y_prim) / normalizer
+        f_y = ((1. + e1) * f_y_prim - e2 * f_x_prim) / normalizer
         
         return f_x, f_y

@@ -12,7 +12,8 @@ from typing import Optional, Tuple, Union
 import caskade as ck
 import jax.numpy as jnp
 from jax import Array
-from TinyLensGpu.utils.geometry import ellipticity2phi_q
+from TinyLensGpu.utils.geometry import transform_e1e2_square_average
+from TinyLensGpu.utils.geometry.transforms import _bounded_ellipticity
 from TinyLensGpu.Inference.param_u import ParamU
 
 
@@ -64,14 +65,25 @@ def _F(x: Array, s: float = 0.001) -> Array:
         """Branch for ``x > 1``."""
         return (val**2 - 1)**-0.5 * jnp.arctan((val**2 - 1)**0.5)
     
-    def f_equal_1(val):
-        """Branch for ``x == 1`` limit value."""
-        return jnp.ones_like(val)
-
-    # Use where for element-wise conditional logic
-    res = jnp.where(x < 1, f_less_1(x), f_more_1(x))
-    res = jnp.where(x == 1, f_equal_1(x), res)
-    return res
+    # With z=x**2-1, both branches have the expansion
+    # F(x)=sum((-z)**k/(2*k+1)). Retaining the local dependence gives
+    # F'(1)=-2/3 and avoids cancellation in gradients near x=1.
+    z = x**2 - 1.0
+    use_series = jnp.abs(z) < 0.01
+    z_series = jnp.where(use_series, z, 0.0)
+    series = 1.0 + z_series * (
+        -1.0 / 3.0 + z_series * (
+            1.0 / 5.0 + z_series * (
+                -1.0 / 7.0 + z_series * (1.0 / 9.0 - z_series / 11.0)
+            )
+        )
+    )
+    # Both sides of jnp.where participate in autodiff. Keep the unselected
+    # formula inside its real domain to avoid NaNs contaminating the gradient.
+    x_less = jnp.where((x < 1) & ~use_series, x, 0.5)
+    x_more = jnp.where((x > 1) & ~use_series, x, 2.0)
+    res = jnp.where(x < 1, f_less_1(x_less), f_more_1(x_more))
+    return jnp.where(use_series, series, res)
 
 
 def _tnfw_F_analytic(x: Array, tau: Array, s: float = 0.001) -> Array:
@@ -325,20 +337,11 @@ class TNFWEllipsePotential(ck.Module):
         # Stability for Rs
         Rs = jnp.maximum(Rs, 1e-7)
 
-        # Coordinate transformation (square average)
-        phi_G, q = ellipticity2phi_q(e1, e2)
-        x_shift = x - center_x
-        y_shift = y - center_y
-        cos_phi = jnp.cos(phi_G)
-        sin_phi = jnp.sin(phi_G)
-        
-        # e = abs(1 - q**2) / (1 + q**2)
-        # Note: ellipticity2phi_q returns q = (1-c)/(1+c), so q is axis ratio minor/major
-        # q2e logic: e = (1-q^2)/(1+q^2)
-        e = jnp.abs(1 - q**2) / (1 + q**2)
-        
-        x_ = (cos_phi * x_shift + sin_phi * y_shift) * jnp.sqrt(1 - e)
-        y_ = (-sin_phi * x_shift + cos_phi * y_shift) * jnp.sqrt(1 + e)
+        # Use the symmetric square-average metric. It has the same elliptical
+        # radius without the undefined position angle at circularity.
+        x_, y_ = transform_e1e2_square_average(
+            x, y, e1, e2, center_x, center_y
+        )
         
         R_ = jnp.sqrt(x_**2 + y_**2)
         
@@ -360,11 +363,10 @@ class TNFWEllipsePotential(ck.Module):
         f_x_prim = a * x_
         f_y_prim = a * y_
         
-        # Transform back
-        f_x_prim *= jnp.sqrt(1 - e)
-        f_y_prim *= jnp.sqrt(1 + e)
-        
-        f_x = cos_phi * f_x_prim - sin_phi * f_y_prim
-        f_y = sin_phi * f_x_prim + cos_phi * f_y_prim
+        # Chain rule through the same symmetric transform.
+        e1, e2 = _bounded_ellipticity(e1, e2)
+        normalizer = jnp.sqrt(1. + e1**2 + e2**2)
+        f_x = ((1. - e1) * f_x_prim - e2 * f_y_prim) / normalizer
+        f_y = ((1. + e1) * f_y_prim - e2 * f_x_prim) / normalizer
         
         return f_x, f_y
