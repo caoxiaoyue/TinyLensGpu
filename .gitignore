@@ -14,3 +14,4 @@ CLAUDE.md
 tmp/
 **/output*/
 **/data/
+**/data_before_recenter/
