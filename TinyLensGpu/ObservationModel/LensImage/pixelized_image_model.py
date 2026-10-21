@@ -58,6 +58,9 @@ class PixelizedImageProbModel(ck.Module):
         Linear solver for MAP source/lens-light amplitudes. ``"cholesky"``
         (default) uses unconstrained normal equations; ``"nnls"`` enforces
         non-negativity via FNNLS.
+    fixed_source_bbox : tuple, optional
+        Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. When
+        omitted, each evaluation infers a bbox from seed rays.
     """
 
     def __init__(
@@ -73,6 +76,7 @@ class PixelizedImageProbModel(ck.Module):
         position_likelihood: Optional[Dict] = None,
         solver_type: str = "cholesky",
         lens_light_regularization: float = EPSILON_REG,
+        fixed_source_bbox: tuple[float, float, float, float] | None = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         if solver_type not in ("nnls", "cholesky"):
@@ -81,6 +85,7 @@ class PixelizedImageProbModel(ck.Module):
         self.eps_reg = validate_lens_light_regularization(
             lens_light_regularization
         )
+        self._fixed_source_bbox = self._validate_fixed_source_bbox(fixed_source_bbox)
         self.image_data = jnp.asarray(image_data)
         self.noise_map = jnp.asarray(noise_map)
         if jnp.any(self.noise_map <= 0.0):
@@ -125,6 +130,37 @@ class PixelizedImageProbModel(ck.Module):
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
 
+    @staticmethod
+    def _validate_fixed_source_bbox(
+        fixed_source_bbox: tuple[float, float, float, float] | None,
+    ) -> tuple[Array, Array, Array, Array] | None:
+        """Accept a square source bbox or reject it before any solve."""
+        if fixed_source_bbox is None:
+            return None
+        if len(fixed_source_bbox) != 4:
+            raise ValueError(
+                "fixed_source_bbox must be a 4-tuple "
+                "(xmin, xmax, ymin, ymax)."
+            )
+        xmin_b, xmax_b, ymin_b, ymax_b = (
+            jnp.asarray(v, dtype=jnp.float32) for v in fixed_source_bbox
+        )
+        bbox = (xmin_b, xmax_b, ymin_b, ymax_b)
+        bbox_np = np.asarray([float(np.asarray(v)) for v in bbox], dtype=np.float64)
+        if not np.all(np.isfinite(bbox_np)):
+            raise ValueError("fixed_source_bbox values must be finite.")
+        xmin, xmax, ymin, ymax = bbox_np
+        if not (xmin < xmax and ymin < ymax):
+            raise ValueError(
+                "fixed_source_bbox must satisfy xmin < xmax and ymin < ymax."
+            )
+        if not np.isclose(xmax - xmin, ymax - ymin, rtol=1.0e-6, atol=1.0e-7):
+            raise ValueError(
+                "fixed_source_bbox must be square for pixelized source grids "
+                "(xmax - xmin must equal ymax - ymin)."
+            )
+        return bbox
+
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
         return self.phys_model.dynamic_params
@@ -139,6 +175,40 @@ class PixelizedImageProbModel(ck.Module):
     def source_model(self):
         """Return the single pixelized source configuration."""
         return self.phys_model.source_light[0]
+
+    def infer_source_bbox(self) -> tuple[float, float, float, float]:
+        """Return the square source bbox a second model can freeze.
+
+        A model constructed with ``fixed_source_bbox`` reports that grid.
+        Otherwise the bbox is inferred from the current seed rays, using the
+        simulator's padding and outlier fraction.
+        """
+        if self._fixed_source_bbox is not None:
+            values = self._fixed_source_bbox
+        else:
+            beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
+            values = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
+        xmin, xmax, ymin, ymax = values
+        return (
+            float(np.asarray(xmin)),
+            float(np.asarray(xmax)),
+            float(np.asarray(ymin)),
+            float(np.asarray(ymax)),
+        )
+
+    def _inversion_source_bbox(self) -> tuple:
+        """Return the source bbox for this evaluation.
+
+        A fixed bbox is used as stored. An inferred bbox is detached when the
+        simulator is configured to keep seed-ray bounds out of the gradient.
+        """
+        if self._fixed_source_bbox is not None:
+            return self._fixed_source_bbox
+        beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
+        source_bbox = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
+        if self.sim_obj.detach_bbox:
+            source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
+        return source_bbox
 
     def _solve_source(
         self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
@@ -191,11 +261,7 @@ class PixelizedImageProbModel(ck.Module):
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
 
-        # Trace seed pixels once; reuse for bbox + adaptive scale map
-        beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
-        source_bbox = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
-        if self.sim_obj.detach_bbox:
-            source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
+        source_bbox = self._inversion_source_bbox()
         scale = None
 
         design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
@@ -288,10 +354,7 @@ class PixelizedImageProbModel(ck.Module):
         Array or tuple
             Model image, optionally with source pixels and lens light.
         """
-        beta_x_seed, beta_y_seed = self.sim_obj.ray_trace_seed()
-        source_bbox = self.sim_obj.infer_source_bbox(beta_x_seed, beta_y_seed)
-        if self.sim_obj.detach_bbox:
-            source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
+        source_bbox = self._inversion_source_bbox()
         scale = None
         design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
         reg_matrix, _ = self._regularization_matrix(source_bbox, scale=scale)

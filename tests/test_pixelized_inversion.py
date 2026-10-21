@@ -11,12 +11,14 @@ small synthetic problems so the future implementation can be validated quickly.
 import numpy as np
 import pytest
 import jax.numpy as jnp
+from scipy.linalg import cho_solve
 from scipy.signal import fftconvolve
 
 from TinyLensGpu.ForwardSimulation import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.utils.geometry.transforms import phi_q2_ellipticity
+from TinyLensGpu.utils.lensing.mapping import infer_source_bbox as infer_square_source_bbox
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
@@ -109,6 +111,7 @@ def _prob_model(
     mask: jnp.ndarray | None = None,
     nsub: int = 1,
     position_likelihood: dict | None = None,
+    fixed_source_bbox: tuple[float, float, float, float] | None = None,
 ) -> PixelizedImageProbModel:
     """Build a small pixelized evidence model."""
     data = image_data if image_data is not None else jnp.zeros((10, 10))
@@ -122,6 +125,7 @@ def _prob_model(
         mask=mask,
         nsub=nsub,
         position_likelihood=position_likelihood,
+        fixed_source_bbox=fixed_source_bbox,
     )
 
 
@@ -1002,6 +1006,193 @@ def test_detach_bbox_gradients_flow_through_mass_params() -> None:
         "incorrectly applied or the loss function has no dependence on "
         "the mass parameter through the design matrix."
     )
+
+
+def _normal_equation_evidence(model: PixelizedImageProbModel, source_bbox: tuple) -> float:
+    """Evidence of one explicit source grid, solved outside the probability model."""
+    design, _ = model.sim_obj.design_matrix(source_bbox=source_bbox)
+    regularizer, covariance_logdet = model._regularization_matrix(source_bbox)
+    assert covariance_logdet is None
+    matrix = np.asarray(design, dtype=np.float64)
+    precision = np.asarray(regularizer, dtype=np.float64)
+    noise = np.asarray(model.noise_1d, dtype=np.float64)
+    data = np.asarray(model.data_1d, dtype=np.float64)
+    log_lambda = float(np.asarray(model.source_model.log_lambda_reg.value))
+    lam = np.exp(log_lambda)
+    weighted = matrix / noise[:, None]
+    curvature = weighted.T @ weighted
+    n_source = precision.shape[0]
+    curvature[:n_source, :n_source] += lam * precision
+    rhs = weighted.T @ (data / noise)
+    factor = np.linalg.cholesky(curvature)
+    linear = cho_solve((factor, True), rhs)
+    source = linear[:n_source]
+    residual = data - matrix @ linear
+    data_term = 0.5 * np.sum((residual / noise) ** 2)
+    source_term = 0.5 * float(source @ precision @ source)
+    logdet_curvature = 2.0 * np.sum(np.log(np.diag(factor)))
+    sign, logdet_reg = np.linalg.slogdet(precision)
+    if sign <= 0.0:
+        return -1.0e10
+    evidence = (
+        -data_term
+        - lam * source_term
+        - 0.5 * logdet_curvature
+        + 0.5 * n_source * log_lambda
+        + 0.5 * logdet_reg
+        - 0.5 * data.size * np.log(2.0 * np.pi)
+        - 0.5 * float(np.asarray(model.logdet_C))
+    )
+    return float(evidence) if np.isfinite(evidence) else -1.0e10
+
+
+@pytest.mark.unit
+def test_fixed_source_bbox_keeps_evidence_and_reconstruction_on_that_grid() -> None:
+    """Mass proposals keep the frozen source grid for the solve and the reconstruction."""
+    fixed_bbox = (-0.8, 0.8, -0.8, 0.8)
+    model = _prob_model(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        fixed_source_bbox=fixed_bbox,
+    )
+    inferred = _prob_model(image_data=jnp.ones((10, 10)) * 0.05).infer_source_bbox()
+    assert not np.allclose(inferred, fixed_bbox, atol=1e-3)
+
+    for theta_e in (0.12, 0.45):
+        model.phys_model.lens_mass[0].theta_E.value = theta_e
+        image, source = model.forward_model(return_source=True)
+        fixed_design, _ = model.sim_obj.design_matrix(source_bbox=fixed_bbox)
+        inferred_design, inferred_now = model.sim_obj.design_matrix()
+        active = np.asarray(image)[np.asarray(model.unmask)]
+        fixed_image = np.asarray(fixed_design @ source)
+        inferred_image = np.asarray(inferred_design @ source)
+        np.testing.assert_allclose(active, fixed_image, rtol=1e-5, atol=1e-5)
+        assert not np.allclose(inferred_now, fixed_bbox, atol=1e-3)
+        assert not np.allclose(active, inferred_image, rtol=1e-4, atol=1e-4)
+        fixed_evidence = _normal_equation_evidence(model, fixed_bbox)
+        inferred_evidence = _normal_equation_evidence(model, tuple(inferred_now))
+        np.testing.assert_allclose(float(model()), fixed_evidence, rtol=1e-5, atol=1e-5)
+        assert abs(float(model()) - inferred_evidence) > 1.0e-2
+
+
+@pytest.mark.unit
+def test_fixed_source_bbox_outside_the_rays_reconstructs_nothing() -> None:
+    """Rays that miss a frozen source grid contribute no source light."""
+    bbox = (5.0, 5.4, 5.0, 5.4)
+    model = _prob_model(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        fixed_source_bbox=bbox,
+    )
+    design, _ = model.sim_obj.design_matrix(source_bbox=bbox)
+    assert np.all(np.asarray(design) == 0.0)
+    image, source = model.forward_model(return_source=True)
+    assert np.all(np.asarray(image) == 0.0)
+    assert np.all(np.asarray(source) == 0.0)
+
+
+@pytest.mark.unit
+def test_fixed_source_bbox_replaces_nonfinite_evidence_with_penalty() -> None:
+    """A non-finite fixed-grid evidence stays the existing penalty value."""
+    image = jnp.ones((10, 10)) * 0.05
+    image = image.at[4, 4].set(jnp.nan)
+    model = _prob_model(image_data=image, fixed_source_bbox=(-0.8, 0.8, -0.8, 0.8))
+    assert float(model()) == -1.0e10
+
+
+@pytest.mark.unit
+def test_fixed_source_bbox_still_rejects_adaptive_regularization() -> None:
+    """Freezing the grid does not re-enable adaptive source regularization."""
+    rho = ParamU(
+        "adaptive_reg_rho",
+        0.4,
+        prior_type="uniform",
+        prior_settings=[0.0, 1.0],
+        limits=[0.0, 2.0],
+    )
+    source = PixelizedSourceModel(n=5, log_lambda_reg=0.0, adaptive_reg_rho=rho)
+    with pytest.raises(ValueError, match="no longer supports"):
+        _prob_model(source=source, fixed_source_bbox=(-0.5, 0.5, -0.5, 0.5))
+
+
+@pytest.mark.unit
+def test_fixed_source_bbox_keeps_position_penalty() -> None:
+    """A position constraint still lowers fixed-grid evidence for a shifted lens."""
+    theta_e = ParamU("theta_E", 0.12, prior_type="uniform", prior_settings=[0.05, 0.20], limits=[0.0, 1.0])
+    sie = SIE(theta_E=theta_e, e1=0.0, e2=0.0, center_x=0.5, center_y=0.0)
+    sie.theta_E.to_dynamic()
+    for param in [sie.e1, sie.e2, sie.center_x, sie.center_y]:
+        param.to_static()
+    phys_model = PhysicalModel(
+        lens_mass=[sie],
+        source_light=[_pixelized_source()],
+        lens_light=[],
+    )
+    data = jnp.ones((10, 10)) * 0.05
+    noise = jnp.ones((10, 10)) * 0.1
+    shared = dict(
+        image_data=data,
+        noise_map=noise,
+        psf_kernel=_delta_psf(),
+        dpix=0.08,
+        phys_model=phys_model,
+        fixed_source_bbox=(-0.8, 0.8, -0.8, 0.8),
+    )
+    without = PixelizedImageProbModel(**shared)
+    with_penalty = PixelizedImageProbModel(
+        **shared,
+        position_likelihood={
+            "positions": [(0.0, 0.0), (0.1, 0.1)],
+            "threshold_arcsec": 0.01,
+            "min_log_like": -1.0e4,
+        },
+    )
+    assert float(with_penalty()) < float(without())
+
+
+@pytest.mark.unit
+def test_dense_infer_source_bbox_reports_fixed_or_seed_ray_grid() -> None:
+    """The helper reports the grid a second dense model should freeze."""
+    free = _prob_model(image_data=jnp.ones((10, 10)) * 0.05)
+    beta_x, beta_y = free.phys_model.deflection(
+        x=free.sim_obj.image_x_seed,
+        y=free.sim_obj.image_y_seed,
+    )
+    expected = infer_square_source_bbox(beta_x, beta_y, padding=0.05, outlier_frac=0.0)
+    np.testing.assert_allclose(
+        free.infer_source_bbox(),
+        [float(np.asarray(value)) for value in expected],
+        atol=1e-6,
+    )
+
+    near_square = (0.0, 1.0, 0.0, 1.0 + 5.0e-7)
+    frozen = _prob_model(
+        image_data=jnp.ones((10, 10)) * 0.05,
+        fixed_source_bbox=near_square,
+    )
+    np.testing.assert_allclose(frozen.infer_source_bbox(), near_square, atol=1e-6)
+    frozen.phys_model.lens_mass[0].theta_E.value = 0.5
+    np.testing.assert_allclose(frozen.infer_source_bbox(), near_square, atol=1e-6)
+    moved = free.infer_source_bbox()
+    free.phys_model.lens_mass[0].theta_E.value = 0.5
+    assert not np.allclose(moved, free.infer_source_bbox(), atol=1e-5)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("fixed_source_bbox", "message"),
+    [
+        ((-1.0, 1.0, -0.5, 0.5), "fixed_source_bbox must be square"),
+        ((0.0, 1.0, 0.0, 1.0 + 2.0e-6), "fixed_source_bbox must be square"),
+        ((-0.3, -0.3, -0.3, 0.3), "xmin < xmax and ymin < ymax"),
+        ((0.3, -0.3, -0.3, 0.3), "xmin < xmax and ymin < ymax"),
+        ((-0.3, 0.3, float("nan"), 0.3), "fixed_source_bbox values must be finite"),
+        ((-0.3, 0.3, -0.3, float("inf")), "fixed_source_bbox values must be finite"),
+        ((0.0, 1.0, 0.0), "fixed_source_bbox must be a 4-tuple"),
+    ],
+)
+def test_dense_model_rejects_invalid_fixed_source_bbox(fixed_source_bbox, message) -> None:
+    """A fixed pixelized source grid must be a finite square before any solve."""
+    with pytest.raises(ValueError, match=message):
+        _prob_model(fixed_source_bbox=fixed_source_bbox)
 
 
 if __name__ == "__main__":
