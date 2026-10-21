@@ -8,9 +8,12 @@ simulator and Bayesian evidence probability model. They intentionally exercise
 small synthetic problems so the future implementation can be validated quickly.
 """
 
+import jax
 import numpy as np
 import pytest
 import jax.numpy as jnp
+import TinyLensGpu.ObservationModel.LensImage.pixelized_image_model as dense_image_model
+import caskade as ck
 from scipy.linalg import cho_solve
 from scipy.signal import fftconvolve
 
@@ -18,12 +21,16 @@ from TinyLensGpu.ForwardSimulation import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.utils.geometry.transforms import phi_q2_ellipticity
+from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
 from TinyLensGpu.utils.lensing.mapping import infer_source_bbox as infer_square_source_bbox
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
-from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import ConstantBackground, GaussianEllipse
+from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import (
+    ConstantBackground,
+    GaussianEllipse,
+)
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import PixelizedSourceModel
 from TinyLensGpu.PhysicalModel.LensImage.composite import PhysicalModel
@@ -1193,6 +1200,480 @@ def test_dense_model_rejects_invalid_fixed_source_bbox(fixed_source_bbox, messag
     """A fixed pixelized source grid must be a finite square before any solve."""
     with pytest.raises(ValueError, match=message):
         _prob_model(fixed_source_bbox=fixed_source_bbox)
+
+
+_FIXED_BBOX = (-0.8, 0.8, -0.8, 0.8)
+
+
+def _static_sie(theta_e: float = 0.12) -> SIE:
+    """Build an SIE whose mass parameters are all static."""
+    sie = SIE(theta_E=theta_e, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for param in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
+        param.to_static()
+    return sie
+
+
+def _regularized_source(
+    reg_type: str = "second-order",
+    *,
+    log_lambda: float = 0.0,
+    kernel_scale: float = 0.2,
+    kernel_dynamic: bool = False,
+) -> PixelizedSourceModel:
+    """Build a pixelized source with a dynamic regularization strength."""
+    log_lambda_reg = ParamU(
+        "log_lambda_reg",
+        log_lambda,
+        prior_type="uniform",
+        prior_settings=[jnp.log(1.0e-3), jnp.log(1.0e3)],
+        limits=[jnp.log(1.0e-6), jnp.log(1.0e6)],
+    )
+    log_lambda_reg.to_dynamic()
+    if reg_type not in ("exponential", "gaussian", "matern32", "matern52", "matern72"):
+        return PixelizedSourceModel(
+            n=5,
+            log_lambda_reg=log_lambda_reg,
+            regularization_type=reg_type,
+        )
+    scale = ParamU(
+        "kernel_scale",
+        kernel_scale,
+        prior_type="uniform",
+        prior_settings=[0.05, 1.0],
+        limits=[0.01, 5.0],
+    )
+    if kernel_dynamic:
+        scale.to_dynamic()
+    else:
+        scale.to_static()
+    return PixelizedSourceModel(
+        n=5,
+        log_lambda_reg=log_lambda_reg,
+        regularization_type=reg_type,
+        kernel_scale=scale,
+    )
+
+
+def _unit_lens_light(*, sigma_dynamic: bool = False) -> GaussianEllipse:
+    """Build a unit-amplitude Gaussian lens-light basis."""
+    light = GaussianEllipse(
+        flux=1.0, sigma=0.2, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0,
+    )
+    for param in (light.flux, light.sigma, light.e1, light.e2, light.center_x, light.center_y):
+        param.to_static()
+    if sigma_dynamic:
+        light.sigma.to_dynamic()
+    return light
+
+
+def _dense_model(
+    *,
+    reg_type: str = "second-order",
+    fixed_source_bbox=_FIXED_BBOX,
+    dynamic_mass: bool = True,
+    lens_mass=None,
+    lens_light=None,
+    source: PixelizedSourceModel | None = None,
+    solver_type: str = "cholesky",
+    nsub: int = 1,
+    mask=None,
+    psf_kernel=None,
+    image_data=None,
+    position_likelihood=None,
+    log_lambda: float = 0.0,
+    kernel_scale: float = 0.2,
+    kernel_dynamic: bool = False,
+) -> PixelizedImageProbModel:
+    """Build a small dense evidence model for cache tests."""
+    data = jnp.ones((10, 10)) * 0.05 if image_data is None else image_data
+    if lens_mass is None:
+        lens_mass = [_dynamic_sie()] if dynamic_mass else [_static_sie()]
+    if source is None:
+        source = _regularized_source(
+            reg_type,
+            log_lambda=log_lambda,
+            kernel_scale=kernel_scale,
+            kernel_dynamic=kernel_dynamic,
+        )
+    phys_model = PhysicalModel(
+        lens_mass=list(lens_mass),
+        source_light=[source],
+        lens_light=list(lens_light or []),
+    )
+    return PixelizedImageProbModel(
+        image_data=data,
+        noise_map=jnp.ones((10, 10)) * 0.1,
+        psf_kernel=_delta_psf() if psf_kernel is None else psf_kernel,
+        dpix=0.08,
+        phys_model=phys_model,
+        mask=mask,
+        nsub=nsub,
+        solver_type=solver_type,
+        position_likelihood=position_likelihood,
+        fixed_source_bbox=fixed_source_bbox,
+    )
+
+
+def _refuse_reconstruction(*_args, **_kwargs):
+    raise AssertionError("fixed-grid construction was repeated")
+
+
+def _clear_dense_cache(model: PixelizedImageProbModel) -> None:
+    """Drop the prepared regularization and design terms on a reference model."""
+    model._prepared = model._prepared._replace(regularization=None, design=None)
+
+
+def _assert_cache_agreement(cached: PixelizedImageProbModel, cleared: PixelizedImageProbModel) -> None:
+    """Cached and cache-cleared evidence, image, and source agree for both solvers."""
+    _clear_dense_cache(cleared)
+    for solver in ("cholesky", "nnls"):
+        cached.solver_type = solver
+        cleared.solver_type = solver
+        np.testing.assert_allclose(float(cached()), float(cleared()), rtol=1e-6, atol=1e-6)
+        cached_image, cached_source = cached.forward_model(return_source=True)
+        cleared_image, cleared_source = cleared.forward_model(return_source=True)
+        np.testing.assert_allclose(cached_image, cleared_image, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(cached_source, cleared_source, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["zero-order", "first-order", "second-order"])
+def test_fixed_grid_reuses_finite_difference_regularization(monkeypatch, reg_type) -> None:
+    """A fixed grid keeps the finite-difference matrix and its evidence determinant."""
+    model = _dense_model(reg_type=reg_type)
+    _assert_cache_agreement(model, _dense_model(reg_type=reg_type))
+    stored_matrix, covariance_logdet = model._regularization_matrix(model.infer_source_bbox())
+    assert covariance_logdet is None
+    evidence = float(model())
+    image, source = model.forward_model(return_source=True)
+
+    monkeypatch.setattr(dense_image_model.jnp.linalg, "slogdet", _refuse_reconstruction)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
+    cached_image, cached_source = model.forward_model(return_source=True)
+    np.testing.assert_allclose(cached_image, image, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(cached_source, source, rtol=1e-6, atol=1e-6)
+    hit_matrix, hit_logdet = model._regularization_matrix(model._fixed_source_bbox)
+    assert hit_logdet is None
+    assert hit_matrix is stored_matrix
+
+    calls = []
+
+    def _count_other_bbox(xmin, xmax, ymin, ymax, **kwargs):
+        calls.append((xmin, xmax, ymin, ymax))
+        builder = DenseRegularizationBuilder(5, reg_type)
+        return builder.matrix(xmin, xmax, ymin, ymax, **kwargs)
+
+    monkeypatch.setattr(model.reg_builder, "matrix", _count_other_bbox)
+    other_bbox = (0.0, 1.2, 0.0, 1.2)
+    other_matrix, other_logdet = model._regularization_matrix(other_bbox)
+    assert len(calls) == 1
+    assert other_logdet is None
+    assert other_matrix is not stored_matrix
+
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    restored, restored_logdet = model._regularization_matrix(model.infer_source_bbox())
+    assert restored_logdet is None
+    assert restored is stored_matrix
+    np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+def test_fixed_grid_regularization_strength_still_changes_the_source(solver) -> None:
+    """Regularization strength stays outside the cached finite-difference matrix."""
+    cached = _dense_model(solver_type=solver, log_lambda=float(jnp.log(0.1)))
+    cleared = _dense_model(solver_type=solver, log_lambda=float(jnp.log(0.1)))
+    _clear_dense_cache(cleared)
+    weak_evidence = float(cached())
+    weak_source = np.asarray(cached.forward_model(return_source=True)[1])
+    np.testing.assert_allclose(weak_evidence, float(cleared()), rtol=1e-6, atol=1e-6)
+
+    for model in (cached, cleared):
+        model.source_model.log_lambda_reg.value = float(jnp.log(10.0))
+    strong_evidence = float(cached())
+    strong_source = np.asarray(cached.forward_model(return_source=True)[1])
+    np.testing.assert_allclose(strong_evidence, float(cleared()), rtol=1e-6, atol=1e-6)
+    cached_image, cached_source = cached.forward_model(return_source=True)
+    cleared_image, cleared_source = cleared.forward_model(return_source=True)
+    np.testing.assert_allclose(cached_image, cleared_image, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(cached_source, cleared_source, rtol=1e-6, atol=1e-6)
+    assert abs(strong_evidence - weak_evidence) > 1.0e-3
+    assert not np.allclose(weak_source, strong_source, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_dynamic_mass_reuses_regularization_and_rebuilds_the_design(monkeypatch) -> None:
+    """Sampling lens mass keeps the fixed-grid regularizer and retraces the mapping."""
+    model = _dense_model(dynamic_mass=True)
+    calls = []
+    design_matrix = model.sim_obj.design_matrix
+
+    def _count_design(*args, **kwargs):
+        calls.append(kwargs.get("source_bbox"))
+        return design_matrix(*args, **kwargs)
+
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _count_design)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    monkeypatch.setattr(dense_image_model.jnp.linalg, "slogdet", _refuse_reconstruction)
+    assert np.isfinite(float(model()))
+    image, source = model.forward_model(return_source=True)
+    assert jnp.all(jnp.isfinite(image))
+    assert source.shape == (25,)
+    assert len(calls) == 2
+    for bbox in calls:
+        np.testing.assert_allclose(bbox, _FIXED_BBOX, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_unfixed_model_still_builds_regularization_and_design(monkeypatch) -> None:
+    """Omitting the fixed bbox leaves both constructions on the evaluation path."""
+    model = _dense_model(fixed_source_bbox=None)
+    calls = {"design": 0, "regularization": 0}
+    design_matrix = model.sim_obj.design_matrix
+    regularize = model.reg_builder.matrix
+
+    def _count_design(*args, **kwargs):
+        calls["design"] += 1
+        return design_matrix(*args, **kwargs)
+
+    def _count_regularization(*args, **kwargs):
+        calls["regularization"] += 1
+        return regularize(*args, **kwargs)
+
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _count_design)
+    monkeypatch.setattr(model.reg_builder, "matrix", _count_regularization)
+    assert np.isfinite(float(model()))
+    assert calls == {"design": 1, "regularization": 1}
+
+
+@pytest.mark.unit
+def test_static_gaussian_process_kernel_is_reused(monkeypatch) -> None:
+    """A static kernel scale stores the precision and log|K| for the fixed grid."""
+    model = _dense_model(reg_type="gaussian", dynamic_mass=True, kernel_dynamic=False)
+    matrix, log_covariance = model._regularization_matrix(model.infer_source_bbox())
+    assert log_covariance is not None
+    assert np.isfinite(float(np.asarray(log_covariance)))
+    evidence = float(model())
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
+    hit_matrix, hit_logdet = model._regularization_matrix(model._fixed_source_bbox)
+    assert hit_matrix is matrix
+    np.testing.assert_allclose(hit_logdet, log_covariance, rtol=1e-6, atol=1e-6)
+    _assert_cache_agreement(
+        model,
+        _dense_model(reg_type="gaussian", dynamic_mass=True, kernel_dynamic=False),
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("driver", ["dynamic", "pointer", "childless-pointer"])
+def test_dynamic_kernel_scale_is_rebuilt_on_the_fixed_bbox(driver) -> None:
+    """A kernel scale that can still change is rebuilt on the frozen source grid."""
+    source = _regularized_source("gaussian", kernel_dynamic=(driver == "dynamic"))
+    if driver == "pointer":
+        scale_driver = ParamU(
+            "driver", 0.2, prior_type="uniform", prior_settings=[0.05, 1.0], limits=[0.01, 5.0],
+        )
+        scale_driver.to_dynamic()
+        source.kernel_scale = ck.Param("kernel_scale", lambda _: scale_driver.value, link=(scale_driver,))
+    elif driver == "childless-pointer":
+        source.kernel_scale = ck.Param("kernel_scale", lambda _: jnp.asarray(0.2))
+    model = _dense_model(source=source, dynamic_mass=True)
+    assert model._prepared.regularization is None
+    seen = []
+    regularize = model.reg_builder.matrix
+
+    def _record(xmin, xmax, ymin, ymax, **kwargs):
+        seen.append((float(xmin), float(xmax), float(ymin), float(ymax), float(kwargs["kernel_scale"])))
+        return regularize(xmin, xmax, ymin, ymax, **kwargs)
+
+    model.reg_builder.matrix = _record
+    assert np.isfinite(float(model()))
+    if driver == "pointer":
+        scale_driver.value = 0.55
+    elif driver == "dynamic":
+        source.kernel_scale.value = 0.55
+    assert np.isfinite(float(model()))
+    assert len(seen) == 2
+    np.testing.assert_allclose(seen[0][:4], _FIXED_BBOX, atol=1e-6)
+    np.testing.assert_allclose(seen[1][:4], _FIXED_BBOX, atol=1e-6)
+    if driver != "childless-pointer":
+        assert seen[0][4] != pytest.approx(seen[1][4])
+    assert model._prepared.regularization is None
+
+
+@pytest.mark.unit
+def test_fixed_mapping_reuses_the_joint_design_matrix(monkeypatch) -> None:
+    """Fixed mass and lens light keep the design matrix out of later evaluations."""
+    joint = dict(dynamic_mass=False, lens_light=[_unit_lens_light()])
+    model = _dense_model(**joint)
+    cleared = _dense_model(**joint)
+    _assert_cache_agreement(model, cleared)
+
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    assert np.isfinite(float(model()))
+    image, source = model.forward_model(return_source=True)
+    assert image.shape == (10, 10)
+    assert source.shape == (25,)
+
+    empty = _dense_model(lens_mass=[], lens_light=[])
+    monkeypatch.setattr(empty.sim_obj, "design_matrix", _refuse_reconstruction)
+    assert np.isfinite(float(empty()))
+    assert empty.forward_model().shape == (10, 10)
+
+
+@pytest.mark.unit
+def test_subpixel_joint_design_matches_a_cleared_cache() -> None:
+    """A cached sub-pixel design matrix matches the matrix rebuilt for the solver."""
+    mask = jnp.zeros((10, 10), dtype=bool).at[0, :].set(True)
+    kwargs = dict(
+        dynamic_mass=False,
+        lens_light=[_unit_lens_light()],
+        nsub=2,
+        mask=mask,
+        psf_kernel=_blur_psf(),
+    )
+    _assert_cache_agreement(_dense_model(**kwargs), _dense_model(**kwargs))
+
+
+@pytest.mark.unit
+def test_cached_design_refits_regularization_under_vmap(monkeypatch) -> None:
+    """Two compiled proposals share the design matrix and not the regularization strength."""
+    model = _dense_model(dynamic_mass=False, lens_light=[_unit_lens_light()])
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    base = jnp.asarray(model.get_values("flat"))
+    proposals = jnp.stack([base.at[0].set(jnp.log(0.05)), base.at[0].set(jnp.log(30.0))])
+
+    @jax.jit
+    def one_source(theta):
+        return model.forward_model(theta, return_source=True)[1]
+
+    @jax.jit
+    def one_evidence(theta):
+        return model(theta)
+
+    sources = jax.jit(jax.vmap(one_source))(proposals)
+    evidences = jax.jit(jax.vmap(one_evidence))(proposals)
+    assert not np.allclose(sources[0], sources[1], rtol=1e-6, atol=1e-6)
+    assert abs(float(evidences[0]) - float(evidences[1])) > 1.0e-3
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("vary", ["mass", "lens_light", "mass_pointer", "childless_pointer"])
+def test_dynamic_mapping_skips_the_design_cache(monkeypatch, vary) -> None:
+    """A dynamic mass or lens-light basis leaves the design triple unstored."""
+    lens_light = [_unit_lens_light(sigma_dynamic=(vary == "lens_light"))]
+    if vary == "mass":
+        lens_mass = [_dynamic_sie()]
+    elif vary == "lens_light":
+        lens_mass = [_static_sie()]
+    else:
+        sie = _static_sie()
+        if vary == "mass_pointer":
+            driver = ParamU(
+                "driver", 0.12, prior_type="uniform", prior_settings=[0.05, 0.2], limits=[0.0, 1.0],
+            )
+            driver.to_dynamic()
+            sie.theta_E = ck.Param("theta_E", lambda _: driver.value, link=(driver,))
+        else:
+            sie.theta_E = ck.Param("theta_E", lambda _: jnp.asarray(0.12))
+        lens_mass = [sie]
+    model = _dense_model(lens_mass=lens_mass, lens_light=lens_light, dynamic_mass=False)
+    assert model._prepared.design is None
+    assert model._prepared.regularization is not None
+    calls = []
+    design_matrix = model.sim_obj.design_matrix
+
+    def _count_design(*args, **kwargs):
+        calls.append(kwargs.get("source_bbox"))
+        return design_matrix(*args, **kwargs)
+
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _count_design)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    assert np.isfinite(float(model()))
+    assert len(calls) == 1
+    np.testing.assert_allclose(calls[0], _FIXED_BBOX, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_static_mass_and_dynamic_kernel_cache_only_the_design(monkeypatch) -> None:
+    """A moving kernel scale keeps the design cache and rebuilds the precision."""
+    model = _dense_model(reg_type="gaussian", kernel_dynamic=True, dynamic_mass=False)
+    assert model._prepared.design is not None
+    assert model._prepared.regularization is None
+    calls = []
+    regularize = model.reg_builder.matrix
+
+    def _count_regularization(*args, **kwargs):
+        calls.append(args[:4])
+        return regularize(*args, **kwargs)
+
+    monkeypatch.setattr(model.reg_builder, "matrix", _count_regularization)
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
+    assert np.isfinite(float(model()))
+    assert len(calls) == 1
+    np.testing.assert_allclose(calls[0], _FIXED_BBOX, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_simulator_design_matrix_ignores_the_evidence_cache() -> None:
+    """The simulator follows the mass and bbox of the call, not the stored design."""
+    model = _dense_model(dynamic_mass=False)
+    fixed = model._fixed_source_bbox
+    original = np.asarray(model.sim_obj.design_matrix(source_bbox=fixed)[0])
+    model.phys_model.lens_mass[0].theta_E.value = 0.45
+    moved = np.asarray(model.sim_obj.design_matrix(source_bbox=fixed)[0])
+    other = np.asarray(model.sim_obj.design_matrix(source_bbox=(0.0, 1.2, 0.0, 1.2))[0])
+    assert not np.allclose(original, moved)
+    assert not np.allclose(moved, other)
+    cached_evidence = float(model())
+    model.sim_obj.design_matrix = _refuse_reconstruction
+    np.testing.assert_allclose(float(model()), cached_evidence, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_design_cache_keeps_position_and_nonfinite_penalties(monkeypatch) -> None:
+    """Position and non-finite penalties stay outside the cached design solve."""
+    sie = _static_sie()
+    sie.center_x.value = 0.5
+    penalty = {
+        "positions": [(0.0, 0.0), (0.1, 0.1)],
+        "threshold_arcsec": 0.01,
+        "min_log_like": -1.0e4,
+    }
+    plain = _dense_model(lens_mass=[_static_sie()], dynamic_mass=False)
+    shifted = _dense_model(
+        lens_mass=[sie], dynamic_mass=False, position_likelihood=penalty,
+    )
+    assert float(shifted()) < float(plain())
+
+    image = jnp.ones((10, 10)) * 0.05
+    image = image.at[4, 4].set(jnp.nan)
+    nonfinite = _dense_model(dynamic_mass=False, image_data=image)
+    monkeypatch.setattr(shifted.sim_obj, "design_matrix", _refuse_reconstruction)
+    monkeypatch.setattr(nonfinite.sim_obj, "design_matrix", _refuse_reconstruction)
+    assert float(shifted()) < float(plain())
+    assert float(nonfinite()) == -1.0e10
+
+
+@pytest.mark.unit
+def test_pointer_with_fixed_children_reuses_the_kernel(monkeypatch) -> None:
+    """A pointer is fixed when every parameter it points at is fixed."""
+    source = _regularized_source("gaussian", kernel_dynamic=False)
+    scale_driver = ParamU("driver", 0.25, prior_type="uniform", prior_settings=[0.05, 1.0], limits=[0.01, 5.0])
+    scale_driver.to_static()
+    source.kernel_scale = ck.Param("kernel_scale", lambda _: scale_driver.value, link=(scale_driver,))
+    model = _dense_model(source=source, dynamic_mass=False, lens_mass=[_static_sie()])
+    matrix, log_covariance = model._regularization_matrix(model._fixed_source_bbox)
+    assert log_covariance is not None
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    hit_matrix, hit_logdet = model._regularization_matrix(model.infer_source_bbox())
+    assert hit_matrix is matrix
+    np.testing.assert_allclose(hit_logdet, log_covariance, rtol=1e-6, atol=1e-6)
+    assert np.isfinite(float(model()))
 
 
 if __name__ == "__main__":

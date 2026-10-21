@@ -76,23 +76,73 @@ all active image pixels or subpixels. In the dense path this happens in
 
 ### Dynamic bbox does not mean a differentiable bbox
 
-The dense [`PixelizedImageProbModel`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py#L189-L203)
+Without `fixed_source_bbox`, the dense
+[`PixelizedImageProbModel`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py#L239-L251)
 re-infers the bbox during every likelihood evaluation. The simulator applies
 `jax.lax.stop_gradient` to inferred bbox bounds by default. This avoids trying
 to differentiate through `min`, `max`, or quantiles, but it does not freeze the
 source coordinate system: bbox values still change between mass proposals.
 Consequently, the objective value changes with the bbox while its local
-gradient omits that dependence.
+gradient omits that dependence. Supplying a fixed bbox is a separate choice
+from that stop-gradient.
 
 The matrix-free
 [`PixelizedImageProbModelOperator`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model_operator.py#L110-L195)
 already accepts `fixed_source_bbox`. Its public
-[`infer_source_bbox`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model_operator.py#L335-L343)
+[`infer_source_bbox`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model_operator.py#L444-L452)
 helper is intended to obtain a reference bbox for constructing a second model.
 Current operator pipelines also pass a bbox frozen from an S0 reconstruction
-into later stages. The dense probability-model constructor does not currently
-expose an equivalent fixed-bbox option, although lower-level dense simulator
-methods accept an explicit `source_bbox`.
+into later stages. The dense
+[`PixelizedImageProbModel`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py#L64-L120)
+accepts the same square bbox and exposes
+[`infer_source_bbox`](../../TinyLensGpu/ObservationModel/LensImage/pixelized_image_model.py#L219-L237).
+On a fixed model that helper returns the stored grid. On an unfixed model it
+returns the square bbox inferred from the current seed rays. Omitting the bbox
+keeps the seed-ray path above, including the detached bounds.
+
+### Dense fixed-grid cache
+
+With a fixed bbox, the dense evidence model stores the regularization that no
+longer depends on the proposal. Finite-difference regularization is invariant
+on that grid, so construction stores the dense matrix and the evidence
+determinant `logdet(R)`, using negative infinity when the matrix is not
+positive definite. A Gaussian-process kernel is stored only when its scale is
+fixed; the cache then holds the precision and `log|K|`. The evidence reads
+that stored determinant and does not call `slogdet` again. The regularization
+helper still returns no covariance determinant for finite differences, and
+returns the stored `log|K|` for a cached Gaussian process. A different bbox is
+built for that call and does not replace the stored matrix or determinant.
+`log_lambda_reg` stays outside the cache: each evaluation uses `lambda * R`
+and still includes `0.5 * N_source * log(lambda)`.
+
+A second tier is filled only when that bbox is fixed and every lens-mass
+component and every unit-amplitude lens-light basis is fixed. An empty mass
+list or an empty lens-light list counts as fixed. The tier stores the joint
+design matrix `M` (sub-pixel aggregation and PSF convolution included), the
+data Gram matrix `M^T C^{-1} M`, and the data right-hand side
+`M^T C^{-1} d`. Later solves add `lambda * R` on the source block and the
+weak lens-light regularization on the lens-light intensities, then run the
+configured Cholesky or non-negative solver. The Cholesky factor is not stored.
+Lens-light intensities remain solved amplitudes. If any mass component or any
+lens-light basis is dynamic, none of those three arrays is stored; the
+fixed-grid regularization cache still applies, and the design matrix is built
+again from the current mass and bases.
+
+Fixedness follows the operator rule, including transitive dependencies. A
+parameter is fixed when it is not dynamic, and a pointer counts as fixed only
+when it has children and those children are fixed. A pointer with no children,
+or a pointer driven by a dynamic parameter, does not freeze the kernel or the
+lens mapping. The cache is filled in the
+constructor and is not invalidated later. Changing a fixed physical value, a
+parameter mode, the observations, or the bbox requires a new evidence model
+and a newly compiled likelihood.
+
+[`PixelizedLensSimulator.design_matrix`](../../TinyLensGpu/ForwardSimulation/LensImage/pixelized.py#L347-L419)
+stays a function of the current mass and the bbox it is given. It does not
+read the evidence-model cache. The position-likelihood penalty stays outside
+the cached solve, and a non-finite evidence value is still replaced by the
+existing large negative penalty. Adaptive source regularization remains
+rejected on the dense model.
 
 ## Why freeze the source grid during mass inference
 

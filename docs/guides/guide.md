@@ -177,6 +177,23 @@ Run the complete example from its own directory so its relative data paths resol
     Rebuild the model **and its compiled likelihood** after changing fixed physical
     parameters, parameter modes, observation data or grid settings. Dynamic
     parameter values and solver controls are not part of the data cache.
+  - `PixelizedImageProbModel` accepts the same square `fixed_source_bbox`.
+    Without it, every evaluation still infers the source bbox from seed rays.
+    With it, the model stores finite-difference regularization, or a
+    Gaussian-process precision and `log|K|` when the kernel scale is fixed, and
+    the evidence reads that stored determinant. `log_lambda_reg` stays outside
+    the cache and is applied as `lambda * R` at each evaluation. When that bbox,
+    every lens-mass component, and every unit-amplitude lens-light basis are
+    also fixed, it stores the joint design matrix, the noise-weighted data Gram
+    matrix, and the data right-hand side. Each evaluation then adds
+    `lambda * R` and the weak lens-light regularization and factorizes again.
+    Lens-light intensities remain solved amplitudes. Empty mass and lens-light
+    lists count as fixed. A dynamic mass or lens-light basis skips the design
+    cache. A dynamic kernel scale, including one driven by a pointer, rebuilds
+    the precision on the fixed bbox. A pointer is fixed only when it has
+    children and those dependencies are fixed. Set parameter modes before
+    construction, and rebuild the evidence model **and its compiled likelihood**
+    after changing a fixed value, a parameter mode, the observations, or the bbox.
   - Use `result = prob_model.evaluate(theta)` to obtain `log_evidence`,
     `model_image`, `source_pixels`, `lens_amplitudes`, `source_bbox` and
     `solver_info` from one inversion. It includes any position penalty; failed

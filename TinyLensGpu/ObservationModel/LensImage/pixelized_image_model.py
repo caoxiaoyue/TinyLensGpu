@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Union
+from typing import Dict, NamedTuple, Optional, Union
 
 import caskade as ck
 import functools
@@ -27,6 +27,38 @@ from TinyLensGpu.utils.inversion.regularization import (
 )
 from TinyLensGpu.utils.linear_solver import fnnls_jax
 from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
+
+
+class _DensePrepared(NamedTuple):
+    """Invariant terms for one dense pixelized evidence model.
+
+    ``regularization`` is ``(matrix, log_determinant)`` when the fixed source
+    grid makes the regularizer invariant. The determinant is ``logdet(R)`` for
+    finite differences and ``log|K|`` for a fixed Gaussian-process kernel.
+    ``design`` is ``(M, M^T C^{-1} M, M^T C^{-1} d)`` when the lens mapping and
+    lens-light bases are fixed too. Either slot is absent when that tier does
+    not apply.
+    """
+
+    regularization: tuple | None = None
+    design: tuple | None = None
+
+
+def _is_fixed(value) -> bool:
+    """Use the operator fixedness rule, including transitive dependencies.
+
+    A parameter is fixed when it is not dynamic. A pointer counts as fixed
+    only when it has children, and those children must be fixed as well.
+    """
+    if not isinstance(value, (ck.Module, ck.Param)):
+        return True
+    params = (param for param in value.topological_ordering() if isinstance(param, ck.Param))
+    return all(not param.dynamic and (not param.pointer or bool(param.children)) for param in params)
+
+
+def _modules_are_fixed(modules) -> bool:
+    """An empty component list is fixed; otherwise every component must be."""
+    return all(_is_fixed(module) for module in modules)
 
 
 class PixelizedImageProbModel(ck.Module):
@@ -60,7 +92,14 @@ class PixelizedImageProbModel(ck.Module):
         non-negativity via FNNLS.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. When
-        omitted, each evaluation infers a bbox from seed rays.
+        omitted, each evaluation infers a bbox from seed rays. When supplied,
+        finite-difference regularization (and a Gaussian-process kernel whose
+        scale is fixed) is stored at construction. If every lens-mass component
+        and every lens-light basis is fixed as well, the joint design matrix
+        and its data-only normal equations are stored too. Regularization
+        strength stays outside that cache. Rebuild this model and its compiled
+        likelihood after changing a fixed value, a parameter mode, the
+        observations, or the bbox.
     """
 
     def __init__(
@@ -129,6 +168,7 @@ class PixelizedImageProbModel(ck.Module):
 
         self._pos_px, self._pos_py, self._pos_thr, self._pos_minl, self._has_pos_penalty = \
             resolve_position_likelihood_attrs(position_likelihood)
+        self._store_fixed_grid_cache()
 
     @staticmethod
     def _validate_fixed_source_bbox(
@@ -210,8 +250,101 @@ class PixelizedImageProbModel(ck.Module):
             source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
         return source_bbox
 
+    def _regularization_geometry_is_fixed(self) -> bool:
+        """Finite differences are invariant on a fixed grid; a GP kernel is not."""
+        if self._fixed_source_bbox is None:
+            return False
+        if self.reg_type not in GP_REGULARIZATION_TYPES:
+            return True
+        return _is_fixed(self.source_model.kernel_scale)
+
+    def _lens_mapping_is_fixed(self) -> bool:
+        """The joint design matrix is invariant only when mass and lens light are."""
+        if self._fixed_source_bbox is None:
+            return False
+        return _modules_are_fixed(self.phys_model.lens_mass) and _modules_are_fixed(
+            self.phys_model.lens_light
+        )
+
+    def _store_fixed_grid_cache(self) -> None:
+        """Fill invariant regularization and, when possible, the design triple.
+
+        The cache is not invalidated later. A changed fixed value, parameter
+        mode, observation, or bbox needs a new evidence model.
+        """
+        regularization = None
+        design = None
+        if self._fixed_source_bbox is not None:
+            with ck.ActiveContext(self):
+                if self._regularization_geometry_is_fixed():
+                    regularization = self._build_cached_regularization(self._fixed_source_bbox)
+                if self._lens_mapping_is_fixed():
+                    design_matrix, _ = self.sim_obj.design_matrix(
+                        source_bbox=self._fixed_source_bbox
+                    )
+                    design = self._normal_terms(design_matrix)
+        object.__setattr__(
+            self,
+            "_prepared",
+            _DensePrepared(regularization=regularization, design=design),
+        )
+
+    def _bbox_matches_fixed(self, source_bbox) -> bool:
+        """Return whether ``source_bbox`` is the stored fixed grid."""
+        fixed = self._fixed_source_bbox
+        if fixed is None or source_bbox is None:
+            return False
+        if source_bbox is fixed:
+            return True
+        try:
+            offered = np.array(
+                [np.float32(np.asarray(value)) for value in source_bbox],
+                dtype=np.float32,
+            )
+            stored = np.array(
+                [np.float32(np.asarray(value)) for value in fixed],
+                dtype=np.float32,
+            )
+        except (TypeError, ValueError):
+            return False
+        return bool(np.array_equal(offered, stored))
+
+    def _matched_regularization(self, source_bbox):
+        """Return the stored regularizer when ``source_bbox`` is the fixed grid."""
+        if self._prepared.regularization is None or not self._bbox_matches_fixed(source_bbox):
+            return None
+        return self._prepared.regularization
+
+    def _build_cached_regularization(self, source_bbox) -> tuple[Array, Array]:
+        """Build the matrix and the log determinant the evidence reuses."""
+        matrix, covariance_logdet = self._regularization_from_builder(source_bbox)
+        if self.reg_type in GP_REGULARIZATION_TYPES:
+            return matrix, covariance_logdet
+        sign, logdet = jnp.linalg.slogdet(matrix)
+        return matrix, jnp.where(sign > 0.0, logdet, -jnp.inf)
+
+    def _normal_terms(self, design_matrix: Array) -> tuple[Array, Array, Array]:
+        """Return the design matrix and the data-only normal-equation terms."""
+        weighted = design_matrix / self.noise_1d[:, None]
+        gram = weighted.T @ weighted
+        rhs = weighted.T @ (self.data_1d / self.noise_1d)
+        return design_matrix, gram, rhs
+
+    def _design_terms(self, source_bbox) -> tuple[Array, Array, Array]:
+        """Return ``M``, the data Gram matrix, and the data right-hand side."""
+        if self._prepared.design is not None and self._bbox_matches_fixed(source_bbox):
+            return self._prepared.design
+        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
+        return self._normal_terms(design_matrix)
+
     def _solve_source(
-        self, design_matrix: Array, reg_matrix: Array, lambda_reg: Array
+        self,
+        design_matrix: Array,
+        reg_matrix: Array,
+        lambda_reg: Array,
+        *,
+        gram: Array | None = None,
+        rhs: Array | None = None,
     ) -> tuple[Array, Array, Array]:
         """Solve for MAP source and lens-light pixels.
 
@@ -229,18 +362,17 @@ class PixelizedImageProbModel(ck.Module):
         n_source = self.sim_obj.n_source_pixels
         n_total = design_matrix.shape[1]  # Ns + Nl
 
-        weighted_design = design_matrix / self.noise_1d[:, None]
-        curvature = weighted_design.T @ weighted_design
-
-        # Add source regularization
-        curvature = curvature.at[:n_source, :n_source].add(lambda_reg * reg_matrix)
+        if gram is None or rhs is None:
+            _, gram, rhs = self._normal_terms(design_matrix)
+        # Add the current regularization to a copy. The stored Gram matrix
+        # remains the data term, and the Cholesky factor is not reused.
+        curvature = gram.at[:n_source, :n_source].add(lambda_reg * reg_matrix)
 
         # Add lens-light Tikhonov regularization (eps * I) if present
         if self.has_lens_light:
             lens_light_block = jnp.eye(n_total - n_source, dtype=curvature.dtype) * self.eps_reg
             curvature = curvature.at[n_source:, n_source:].add(lens_light_block)
 
-        rhs = weighted_design.T @ (self.data_1d / self.noise_1d)
         chol = jnp.linalg.cholesky(curvature)
 
         if self.solver_type == "nnls":
@@ -262,11 +394,12 @@ class PixelizedImageProbModel(ck.Module):
         lambda_reg = jnp.exp(log_lambda_reg)
 
         source_bbox = self._inversion_source_bbox()
-        scale = None
-
-        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
-        reg_matrix, logdet_cov = self._regularization_matrix(source_bbox, scale=scale)
-        linear_params, chol, curvature = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        design_matrix, gram, rhs = self._design_terms(source_bbox)
+        reg_matrix, logdet_cov = self._regularization_matrix(source_bbox)
+        logdet_h = self._evidence_logdet(source_bbox, reg_matrix, logdet_cov)
+        linear_params, chol, curvature = self._solve_source(
+            design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
+        )
 
         n_source = self.sim_obj.n_source_pixels
         n_data = self.data_1d.size
@@ -283,17 +416,9 @@ class PixelizedImageProbModel(ck.Module):
         e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
         e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
 
-        # logdet curvature from Cholesky diagonal
+        # logdet curvature from Cholesky diagonal. This factor includes the
+        # current regularization strength and is not cached.
         logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
-
-        # logdet reg matrix: slogdet for finite-difference types;
-        # for GP types use logdet_cov from Cholesky (more stable).
-        if self.reg_type in GP_REGULARIZATION_TYPES:
-            assert logdet_cov is not None
-            logdet_h = -logdet_cov
-        else:
-            sign_h, logdet_h = jnp.linalg.slogdet(reg_matrix)
-            logdet_h = jnp.where(sign_h > 0.0, logdet_h, -jnp.inf)
 
         log_evidence = (
             -e_d
@@ -315,14 +440,10 @@ class PixelizedImageProbModel(ck.Module):
 
         return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
 
-    def _regularization_matrix(self, source_bbox: tuple, scale: Array | None = None) -> tuple[Array, Array | None]:
-        """Return (reg_matrix, logdet_covariance) for the configured regularization.
-
-        For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the Cholesky
-        factorization inside ``_gp_matrix`` — no extra ``slogdet`` needed.
-        For finite-difference types, ``logdet_covariance`` is ``None`` (the caller
-        computes ``logdet`` via ``slogdet`` on the returned matrix).
-        """
+    def _regularization_from_builder(
+        self, source_bbox: tuple, scale: Array | None = None,
+    ) -> tuple[Array, Array | None]:
+        """Build one regularization matrix without reading or writing the cache."""
         xmin, xmax, ymin, ymax = source_bbox
         if self.reg_type in GP_REGULARIZATION_TYPES:
             kernel_scale = jnp.asarray(self.source_model.kernel_scale.value)
@@ -331,11 +452,40 @@ class PixelizedImageProbModel(ck.Module):
             )
             return jnp.asarray(precision, dtype=self.image_data.dtype), logdet_cov
         reg_matrix_raw, _ = self.reg_builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
-        reg_matrix = jnp.asarray(
-            reg_matrix_raw,
-            dtype=self.image_data.dtype,
-        )
-        return reg_matrix, None
+        return jnp.asarray(reg_matrix_raw, dtype=self.image_data.dtype), None
+
+    def _evidence_logdet(self, source_bbox, reg_matrix: Array, covariance_logdet: Array | None) -> Array:
+        """Return the regularization log determinant added to the evidence.
+
+        A cache hit reads the stored determinant and does not call ``slogdet``.
+        Finite differences use ``logdet(R)``; a Gaussian process uses ``-log|K|``.
+        """
+        cached = self._matched_regularization(source_bbox)
+        if cached is not None:
+            stored_logdet = cached[1]
+            if self.reg_type in GP_REGULARIZATION_TYPES:
+                return -stored_logdet
+            return stored_logdet
+        if self.reg_type in GP_REGULARIZATION_TYPES:
+            return -covariance_logdet
+        sign, logdet = jnp.linalg.slogdet(reg_matrix)
+        return jnp.where(sign > 0.0, logdet, -jnp.inf)
+
+    def _regularization_matrix(self, source_bbox: tuple, scale: Array | None = None) -> tuple[Array, Array | None]:
+        """Return (reg_matrix, logdet_covariance) for the configured regularization.
+
+        For GP types, ``logdet_covariance`` is ``log|K|``. For finite-difference
+        types it is absent. A bbox other than the stored fixed grid is built
+        immediately and does not replace the cache.
+        """
+        if scale is None:
+            cached = self._matched_regularization(source_bbox)
+            if cached is not None:
+                matrix, stored_logdet = cached
+                if self.reg_type in GP_REGULARIZATION_TYPES:
+                    return matrix, stored_logdet
+                return matrix, None
+        return self._regularization_from_builder(source_bbox, scale=scale)
 
     @ck.forward
     def forward_model(self, *, return_source: bool = False, return_components: bool = False):
@@ -355,11 +505,12 @@ class PixelizedImageProbModel(ck.Module):
             Model image, optionally with source pixels and lens light.
         """
         source_bbox = self._inversion_source_bbox()
-        scale = None
-        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
-        reg_matrix, _ = self._regularization_matrix(source_bbox, scale=scale)
+        design_matrix, gram, rhs = self._design_terms(source_bbox)
+        reg_matrix, _ = self._regularization_matrix(source_bbox)
         lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
-        linear_params, _, _ = self._solve_source(design_matrix, reg_matrix, lambda_reg)
+        linear_params, _, _ = self._solve_source(
+            design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
+        )
 
         n_source = self.sim_obj.n_source_pixels
         source_pixels = linear_params[:n_source]
