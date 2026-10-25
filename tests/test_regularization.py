@@ -538,7 +538,7 @@ def _dense_prob(n=5, *, rho=1.0,
 def _operator_prob(n=5, *, rho=1.0,
                    image_data=None, noise_map=None, source_seed_mask=None,
                    reg_type="first-order", fixed_source_bbox=None,
-                   fixed_reg_scale=None):
+                   fixed_reg_template=None):
     source = _adaptive_source(
         n, rho=rho, reg_type=reg_type,
     )
@@ -551,7 +551,7 @@ def _operator_prob(n=5, *, rho=1.0,
         image_data=data, noise_map=noise, psf_kernel=_delta_psf(),
         dpix=0.08, phys_model=phys, source_seed_mask=source_seed_mask,
         fixed_source_bbox=fixed_source_bbox,
-        fixed_reg_scale=fixed_reg_scale,
+        fixed_reg_template=fixed_reg_template,
     )
 
 
@@ -670,8 +670,8 @@ class TestRetiredAdaptiveRegPath:
                 **kwarg,
             )
 
-    def test_dense_backend_rejects_adaptive_reg(self):
-        with pytest.raises(ValueError, match="no longer supports"):
+    def test_dense_backend_requires_fixed_inputs_for_adaptive_reg(self):
+        with pytest.raises(ValueError, match="fixed_source_bbox"):
             _dense_prob(n=5, rho=1.0)
 
     def test_dense_backend_has_no_freeze_api(self):
@@ -724,27 +724,25 @@ class TestAdaptiveRegIntegration:
         """Operator backend: fixed S0-derived scale yields finite evidence."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, rho=1.0)
         model = _operator_prob(
             n=5, rho=1.0,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
-            fixed_reg_scale=fixed_scale,
+            fixed_reg_template=s0,
         )
         log_ev = model()
         assert jnp.shape(log_ev) == ()
         assert jnp.isfinite(log_ev)
 
     def test_operator_s0_scale_reuses_evidence_inputs(self):
-        """Repeated operator calls reuse the same fixed S0 scale and bbox."""
+        """Repeated operator calls reuse the same fixed S0 template and bbox."""
         mock, noise = self._mock_image()
         s0 = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
-        fixed_scale = source_template_scale_map(s0, 5, rho=1.0)
         model = _operator_prob(
             n=5, rho=1.0,
             image_data=mock, noise_map=noise,
             fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
-            fixed_reg_scale=fixed_scale,
+            fixed_reg_template=s0,
         )
         log_ev_1 = float(model())
         log_ev_2 = float(model())

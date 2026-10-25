@@ -54,18 +54,20 @@ for LAMBDA in LAMBDA_LIST:
     # Matrix backend
     pm_mat = PixelizedImageProbModel(image_data, noise_map, psf_kernel, DPIX,
                                      phys, mask=mask)
-    _, src_mat = pm_mat.forward_model(return_source=True)
-    log_ev_mat = pm_mat.likelihood()
-    model_mat = pm_mat.forward_model()
+    result_mat = pm_mat.evaluate()
+    src_mat = result_mat.source_pixels
+    log_ev_mat = float(result_mat.log_evidence)
+    model_mat = result_mat.model_image
     chi2_mat = float(jnp.sum(((jnp.asarray(image_data) - model_mat)[~mask] /
                                jnp.asarray(noise_map)[~mask])**2))
 
     # Operator backend
     pm_op = PixelizedImageProbModelOperator(image_data, noise_map, psf_kernel, DPIX,
                                             phys, mask=mask)
-    _, src_op = pm_op.forward_model(return_source=True)
-    log_ev_op = pm_op.likelihood()
-    model_op = pm_op.forward_model()
+    result_op = pm_op.evaluate()
+    src_op = result_op.source_pixels
+    log_ev_op = float(result_op.log_evidence)
+    model_op = result_op.model_image
     chi2_op = float(jnp.sum(((jnp.asarray(image_data) - model_op)[~mask] /
                               jnp.asarray(noise_map)[~mask])**2))
 

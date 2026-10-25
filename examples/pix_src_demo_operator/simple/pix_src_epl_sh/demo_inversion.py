@@ -74,35 +74,14 @@ for LAMBDA in LAMBDA_LIST:
         mask=mask,
     )
 
-    # ------------------------------------------------------------------ #
-    # Semi-linear inversion (operator backend — matrix-free PCG solve)
-    # ------------------------------------------------------------------ #
-    import jax.numpy as jnp
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
-    reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
-    op_data = prob_model.sim_obj.precompute_operator_data(
-        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
-    )
-    lam_j = jnp.asarray(LAMBDA)
-    block_chols, block_masks = prob_model.sim_obj.build_block_diag_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam_j, prob_model.reg_builder, block_size=prob_model.block_size,
-    )
-    preconditioner = (block_chols, block_masks)
-    sp, _ = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam_j, reg_data, preconditioner, op_data=op_data,
-    )
-    source_pixels = np.array(sp)
-    log_ev = prob_model.likelihood()
+    # Solve once for the evidence, source, image and source grid.
+    result = prob_model.evaluate()
+    source_pixels = np.asarray(result.source_pixels)
+    log_ev = float(result.log_evidence)
+    model_image = np.asarray(result.model_image)
+    source_bbox = result.source_bbox
+    xmin, xmax, ymin, ymax = source_bbox
     print(f"  log evidence = {log_ev:.2f}")
-
-    # ------------------------------------------------------------------ #
-    # Reconstruct model image via operator forward_model
-    # ------------------------------------------------------------------ #
-    model_1d  = np.array(prob_model.sim_obj.forward_model(
-        sp, xmin, xmax, ymin, ymax, op_data=op_data,
-    ))
-    model_image = np.zeros(image_data.shape, dtype=np.float32)
-    model_image[~mask] = model_1d
 
     resid_norm = (image_data - model_image) / noise_map
     chi2_nu    = float(np.sum(resid_norm[~mask] ** 2) / (~mask).sum())

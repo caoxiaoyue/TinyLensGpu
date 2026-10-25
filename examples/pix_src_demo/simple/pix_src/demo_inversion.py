@@ -73,29 +73,13 @@ for LAMBDA in LAMBDA_LIST:
         mask=mask,
     )
 
-    # ------------------------------------------------------------------ #
-    # Semi-linear inversion
-    # ------------------------------------------------------------------ #
-    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-    F      = np.array(design_matrix)       # shape (Nd, Ns)
-    d_vec  = np.array(prob_model.data_1d)  # shape (Nd,)
-    sigma  = np.array(prob_model.noise_1d) # shape (Nd,)
-
-    reg_matrix = np.array(prob_model._regularization_matrix(source_bbox))
-    import jax.numpy as jnp
-    sp, _, _ = prob_model._solve_source(
-        jnp.asarray(F), jnp.asarray(reg_matrix), jnp.asarray(LAMBDA)
-    )
-    source_pixels = np.array(sp)
-    log_ev = prob_model.likelihood()
+    # Solve once for the evidence, source, image and source grid.
+    result = prob_model.evaluate()
+    source_pixels = np.asarray(result.source_pixels)
+    log_ev = float(result.log_evidence)
+    model_image = np.asarray(result.model_image)
+    source_bbox = result.source_bbox
     print(f"  log evidence = {log_ev:.2f}")
-
-    # ------------------------------------------------------------------ #
-    # Reconstruct model image
-    # ------------------------------------------------------------------ #
-    model_1d  = F @ source_pixels
-    model_image = np.zeros(image_data.shape, dtype=np.float32)
-    model_image[~mask] = model_1d
 
     resid_norm = (image_data - model_image) / noise_map
     chi2_nu    = float(np.sum(resid_norm[~mask] ** 2) / (~mask).sum())

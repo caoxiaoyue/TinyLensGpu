@@ -27,6 +27,52 @@ VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
 """All supported regularization type names."""
 
 
+def _normalize_source_template(
+    source_pixels: "jax.Array",
+    n: int,
+    *,
+    ref_percentile: float = 99.5,
+    eps: float = 1.0e-10,
+) -> "jax.Array":
+    """Normalize an S0 source template to unit peak brightness.
+
+    Negative pixels are clipped to zero and the positive map is divided by its
+    ``ref_percentile`` brightness (floored at ``eps`` so all-dark templates
+    stay finite), then clipped to ``[0, 1]``. Accepts ``(n * n,)`` or
+    ``(n, n)`` input and always returns the flat ``(n * n,)`` float32 map.
+    """
+    n = int(n)
+    ref_percentile = float(ref_percentile)
+    if not 0.0 <= ref_percentile <= 100.0:
+        raise ValueError(f"ref_percentile must be in [0, 100], got {ref_percentile}")
+    source = jnp.asarray(source_pixels, dtype=jnp.float32)
+    if source.shape == (n, n):
+        source = source.reshape(n * n)
+    elif source.shape != (n * n,):
+        raise ValueError(
+            "source_pixels must have shape "
+            f"({n * n},) or ({n}, {n}), got {source.shape}."
+        )
+    positive = jnp.maximum(source, 0.0)
+    reference = jnp.percentile(positive, ref_percentile)
+    return jnp.clip(positive / jnp.maximum(reference, float(eps)), 0.0, 1.0)
+
+
+def _source_template_scale_from_normalized(
+    template_u: "jax.Array",
+    rho: float,
+) -> "jax.Array":
+    """Evaluate the Galan-style scale map from a normalized S0 template.
+
+    Returns ``exp(rho * (1 - u))`` per pixel; a ``rho`` within ``1e-10`` of
+    zero (including traced zeros) returns the uniform fast path of ones.
+    Negative rho is clamped to zero.
+    """
+    rho_j = jnp.maximum(jnp.asarray(rho, dtype=jnp.float32), 0.0)
+    scale = jnp.exp(rho_j * (1.0 - template_u))
+    return jnp.where(jnp.abs(rho_j) < 1.0e-10, jnp.ones_like(scale), scale)
+
+
 def source_template_scale_map(
     source_pixels: "jax.Array",
     n: int,
@@ -67,34 +113,10 @@ def source_template_scale_map(
         raise ValueError(f"rho must be >= 0, got {rho}")
     if rho_static is not None and abs(rho_static) < 1.0e-10:
         return None
-    ref_percentile = float(ref_percentile)
-    if not 0.0 <= ref_percentile <= 100.0:
-        raise ValueError(
-            f"ref_percentile must be in [0, 100], got {ref_percentile}"
-        )
-
-    source = jnp.asarray(source_pixels, dtype=jnp.float32)
-    if source.shape == (n, n):
-        source = source.reshape(n * n)
-    elif source.shape != (n * n,):
-        raise ValueError(
-            "source_pixels must have shape "
-            f"({n * n},) or ({n}, {n}), got {source.shape}."
-        )
-
-    source_pos = jnp.maximum(source, 0.0)
-    brightness_ref = jnp.percentile(source_pos, ref_percentile)
-    u = source_pos / jnp.maximum(brightness_ref, float(eps))
-    u = jnp.clip(u, 0.0, 1.0)
-    rho_j = jnp.maximum(jnp.asarray(rho, dtype=jnp.float32), 0.0)
-    scale = jnp.exp(rho_j * (1.0 - u))
-    if rho_static is None:
-        scale = jnp.where(
-            jnp.abs(rho_j) < jnp.asarray(1.0e-10, dtype=jnp.float32),
-            jnp.ones_like(scale),
-            scale,
-        )
-    return jnp.asarray(scale, dtype=jnp.float32)
+    template_u = _normalize_source_template(
+        source_pixels, n, ref_percentile=ref_percentile, eps=eps,
+    )
+    return _source_template_scale_from_normalized(template_u, rho)
 
 
 def map_source_blocks(n, block_size, build_block):

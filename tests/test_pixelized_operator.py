@@ -16,6 +16,9 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
 )
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InversionResult,
+)
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
     PixelizedImageProbModel,
 )
@@ -177,14 +180,19 @@ def _assert_square_bbox(source_bbox):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
+@pytest.mark.parametrize("model_cls,solver", [
+    (PixelizedImageProbModel, "cholesky"),
+    (PixelizedImageProbModel, "nnls"),
+    (PixelizedImageProbModelOperator, "pcg"),
+    (PixelizedImageProbModelOperator, "pnpg"),
+])
 @pytest.mark.parametrize("joint", [False, True])
-def test_evaluate_shares_one_solve_and_preserves_legacy_outputs(monkeypatch, solver, joint):
+def test_evaluate_shares_one_solve_and_preserves_legacy_outputs(monkeypatch, model_cls, solver, joint):
     if joint:
         image, noise, phys = _make_joint_test_data()
     else:
         image, noise, phys, _ = _make_test_data()
-    model = PixelizedImageProbModelOperator(
+    model = model_cls(
         image, noise, _delta_psf(), 0.08, phys, solver_type=solver,
         fixed_source_bbox=_fixed_bbox(),
         position_likelihood=dict(positions=[[0.2, 0.0], [-0.2, 0.0]],
@@ -198,17 +206,26 @@ def test_evaluate_shares_one_solve_and_preserves_legacy_outputs(monkeypatch, sol
         return solve(*args, **kwargs)
 
     monkeypatch.setattr(model, "_solve_source", counted_solve)
-    result = model.evaluate(jnp.asarray([0.0]))
+    theta = jnp.asarray([0.0])
+    result = model.evaluate(theta)
+    assert isinstance(result, InversionResult)
     assert len(calls) == 1
-    assert result.solver_info.converged
-    np.testing.assert_allclose(result.log_evidence, model(jnp.asarray([0.0])),
+    if model_cls is PixelizedImageProbModelOperator:
+        assert result.solver_info.converged
+    else:
+        assert result.solver_info is None
+    np.testing.assert_allclose(result.log_evidence, model(theta),
                                rtol=1e-5, atol=1e-4)
-    image_old, source_old = model.forward_model(jnp.asarray([0.0]), return_source=True)
+    image_old, source_old = model.forward_model(theta, return_source=True)
     np.testing.assert_allclose(result.model_image, image_old, rtol=1e-5, atol=1e-5)
     np.testing.assert_allclose(result.source_pixels, source_old, rtol=1e-5, atol=1e-5)
     assert (result.lens_amplitudes is not None) == joint
+    assert tuple(result.source_bbox) == tuple(model._fixed_source_bbox)
+    # Source-only models return the image alone even with return_components.
+    if not joint:
+        assert model.forward_model(theta, return_components=True).shape == (10, 10)
     if joint:
-        _, _, lens_old = model.forward_model(jnp.asarray([0.0]), return_components=True)
+        _, _, lens_old = model.forward_model(theta, return_components=True)
         np.testing.assert_allclose(result.lens_amplitudes, lens_old, rtol=1e-5, atol=1e-5)
 
 
@@ -254,9 +271,9 @@ def test_fixed_cache_bypasses_preparation_and_matches_dynamic_path(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("vary", ["mass_pointer", "rho", "fixed_scale"])
+@pytest.mark.parametrize("vary", ["mass_pointer", "rho", "fixed_rho"])
 def test_cache_tracks_transitive_and_actual_regularization_dependencies(vary):
-    source = _pix_src_dynamic_adaptive() if vary != "mass_pointer" else _pix_src(adaptive_reg_rho=1.0)
+    source = _pix_src_dynamic_adaptive() if vary == "rho" else _pix_src(adaptive_reg_rho=1.0)
     mass = _static_sie()
     if vary == "mass_pointer":
         driver = ParamU("driver", 0.12)
@@ -264,25 +281,22 @@ def test_cache_tracks_transitive_and_actual_regularization_dependencies(vary):
         mass.theta_E = ck.Param("theta_E", lambda _: driver.value, link=(driver,))
     phys = PhysicalModel(lens_mass=[mass], source_light=[source])
     image, noise, _, _ = _make_test_data()
-    kwargs = dict(fixed_source_bbox=_fixed_bbox())
-    if vary == "fixed_scale":
-        kwargs["fixed_reg_scale"] = _fixed_scale()
-    else:
-        kwargs["fixed_reg_template"] = _fixed_template()
+    kwargs = dict(fixed_source_bbox=_fixed_bbox(), fixed_reg_template=_fixed_template())
     model = PixelizedImageProbModelOperator(image, noise, _blur_psf(), 0.08, phys, **kwargs)
     assert (model._prepared.mapping is None) == (vary == "mass_pointer")
     assert (model._prepared.regularization is None) == (vary == "rho")
-    changing = "driver" if vary == "mass_pointer" else "adaptive_reg_rho"
+    changing, values = {
+        "mass_pointer": ("driver", [0.1, 0.15]),
+        "rho": ("adaptive_reg_rho", [0.5, 2.0]),
+        "fixed_rho": ("log_lambda_reg", [0.0, 1.0]),
+    }[vary]
     proposals = jnp.asarray([
-        [0.0 if p.name == "log_lambda_reg" else value for p in model.dynamic_params]
-        for value in ([0.1, 0.15] if vary == "mass_pointer" else [0.5, 2.0])
+        [value if p.name == changing else 0.0 for p in model.dynamic_params]
+        for value in values
     ])
     result = jax.jit(jax.vmap(model.evaluate))(proposals)
     assert jnp.all(result.solver_info.converged)
-    if vary == "fixed_scale":
-        np.testing.assert_allclose(result.source_pixels[0], result.source_pixels[1])
-    else:
-        assert not jnp.allclose(result.source_pixels[0], result.source_pixels[1]), changing
+    assert not jnp.allclose(result.source_pixels[0], result.source_pixels[1]), changing
 
 
 @pytest.mark.unit
@@ -940,26 +954,286 @@ def test_operator_rejects_invalid_solver_type(solver_type):
 
 
 @pytest.mark.unit
-def test_operator_source_bbox_padding_expands_inferred_bbox():
-    """Operator model forwards bbox padding into source-plane bbox inference."""
+def test_inversion_result_is_one_shared_type():
+    """Both model modules and both package levels re-export one type."""
+    import TinyLensGpu.ObservationModel as observation_model
+    import TinyLensGpu.ObservationModel.LensImage as lens_image
+
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import (
+        InversionResult as DenseInversionResult,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        InversionResult as OperatorInversionResult,
+    )
+
+    assert InversionResult is DenseInversionResult
+    assert InversionResult is OperatorInversionResult
+    assert InversionResult is lens_image.InversionResult
+    assert InversionResult is observation_model.InversionResult
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_source_bbox_padding_expands_inferred_bbox(model_cls):
+    """Both models forward bbox padding into source-plane bbox inference."""
     mock, noise, phys, config = _make_test_data(psf=_delta_psf())
 
-    model_plain = PixelizedImageProbModelOperator(
+    model_plain = model_cls(
         mock, noise, _delta_psf(), 0.08, phys,
         mask=config.mask,
         source_bbox_padding=0.0,
     )
-    model_padded = PixelizedImageProbModelOperator(
+    model_padded = model_cls(
         mock, noise, _delta_psf(), 0.08, phys,
         mask=config.mask,
         source_bbox_padding=0.25,
     )
 
-    xmin0, xmax0, ymin0, ymax0, *_ = model_plain._get_bbox()
-    xmin1, xmax1, ymin1, ymax1, *_ = model_padded._get_bbox()
+    xmin0, xmax0, ymin0, ymax0 = model_plain.infer_source_bbox()
+    xmin1, xmax1, ymin1, ymax1 = model_padded.infer_source_bbox()
 
     assert xmax1 - xmin1 > xmax0 - xmin0
     assert ymax1 - ymin1 > ymax0 - ymin0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize(
+    "padding,outlier_frac", [(0.0, 0.0), (0.25, 0.0), (0.05, 0.1)],
+)
+def test_inferred_source_bbox_matches_utility_on_both_backends(
+    model_cls, padding, outlier_frac,
+):
+    """Inferred bboxes match the shared utility identically on both backends."""
+    from TinyLensGpu.utils.lensing.mapping import (
+        infer_source_bbox as infer_square_source_bbox,
+    )
+
+    mock, noise, phys, config = _make_test_data()
+    seed_mask = np.zeros((10, 10), dtype=bool)
+    seed_mask[4:6, 4:6] = True
+    model = model_cls(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        source_seed_mask=seed_mask,
+        source_bbox_padding=padding,
+        source_bbox_outlier_frac=outlier_frac,
+    )
+    beta_x, beta_y = model.sim_obj.ray_trace_seed()
+    expected = infer_square_source_bbox(
+        beta_x, beta_y, padding=padding, outlier_frac=outlier_frac,
+    )
+    np.testing.assert_allclose(
+        model.infer_source_bbox(),
+        [float(np.asarray(v)) for v in expected],
+        rtol=1e-6,
+        atol=1e-7,
+    )
+    if outlier_frac > 0.0:
+        untrimmed = infer_square_source_bbox(
+            beta_x, beta_y, padding=padding, outlier_frac=0.0,
+        )
+        assert not np.allclose(
+            model.infer_source_bbox(),
+            [float(np.asarray(v)) for v in untrimmed],
+            atol=1e-7,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_fixed_bbox_overrides_inference_settings(model_cls):
+    """A fixed bbox wins over padding/outlier settings everywhere it appears."""
+    mock, noise, phys, config = _make_test_data()
+    model = model_cls(
+        mock, noise, _delta_psf(), 0.08, phys,
+        mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        source_bbox_padding=0.4,
+        source_bbox_outlier_frac=0.2,
+    )
+    result = model.evaluate(jnp.asarray(model.get_values("flat")))
+    np.testing.assert_allclose(
+        [float(np.asarray(v)) for v in result.source_bbox],
+        _fixed_bbox(),
+        atol=1e-7,
+    )
+    np.testing.assert_allclose(model.infer_source_bbox(), _fixed_bbox(), atol=1e-7)
+    _, _, helper_bbox = model.reconstruct_component_images(
+        result.source_pixels, result.lens_amplitudes,
+    )
+    np.testing.assert_allclose(
+        [float(np.asarray(v)) for v in helper_bbox], _fixed_bbox(), atol=1e-7,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize("joint", [False, True])
+@pytest.mark.parametrize("nsub", [1, 2])
+def test_reconstruct_component_images_matches_model_image(
+    monkeypatch, model_cls, joint, nsub,
+):
+    """Component helper rebuilds the model image without solving or evaluating."""
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[0, :] = True
+    mask[4, 4] = True
+    if joint:
+        _, _, phys = _make_joint_test_data()
+    else:
+        _, _, phys, _ = _make_test_data()
+    config = SimulatorConfig(
+        dpix=0.08, npix=10, psf_kernel=_blur_psf(), mask=mask, nsub=nsub,
+    )
+    reference_sim = PixelizedLensSimulator(phys, config)
+    image = reference_sim.simulate(
+        jnp.linspace(0.05, 1.0, 25), source_bbox=_fixed_bbox(),
+        lens_light_amplitudes=jnp.asarray([0.7]) if joint else None,
+    )
+    noise = jnp.ones_like(image) * 0.05
+    model = model_cls(
+        image, noise, _blur_psf(), 0.08, phys,
+        mask=mask, nsub=nsub, fixed_source_bbox=_fixed_bbox(),
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result = model.evaluate(theta)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("reconstruction repeated work")
+
+    monkeypatch.setattr(model, "_solve_source", refuse)
+    if model_cls is PixelizedImageProbModelOperator:
+        monkeypatch.setattr(model, "_regularization_logdet", refuse)
+    else:
+        monkeypatch.setattr(model, "_evidence_logdet", refuse)
+
+    source_image, lens_image, bbox = model.reconstruct_component_images(
+        result.source_pixels, result.lens_amplitudes,
+    )
+    assert source_image.shape == (10, 10) and lens_image.shape == (10, 10)
+    np.testing.assert_allclose(
+        [float(np.asarray(v)) for v in bbox], _fixed_bbox(), atol=1e-7,
+    )
+    np.testing.assert_allclose(
+        np.asarray(source_image + lens_image),
+        np.asarray(result.model_image),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    assert np.all(np.asarray(source_image)[mask] == 0.0)
+    assert np.all(np.asarray(lens_image)[mask] == 0.0)
+    if not joint:
+        assert np.all(np.asarray(lens_image) == 0.0)
+        # An empty lens amplitude vector is equivalent to None.
+        empty_source, empty_lens, _ = model.reconstruct_component_images(
+            result.source_pixels, jnp.empty((0,)),
+        )
+        np.testing.assert_allclose(
+            np.asarray(empty_source), np.asarray(source_image),
+            rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(empty_lens), np.asarray(lens_image),
+            rtol=2e-5, atol=2e-5,
+        )
+
+    # Independent check: same columns of an explicitly built design matrix.
+    design, _ = reference_sim.design_matrix(source_bbox=_fixed_bbox())
+    n_source = reference_sim.n_source_pixels
+    source_ref = design[:, :n_source] @ result.source_pixels
+    lens_ref = (
+        design[:, n_source:] @ result.lens_amplitudes
+        if joint else jnp.zeros_like(source_ref)
+    )
+    np.testing.assert_allclose(
+        np.asarray(source_image)[~mask], np.asarray(source_ref),
+        rtol=2e-5, atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(lens_image)[~mask], np.asarray(lens_ref),
+        rtol=2e-5, atol=2e-5,
+    )
+    # The model's own design matrix is only needed on a cache miss: patch it
+    # out and confirm the helper output is unchanged.
+    monkeypatch.setattr(model.sim_obj, "design_matrix", refuse)
+    cached_source, cached_lens, _ = model.reconstruct_component_images(
+        result.source_pixels, result.lens_amplitudes,
+    )
+    np.testing.assert_allclose(
+        np.asarray(cached_source), np.asarray(source_image),
+        rtol=2e-5, atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(cached_lens), np.asarray(lens_image),
+        rtol=2e-5, atol=2e-5,
+    )
+
+    if joint:
+        with pytest.raises(ValueError, match="lens_light_intensities"):
+            model.reconstruct_component_images(result.source_pixels, None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize("fixed", [True, False])
+def test_component_images_follow_current_parameter_context(
+    model_cls, fixed,
+):
+    """The component helper uses current dynamic values, not a last result."""
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[0, :] = True
+    theta_e = ParamU(
+        "theta_E", 0.12, prior_type="uniform",
+        prior_settings=[0.05, 0.2], limits=[0.0, 1.0],
+    )
+    theta_e.to_dynamic()
+    sie = SIE(theta_E=theta_e, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    for p in (sie.e1, sie.e2, sie.center_x, sie.center_y):
+        p.to_static()
+    lam = ParamU("log_lambda_reg", 0.0, prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
+    lam.to_dynamic()
+    source = PixelizedSourceModel(
+        n=5, log_lambda_reg=lam, regularization_type="first-order",
+    )
+    phys = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+    mock, noise, _, _ = _make_test_data(psf=_blur_psf(), nsub=2)
+    kwargs = dict(mask=mask, nsub=2)
+    if fixed:
+        kwargs["fixed_source_bbox"] = _fixed_bbox()
+    model = model_cls(mock, noise, _blur_psf(), 0.08, phys, **kwargs)
+    named_theta = jnp.asarray([
+        0.14 if p.name == "theta_E" else p.value
+        for p in model.get_dynamic_params()
+    ])
+    with ck.ActiveContext(model):
+        model.fill_params(named_theta)
+        result = model.evaluate()
+        source_image, lens_image, bbox = model.reconstruct_component_images(
+            result.source_pixels, result.lens_amplitudes,
+        )
+        expected_bbox = model.infer_source_bbox() if not fixed else _fixed_bbox()
+    np.testing.assert_allclose(
+        np.asarray(source_image + lens_image),
+        np.asarray(result.model_image),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        [float(np.asarray(v)) for v in bbox],
+        [float(np.asarray(v)) for v in expected_bbox],
+        atol=1e-7,
+    )
 
 
 @pytest.mark.unit
@@ -1197,6 +1471,69 @@ def test_operator_pnpg_joint_matches_dense_nnls_objective():
     )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["zero-order", "first-order", "second-order"])
+@pytest.mark.parametrize("dense_solver,op_solver", [("cholesky", "pcg"), ("nnls", "pnpg")])
+def test_adaptive_template_map_matches_across_backends(reg_type, dense_solver, op_solver):
+    """Dense and operator backends solve the same S0-weighted MAP objective."""
+    lam = ParamU("log_lambda_reg", 0.0,
+                 prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)])
+    lam.to_dynamic()
+    source = PixelizedSourceModel(n=5,
+        log_lambda_reg=lam,
+        regularization_type=reg_type,
+        adaptive_reg_rho=1.0,
+    )
+    phys = _phys_model(source=source)
+    config = _sim_config()
+    simulator = PixelizedLensSimulator(phys, config)
+    true_src = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
+    mock = simulator.simulate(true_src, psf_kernel=_delta_psf())
+    noise = jnp.ones((10, 10)) * 0.05
+
+    fixed = dict(
+        mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=_fixed_template(),
+    )
+    dense = PixelizedImageProbModel(
+        mock, noise, _delta_psf(), 0.08, phys, solver_type=dense_solver, **fixed,
+    )
+    operator = PixelizedImageProbModelOperator(
+        mock, noise, _delta_psf(), 0.08, phys, solver_type=op_solver,
+        pnpg_max_iter=1000, pnpg_rtol=1e-4, **fixed,
+    )
+
+    _, src_dense = dense.forward_model(return_source=True)
+    _, src_op = operator.forward_model(return_source=True)
+
+    design_matrix, _ = dense.sim_obj.design_matrix(source_bbox=_fixed_bbox())
+    scale = source_template_scale_map(_fixed_template(), 5, rho=1.0)
+    reg_matrix = FiniteDifferenceRegularization(5, reg_type).matrix(
+        *_fixed_bbox(), scale=scale,
+    )
+    lambda_reg = jnp.exp(jnp.asarray(source.log_lambda_reg.value))
+
+    obj_dense = _dense_objective(
+        design_matrix, dense.data_1d, dense.noise_1d,
+        reg_matrix, lambda_reg, src_dense,
+    )
+    obj_op = _dense_objective(
+        design_matrix, dense.data_1d, dense.noise_1d,
+        reg_matrix, lambda_reg, src_op,
+    )
+
+    assert jnp.all(jnp.isfinite(src_dense)) and jnp.any(src_dense != 0.0)
+    assert jnp.all(jnp.isfinite(src_op)) and jnp.any(src_op != 0.0)
+    if op_solver == "pnpg":
+        assert jnp.all(src_op >= 0.0)
+        assert jnp.all(src_dense >= 0.0)
+    np.testing.assert_allclose(
+        float(obj_op), float(obj_dense), rtol=5e-3, atol=5e-3,
+    )
+
+
 @pytest.mark.integration
 def test_operator_pnpg_joint_forward_model_jits_end_to_end():
     """The constrained joint forward path should compile and return components."""
@@ -1333,7 +1670,8 @@ def test_operator_joint_inversion_supports_ragged_source_blocks(solver_type):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("nsub", [1, 2])
-def test_operator_joint_map_matches_dense_backend(nsub):
+@pytest.mark.parametrize("rho", [0.0, 1.0])
+def test_operator_joint_map_matches_dense_backend(nsub, rho):
     """Joint source/lens-light MAP agrees with the dense reference backend."""
     from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import SersicEllipse
 
@@ -1348,7 +1686,7 @@ def test_operator_joint_map_matches_dense_backend(nsub):
     ):
         parameter.to_static()
     phys = PhysicalModel(
-        lens_mass=[_static_sie()], source_light=[_pix_src()],
+        lens_mass=[_static_sie()], source_light=[_pix_src(adaptive_reg_rho=rho)],
         lens_light=[lens_light],
     )
     config = _sim_config(nsub=nsub)
@@ -1358,11 +1696,15 @@ def test_operator_joint_map_matches_dense_backend(nsub):
         true_source, lens_light_amplitudes=jnp.asarray([0.7]),
     )
     noise = jnp.ones_like(image) * 0.05
+    fixed = (
+        dict(fixed_source_bbox=_fixed_bbox(), fixed_reg_template=_fixed_template())
+        if rho > 0 else {}
+    )
     dense = PixelizedImageProbModel(
-        image, noise, _delta_psf(), 0.08, phys, nsub=nsub,
+        image, noise, _delta_psf(), 0.08, phys, nsub=nsub, **fixed,
     )
     operator = PixelizedImageProbModelOperator(
-        image, noise, _delta_psf(), 0.08, phys, nsub=nsub,
+        image, noise, _delta_psf(), 0.08, phys, nsub=nsub, **fixed,
     )
 
     _, dense_source, dense_lens = dense.forward_model(return_components=True)
@@ -1748,8 +2090,8 @@ def test_dense_vectorized_likelihood_jit_with_uniform_reg():
 
 
 @pytest.mark.unit
-def test_dense_vectorized_likelihood_rejects_adaptive_reg():
-    """Dense backend no longer exposes the retired seed-ray adaptive path."""
+def test_dense_vectorized_likelihood_jit_with_template_adaptive_reg():
+    """Vectorized dense likelihood compiles with a fixed S0 template and rho."""
     source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     config = _sim_config()
@@ -1758,10 +2100,16 @@ def test_dense_vectorized_likelihood_rejects_adaptive_reg():
     mock = sim.simulate(true_src, psf_kernel=_delta_psf())
     noise = jnp.ones((10, 10)) * 0.05
 
-    with pytest.raises(ValueError, match="no longer supports"):
-        PixelizedImageProbModel(
-            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
-        )
+    prob_dense = PixelizedImageProbModel(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=_fixed_template(),
+    )
+    loglike = make_likelihood(prob_dense, vectorized=True)
+    values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
+
+    assert values.shape == (2,)
+    assert jnp.all(jnp.isfinite(values))
 
 
 @pytest.mark.unit
@@ -1779,7 +2127,7 @@ def test_operator_vectorized_likelihood_jit_with_adaptive_reg(adaptive_reg_rho):
     prob_op = PixelizedImageProbModelOperator(
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
         fixed_source_bbox=_fixed_bbox() if adaptive_reg_rho > 0 else None,
-        fixed_reg_scale=_fixed_scale(rho=adaptive_reg_rho) if adaptive_reg_rho > 0 else None,
+        fixed_reg_template=_fixed_template() if adaptive_reg_rho > 0 else None,
     )
     loglike = make_likelihood(prob_op, vectorized=True)
     values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
@@ -1834,7 +2182,7 @@ def test_operator_zero_order_adaptive_reg_jit_scan_path():
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
         block_size=4,
         fixed_source_bbox=_fixed_bbox(),
-        fixed_reg_scale=_fixed_scale(n=8),
+        fixed_reg_template=_fixed_template(n=8),
     )
     loglike = make_likelihood(prob_op, vectorized=True)
     values = loglike(jnp.asarray([[0.0], [1.0]], dtype=jnp.float32))
@@ -1852,7 +2200,7 @@ def test_operator_fixed_bbox_overrides_seed_inference():
     prob_op = PixelizedImageProbModelOperator(
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
         fixed_source_bbox=_fixed_bbox(),
-        fixed_reg_scale=_fixed_scale(),
+        fixed_reg_template=_fixed_template(),
     )
     xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed = prob_op._get_bbox()
 
@@ -1902,66 +2250,204 @@ def test_operator_rejects_rectangular_fixed_source_bbox():
         PixelizedImageProbModelOperator(
             mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
             fixed_source_bbox=(-1.0, 1.0, -0.5, 0.5),
-            fixed_reg_scale=_fixed_scale(),
+            fixed_reg_template=_fixed_template(),
         )
 
 
 @pytest.mark.unit
-def test_operator_adaptive_requires_fixed_bbox():
-    """Adaptive operator runs require a fixed source bbox from S0."""
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_adaptive_requires_fixed_source_bbox(model_cls):
+    """Adaptive runs require a fixed source bbox from S0 on both backends."""
     source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
     with pytest.raises(ValueError, match="fixed_source_bbox"):
-        PixelizedImageProbModelOperator(
+        model_cls(
             mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
-            fixed_reg_scale=_fixed_scale(),
+            fixed_reg_template=_fixed_template(),
         )
 
 
 @pytest.mark.unit
-def test_operator_adaptive_requires_fixed_scale():
-    """Adaptive operator runs require an S0-derived fixed scale map."""
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_adaptive_requires_fixed_reg_template(model_cls):
+    """Adaptive runs require an S0 source template on both backends."""
     source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
-    with pytest.raises(ValueError, match="fixed_reg_scale"):
+    with pytest.raises(ValueError, match="fixed_reg_template"):
+        model_cls(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize(
+    "template,message",
+    [
+        (jnp.ones(24), "fixed_reg_template must have shape"),
+        (jnp.ones((5, 6)), "fixed_reg_template must have shape"),
+        (jnp.concatenate([jnp.ones(24), jnp.asarray([jnp.nan])]),
+         "fixed_reg_template values must be finite"),
+        (jnp.concatenate([jnp.ones(24), jnp.asarray([jnp.inf])]),
+         "fixed_reg_template values must be finite"),
+    ],
+)
+def test_rejects_invalid_fixed_reg_template(model_cls, template, message):
+    """Fixed templates must match the source grid and stay finite."""
+    source = _pix_src(adaptive_reg_rho=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    with pytest.raises(ValueError, match=message):
+        model_cls(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+            fixed_reg_template=template,
+        )
+
+
+@pytest.mark.unit
+def test_operator_rejects_removed_fixed_reg_scale_keyword():
+    """The removed ``fixed_reg_scale`` keyword is a hard TypeError."""
+    source = _pix_src(adaptive_reg_rho=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    with pytest.raises(TypeError):
         PixelizedImageProbModelOperator(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_source_bbox=_fixed_bbox(),
+            fixed_reg_scale=jnp.ones(25),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize("flat", [True, False])
+def test_fixed_template_scale_matches_source_template_scale_map(
+    model_cls, flat,
+):
+    """Both backends evaluate the same scale map as the standalone utility."""
+    source = _pix_src(adaptive_reg_rho=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    template = _fixed_template()
+    model = model_cls(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=template if flat else template.reshape(5, 5),
+    )
+    expected = source_template_scale_map(template, 5, rho=1.0)
+    np.testing.assert_allclose(
+        np.asarray(model._get_reg_scale()), np.asarray(expected),
+        rtol=1e-6, atol=1e-6,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+@pytest.mark.parametrize(
+    "template",
+    [-jnp.abs(_fixed_template()), jnp.zeros(25)],
+)
+def test_negative_and_all_dark_templates_give_finite_scales(model_cls, template):
+    """Negative pixels clip and all-dark templates normalize to finite weights."""
+    source = _pix_src(adaptive_reg_rho=1.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    model = model_cls(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+        fixed_source_bbox=_fixed_bbox(),
+        fixed_reg_template=template,
+    )
+    scale = model._get_reg_scale()
+    expected = source_template_scale_map(template, 5, rho=1.0)
+    assert jnp.all(jnp.isfinite(scale))
+    np.testing.assert_allclose(
+        np.asarray(scale), np.asarray(expected), rtol=1e-6, atol=1e-6,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_static_zero_rho_needs_no_template_or_bbox(model_cls):
+    """A fixed near-zero rho disables adaptation; both inputs are optional."""
+    source = _pix_src(adaptive_reg_rho=0.0)
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    model = model_cls(
+        mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+    )
+    assert model._get_reg_scale() is None
+    assert jnp.isfinite(model())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls", [PixelizedImageProbModel, PixelizedImageProbModelOperator],
+)
+def test_dynamic_rho_initialized_zero_still_requires_template_inputs(model_cls):
+    """A dynamic rho requires bbox and template even when it starts at zero."""
+    lam = ParamU("log_lambda_reg", 0.0,
+                 prior_type="uniform",
+                 prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+                 limits=[jnp.log(1e-3), jnp.log(1e3)])
+    rho = ParamU("adaptive_reg_rho", 0.0,
+                 prior_type="uniform",
+                 prior_settings=[0.0, 3.0],
+                 limits=[0.0, 3.0])
+    for p in (lam, rho):
+        p.to_dynamic()
+    source = PixelizedSourceModel(n=5,
+        log_lambda_reg=lam,
+        regularization_type="first-order",
+        adaptive_reg_rho=rho,
+    )
+    phys = _phys_model(source=source)
+    mock, noise, _, config = _make_test_data()
+    with pytest.raises(ValueError, match="fixed_source_bbox"):
+        model_cls(
+            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
+            fixed_reg_template=_fixed_template(),
+        )
+    with pytest.raises(ValueError, match="fixed_reg_template"):
+        model_cls(
             mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
             fixed_source_bbox=_fixed_bbox(),
         )
 
 
 @pytest.mark.unit
-def test_operator_rejects_invalid_fixed_scale_shape():
-    """Fixed scale shape must match the source-grid pixel count."""
+def test_operator_fixed_template_scale_reproducible():
+    """_get_reg_scale() returns the template-derived S0 scale on every call."""
     source = _pix_src(adaptive_reg_rho=1.0)
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
-    with pytest.raises(ValueError, match="fixed_reg_scale must have shape"):
-        PixelizedImageProbModelOperator(
-            mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
-            fixed_source_bbox=_fixed_bbox(),
-            fixed_reg_scale=jnp.ones(24),
-        )
-
-
-@pytest.mark.unit
-def test_operator_fixed_scale_reproducible():
-    """_get_reg_scale() returns the configured S0 scale on every call."""
-    source = _pix_src(adaptive_reg_rho=1.0)
-    phys = _phys_model(source=source)
-    mock, noise, _, config = _make_test_data()
-    fixed_scale = _fixed_scale()
     prob_op = PixelizedImageProbModelOperator(
         mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
         fixed_source_bbox=_fixed_bbox(),
-        fixed_reg_scale=fixed_scale,
+        fixed_reg_template=_fixed_template(),
     )
+    expected = _fixed_scale()
     scale_a = prob_op._get_reg_scale()
     scale_b = prob_op._get_reg_scale()
-    assert jnp.array_equal(scale_a, fixed_scale)
-    assert jnp.array_equal(scale_b, fixed_scale)
+    np.testing.assert_allclose(
+        np.asarray(scale_a), np.asarray(expected), rtol=1e-6, atol=1e-6,
+    )
+    assert jnp.array_equal(scale_a, scale_b)
 
 
 @pytest.mark.unit
@@ -1991,12 +2477,12 @@ def test_operator_fixed_template_dynamic_scale_changes_with_hyperparams():
 
 
 @pytest.mark.unit
-def test_operator_dynamic_adaptive_requires_scale_or_template():
-    """Dynamic adaptive params require fixed S0 scale or template inputs."""
+def test_operator_dynamic_adaptive_requires_template():
+    """Dynamic adaptive params require a fixed S0 source template."""
     source = _pix_src_dynamic_adaptive()
     phys = _phys_model(source=source)
     mock, noise, _, config = _make_test_data()
-    with pytest.raises(ValueError, match="fixed_reg_scale or fixed_reg_template"):
+    with pytest.raises(ValueError, match="fixed_reg_template"):
         PixelizedImageProbModelOperator(
             mock, noise, _delta_psf(), 0.08, phys, mask=config.mask,
             fixed_source_bbox=_fixed_bbox(),

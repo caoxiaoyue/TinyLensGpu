@@ -109,7 +109,7 @@ For traced `rho`, the implementation SHALL NOT call Python `float()` on that val
 
 ### Requirement: Fixed source bbox for source-template inference
 
-The operator pixelized image probability model SHALL support a fixed source-plane bbox for source-template adaptive regularization.
+Both the dense and the operator pixelized image probability models SHALL support a fixed source-plane bbox for source-template adaptive regularization.
 
 The API SHALL expose a configuration equivalent to:
 
@@ -117,7 +117,6 @@ The API SHALL expose a configuration equivalent to:
 PixelizedImageProbModelOperator(
     ...,
     fixed_source_bbox: tuple[float, float, float, float] | None = None,
-    fixed_reg_scale: Array | None = None,
     fixed_reg_template: Array | None = None,
 )
 ```
@@ -134,58 +133,60 @@ When `fixed_source_bbox` is provided, `_get_bbox()` SHALL return that bbox for s
 - **WHEN** adaptive regularization is enabled through the source-template path and no `fixed_source_bbox` is provided
 - **THEN** the operator likelihood SHALL fail with a clear error before JIT tracing or evidence evaluation
 
-### Requirement: External fixed scale map for operator likelihoods
+### Requirement: Template-only adaptive inputs on both backends
 
-The operator pixelized image probability model SHALL accept an externally supplied fixed regularization scale map.
+Both pixelized image probability models SHALL accept the same template-only adaptive inputs: `fixed_reg_template` carrying the stage-m0 `S0` source reconstruction (flat `(n * n,)` or `(n, n)`) together with `fixed_source_bbox`, with the adaptive strength stored on `PixelizedSourceModel.adaptive_reg_rho`. A fixed `adaptive_reg_rho` of approximately zero disables adaptation and requires neither input; a positive fixed rho or a rho with dynamic or unresolved dependencies — even one initialized at zero — requires both.
 
-The fixed scale map SHALL have shape `(nx * ny,)`, finite positive values, and dtype convertible to `jax.float32`. When provided and adaptive regularization is enabled, the operator likelihood's adaptive-scale access path SHALL return the fixed scale map without performing image-plane brightness accumulation, segment sums, or smoothing.
+The former `fixed_reg_scale` keyword is removed: passing it SHALL raise `TypeError`, and arbitrary external weight maps are no longer an observation-model input. Migrate `fixed_reg_scale=source_template_scale_map(S0, n, rho)` to `fixed_reg_template=S0` with the same `rho` on the source model. The normalized template is prepared once per model; a fixed rho additionally caches the weighted regularizer and its log determinant, while a dynamic rho recomputes both per evaluation. Design/mapping caches are independent of rho.
 
-#### Scenario: Fixed scale bypasses mass-dependent scale construction
+#### Scenario: Fixed template bypasses mass-dependent scale construction
 
-- **WHEN** a likelihood is configured with `fixed_reg_scale` from `S0`
-- **THEN** repeated likelihood evaluations at different mass parameters SHALL use the same scale values and SHALL NOT rebuild the adaptive scale from current seed-ray betas
+- **WHEN** a likelihood is configured with `fixed_reg_template` from `S0`
+- **THEN** repeated likelihood evaluations at different mass parameters SHALL use the same normalized template and SHALL NOT rebuild the adaptive scale from current seed-ray betas
 
-#### Scenario: Invalid fixed scale shape
+#### Scenario: Invalid fixed template shape or values
 
-- **WHEN** `fixed_reg_scale` has a shape different from `(nx * ny,)`
-- **THEN** the likelihood construction or first scale validation SHALL fail with a clear error describing the expected shape
+- **WHEN** `fixed_reg_template` has a shape different from `(n * n,)` or `(n, n)`, or contains non-finite values
+- **THEN** the likelihood construction SHALL fail with a clear error describing the expected shape or finiteness
 
-#### Scenario: Missing fixed scale for adaptive S0 path
+#### Scenario: Missing fixed template for adaptive S0 path
 
-- **WHEN** adaptive regularization is enabled and no fixed scale map has been configured from `S0`
-- **THEN** the operator likelihood SHALL fail with a clear error rather than falling back to seed-ray scale construction
+- **WHEN** adaptive regularization is enabled and no `fixed_reg_template` has been configured from `S0`
+- **THEN** the likelihood SHALL fail with a clear error rather than falling back to seed-ray scale construction
+
+#### Scenario: Removed fixed scale keyword
+
+- **WHEN** a caller passes `fixed_reg_scale` to a pixelized image probability model
+- **THEN** construction SHALL fail with a `TypeError`
 
 ### Requirement: Operator likelihood can generate scale maps from an S0 template
 
 The operator pixelized image probability model SHALL accept a fixed source-template input for adaptive scale-map generation.
 
-When `fixed_reg_template` is provided and adaptive regularization is enabled, the operator likelihood SHALL compute the per-pixel scale map using the current `adaptive_reg_rho` value. When `fixed_reg_scale` is provided without `fixed_reg_template`, the likelihood SHALL preserve the existing fixed-scale behavior.
+When `fixed_reg_template` is provided and adaptive regularization is enabled, the operator likelihood SHALL compute the per-pixel scale map using the current `adaptive_reg_rho` value.
 
 #### Scenario: Dynamic template scale path
 
 - **WHEN** the operator likelihood is configured with `fixed_reg_template` and dynamic `adaptive_reg_rho`
 - **THEN** `_get_reg_scale()` SHALL return a scale map computed from the S0 template and the current `rho` value
 
-#### Scenario: Fixed scale compatibility
-
-- **WHEN** the operator likelihood is configured with `fixed_reg_scale` and no `fixed_reg_template`
-- **THEN** `_get_reg_scale()` SHALL return the fixed scale map as before
-
 #### Scenario: Missing adaptive template inputs
 
-- **WHEN** adaptive regularization is enabled through dynamic `adaptive_reg_rho` and neither `fixed_reg_scale` nor `fixed_reg_template` is provided
-- **THEN** likelihood construction or scale access SHALL fail with a clear error before producing evidence values
+- **WHEN** adaptive regularization is enabled through dynamic `adaptive_reg_rho` and no `fixed_reg_template` is provided
+- **THEN** likelihood construction SHALL fail with a clear error before producing evidence values
 
 ### Requirement: Retired seed-ray adaptive path is unavailable
 
 The system SHALL NOT expose the retired image-plane seed-ray adaptive regularization path, its configurable brightness modes, its Gaussian smoothing parameter, or its `freeze_scale()` / `unfreeze_scale()` empirical-Bayes cache as active adaptive-regularization APIs.
 
-Backends that do not yet support fixed source-template adaptive inputs SHALL fail clearly when `adaptive_reg_rho > 0` instead of computing a mass-dependent scale map from current seed-ray betas.
+Both backends support fixed source-template adaptive inputs; neither SHALL compute a mass-dependent scale map from current seed-ray betas.
 
 #### Scenario: Dense backend adaptive request
 
-- **WHEN** a dense pixelized image probability model is constructed or evaluated with `adaptive_reg_rho > 0`
-- **THEN** it SHALL raise a clear error explaining that adaptive regularization now requires fixed source-template inputs and is currently supported by the operator backend
+- **WHEN** a dense pixelized image probability model is constructed with `adaptive_reg_rho > 0`, `fixed_source_bbox`, and `fixed_reg_template`
+- **THEN** it SHALL evaluate the S0-weighted regularizer at the current rho, caching the weighted matrix and its log determinant only while rho is fixed
+- **WHEN** adaptive regularization is enabled without `fixed_source_bbox` or `fixed_reg_template`
+- **THEN** it SHALL raise a clear error naming the missing input
 
 #### Scenario: Retired freeze API
 

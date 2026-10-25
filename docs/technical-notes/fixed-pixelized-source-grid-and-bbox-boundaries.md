@@ -102,15 +102,17 @@ keeps the seed-ray path above, including the detached bounds.
 
 ### Dense fixed-grid cache
 
-With a fixed bbox, the dense evidence model stores the regularization that no
-longer depends on the proposal. Finite-difference regularization is invariant
-on that grid, so construction stores the dense matrix and the evidence
-determinant `logdet(R)`, using negative infinity when the matrix is not
-positive definite. The evidence reads that stored determinant and does not
-call `slogdet` again, and the regularization helper returns the stored
-matrix `R` directly. A different bbox is built for that call and does not
-replace the stored matrix or determinant. `log_lambda_reg` stays outside
-the cache: each evaluation uses `lambda * R` and still includes
+With a fixed bbox and fixed `adaptive_reg_rho`, the dense evidence model
+stores the S0-weighted finite-difference matrix and its evidence determinant
+`logdet(R)`, using negative infinity when the matrix is not positive definite.
+On a cache hit, evidence reads that determinant without calling `slogdet`
+again, and the regularization helper returns the stored matrix `R`.
+A rho with dynamic or unresolved dependencies leaves this cache empty;
+each evaluation rebuilds the weighted matrix and its determinant using the
+current rho. The design cache described below is independent of rho.
+A different bbox is built for that call and does not replace the stored
+matrix or determinant. `log_lambda_reg` stays outside the cache: each
+evaluation uses `lambda * R` and still includes
 `0.5 * N_source * log(lambda)`.
 
 A second tier is filled only when that bbox is fixed and every lens-mass
@@ -139,8 +141,9 @@ and a newly compiled likelihood.
 stays a function of the current mass and the bbox it is given. It does not
 read the evidence-model cache. The position-likelihood penalty stays outside
 the cached solve, and a non-finite evidence value is still replaced by the
-existing large negative penalty. Adaptive source regularization remains
-rejected on the dense model.
+existing large negative penalty. Adaptive source regularization is supported
+through the same `fixed_reg_template` S0 input as the operator backend; only
+its regularization cache, not its validity, depends on rho being fixed.
 
 ## Why freeze the source grid during mass inference
 

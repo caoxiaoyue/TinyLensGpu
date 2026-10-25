@@ -21,7 +21,10 @@ from TinyLensGpu.ForwardSimulation import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.utils.geometry.transforms import phi_q2_ellipticity
-from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
+from TinyLensGpu.utils.inversion.regularization import (
+    FiniteDifferenceRegularization,
+    source_template_scale_map,
+)
 from TinyLensGpu.utils.lensing.mapping import infer_source_bbox as infer_square_source_bbox
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -104,6 +107,7 @@ def _prob_model(
     nsub: int = 1,
     position_likelihood: dict | None = None,
     fixed_source_bbox: tuple[float, float, float, float] | None = None,
+    fixed_reg_template=None,
 ) -> PixelizedImageProbModel:
     """Build a small pixelized evidence model."""
     data = image_data if image_data is not None else jnp.zeros((10, 10))
@@ -118,6 +122,7 @@ def _prob_model(
         nsub=nsub,
         position_likelihood=position_likelihood,
         fixed_source_bbox=fixed_source_bbox,
+        fixed_reg_template=fixed_reg_template,
     )
 
 
@@ -1082,8 +1087,8 @@ def test_fixed_source_bbox_replaces_nonfinite_evidence_with_penalty() -> None:
 
 
 @pytest.mark.unit
-def test_fixed_source_bbox_still_rejects_adaptive_regularization() -> None:
-    """Freezing the grid does not re-enable adaptive source regularization."""
+def test_fixed_source_bbox_requires_template_for_adaptive_regularization() -> None:
+    """A fixed grid still needs an S0 template when adaptation is enabled."""
     rho = ParamU(
         "adaptive_reg_rho",
         0.4,
@@ -1092,7 +1097,7 @@ def test_fixed_source_bbox_still_rejects_adaptive_regularization() -> None:
         limits=[0.0, 2.0],
     )
     source = PixelizedSourceModel(n=5, log_lambda_reg=0.0, adaptive_reg_rho=rho)
-    with pytest.raises(ValueError, match="no longer supports"):
+    with pytest.raises(ValueError, match="fixed_reg_template"):
         _prob_model(source=source, fixed_source_bbox=(-0.5, 0.5, -0.5, 0.5))
 
 
@@ -1179,6 +1184,7 @@ def test_dense_model_rejects_invalid_fixed_source_bbox(fixed_source_bbox, messag
 
 
 _FIXED_BBOX = (-0.8, 0.8, -0.8, 0.8)
+_S0_TEMPLATE = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
 
 
 def _static_sie(theta_e: float = 0.12) -> SIE:
@@ -1193,6 +1199,7 @@ def _regularized_source(
     reg_type: str = "second-order",
     *,
     log_lambda: float = 0.0,
+    adaptive_reg_rho=0.0,
 ) -> PixelizedSourceModel:
     """Build a pixelized source with a dynamic regularization strength."""
     log_lambda_reg = ParamU(
@@ -1207,6 +1214,7 @@ def _regularized_source(
         n=5,
         log_lambda_reg=log_lambda_reg,
         regularization_type=reg_type,
+        adaptive_reg_rho=adaptive_reg_rho,
     )
 
 
@@ -1237,6 +1245,7 @@ def _dense_model(
     image_data=None,
     position_likelihood=None,
     log_lambda: float = 0.0,
+    fixed_reg_template=None,
 ) -> PixelizedImageProbModel:
     """Build a small dense evidence model for cache tests."""
     data = jnp.ones((10, 10)) * 0.05 if image_data is None else image_data
@@ -1263,6 +1272,7 @@ def _dense_model(
         solver_type=solver_type,
         position_likelihood=position_likelihood,
         fixed_source_bbox=fixed_source_bbox,
+        fixed_reg_template=fixed_reg_template,
     )
 
 
@@ -1543,6 +1553,386 @@ def test_design_cache_keeps_position_and_nonfinite_penalties(monkeypatch) -> Non
     monkeypatch.setattr(nonfinite.sim_obj, "design_matrix", _refuse_reconstruction)
     assert float(shifted()) < float(plain())
     assert float(nonfinite()) == -1.0e10
+
+
+def _dynamic_adaptive_rho(value: float = 0.0) -> ParamU:
+    """Build a dynamic adaptive-regularization strength parameter."""
+    rho = ParamU(
+        "adaptive_reg_rho",
+        value,
+        prior_type="uniform",
+        prior_settings=[0.0, 3.0],
+        limits=[0.0, 3.0],
+    )
+    rho.to_dynamic()
+    return rho
+
+
+def _theta_for(model: PixelizedImageProbModel, **values) -> jnp.ndarray:
+    """Build a public flat parameter vector addressed by parameter name."""
+    return jnp.asarray([
+        values.get(p.name, p.value) for p in model.get_dynamic_params()
+    ], dtype=jnp.float32)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reg_type", ["zero-order", "first-order", "second-order"])
+def test_fixed_adaptive_rho_caches_weighted_regularization(monkeypatch, reg_type) -> None:
+    """A fixed adaptive rho caches the S0-weighted regularizer and its logdet."""
+    def build() -> PixelizedImageProbModel:
+        return _dense_model(
+            source=_regularized_source(reg_type, adaptive_reg_rho=1.0),
+            fixed_reg_template=_S0_TEMPLATE,
+            dynamic_mass=False,
+        )
+
+    model = build()
+    _assert_cache_agreement(model, build())
+
+    expected_scale = source_template_scale_map(_S0_TEMPLATE, 5, rho=1.0)
+    expected_matrix = FiniteDifferenceRegularization(5, reg_type).matrix(
+        *_FIXED_BBOX, scale=expected_scale,
+    )
+    np.testing.assert_allclose(
+        np.asarray(model._prepared.regularization[0]),
+        np.asarray(expected_matrix),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+    model.get_values("flat")
+    evidence = float(model())
+    image, source = model.forward_model(return_source=True)
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
+    monkeypatch.setattr(dense_image_model.jnp.linalg, "slogdet", _refuse_reconstruction)
+    np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
+    cached_image, cached_source = model.forward_model(return_source=True)
+    np.testing.assert_allclose(cached_image, image, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(cached_source, source, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+def test_dynamic_adaptive_rho_updates_regularization_and_keeps_design_cache(
+    monkeypatch, solver,
+) -> None:
+    """A dynamic rho rebuilds the weighted regularizer while the design stays cached."""
+    rho = _dynamic_adaptive_rho(0.0)
+    source = _regularized_source("first-order", adaptive_reg_rho=rho)
+    model = _dense_model(
+        source=source,
+        fixed_reg_template=_S0_TEMPLATE,
+        dynamic_mass=False,
+        solver_type=solver,
+    )
+    assert model._prepared.regularization is None
+    assert model._prepared.design is not None
+
+    monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
+
+    pairs = [(0.0, 0.0), (0.0, 0.7), (0.0, 2.0), (0.4, 0.7)]
+    proposals = jnp.stack([
+        _theta_for(model, log_lambda_reg=lam, adaptive_reg_rho=rho_value)
+        for lam, rho_value in pairs
+    ])
+    # Highest matmul precision keeps the batched-vs-eager comparison free of
+    # TF32 noise; the models under test are unchanged.
+    with jax.default_matmul_precision("highest"):
+        evidences = jax.jit(jax.vmap(model))(proposals)
+        images, sources = jax.jit(jax.vmap(
+            lambda theta: model.forward_model(theta, return_source=True)
+        ))(proposals)
+
+    def fixed_reference(rho_value: float, log_lambda: float) -> PixelizedImageProbModel:
+        return _dense_model(
+            source=_regularized_source(
+                "first-order", log_lambda=log_lambda, adaptive_reg_rho=rho_value,
+            ),
+            fixed_reg_template=_S0_TEMPLATE,
+            dynamic_mass=False,
+            solver_type=solver,
+        )
+
+    for i, (lam, rho_value) in enumerate(pairs):
+        reference = fixed_reference(rho_value, lam)
+        with jax.default_matmul_precision("highest"):
+            ref_image, ref_source = reference.forward_model(return_source=True)
+            ref_evidence = float(reference())
+        np.testing.assert_allclose(
+            float(evidences[i]), ref_evidence, rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(images[i]), np.asarray(ref_image), rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(sources[i]), np.asarray(ref_source), rtol=2e-5, atol=2e-5,
+        )
+        if solver == "cholesky":
+            np.testing.assert_allclose(
+                float(evidences[i]),
+                _normal_equation_evidence(reference, _FIXED_BBOX),
+                rtol=2e-5,
+                atol=2e-5,
+            )
+
+    uniform = _dense_model(
+        source=_regularized_source("first-order", adaptive_reg_rho=0.0),
+        dynamic_mass=False,
+        solver_type=solver,
+    )
+    np.testing.assert_allclose(
+        float(evidences[0]), float(uniform()), rtol=2e-5, atol=2e-5,
+    )
+    with jax.default_matmul_precision("highest"):
+        uniform_source = uniform.forward_model(return_source=True)[1]
+    np.testing.assert_allclose(
+        np.asarray(sources[0]),
+        np.asarray(uniform_source),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+
+    assert not np.allclose(sources[0], sources[1], rtol=1e-6, atol=1e-6)
+    assert not np.allclose(sources[1], sources[2], rtol=1e-6, atol=1e-6)
+    assert abs(float(evidences[1]) - float(evidences[2])) > 1.0e-3
+
+
+@pytest.mark.unit
+def test_pointer_driven_adaptive_rho_skips_the_regularization_cache() -> None:
+    """A pointer-driven dynamic rho keeps the design cache but not the regularizer."""
+    driver = ParamU(
+        "adaptive_reg_rho_driver",
+        0.0,
+        prior_type="uniform",
+        prior_settings=[0.0, 3.0],
+        limits=[0.0, 3.0],
+    )
+    driver.to_dynamic()
+    source = _regularized_source("first-order")
+    del source.adaptive_reg_rho
+    source.adaptive_reg_rho = ck.Param(
+        "adaptive_reg_rho", lambda _: driver.value, link=(driver,),
+    )
+    model = _dense_model(
+        source=source,
+        fixed_reg_template=_S0_TEMPLATE,
+        dynamic_mass=False,
+    )
+    assert model._prepared.regularization is None
+    assert model._prepared.design is not None
+
+    proposals = jnp.stack([
+        _theta_for(model, log_lambda_reg=0.0, adaptive_reg_rho_driver=value)
+        for value in (0.5, 2.0)
+    ])
+    with jax.default_matmul_precision("highest"):
+        evidences = jax.jit(jax.vmap(model))(proposals)
+        images, sources = jax.jit(jax.vmap(
+            lambda theta: model.forward_model(theta, return_source=True)
+        ))(proposals)
+
+    for i, rho_value in enumerate((0.5, 2.0)):
+        reference = _dense_model(
+            source=_regularized_source("first-order", adaptive_reg_rho=rho_value),
+            fixed_reg_template=_S0_TEMPLATE,
+            dynamic_mass=False,
+        )
+        with jax.default_matmul_precision("highest"):
+            ref_image, ref_source = reference.forward_model(return_source=True)
+            ref_evidence = float(reference())
+        np.testing.assert_allclose(
+            float(evidences[i]), ref_evidence, rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(images[i]), np.asarray(ref_image), rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(sources[i]), np.asarray(ref_source), rtol=2e-5, atol=2e-5,
+        )
+
+    assert not np.allclose(sources[0], sources[1], rtol=1e-6, atol=1e-6)
+    assert abs(float(evidences[0]) - float(evidences[1])) > 1.0e-3
+
+
+@pytest.mark.unit
+def test_dense_fixed_grid_adaptive_rho_gradient_matches_finite_difference() -> None:
+    """The dense evidence derivative in the rho coordinate matches central differences."""
+    rho = _dynamic_adaptive_rho(1.0)
+    source = _regularized_source("first-order", adaptive_reg_rho=rho)
+    model = _dense_model(
+        source=source,
+        fixed_reg_template=_S0_TEMPLATE,
+        dynamic_mass=False,
+        solver_type="cholesky",
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    names = [p.name for p in model.get_dynamic_params()]
+    index = names.index("adaptive_reg_rho")
+
+    # Highest matmul precision keeps the f32 evidence finite difference above
+    # the TF32 rounding floor; the model under test is unchanged.
+    with jax.default_matmul_precision("highest"):
+        gradient = jax.jit(jax.grad(lambda t: model(t)))(theta)
+        delta = 1.0e-3
+        step = jnp.zeros_like(theta).at[index].set(delta)
+        central = (model(theta + step) - model(theta - step)) / (2.0 * delta)
+
+    assert jnp.all(jnp.isfinite(gradient))
+    np.testing.assert_allclose(
+        float(gradient[index]), float(central), rtol=0.05, atol=0.03,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+@pytest.mark.parametrize("joint", [False, True])
+def test_dense_evaluate_matches_call_and_forward_outputs(solver, joint) -> None:
+    """Dense evaluate shares one solve and matches __call__/forward_model."""
+    rho = _dynamic_adaptive_rho(0.0)
+    lens_light = [_unit_lens_light()] if joint else []
+    model = _dense_model(
+        source=_regularized_source("first-order", adaptive_reg_rho=rho),
+        lens_light=lens_light,
+        fixed_reg_template=_S0_TEMPLATE,
+        dynamic_mass=False,
+        solver_type=solver,
+    )
+    pairs = [(0.0, 0.0), (0.0, 0.7), (0.4, 2.0)]
+    proposals = jnp.stack([
+        _theta_for(model, log_lambda_reg=lam, adaptive_reg_rho=rho_value)
+        for lam, rho_value in pairs
+    ])
+    # Highest matmul precision avoids TF32 noise in batched-vs-single checks.
+    with jax.default_matmul_precision("highest"):
+        results = jax.jit(jax.vmap(model.evaluate))(proposals)
+    assert results.solver_info is None
+    assert results.source_bbox is not None and results.source_bbox[0].shape == (3,)
+    for i, (lam, rho_value) in enumerate(pairs):
+        theta = _theta_for(model, log_lambda_reg=lam, adaptive_reg_rho=rho_value)
+        with jax.default_matmul_precision("highest"):
+            expected_evidence = model(theta)
+            if joint:
+                image_ref, source_ref, lens_ref = model.forward_model(
+                    theta, return_source=True, return_components=True,
+                )
+            else:
+                image_ref, source_ref = model.forward_model(
+                    theta, return_source=True,
+                )
+                lens_ref = None
+        np.testing.assert_allclose(
+            float(results.log_evidence[i]), float(expected_evidence),
+            rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(results.model_image[i]), np.asarray(image_ref),
+            rtol=2e-5, atol=2e-5,
+        )
+        np.testing.assert_allclose(
+            np.asarray(results.source_pixels[i]), np.asarray(source_ref),
+            rtol=2e-5, atol=2e-5,
+        )
+        if joint:
+            np.testing.assert_allclose(
+                np.asarray(results.lens_amplitudes[i]), np.asarray(lens_ref),
+                rtol=2e-5, atol=2e-5,
+            )
+        else:
+            assert results.lens_amplitudes is None
+    assert not np.allclose(
+        np.asarray(results.source_pixels[0]),
+        np.asarray(results.source_pixels[1]),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
+@pytest.mark.unit
+def test_dense_evaluate_applies_position_penalty_once() -> None:
+    """evaluate() includes the position penalty exactly once."""
+    model = _dense_model(
+        source=_regularized_source("zero-order"),
+        dynamic_mass=False,
+        position_likelihood=dict(
+            positions=[[0.2, 0.0], [-0.2, 0.0]],
+            threshold_arcsec=0.01,
+            min_log_like=-20.0,
+        ),
+    )
+    assert model._has_pos_penalty
+    theta = jnp.asarray(model.get_values("flat"))
+    with ck.ActiveContext(model):
+        model.fill_params(theta)
+        penalty = float(model._position_likelihood_penalty_jax())
+    assert penalty < 0.0
+    with jax.default_matmul_precision("highest"):
+        evidence = float(model.evaluate(theta).log_evidence)
+    expected = (
+        _normal_equation_evidence(model, _FIXED_BBOX) + penalty
+    )
+    np.testing.assert_allclose(evidence, expected, rtol=2e-5, atol=2e-5)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+def test_dense_forward_model_skips_determinant_evaluation(monkeypatch, solver) -> None:
+    """Reconstruction-only path never evaluates determinants or re-solves."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        dynamic_mass=False,
+        solver_type=solver,
+        fixed_source_bbox=None,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    image_ref, source_ref = model.forward_model(theta, return_source=True)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("forward_model evaluated a determinant")
+
+    monkeypatch.setattr(model, "_evidence_logdet", refuse)
+    monkeypatch.setattr(dense_image_model.jnp.linalg, "slogdet", refuse)
+    solve = model._solve_source
+    calls = []
+
+    def counted_solve(*args, **kwargs):
+        calls.append(None)
+        return solve(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_solve_source", counted_solve)
+    image, source = model.forward_model(theta, return_source=True)
+    assert len(calls) == 1
+    np.testing.assert_allclose(np.asarray(image), np.asarray(image_ref))
+    np.testing.assert_allclose(np.asarray(source), np.asarray(source_ref))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+def test_dense_evaluate_keeps_nonfinite_solve_penalty(monkeypatch, solver) -> None:
+    """A nonfinite solve maps evidence to -1e10 without fabricating diagnostics."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        dynamic_mass=False,
+        solver_type=solver,
+        fixed_source_bbox=None,
+    )
+    n_total = int(model.sim_obj.n_source_pixels)
+
+    def bad_solve(*args, **kwargs):
+        return (
+            jnp.full(n_total, jnp.nan),
+            jnp.identity(n_total),
+            jnp.identity(n_total),
+        )
+
+    monkeypatch.setattr(model, "_solve_source", bad_solve)
+    theta = jnp.asarray(model.get_values("flat"))
+    result = model.evaluate(theta)
+    assert float(result.log_evidence) == -1.0e10
+    assert float(model(theta)) == -1.0e10
+    assert result.solver_info is None
+    assert not bool(jnp.all(jnp.isfinite(result.source_pixels)))
+    assert not bool(jnp.all(jnp.isfinite(result.model_image)))
 
 
 if __name__ == "__main__":

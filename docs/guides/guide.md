@@ -183,7 +183,8 @@ Run the complete example from its own directory so its relative data paths resol
     parameter values and solver controls are not part of the data cache.
   - `PixelizedImageProbModel` accepts the same square `fixed_source_bbox`.
     Without it, every evaluation still infers the source bbox from seed rays.
-    With it, the model stores the finite-difference regularization matrix and
+    With it — provided `adaptive_reg_rho` is fixed — the model stores the
+    finite-difference regularization matrix and
     its `logdet(R)`, and the evidence reads that stored determinant.
     `log_lambda_reg` stays outside the cache and is applied as `lambda * R` at
     each evaluation. When that bbox,
@@ -198,6 +199,26 @@ Run the complete example from its own directory so its relative data paths resol
     construction, and rebuild the evidence model **and its compiled likelihood**
     after changing a fixed value, a parameter mode, the observations, or the bbox.
 
+  - Adaptive source regularization uses the same inputs on both backends:
+    pass the stage-m0 reconstruction as `fixed_reg_template` (flat `(n*n,)`
+    or `(n,n)`) together with `fixed_source_bbox`, and keep the strength on
+    `PixelizedSourceModel.adaptive_reg_rho`. A fixed rho of approximately zero
+    disables adaptation and needs neither input. A positive fixed rho or a
+    rho with dynamic or unresolved dependencies — even one initialized at
+    zero — requires both
+    inputs at construction. (A pointer counts as fixed when its registered
+    dependencies are fixed.) The normalized template is prepared once; a fixed
+    rho additionally caches the weighted regularizer and its log determinant,
+    while a dynamic rho recomputes both on every evaluation. The design and
+    mapping caches are independent of rho. The dense backend keeps its exact
+    `slogdet` determinant while the operator backend keeps its block-diagonal
+    approximation, so their log evidences are not expected to be identical.
+  - `fixed_reg_scale` was removed: migrate
+    `fixed_reg_scale=source_template_scale_map(S0, n, rho)` to
+    `fixed_reg_template=S0` with the same `rho` stored on
+    `PixelizedSourceModel`. The old keyword now raises `TypeError`, and
+    arbitrary external weight maps are no longer an observation-model input.
+
   - Both the dense and operator backends support the three finite-difference
     regularization types (`"zero-order"`, `"first-order"`, `"second-order"`).
     A standalone Gaussian-process regularization utility remains available for
@@ -211,14 +232,54 @@ Run the complete example from its own directory so its relative data paths resol
 
     This utility is independent of `PixelizedSourceModel`; it is not a GP model
     workflow.
-  - Use `result = prob_model.evaluate(theta)` to obtain `log_evidence`,
-    `model_image`, `source_pixels`, `lens_amplitudes`, `source_bbox` and
-    `solver_info` from one inversion. It includes any position penalty; failed
-    solves return the existing evidence penalty and zero reconstruction arrays.
-    `prob_model(theta)` and `forward_model(theta, return_source=True)` remain
-    compatible but are independent calls. Reconstruction alone does not compute
-    evidence determinants. All three interfaces support JIT/vmap.
-  - With a **fixed source bbox**, `pcg` and `pnpg` also support first-order
+  - Both backends support `source_bbox_padding` and
+    `source_bbox_outlier_frac` for inferred source-plane bboxes; the settings
+    are ignored when `fixed_source_bbox` is supplied.
+  - Use `result = prob_model.evaluate(theta)` on either backend to obtain
+    `log_evidence`, `model_image`, `source_pixels`, `lens_amplitudes`,
+    `source_bbox` and `solver_info` from one inversion (`InversionResult`).
+    It includes any position penalty. On the operator backend,
+    `solver_info` carries the PCG/PNPG convergence diagnostics and failed
+    solves return the existing evidence penalty with zero reconstruction
+    arrays; on the dense backend `solver_info` is `None` and the existing
+    nonfinite-evidence penalty behavior is unchanged (reconstructions are
+    returned as computed). `prob_model(theta)` and
+    `forward_model(theta, return_source=True)` remain compatible but are
+    independent evaluations — reuse `result` if you need several fields from
+    the same solve. Reconstruction alone does not compute evidence
+    determinants. All three interfaces support JIT/vmap.
+  - `reconstruct_component_images(source_pixels, lens_amplitudes)` maps
+    solved amplitudes back to masked 2D source and lens-light images plus the
+    source bbox on either backend, without solving or evaluating evidence.
+    It uses the parameter values current at call time — fill dynamic
+    parameters first to match a chosen proposal:
+
+    ```python
+    import caskade as ck
+
+    with ck.ActiveContext(prob_model):
+        prob_model.fill_params(theta)
+        result = prob_model.evaluate()
+        source_img, lens_img, bbox = prob_model.reconstruct_component_images(
+            result.source_pixels, result.lens_amplitudes,
+        )
+    ```
+
+    Masked pixels (`mask=True`) are zero. Source-only models accept `None` or
+    an empty vector for `lens_amplitudes` and return a zero lens image; joint
+    models raise `ValueError` if `lens_amplitudes` is `None`.
+  - Choosing the entry point: call `prob_model(theta)` when a sampler needs
+    only the scalar log evidence, `forward_model(theta, ...)` when only
+    reconstructions are needed, `evaluate(theta)` when evidence and
+    reconstructions should come from one solve, and
+    `reconstruct_component_images` to map already-solved amplitudes to
+    component images. Examples that inspect the Cholesky factor or curvature
+    (for effective-degrees-of-freedom diagnostics) or the block
+    preconditioner, and profiling scripts that time internal stages,
+    intentionally keep using those internals — they are not covered by the
+    public result interface, and none of these APIs are deprecated.
+  - With a **fixed source bbox**, the operator backend's `pcg` and `pnpg`
+    solvers also support first-order
     reverse-mode gradients of source/lens-light reconstructions and evidence.
     Pass the parameter vector through the model's public interface:
 

@@ -221,14 +221,10 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
     q50=[medians[n] for n in param_names]
     with ck.ActiveContext(likelihood):
         likelihood.fill_params(jnp.array(q50))
-        lj=jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        (xmin,xmax,ymin,ymax,bx_sub,by_sub,bx_seed,by_seed)=likelihood._get_bbox()
-        scale=likelihood._get_reg_scale()
-        rd=likelihood._regularization_data(xmin,xmax,ymin,ymax,scale=scale)
-        od=likelihood.sim_obj.precompute_operator_data(xmin,xmax,ymin,ymax,_betas_sub=(bx_sub,by_sub))
-        bc,bm=likelihood.sim_obj.build_block_diag_preconditioner(
-            likelihood.noise_1d,xmin,xmax,ymin,ymax,lj,likelihood.reg_builder,block_size=likelihood.block_size,scale=scale)
-        sp,si=likelihood._solve_source(xmin,xmax,ymin,ymax,lj,rd,(bc,bm),op_data=od)
+        result = likelihood.evaluate()
+        sp = result.source_pixels
+        si = result.solver_info
+        xmin,xmax,ymin,ymax = result.source_bbox
         if not bool(np.asarray(si.converged)):
             ml="residual" if hasattr(si,"residual_norm") else "convergence_metric"
             mv=float(si.residual_norm) if hasattr(si,"residual_norm") else float(si.convergence_metric)

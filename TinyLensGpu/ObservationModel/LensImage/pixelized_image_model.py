@@ -25,6 +25,12 @@ from TinyLensGpu.utils.inversion.regularization import (
     FiniteDifferenceRegularization,
 )
 from TinyLensGpu.utils.linear_solver import fnnls_jax
+from .inversion_result import InversionResult
+from ._pixelized_regularization import (
+    is_fixed as _is_fixed,
+    prepare_reg_template,
+    template_reg_scale,
+)
 from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
 
 
@@ -35,23 +41,13 @@ class _DensePrepared(NamedTuple):
     grid makes the regularizer invariant. The determinant is ``logdet(R)``.
     ``design`` is ``(M, M^T C^{-1} M, M^T C^{-1} d)`` when the lens mapping and
     lens-light bases are fixed too. Either slot is absent when that tier does
-    not apply.
+    not apply. ``template_u`` is the normalized S0 template used to weight the
+    regularizer at the current ``adaptive_reg_rho``.
     """
 
     regularization: tuple | None = None
     design: tuple | None = None
-
-
-def _is_fixed(value) -> bool:
-    """Use the operator fixedness rule, including transitive dependencies.
-
-    A parameter is fixed when it is not dynamic. A pointer counts as fixed
-    only when it has children, and those children must be fixed as well.
-    """
-    if not isinstance(value, (ck.Module, ck.Param)):
-        return True
-    params = (param for param in value.topological_ordering() if isinstance(param, ck.Param))
-    return all(not param.dynamic and (not param.pointer or bool(param.children)) for param in params)
+    template_u: Array | None = None
 
 
 def _modules_are_fixed(modules) -> bool:
@@ -90,14 +86,32 @@ class PixelizedImageProbModel(ck.Module):
         non-negativity via FNNLS.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. When
-        omitted, each evaluation infers a bbox from seed rays. When supplied,
-        the finite-difference regularization matrix and its log determinant are
-        stored at construction. If every lens-mass component
-        and every lens-light basis is fixed as well, the joint design matrix
-        and its data-only normal equations are stored too. Regularization
+        omitted, each evaluation infers a bbox from seed rays. When supplied
+        and ``adaptive_reg_rho`` is fixed, the finite-difference regularization
+        matrix and its log determinant are
+        stored at construction. Independently of rho, if that bbox, every
+        lens-mass component, and every lens-light basis are fixed, the joint
+        design matrix and its data-only normal equations are stored too. Regularization
         strength stays outside that cache. Rebuild this model and its compiled
         likelihood after changing a fixed value, a parameter mode, the
         observations, or the bbox.
+    fixed_reg_template : array_like, optional
+        Flat ``(n * n,)`` or ``(n, n)`` S0 source template used to generate
+        the adaptive regularization scale map from the current
+        ``adaptive_reg_rho`` value. Required together with
+        ``fixed_source_bbox`` whenever adaptive regularization is enabled —
+        a positive fixed rho or a rho with dynamic or unresolved
+        dependencies, even one initialized at zero. When rho is fixed at zero the template is
+        optional and the uniform fast path is kept. A fixed rho caches the
+        weighted regularizer and its log determinant; a dynamic rho updates
+        both on every solve while the design-matrix cache stays independent.
+    source_bbox_padding : float, optional
+        Fractional padding passed to source-plane bbox inference when
+        ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
+    source_bbox_outlier_frac : float, optional
+        Fraction of ray-traced source-plane points trimmed from each tail
+        during bbox inference when ``fixed_source_bbox`` is not supplied
+        (default: 0.0 — use absolute min/max).
     """
 
     def __init__(
@@ -114,6 +128,9 @@ class PixelizedImageProbModel(ck.Module):
         solver_type: str = "cholesky",
         lens_light_regularization: float = EPSILON_REG,
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
+        fixed_reg_template: Union[np.ndarray, Array, None] = None,
+        source_bbox_padding: float = 0.05,
+        source_bbox_outlier_frac: float = 0.0,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         if solver_type not in ("nnls", "cholesky"):
@@ -136,6 +153,8 @@ class PixelizedImageProbModel(ck.Module):
             nsub=nsub,
             mask=mask,
             source_seed_mask=source_seed_mask,
+            source_bbox_padding=source_bbox_padding,
+            source_bbox_outlier_frac=source_bbox_outlier_frac,
         )
         self.sim_obj = PixelizedLensSimulator(self.phys_model, sim_config)
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
@@ -143,17 +162,11 @@ class PixelizedImageProbModel(ck.Module):
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
         source_n = int(self.source_model.n)
-        rho = self.source_model.adaptive_reg_rho
-        rho_value = rho.value if hasattr(rho, "value") else rho
-        rho_dynamic = bool(getattr(rho, "dynamic", False))
-        if rho_dynamic or abs(float(rho_value)) >= 1.0e-10:
-            raise ValueError(
-                "PixelizedImageProbModel no longer supports mass-dependent "
-                "seed-ray adaptive regularization. Use "
-                "PixelizedImageProbModelOperator with fixed_source_bbox and "
-                "fixed_reg_scale or fixed_reg_template derived from an S0 "
-                "source template."
-            )
+        template_u = prepare_reg_template(
+            fixed_reg_template, source_n,
+            self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
+        )
+        object.__setattr__(self, "_prepared", _DensePrepared(template_u=template_u))
         self.reg_type = self.source_model.regularization_type
         self.reg_builder = FiniteDifferenceRegularization(
             source_n,
@@ -266,7 +279,8 @@ class PixelizedImageProbModel(ck.Module):
         design = None
         if self._fixed_source_bbox is not None:
             with ck.ActiveContext(self):
-                regularization = self._build_cached_regularization(self._fixed_source_bbox)
+                if _is_fixed(self.source_model.adaptive_reg_rho):
+                    regularization = self._build_cached_regularization(self._fixed_source_bbox)
                 if self._lens_mapping_is_fixed():
                     design_matrix, _ = self.sim_obj.design_matrix(
                         source_bbox=self._fixed_source_bbox
@@ -275,7 +289,7 @@ class PixelizedImageProbModel(ck.Module):
         object.__setattr__(
             self,
             "_prepared",
-            _DensePrepared(regularization=regularization, design=design),
+            self._prepared._replace(regularization=regularization, design=design),
         )
 
     def _bbox_matches_fixed(self, source_bbox) -> bool:
@@ -304,9 +318,15 @@ class PixelizedImageProbModel(ck.Module):
             return None
         return self._prepared.regularization
 
+    def _get_reg_scale(self) -> Array | None:
+        """Return the S0-template scale map at the current ``adaptive_reg_rho``."""
+        return template_reg_scale(
+            self._prepared.template_u, self.source_model.adaptive_reg_rho
+        )
+
     def _build_cached_regularization(self, source_bbox) -> tuple[Array, Array]:
         """Build the matrix and the log determinant the evidence reuses."""
-        matrix = self._regularization_from_builder(source_bbox)
+        matrix = self._regularization_from_builder(source_bbox, scale=self._get_reg_scale())
         sign, logdet = jnp.linalg.slogdet(matrix)
         return matrix, jnp.where(sign > 0.0, logdet, -jnp.inf)
 
@@ -375,57 +395,52 @@ class PixelizedImageProbModel(ck.Module):
 
         return linear_params, chol, curvature
 
-    def _log_evidence(self) -> Array:
-        """Evaluate log evidence for current parameter values."""
+    def _image_from_active(self, values: Array) -> Array:
+        """Scatter active pixels into the masked observation image."""
+        image = jnp.zeros(self.image_data.size, dtype=values.dtype)
+        return image.at[self.sim_obj.flat_indices].set(values).reshape(self.image_data.shape)
+
+    def _evaluate(self, *, compute_evidence: bool) -> InversionResult:
+        """Prepare, solve and reconstruct once; optionally compute exact determinant terms."""
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
-
         source_bbox = self._inversion_source_bbox()
         design_matrix, gram, rhs = self._design_terms(source_bbox)
         reg_matrix = self._regularization_matrix(source_bbox)
-        logdet_h = self._evidence_logdet(source_bbox, reg_matrix)
-        linear_params, chol, curvature = self._solve_source(
+        linear_params, chol, _ = self._solve_source(
             design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
         )
-
         n_source = self.sim_obj.n_source_pixels
-        n_data = self.data_1d.size
-
-        # Split parameters if joint model
-        if self.has_lens_light:
-            source_pixels = linear_params[:n_source]
-            lens_amplitudes = linear_params[n_source:]
-        else:
-            source_pixels = linear_params
-            lens_amplitudes = None
-
-        resid = self.data_1d - design_matrix @ linear_params
-        e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
-        e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
-
-        # logdet curvature from Cholesky diagonal. This factor includes the
-        # current regularization strength and is not cached.
-        logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
-
-        log_evidence = (
-            -e_d
-            - lambda_reg * e_s
-            - 0.5 * logdet_a
-            + 0.5 * n_source * log_lambda_reg
-            + 0.5 * logdet_h
-            - 0.5 * n_data * jnp.log(2.0 * jnp.pi)
-            - 0.5 * self.logdet_C
+        source_pixels = linear_params[:n_source]
+        lens_amplitudes = linear_params[n_source:] if self.has_lens_light else None
+        model_1d = design_matrix @ linear_params
+        log_evidence = None
+        if compute_evidence:
+            logdet_h = self._evidence_logdet(source_bbox, reg_matrix)
+            resid = self.data_1d - model_1d
+            e_d = 0.5 * jnp.sum((resid / self.noise_1d) ** 2)
+            e_s = 0.5 * jnp.dot(source_pixels, reg_matrix @ source_pixels)
+            logdet_a = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+            log_evidence = (
+                -e_d - lambda_reg * e_s - 0.5 * logdet_a
+                + 0.5 * n_source * log_lambda_reg + 0.5 * logdet_h
+                - 0.5 * self.data_1d.size * jnp.log(2.0 * jnp.pi)
+                - 0.5 * self.logdet_C
+            )
+            if lens_amplitudes is not None:
+                log_evidence = (
+                    log_evidence - 0.5 * self.eps_reg * jnp.sum(lens_amplitudes ** 2)
+                    + 0.5 * self.n_lens_light * jnp.log(self.eps_reg)
+                )
+            log_evidence = jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
+        return InversionResult(
+            log_evidence, self._image_from_active(model_1d), source_pixels,
+            lens_amplitudes, source_bbox, None,
         )
 
-        # Add lens-light regularization contribution if present
-        if self.has_lens_light and lens_amplitudes is not None:
-            n_lens = self.n_lens_light
-            # Prior quadratic penalty: -0.5 * eps * ||A||^2
-            e_lens = 0.5 * self.eps_reg * jnp.sum(lens_amplitudes ** 2)
-            # Prior logdet: +0.5 * log|eps * I| = +0.5 * Nl * log(eps)
-            log_evidence = log_evidence - e_lens + 0.5 * n_lens * jnp.log(self.eps_reg)
-
-        return jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
+    def _log_evidence(self) -> Array:
+        """Return dense evidence before the optional position penalty."""
+        return self._evaluate(compute_evidence=True).log_evidence
 
     def _regularization_from_builder(
         self, source_bbox: tuple, scale: Array | None = None,
@@ -455,7 +470,17 @@ class PixelizedImageProbModel(ck.Module):
             cached = self._matched_regularization(source_bbox)
             if cached is not None:
                 return cached[0]
+            scale = self._get_reg_scale()
         return self._regularization_from_builder(source_bbox, scale=scale)
+
+    @ck.forward
+    def evaluate(self) -> InversionResult:
+        """Return evidence and reconstructions from one solve, including position constraints."""
+        result = self._evaluate(compute_evidence=True)
+        log_ev = result.log_evidence
+        if self._has_pos_penalty:
+            log_ev = log_ev + self._position_likelihood_penalty_jax()
+        return result._replace(log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10))
 
     @ck.forward
     def forward_model(self, *, return_source: bool = False, return_components: bool = False):
@@ -474,45 +499,42 @@ class PixelizedImageProbModel(ck.Module):
         Array or tuple
             Model image, optionally with source pixels and lens light.
         """
-        source_bbox = self._inversion_source_bbox()
-        design_matrix, gram, rhs = self._design_terms(source_bbox)
-        reg_matrix = self._regularization_matrix(source_bbox)
-        lambda_reg = jnp.exp(jnp.asarray(self.source_model.log_lambda_reg.value))
-        linear_params, _, _ = self._solve_source(
-            design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
-        )
-
-        n_source = self.sim_obj.n_source_pixels
-        source_pixels = linear_params[:n_source]
-
-        if self.has_lens_light:
-            lens_amplitudes = linear_params[n_source:]
-            L_cols = design_matrix[:, n_source:]
-            source_1d = design_matrix[:, :n_source] @ source_pixels
-            lens_1d = L_cols @ lens_amplitudes
-            model_1d = source_1d + lens_1d
-        else:
-            model_1d = design_matrix @ source_pixels
-            lens_amplitudes = None
-
-        H, W = self.sim_obj.image_shape
-        model_image = jnp.zeros(H * W, dtype=model_1d.dtype)
-        model_image = model_image.at[self.sim_obj.flat_indices].set(model_1d)
-        model_image = model_image.reshape(H, W)
-
+        result = self._evaluate(compute_evidence=False)
         if return_components and self.has_lens_light:
-            return model_image, source_pixels, lens_amplitudes
+            return result.model_image, result.source_pixels, result.lens_amplitudes
         if return_source:
-            return model_image, source_pixels
-        return model_image
+            return result.model_image, result.source_pixels
+        return result.model_image
+
+    def reconstruct_component_images(
+        self, source_pixels: Array, lens_light_intensities: Array | None,
+    ) -> tuple[Array, Array, tuple[Array, Array, Array, Array]]:
+        """Reconstruct masked 2D source/lens images at the current physical parameters.
+
+        Use the same parameter context and source grid as the inversion.
+        This method reuses a cached design matrix where available and performs
+        no linear solve or evidence evaluation. With no lens light, pass None
+        or an empty vector; the lens image is zero.
+        """
+        if self.has_lens_light and lens_light_intensities is None:
+            raise ValueError("lens_light_intensities is required when lens_light is present")
+        bbox = self._inversion_source_bbox()
+        if self._prepared.design is not None and self._bbox_matches_fixed(bbox):
+            design_matrix = self._prepared.design[0]
+        else:
+            design_matrix, _ = self.sim_obj.design_matrix(source_bbox=bbox)
+        n_source = self.sim_obj.n_source_pixels
+        source_1d = design_matrix[:, :n_source] @ jnp.asarray(source_pixels)
+        lens_1d = (
+            design_matrix[:, n_source:] @ jnp.asarray(lens_light_intensities)
+            if self.has_lens_light else jnp.zeros_like(source_1d)
+        )
+        return self._image_from_active(source_1d), self._image_from_active(lens_1d), bbox
 
     @ck.forward
     def __call__(self):
-        """Return a finite scalar log evidence approximation."""
-        log_ev = self._log_evidence()
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        return jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        """Return a finite scalar log evidence."""
+        return self.evaluate().log_evidence
 
     @functools.partial(jit, static_argnums=(0,))
     def _position_likelihood_penalty_jax(self) -> Array:
@@ -526,4 +548,4 @@ class PixelizedImageProbModel(ck.Module):
         return float(np.asarray(self.__call__()))
 
 
-__all__ = ["PixelizedImageProbModel"]
+__all__ = ["PixelizedImageProbModel", "InversionResult"]

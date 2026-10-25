@@ -1,5 +1,20 @@
 Status: ready-for-agent
 
+> Supersession note (2026-10-25): the statements that the dense model rejects
+> adaptive source regularization and that adaptive regularization is out of
+> scope (e.g. user story 35) are superseded. Both backends now share the
+> template-only adaptive path: `fixed_reg_template` plus `fixed_source_bbox`,
+> with the weighted regularizer and its log determinant cached only when
+> `adaptive_reg_rho` is fixed. Gaussian-process regularization references in
+> this spec are historical and out of scope for that change.
+>
+> Follow-up (2026-10-25): the dense constructor now also accepts the shared
+> `source_bbox_padding` / `source_bbox_outlier_frac` inference settings, and
+> both backends return the shared `InversionResult` from `evaluate`.
+> Both also expose `reconstruct_component_images`, returning the source image,
+> lens-light image, and source bbox without another inversion. Any earlier
+> statements scoping those interfaces to the operator backend are superseded.
+
 ## Problem Statement
 
 When a lens modeler samples a dense pixelized-source model, every likelihood evaluation rebuilds the source regularization matrix from the current source grid. If the source grid is held fixed, that geometry does not change between proposals, but the dense evidence model has no place to keep the matrix or its log determinant. The same gap applies to the joint design matrix: once the source bounding box, every lens-mass component, and every unit-amplitude lens-light basis are fixed, the design matrix, its noise-weighted Gram matrix, and its right-hand side are invariant, yet they are rebuilt on every evaluation. Sampling therefore repeats work that the operator evidence model already skips. The dense model also cannot accept a fixed source bounding box, so a mass proposal still changes the pixelized source basis even when the modeler intended to freeze it.

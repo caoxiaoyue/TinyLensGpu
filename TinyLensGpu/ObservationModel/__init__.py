@@ -8,6 +8,7 @@ with observed data (images, time delays, etc.).
 from .LensImage import (
     BandImageData,
     ImageProbModel,
+    InversionResult,
     MultiBandImageProbModel,
     PixelizedImageProbModel,
     PointSourceProbModel,
@@ -16,6 +17,7 @@ from .LensImage import (
 __all__ = [
     'BandImageData',
     'ImageProbModel',
+    'InversionResult',
     'MultiBandImageProbModel',
     'PixelizedImageProbModel',
     'PointSourceProbModel',

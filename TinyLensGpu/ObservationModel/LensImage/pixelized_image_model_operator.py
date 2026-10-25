@@ -38,21 +38,16 @@ from TinyLensGpu.utils.inversion.regularization import (
     FiniteDifferenceRegularization,
     RegData,
 )
+from .inversion_result import InversionResult
+from ._pixelized_regularization import (
+    is_fixed as _is_fixed,
+    prepare_reg_template,
+    template_reg_scale,
+)
 from ._position_likelihood import (
     resolve_position_likelihood_attrs,
     compute_position_penalty_jax,
 )
-
-
-class InversionResult(NamedTuple):
-    """Outputs of one inversion; failed solves have zero reconstruction arrays."""
-
-    log_evidence: Array | None
-    model_image: Array
-    source_pixels: Array
-    lens_amplitudes: Array | None
-    source_bbox: tuple[Array, Array, Array, Array]
-    solver_info: PCGInfo | PNPGInfo
 
 
 class _PreparedData(NamedTuple):
@@ -61,14 +56,6 @@ class _PreparedData(NamedTuple):
     template_u: Array | None
     regularization: tuple | None = None
     mapping: tuple | None = None
-
-
-def _is_fixed(value):
-    """Use registered transitive dependencies, including pointer parameters."""
-    if not isinstance(value, (ck.Module, ck.Param)):
-        return True
-    params = (p for p in value.topological_ordering() if isinstance(p, ck.Param))
-    return all(not p.dynamic and (not p.pointer or bool(p.children)) for p in params)
 
 
 class PixelizedImageProbModelOperator(ck.Module):
@@ -119,13 +106,14 @@ class PixelizedImageProbModelOperator(ck.Module):
         matrix-free non-negative quadratic with all joint linear parameters
         constrained to be non-negative.
     fixed_source_bbox : tuple, optional
-        Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
+        Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. It keeps
+        the source grid invariant under mass proposals and is required for
         S0-based adaptive regularization.
-    fixed_reg_scale : array_like, optional
-        Flat fixed adaptive regularization scale map with shape ``(n * n,)``.
     fixed_reg_template : array_like, optional
         Flat or 2D S0 source template used to generate the adaptive scale map
-        from current ``adaptive_reg_rho`` values.
+        from current ``adaptive_reg_rho`` values. Required whenever adaptive
+        regularization is enabled, including a dynamic ``adaptive_reg_rho``
+        initialized at zero.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
         ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
@@ -160,7 +148,6 @@ class PixelizedImageProbModelOperator(ck.Module):
         block_size: int = 10,
         solver_type: str = "pcg",
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
-        fixed_reg_scale: Union[np.ndarray, Array, None] = None,
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
         source_bbox_padding: float = 0.05,
         source_bbox_outlier_frac: float = 0.0,
@@ -211,24 +198,10 @@ class PixelizedImageProbModelOperator(ck.Module):
             self.reg_type,
         )
         self._fixed_source_bbox = self._validate_fixed_source_bbox(fixed_source_bbox)
-        self._fixed_reg_scale = self._validate_fixed_reg_scale(
-            fixed_reg_scale, source_n * source_n
+        template_u = prepare_reg_template(
+            fixed_reg_template, source_n,
+            self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
-        self._fixed_reg_template = self._validate_fixed_reg_template(
-            fixed_reg_template, source_n
-        )
-        if self._adaptive_reg_enabled():
-            if self._fixed_source_bbox is None:
-                raise ValueError(
-                    "adaptive regularization in the operator backend requires "
-                    "fixed_source_bbox from an S0 source template."
-                )
-            if self._fixed_reg_scale is None and self._fixed_reg_template is None:
-                raise ValueError(
-                    "adaptive regularization in the operator backend requires "
-                    "fixed_reg_scale or fixed_reg_template derived from an S0 "
-                    "source template."
-                )
 
         # Block-diagonal preconditioner settings
         self.block_size = int(block_size)
@@ -256,14 +229,6 @@ class PixelizedImageProbModelOperator(ck.Module):
                 self.data_1d,
                 self.noise_1d,
             )
-            template_u = None
-            if self._fixed_reg_template is not None:
-                positive = jnp.maximum(self._fixed_reg_template, 0.0)
-                template_u = jnp.clip(
-                    positive / jnp.maximum(jnp.percentile(positive, 99.5), 1e-10),
-                    0.0,
-                    1.0,
-                )
             object.__setattr__(
                 self,
                 "_prepared",
@@ -276,9 +241,7 @@ class PixelizedImageProbModelOperator(ck.Module):
             regularization = mapping = None
             if self._fixed_source_bbox is not None:
                 bbox = self._fixed_source_bbox
-                if self._fixed_reg_template is None or _is_fixed(
-                    self.source_model.adaptive_reg_rho
-                ):
+                if _is_fixed(self.source_model.adaptive_reg_rho):
                     scale = self._get_reg_scale()
                     reg_data, blocks = self._build_regularization(bbox, scale)
                     regularization = (
@@ -338,45 +301,6 @@ class PixelizedImageProbModelOperator(ck.Module):
             )
         return bbox
 
-    @staticmethod
-    def _validate_fixed_reg_scale(
-        fixed_reg_scale: Union[np.ndarray, Array, None],
-        expected_size: int,
-    ) -> Array | None:
-        if fixed_reg_scale is None:
-            return None
-        scale = jnp.asarray(fixed_reg_scale, dtype=jnp.float32)
-        if scale.shape != (int(expected_size),):
-            raise ValueError(
-                "fixed_reg_scale must have shape "
-                f"({int(expected_size)},), got {scale.shape}."
-            )
-        valid = bool(np.asarray(jnp.all(jnp.isfinite(scale) & (scale > 0.0))))
-        if not valid:
-            raise ValueError("fixed_reg_scale values must be finite and positive.")
-        return scale
-
-    @staticmethod
-    def _validate_fixed_reg_template(
-        fixed_reg_template: Union[np.ndarray, Array, None],
-        n: int,
-    ) -> Array | None:
-        if fixed_reg_template is None:
-            return None
-        template = jnp.asarray(fixed_reg_template, dtype=jnp.float32)
-        if template.shape == (int(n), int(n)):
-            template = template.reshape(int(n) * int(n))
-        elif template.shape != (int(n) * int(n),):
-            raise ValueError(
-                "fixed_reg_template must have shape "
-                f"({int(n) * int(n)},) or ({int(n)}, {int(n)}), "
-                f"got {template.shape}."
-            )
-        valid = bool(np.asarray(jnp.all(jnp.isfinite(template))))
-        if not valid:
-            raise ValueError("fixed_reg_template values must be finite.")
-        return template
-
     def get_dynamic_params(self):
         """Return dynamic parameters exposed by the physical model."""
         return self.phys_model.dynamic_params
@@ -393,20 +317,6 @@ class PixelizedImageProbModelOperator(ck.Module):
     def source_model(self):
         """Return the single pixelized source configuration."""
         return self.phys_model.source_light[0]
-
-    @staticmethod
-    def _param_value(value):
-        return value.value if hasattr(value, "value") else value
-
-    def _adaptive_reg_enabled(self) -> bool:
-        rho = self.source_model.adaptive_reg_rho
-        if not _is_fixed(rho):
-            return True
-        rho_value = self._param_value(rho)
-        try:
-            return abs(float(rho_value)) >= 1.0e-10
-        except TypeError:
-            return True
 
     # ------------------------------------------------------------------
     # Source-plane bbox
@@ -475,28 +385,13 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Return the S0-derived adaptive scale map.
 
         The operator backend no longer constructs adaptive scale maps from
-        image-plane seed rays.  Adaptive runs must provide either a fixed
-        scale map or an S0 source template before JIT tracing; uniform runs
+        image-plane seed rays.  Adaptive runs must provide an S0 source
+        template via ``fixed_reg_template`` before JIT tracing; uniform runs
         keep the ``None`` fast path.
         """
-        if not self._adaptive_reg_enabled():
-            return None
-        if self._fixed_reg_template is not None:
-            rho = jnp.maximum(
-                jnp.asarray(
-                    self._param_value(self.source_model.adaptive_reg_rho),
-                    dtype=jnp.float32,
-                ),
-                0.0,
-            )
-            scale = jnp.exp(rho * (1.0 - self._prepared.template_u))
-            return jnp.where(jnp.abs(rho) < 1e-10, jnp.ones_like(scale), scale)
-        if self._fixed_reg_scale is None:
-            raise ValueError(
-                "fixed_reg_scale or fixed_reg_template is required when "
-                "adaptive_reg_rho > 0 in PixelizedImageProbModelOperator."
-            )
-        return self._fixed_reg_scale
+        return template_reg_scale(
+            self._prepared.template_u, self.source_model.adaptive_reg_rho
+        )
 
     # ------------------------------------------------------------------
     # Source solve via configured iterative solver
@@ -869,9 +764,20 @@ class PixelizedImageProbModelOperator(ck.Module):
         return result.model_image
 
     def reconstruct_component_images(
-        self, source_pixels: Array, lens_light_intensities: Array,
+        self, source_pixels: Array, lens_light_intensities: Array | None,
     ) -> tuple[Array, Array, tuple[Array, Array, Array, Array]]:
-        """Reconstruct full source/lens-light images and return the source bbox."""
+        """Reconstruct masked 2D source/lens images at the current parameters.
+
+        The reconstruction uses the parameter values current at call time —
+        fill dynamic parameters first (``with ck.ActiveContext(model):
+        model.fill_params(theta)``) to match a chosen proposal; no last-result
+        state is kept. Masked pixels (``mask=True``) are zero. With no lens light,
+        pass ``None`` or an empty vector and the lens image is zero.
+        """
+        if self.has_lens_light and lens_light_intensities is None:
+            raise ValueError("lens_light_intensities is required when lens_light is present")
+        if not self.has_lens_light:
+            lens_light_intensities = jnp.empty((0,), dtype=jnp.asarray(source_pixels).dtype)
         (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
          _beta_x_seed, _beta_y_seed) = self._get_bbox()
         op_data = self.sim_obj.precompute_operator_data(

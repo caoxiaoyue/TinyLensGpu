@@ -19,6 +19,11 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.chdir(Path(__file__).parent)
 
 import numpy as np
+import jax
+
+# Resolve the closely related MGE basis columns in the dense factorization.
+jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from astropy.io import fits
@@ -267,46 +272,19 @@ best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
 
-    # Get joint design matrix
-    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-    reg_matrix = prob_model._regularization_matrix(source_bbox)
-    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
-
-    # Solve joint system
-    linear_params, chol, curvature = prob_model._solve_source(
-        design_matrix, reg_matrix, lam
-    )
-
     n_source = prob_model.sim_obj.n_source_pixels
-    source_pixels = linear_params[:n_source]
-    lens_amplitudes = linear_params[n_source:] if prob_model.has_lens_light else None
-
-    # Reconstruct components
-    model_1d = design_matrix @ linear_params
-
-    # Source-only image
-    F = design_matrix[:, :n_source]
-    source_1d = F @ source_pixels
-
-    # Lens light image
-    if prob_model.has_lens_light:
-        L = design_matrix[:, n_source:]
-        lens_1d = L @ lens_amplitudes
-    else:
-        lens_1d = jnp.zeros_like(source_1d)
+    model_image, source_pixels, lens_amplitudes = prob_model.forward_model(
+        return_components=True
+    )
+    source_image_2d, lens_image_2d, source_bbox = (
+        prob_model.reconstruct_component_images(source_pixels, lens_amplitudes)
+    )
 
 # Build 2D images
 npix = image_data.shape[0]
-flat_indices = prob_model.sim_obj.flat_indices
-
-model_image = np.zeros((npix, npix))
-model_image.put(flat_indices, np.array(model_1d))
-
-source_image_2d = np.zeros((npix, npix))
-source_image_2d.put(flat_indices, np.array(source_1d))
-
-lens_image_2d = np.zeros((npix, npix))
-lens_image_2d.put(flat_indices, np.array(lens_1d))
+model_image = np.asarray(model_image)
+source_image_2d = np.asarray(source_image_2d)
+lens_image_2d = np.asarray(lens_image_2d)
 
 resid_norm = (image_data - model_image) / noise_map
 
@@ -384,11 +362,14 @@ plt.suptitle(
     f"(theta_E={q50_list[0]:.3f}\")",
     fontsize=12,
 )
-overlay_critical_and_caustics(
-    image_axes=[axes[0], axes[1], axes[2]],
-    source_ax=axes[3],
-    lens_mass=prob_model.phys_model,
-)
+# Use the same sampled parameters as the reconstruction for critical curves.
+with ck.ActiveContext(prob_model):
+    prob_model.fill_params(best_params)
+    overlay_critical_and_caustics(
+        image_axes=[axes[0, 0], axes[0, 1], axes[0, 2]],
+        source_ax=axes[0, 3],
+        lens_mass=prob_model.phys_model,
+    )
 
 plt.tight_layout()
 plt.savefig("output/fit_map_visualization.png", dpi=150, bbox_inches="tight")
