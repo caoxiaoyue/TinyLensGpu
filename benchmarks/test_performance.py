@@ -1,8 +1,6 @@
-"""
-Performance and benchmark tests for TinyLensGpu.
+"""Explicit timing and scaling benchmarks for TinyLensGpu.
 
-This module tests performance characteristics and provides benchmarks
-for key operations to ensure efficiency and track performance regressions.
+Run with ``pytest benchmarks`` from the repository root.
 """
 
 import pytest
@@ -292,35 +290,6 @@ class TestScalability:
         assert times[2] > times[1], f"Expected slower runtime for 10 components: {times}"
         assert 1.01 < ratio_1_5 < 10, f"Unexpected scaling 1->5: {ratio_1_5:.2f}"
         assert 1.01 < ratio_5_10 < 5, f"Unexpected scaling 5->10: {ratio_5_10:.2f}"
-
-
-@pytest.mark.performance
-class TestMemoryEfficiency:
-    """Test memory efficiency."""
-    
-    def test_large_simulation_memory(self, benchmark_if_available):
-        """Test that large simulations don't cause memory issues."""
-        sie = SIE(theta_E=1.5, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
-        source = GaussianEllipse(flux=10.0, sigma=0.5, e1=0.0, e2=0.0,
-                                center_x=0.0, center_y=0.0)
-        
-        for param in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
-            param.to_static()
-        for param in [source.flux, source.sigma, source.e1, source.e2,
-                      source.center_x, source.center_y]:
-            param.to_static()
-        
-        model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
-        
-        # Large simulation
-        config = SimulatorConfig(dpix=0.05, npix=200, nsub=4)
-        simulator = LensSimulator(model, config)
-        
-        # Should complete without memory errors
-        img = simulator.simulate(use_linear=False)
-        
-        assert img.shape == (200, 200)
-        assert not jnp.isnan(img).any()
 
 
 @pytest.mark.performance

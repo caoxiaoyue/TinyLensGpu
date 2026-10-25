@@ -202,20 +202,26 @@ python sim_data.py && python single_step_inversion_mge_shapelet.py
 
 ## Testing
 
-TinyLensGpu includes a comprehensive test suite with **90+ tests** covering all major functionality:
+The default pytest suite covers the TinyLensGpu library, including integration
+and numerical regression tests. Activate the `tinylens_gpu` environment and
+run these commands from the repository root, in separate processes:
 
 ```bash
-# Run all tests
-pytest
-
-# Run specific test suites
-pytest tests/test_caskade_models.py     # Caskade model implementations
-pytest tests/test_integration.py         # End-to-end integration
-pytest tests/test_mass_profile.py        # Parametric mass models
-pytest tests/test_multiband_parametric.py   # Multi-band image models
-pytest tests/test_pixelized_inversion.py    # Pixelated source reconstruction
-pytest tests/test_point_source_model.py     # Point source position modeling
+pytest                         # core library tests
+pytest -m "not slow"           # core tests excluding slow cases
+pytest examples/tests          # example and pipeline regressions
+pytest benchmarks              # timing and scaling benchmarks
 ```
+
+For a specific file, run from its directory, for example:
+
+```bash
+cd tests
+pytest test_pixelized_inversion.py
+```
+
+See the [testing guide](docs/guides/guide.md#5-testing--quality) for test
+placement, fixtures, and example path conventions.
 
 ## Documentation
 

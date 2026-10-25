@@ -1,4 +1,4 @@
-"""Consistency test: matrix vs operator backends for pixelized source inversion.
+"""Manual comparison of matrix and operator pixelized inversion backends.
 
 Compares source reconstruction, model image, chi-squared, and log evidence
 between the two backends across a range of regularization strengths.

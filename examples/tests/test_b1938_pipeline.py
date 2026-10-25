@@ -1,7 +1,6 @@
 """Regression checks for the B1938 direct-M1 pixelized pipeline."""
 import importlib.util
 import inspect
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,13 +10,10 @@ from TinyLensGpu.Inference import StagePosterior
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 
 
-SCRIPT = (Path(__file__).resolve().parents[1] / "examples" /
-          "pix_src_demo_operator/pipe/subhalo_B1938/model.py")
-
-
 @pytest.fixture
-def model(tmp_path, monkeypatch):
-    spec = importlib.util.spec_from_file_location("b1938_pipeline_test", SCRIPT)
+def model(tmp_path, monkeypatch, examples_dir):
+    script = examples_dir / "pix_src_demo_operator/pipe/subhalo_B1938/model.py"
+    spec = importlib.util.spec_from_file_location("b1938_pipeline_test", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "NSRC", 20)

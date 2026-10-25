@@ -6,14 +6,21 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import json
+import sys
 from pathlib import Path
 import numpy as np
 import pytest
 from astropy.io import fits
 from matplotlib.backend_bases import KeyEvent, MouseButton, MouseEvent
 
-from mask_tool import FitsMaskEditor, load_fits_image
-import mask_tool
+TOOL_DIR = Path(__file__).resolve().parents[1] / "mask_tool"
+# The notebook reloads the top-level module by this name.
+with pytest.MonkeyPatch.context() as import_path:
+    import_path.syspath_prepend(str(TOOL_DIR))
+    import mask_tool
+
+FitsMaskEditor = mask_tool.FitsMaskEditor
+load_fits_image = mask_tool.load_fits_image
 
 
 @pytest.fixture
@@ -309,7 +316,9 @@ def test_notebook_replaces_cached_editor(editor, monkeypatch, rerun_import_cell)
             )
 
     monkeypatch.setattr(mask_tool, "FitsMaskEditor", StaleMaskEditor)
-    tool_dir = Path(__file__).parent.resolve()
+    tool_dir = TOOL_DIR
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    monkeypatch.syspath_prepend(str(tool_dir))
     monkeypatch.chdir(tool_dir)
     notebook = json.loads((tool_dir / "mask_tool_demo.ipynb").read_text())
     namespace = {

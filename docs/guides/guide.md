@@ -328,22 +328,61 @@ Run the complete example from its own directory so its relative data paths resol
 
 ## 5. Testing & Quality
 
-The repository ships with a comprehensive pytest suite.
+From the repository root, activate the environment and select a suite:
 
 ```bash
-pytest                       # run everything
-pytest -m "integration"      # only integration tests
+source ~/anaconda3/bin/activate && conda activate tinylens_gpu
+pytest                         # core library tests (default collection)
+pytest -m "integration"        # core integration tests
+pytest examples/tests          # example and pipeline regressions
+pytest benchmarks              # timing and scaling benchmarks
 pytest --cov=TinyLensGpu --cov-report=term-missing
+```
 
-# Run a specific test from the directory containing its file
+Run the suites in separate processes: some example modules change JAX
+precision, working directories, or plotting configuration when imported.
+Use `XLA_PYTHON_CLIENT_PREALLOCATE=false` on memory-constrained GPUs and
+`MPLBACKEND=Agg` for headless plotting tests. Target `examples/tests`
+explicitly; runnable examples elsewhere may execute work at import time.
+
+| Location | Responsibility |
+| --- | --- |
+| `tests/` | Library behavior, numerical regressions, cross-module integration, and large-input correctness |
+| `examples/tests/` | Example assembly, source-package exports, plotting, tools, and pipeline stage flow |
+| `benchmarks/` | Timing thresholds and performance scaling |
+| Example or experiment directory | Manual scientific comparisons, parameter scans, and full sampling runs |
+
+Place a test according to the behavior it guarantees. Using a real model,
+several library modules, or a large input does not by itself make a test an
+example test or a benchmark.
+
+Core tests must run without importing or reading `examples/`. Keep shared
+fixtures in each suite's own `conftest.py` and file-specific fixtures beside
+their tests. Suites must not import each other's test helpers. The
+`examples_dir` fixture resolves example paths independently of the working
+directory. Example tests should restore import-time working-directory
+changes, write outputs to `tmp_path`, and use small generated inputs for
+automated runs. Keep shared example fixtures free of global JAX imports so
+standalone tool tests can run with their own dependencies. Source checks
+scan runnable examples and Markdown Python blocks, excluding `examples/tests`.
+
+Run a specific test from the directory containing its file:
+
+```bash
 cd tests
 pytest test_boundary.py::TestParameterBoundaries::test_sie_zero_einstein_radius
 ```
 
 Useful markers & options:
-- `-m "not slow"` to skip time-consuming cases
-- `-k "pattern"` to match test names
-- `-n auto` (requires `pytest-xdist`) for parallel execution
+
+- `-m "not slow"` excludes slow cases within the selected suite.
+- `-k "pattern"` matches test names.
+- `-n auto` (requires `pytest-xdist`) enables parallel execution; benchmark
+  timings should be measured without concurrent test workers.
+
+Markers describe test characteristics; paths select suites. The root
+`pytest.ini` is shared by all suites and keeps `testpaths = tests`.
+The shared `pythonpath = .` setting makes each suite import the current checkout.
 
 ---
 
@@ -363,7 +402,9 @@ Useful markers & options:
 
 - **README**: Project overview and citation instructions.
 - **examples/**: End-to-end runnable examples (`lens_only`, `lens_src`, `lens_src_mge`, etc.).
-- **tests/**: Reference implementations for new components or regression reproduction.
+- **tests/**: Core library behavior and regression tests.
+- **examples/tests/**: Automated example and pipeline regressions.
+- **benchmarks/**: Explicit timing and scaling benchmarks.
 - **Point-source guide**: `docs/guides/point-source-model.md`
 
 Contributions should update the relevant guide when behavior or workflows change.

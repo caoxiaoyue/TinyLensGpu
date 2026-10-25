@@ -1151,3 +1151,27 @@ class TestLargeScaleIntegration:
         
         assert img.shape == (100, 100)
         assert not jnp.isnan(img).any()
+
+    def test_large_simulation_shape_and_values(self):
+        """A 200x200 simulation with subpixel integration has valid image values."""
+        sie = SIE(theta_E=1.5, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+        source = GaussianEllipse(flux=10.0, sigma=0.5, e1=0.0, e2=0.0,
+                                center_x=0.0, center_y=0.0)
+
+        for param in [sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y]:
+            param.to_static()
+        for param in [source.flux, source.sigma, source.e1, source.e2,
+                      source.center_x, source.center_y]:
+            param.to_static()
+
+        model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
+
+        # Large simulation
+        config = SimulatorConfig(dpix=0.05, npix=200, nsub=4)
+        simulator = LensSimulator(model, config)
+
+        # Should complete without memory errors
+        img = simulator.simulate(use_linear=False)
+
+        assert img.shape == (200, 200)
+        assert not jnp.isnan(img).any()

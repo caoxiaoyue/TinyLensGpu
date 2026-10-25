@@ -1,89 +1,10 @@
-"""Static API checks for runnable code under ``examples/``."""
+"""Regression checks for pixelized pipeline source-package exports."""
 
 import ast
-import importlib
-import re
-from pathlib import Path
 
 import pytest
 
-
-EXAMPLES_DIR = Path(__file__).parents[1] / "examples"
-REMOVED_OPERATOR_API = {
-    "JointOperatorData",
-    "_A_jit_prebound",
-    "_joint_A_matvec_jit",
-    "as_solver_protocol",
-    "build_A_matvec",
-    "call_A_matvec",
-}
-
-
-def _example_code_units():
-    for path in sorted(EXAMPLES_DIR.rglob("*.py")):
-        yield path.relative_to(EXAMPLES_DIR).as_posix(), path.read_bytes()
-
-    python_fence = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
-    for path in sorted(EXAMPLES_DIR.rglob("*.md")):
-        relative_path = path.relative_to(EXAMPLES_DIR).as_posix()
-        for block_index, match in enumerate(
-            python_fence.finditer(path.read_text()), start=1
-        ):
-            yield f"{relative_path}#python-{block_index}", match.group(1)
-
-
-@pytest.mark.unit
-def test_example_python_sources_compile():
-    """Every Python source and Markdown Python block should compile."""
-    for label, source in _example_code_units():
-        compile(source, label, "exec")
-
-
-@pytest.mark.unit
-def test_example_tinylens_imports_resolve():
-    """Names imported from TinyLensGpu should exist on their stated surface."""
-    failures = []
-    for label, source in _example_code_units():
-        tree = ast.parse(source, filename=label)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            if node.module is None or not node.module.startswith("TinyLensGpu"):
-                continue
-            module = importlib.import_module(node.module)
-            for alias in node.names:
-                if alias.name != "*" and not hasattr(module, alias.name):
-                    failures.append(
-                        f"{label}:{node.lineno}: "
-                        f"{node.module}.{alias.name}"
-                    )
-    assert not failures, "Invalid TinyLensGpu example imports:\n" + "\n".join(
-        failures
-    )
-
-
-@pytest.mark.unit
-def test_examples_do_not_use_removed_operator_api():
-    """Examples should use the typed curvature-operator API exclusively."""
-    failures = []
-    for label, source in _example_code_units():
-        tree = ast.parse(source, filename=label)
-        used_names = {
-            node.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-        }
-        used_names.update(
-            node.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute)
-        )
-        removed_names = sorted(used_names & REMOVED_OPERATOR_API)
-        if removed_names:
-            failures.append(f"{label}: {', '.join(removed_names)}")
-    assert not failures, "Examples use removed operator API:\n" + "\n".join(
-        failures
-    )
+import TinyLensGpu  # noqa: F401 -- select the JAX backend before importing caskade
 
 
 _PIPE_PACKAGE_HELPERS = (
@@ -120,7 +41,7 @@ def _load_source_package_helper(path):
 @pytest.mark.unit
 @pytest.mark.parametrize("relative_path", _PIPE_PACKAGE_HELPERS)
 @pytest.mark.parametrize("converged", [True, False])
-def test_source_package_helper_uses_public_evaluate(relative_path, converged):
+def test_source_package_helper_uses_public_evaluate(relative_path, converged, examples_dir):
     """Pipe source-package helpers go through one public evaluate() call."""
     import caskade as ck
     import jax.numpy as jnp
@@ -132,7 +53,7 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged):
     )
 
     helper = _load_source_package_helper(
-        EXAMPLES_DIR / "pix_src_demo_operator" / "pipe" / relative_path
+        examples_dir / "pix_src_demo_operator" / "pipe" / relative_path
     )
 
     calls = []
@@ -191,74 +112,6 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged):
     np.testing.assert_allclose(package["source_y_axis"], np.linspace(-0.3, 0.3, 3))
 
 
-_JOINT_FIT_FILES = (
-    EXAMPLES_DIR / "pix_src_demo/simple/pix_src_lens_light/fit_joint.py",
-    EXAMPLES_DIR / "pix_src_demo/simple/pix_src_lens_light_mge/fit_joint.py",
-)
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("fit_path", _JOINT_FIT_FILES)
-def test_joint_fit_overlay_uses_correct_axes_and_parameter_context(fit_path):
-    """The critical-curve overlay uses 2D axes indexing and the fitted context."""
-    import TinyLensGpu  # noqa: F401 -- import first so caskade picks 'jax' backend
-    import caskade as ck
-    import numpy as np
-
-    tree = ast.parse(fit_path.read_text(), filename=str(fit_path))
-    overlay_stmt = None
-    for node in tree.body:
-        for sub in ast.walk(node):
-            if (
-                isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Name)
-                and sub.func.id == "overlay_critical_and_caustics"
-            ):
-                overlay_stmt = node
-                break
-        if overlay_stmt is not None:
-            break
-    assert overlay_stmt is not None, f"overlay call not found in {fit_path}"
-
-    calls = []
-    axes = np.asarray(
-        [[object() for _ in range(4)] for _ in range(2)], dtype=object,
-    )
-    prob_model = ck.Module("overlay_probe")
-    prob_model.phys_model = ck.Module("mass_probe")
-    prob_model.phys_model.theta_E = ck.Param("theta_E", 1.0)
-    prob_model.phys_model.theta_E.to_dynamic()
-
-    def overlay_critical_and_caustics(*, image_axes, source_ax, lens_mass):
-        calls.append(dict(
-            image_axes=image_axes,
-            source_ax=source_ax,
-            lens_mass=lens_mass,
-            theta_E=float(np.asarray(lens_mass.theta_E.value)),
-        ))
-
-    namespace = {
-        "np": np, "ck": ck,
-        "axes": axes,
-        "prob_model": prob_model,
-        "best_params": [1.1],
-        "overlay_critical_and_caustics": overlay_critical_and_caustics,
-    }
-    exec(
-        compile(
-            ast.Module(body=[overlay_stmt], type_ignores=[]),
-            str(fit_path), "exec",
-        ),
-        namespace,
-    )
-    assert len(calls) == 1
-    call = calls[0]
-    assert call["image_axes"] == [axes[0, 0], axes[0, 1], axes[0, 2]]
-    assert call["source_ax"] is axes[0, 3]
-    assert call["lens_mass"] is prob_model.phys_model
-    assert call["theta_E"] == pytest.approx(1.1)
-
-
 @pytest.fixture(scope="module")
 def small_source_export_model():
     import TinyLensGpu  # ensure CASKADE_BACKEND selected before caskade
@@ -295,7 +148,7 @@ def small_source_export_model():
 @pytest.mark.parametrize("relative_path", _PIPE_PACKAGE_HELPERS)
 @pytest.mark.parametrize("rho", [0.0,1.2])
 def test_source_package_matches_legacy_real_operator(
-    relative_path, rho, small_source_export_model, monkeypatch,
+    relative_path, rho, small_source_export_model, monkeypatch, examples_dir,
 ):
     import caskade as ck
     import jax.numpy as jnp
@@ -334,7 +187,7 @@ def test_source_package_matches_legacy_real_operator(
         calls.append(None)
         return solve(*args, **kwargs)
     monkeypatch.setattr(model,"_solve_source",counted_solve)
-    helper = _load_source_package_helper(EXAMPLES_DIR / "pix_src_demo_operator" / "pipe" / relative_path)
+    helper = _load_source_package_helper(examples_dir / "pix_src_demo_operator" / "pipe" / relative_path)
     package = helper(model,medians,names)
     assert len(calls) == 1
     assert set(package) == {"source_pixels","source_image","source_bbox","source_x_axis","source_y_axis","n"}

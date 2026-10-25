@@ -166,7 +166,8 @@ It rejects an output path that would overwrite the input image.
 ```bash
 source ~/anaconda3/bin/activate
 conda activate tinylens_gpu
-cd /home/xycao/workspace/tinylens_dev/TinyLensGpu/examples/mask_tool
+# From the repository root
+cd examples/tests
 MPLBACKEND=Agg pytest test_mask_tool.py
 ```
 

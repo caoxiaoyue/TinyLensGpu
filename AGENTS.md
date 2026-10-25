@@ -13,18 +13,34 @@ Core deps: `jax[cuda12]`, `caskade[jax]`, `numpy<2.0`, `jaxnnls`. If JAX sees on
 
 ## Test & Verify
 
+Activate the environment before running tests:
+
 ```bash
-pytest                          # all tests (90+)
-pytest -m "not slow"           # fast subset
-pytest -m integration          # end-to-end only
-pytest -k "pattern"            # specific test
+source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 ```
 
-Test markers: `unit`, `integration`, `slow`, `performance`, `boundary`. Defined in `pytest.ini`. No CI workflows exist in this repo yet.
+From the repository root:
 
-**Environment:** Activate the environment with `source ~/anaconda3/bin/activate && conda activate tinylens_gpu` before running test programs.
+```bash
+pytest                         # core library tests
+pytest -m "not slow"           # core tests excluding slow cases
+pytest -m integration          # core integration tests
+pytest examples/tests          # example and pipeline regressions
+pytest benchmarks              # timing and scaling benchmarks
+```
 
-**Running specific tests:** When running a specific test, run it from the directory where that file lives unless a task says otherwise.
+Place library behavior tests in `tests/`, including cross-module integration
+and large-input correctness. Place example-specific assembly, exports,
+plotting, and stage-flow tests in `examples/tests/`; place timing assertions
+in `benchmarks/`. Run these suites in separate processes because example
+imports can change JAX and plotting configuration. Default collection is
+restricted to `tests/`; see `docs/guides/guide.md` for fixture and path rules.
+
+Markers: `unit`, `integration`, `slow`, `performance`, `boundary` (registered
+in `pytest.ini`). No CI workflows exist in this repo yet.
+
+**Running specific tests:** Run a specific test from the directory where its
+file lives unless a task says otherwise.
 
 ## Architecture (4 layers)
 

@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 
-def _load_model_adpt_reg():
+def _load_model_adpt_reg(examples_dir):
     """Load the demo module while containing its import-time chdir."""
-    repo_root = Path(__file__).resolve().parents[1]
     module_path = (
-        repo_root
-        / "examples"
+        examples_dir
         / "pix_src_demo_operator"
         / "pipe"
         / "no_lens_light"
@@ -35,8 +32,8 @@ def _load_model_adpt_reg():
 
 
 @pytest.fixture(scope="module")
-def model_adpt_reg():
-    return _load_model_adpt_reg()
+def model_adpt_reg(examples_dir):
+    return _load_model_adpt_reg(examples_dir)
 
 
 def _source_package(module, *, n=None, source_bbox=None, source_pixels=None):
