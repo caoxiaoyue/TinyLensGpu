@@ -48,12 +48,12 @@ file lives unless a task says otherwise.
 |---|---|---|
 | `TinyLensGpu/PhysicalModel/` | Mass & light components | `SIE`, `Shear`, `SersicEllipse`, `PhysicalModel` |
 | `TinyLensGpu/ForwardSimulation/` | Ray-tracing + PSF convolution | `LensSimulator`, `SimulatorConfig` |
-| `TinyLensGpu/ObservationModel/` | Likelihood / evidence | `ImageProbModel`, `MultiBandImageProbModel`, `PointSourceProbModel` |
-| `TinyLensGpu/Inference/` | Priors, likelihood builders, samplers | `ParamU`, `make_prior_transformation`, `make_likelihood` |
+| `TinyLensGpu/ObservationModel/` | Likelihood / evidence | `ImageProbModel`, `MultiBandImageProbModel`, `PointSourceProbModel`, `PixelizedImageProbModel`, `PixelizedImageProbModelOperator` |
+| `TinyLensGpu/Inference/` | Priors, likelihood builders, posterior transfer, samplers | `ParamU`, `make_prior_transformation`, `make_likelihood`, `StagePosterior` |
 
-Both shallow (`from TinyLensGpu.PhysicalModel import SIE`) and deep (`from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE`) imports work. The package `__init__.py` re-exports common symbols.
+The layer packages re-export common models; `TinyLensGpu/__init__.py` initializes backend and compatibility behavior. When locating a backend, public import, or regression test, read `docs/agents/codebase-map.md`.
 
-## Canonical Workflow
+## Canonical Workflow (Parametric Images)
 
 1. **Load data** — `load_lens_data()` wraps FITS image/noise/PSF loading.
 2. **Build components** — Instantiate `ParamU` parameters inside `SIE`, `Shear`, `SersicEllipse`, etc.
@@ -75,7 +75,7 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 
 - **Caskade modules**: All physical components inherit from `caskade.Module`. The backend is forced to `'jax'` in `TinyLensGpu/__init__.py`.
 - **Jax Array bool**: `TinyLensGpu/__init__.py` monkey-patches `jax.Array.__bool__` for legacy compatibility with `array or default` patterns. Prefer explicit `None` checks in new code.
-- **Linear solvers**: `solver_type="nnls"` is physical (non-negative) but slightly slower; `"normal"` is faster but may produce negative fluxes.
+- **Linear solvers**: Parametric image models use `"nnls"` for non-negative amplitudes or `"normal"` for unconstrained amplitudes. Pixelized models use different solver choices; see `docs/agents/codebase-map.md` before selecting one.
 - **nsub**: 1 (fast) → 3+ (high accuracy). Sub-pixel integration factor.
 - **No formatting configs**: `black`, `flake8`, `isort`, `ruff` are in dev extras but no `.flake8`, `pyproject.toml`, or `ruff.toml` exists. Use defaults.
 
@@ -99,12 +99,12 @@ before using them to assess a changed model.
 
 ### Issue tracker
 
-Issues are tracked as local Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Before creating, claiming, or closing specs and tickets, read `docs/agents/issue-tracker.md`. Work lives in `.scratch/<feature>/`; `.scratch/README.md` indexes existing material.
 
 ### Triage labels
 
-Triage uses the canonical five-role label vocabulary. See `docs/agents/triage-labels.md`.
+When triaging incoming reports, read `docs/agents/triage-labels.md` for the five canonical roles. Implementation progress follows the separate lifecycle in `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
-Domain documentation uses the single-context layout. See `docs/agents/domain.md`.
+Before exploring domain behavior or changing terminology, read `docs/agents/domain.md` for the single-context glossary and relevant ADRs.
