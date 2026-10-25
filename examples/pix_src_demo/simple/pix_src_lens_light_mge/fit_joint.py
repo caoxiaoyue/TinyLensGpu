@@ -269,7 +269,7 @@ with ck.ActiveContext(prob_model):
 
     # Get joint design matrix
     design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-    reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
+    reg_matrix = prob_model._regularization_matrix(source_bbox)
     lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
 
     # Solve joint system

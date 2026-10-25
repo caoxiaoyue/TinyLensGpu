@@ -35,7 +35,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
 )
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve_with_implicit_grad, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
-    DenseRegularizationBuilder,
+    FiniteDifferenceRegularization,
     RegData,
 )
 from ._position_likelihood import (
@@ -206,7 +206,7 @@ class PixelizedImageProbModelOperator(ck.Module):
 
         source_n = int(self.source_model.n)
         self.reg_type = self.source_model.regularization_type
-        self.reg_builder = DenseRegularizationBuilder(
+        self.reg_builder = FiniteDifferenceRegularization(
             source_n,
             self.reg_type,
         )
@@ -450,7 +450,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Return the compact :class:`RegData` tuple for the matrix-free PCG path.
 
         Only finite-difference regularization types are supported by the
-        operator backend.  GP types should use the dense backend instead.
+        operator backend.
 
         If *scale* is ``None``, uniform edge weights of 1 are used
         (fast-path in the operator matvec); ``None`` is passed through

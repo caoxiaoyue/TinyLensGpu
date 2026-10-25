@@ -36,7 +36,7 @@ from TinyLensGpu.utils.cg_solver import (
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve
 from TinyLensGpu.utils.inversion.regularization import (
-    DenseRegularizationBuilder,
+    FiniteDifferenceRegularization,
     source_template_scale_map,
 )
 import caskade as ck
@@ -610,9 +610,9 @@ def test_A_matvec_matches_explicit():
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
 
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
-    reg_dense, _ = builder.matrix(xmif, xmaf, ymif, ymaf)
+    reg_dense = builder.matrix(xmif, xmaf, ymif, ymaf)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
 
     # Build explicit F from operator's design_matrix (uses same bbox)
@@ -645,7 +645,7 @@ def test_source_and_joint_curvature_operators_match_jit_and_dense():
     simulator = PixelizedLensOperator(phys, config)
     _, _, beta_x, beta_y = simulator._get_beta_sub_and_seed()
     xmin, xmax, ymin, ymax = simulator._infer_and_fix_bbox(beta_x, beta_y)
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
     reg_data = builder.make_reg_data(
         float(xmin), float(xmax), float(ymin), float(ymax),
     )
@@ -702,7 +702,7 @@ def test_source_and_joint_curvature_operators_match_jit_and_dense():
         in_axes=1,
         out_axes=1,
     )(jnp.eye(source_operator.size))
-    regularization, _ = builder.matrix(
+    regularization = builder.matrix(
         float(xmin), float(xmax), float(ymin), float(ymax),
     )
     noise_variance = noise_1d ** 2
@@ -755,7 +755,7 @@ def test_preconditioner_is_spd():
 
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
 
     block_chols, block_masks = sim_op.build_block_diag_preconditioner(
         n_1d, xmi, xma, ymi, yma, lam, builder, block_size=3,
@@ -803,7 +803,7 @@ def test_preconditioner_stacks_equal_sized_blocks():
 
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
 
     block_chols, block_masks = sim_op.build_block_diag_preconditioner(
         n_1d, xmi, xma, ymi, yma, lam, builder, block_size=5,
@@ -1101,7 +1101,7 @@ def test_operator_pnpg_matches_dense_nnls_objective_small_grid():
         solver_type="nnls",
     )
     design_matrix, _ = prob_dense.sim_obj.design_matrix(source_bbox=source_bbox)
-    reg_matrix, _ = prob_dense._regularization_matrix(source_bbox)
+    reg_matrix = prob_dense._regularization_matrix(source_bbox)
     src_dense, _, _ = prob_dense._solve_source(design_matrix, reg_matrix, lambda_reg)
 
     prob_op = PixelizedImageProbModelOperator(
@@ -1161,7 +1161,7 @@ def test_operator_pnpg_joint_matches_dense_nnls_objective():
         return_components=True
     )
     _, source_bbox = dense.sim_obj.design_matrix()
-    reg_matrix, _ = DenseRegularizationBuilder(
+    reg_matrix = FiniteDifferenceRegularization(
         5, "first-order"
     ).matrix(*source_bbox)
     dense_objective = _joint_objective(
@@ -2066,9 +2066,9 @@ def test_nonsymmetric_psf_A_matvec_matches_explicit():
     n_1d = noise[~config.mask].ravel()
     lam = jnp.asarray(1.0)
 
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
-    reg_dense, _ = builder.matrix(xmif, xmaf, ymif, ymaf)
+    reg_dense = builder.matrix(xmif, xmaf, ymif, ymaf)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
 
     # Explicit F from operator's design_matrix (uses same bbox and PSF)
@@ -2127,10 +2127,10 @@ def test_nonsymmetric_psf_source_consistency():
 def test_matvec_free_matches_dense(reg_type):
     """matvec_free should give identical result to dense R @ s."""
     n = 7  # test different grid sizes
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 2.0, -0.5, 1.5
 
-    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
+    reg_dense = builder.matrix(xmin, xmax, ymin, ymax)
     s = jnp.linspace(-1.0, 1.0, n * n)
 
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax)
@@ -2146,33 +2146,16 @@ def test_matvec_free_matches_dense(reg_type):
 def test_logdet_free_matches_dense(reg_type):
     """logdet_free should match slogdet of dense R."""
     n = 5
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
 
-    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
+    reg_dense = builder.matrix(xmin, xmax, ymin, ymax)
     _, logdet_expected = jnp.linalg.slogdet(reg_dense)
     logdet_computed = builder.logdet_free(xmin, xmax, ymin, ymax)
 
     np.testing.assert_allclose(
         float(logdet_computed), float(logdet_expected), rtol=1e-4, atol=1e-3,
     )
-
-
-@pytest.mark.unit
-def test_matvec_free_raises_for_gp():
-    """matvec_free should raise ValueError for GP types."""
-    builder = DenseRegularizationBuilder(5, "exponential")
-    s = jnp.ones(25)
-    with pytest.raises(ValueError, match="GP"):
-        builder.matvec_free(s, -1.0, 1.0, -1.0, 1.0)
-
-
-@pytest.mark.unit
-def test_logdet_free_raises_for_gp():
-    """logdet_free should raise ValueError for GP types."""
-    builder = DenseRegularizationBuilder(5, "gaussian")
-    with pytest.raises(ValueError, match="GP"):
-        builder.logdet_free(-1.0, 1.0, -1.0, 1.0)
 
 
 @pytest.mark.unit
@@ -2183,7 +2166,7 @@ def test_edge_weighted_constant_source_has_zero_internal_energy(reg_type):
     stabilisers and are excluded from this check).
     """
     n = 5
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 1.0, -1.0, 1.0
     scale = jnp.linspace(0.5, 1.5, n * n)  # deliberately non-uniform
     s = jnp.ones(n * n)
@@ -2201,9 +2184,9 @@ def test_to_dense_free_matches_matrix():
     """to_dense_free should match matrix() for FD types."""
     n = 6
     for reg_type in ("zero-order", "first-order", "second-order"):
-        builder = DenseRegularizationBuilder(n, reg_type)
+        builder = FiniteDifferenceRegularization(n, reg_type)
         xmin, xmax, ymin, ymax = -1.5, 1.5, -0.5, 2.0
-        expected, _ = builder.matrix(xmin, xmax, ymin, ymax)
+        expected = builder.matrix(xmin, xmax, ymin, ymax)
         computed = builder.to_dense_free(xmin, xmax, ymin, ymax)
         np.testing.assert_allclose(
             np.array(computed), np.array(expected), rtol=1e-4, atol=1e-4,
@@ -2217,12 +2200,12 @@ def test_diag_R_matches_dense_matrix_diagonal(reg_type):
     non-uniform adaptive scale — this catches coefficient errors and
     scale_x/scale_y cross-contamination."""
     n = 7  # square grid
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 3.0, -1.0, 4.0  # asymmetric, dx != dy
     scale = jnp.linspace(0.3, 2.0, n * n)  # non-uniform
 
     # Reference: extract diagonal from the full dense matrix.
-    R_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    R_dense = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
     expected = jnp.diag(R_dense)
 
     computed = builder.diag_R(xmin, xmax, ymin, ymax, scale=scale)
@@ -2246,7 +2229,7 @@ def test_diag_R_matches_dense_matrix_diagonal(reg_type):
 )
 def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
     """Invalid adaptive scale should fail before sqrt/logdet paths diverge."""
-    builder = DenseRegularizationBuilder(5, "first-order")
+    builder = FiniteDifferenceRegularization(5, "first-order")
     with pytest.raises(ValueError, match="scale"):
         builder.matrix(-1.0, 1.0, -1.0, 1.0, scale=bad_scale)
 
@@ -2255,7 +2238,7 @@ def test_regularization_scale_validation_rejects_invalid_scale(bad_scale):
 def test_make_reg_data_shapes():
     """make_reg_data should return scale and physical factors."""
     n = 8
-    builder = DenseRegularizationBuilder(n, "first-order")
+    builder = FiniteDifferenceRegularization(n, "first-order")
     rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
 
     assert rd.scale is None
@@ -2264,18 +2247,10 @@ def test_make_reg_data_shapes():
 
 
 @pytest.mark.unit
-def test_make_reg_data_raises_for_gp():
-    """make_reg_data should raise ValueError for GP types (operator backend unsupported)."""
-    builder = DenseRegularizationBuilder(5, "exponential")
-    with pytest.raises(ValueError, match="Operator backend does not support GP"):
-        builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
-
-
-@pytest.mark.unit
 def test_make_reg_data_propagates_scale():
     """make_reg_data should propagate a provided scale array into RegData."""
     n = 8
-    builder = DenseRegularizationBuilder(n, "first-order")
+    builder = FiniteDifferenceRegularization(n, "first-order")
     scale = jnp.linspace(0.5, 1.5, n * n)
     rd = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0, scale=scale)
     assert rd.scale is not None
@@ -2293,12 +2268,12 @@ def test_matvec_free_nonuniform_scale_matches_dense(reg_type):
     surface with a non-constant source and non-uniform scale.
     """
     n = 7  # test different grid sizes so dx != dy
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 2.0, -0.5, 1.5
     scale = jnp.linspace(0.3, 2.0, n * n)  # non-uniform
     s = jnp.linspace(-1.0, 1.0, n * n)     # non-constant
 
-    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    reg_dense = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax, scale=scale)
     result_dense = reg_dense @ s
 
@@ -2327,11 +2302,11 @@ def test_logdet_free_block_diag_approximation(reg_type):
     ``exact=True`` must match ``slogdet`` of the full R to float precision.
     """
     n = 9  # smaller than default block_size=10
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
     scale = jnp.linspace(0.3, 2.0, n * n)
 
-    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    reg_dense = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
     logdet_slogdet = float(jnp.linalg.slogdet(reg_dense)[1])
 
     # exact=True must match slogdet of the full R matrix.
@@ -2367,25 +2342,6 @@ def test_logdet_free_block_diag_approximation(reg_type):
 
 
 @pytest.mark.unit
-def test_operator_rejects_gp_regularization_type():
-    """PixelizedLensOperator should reject GP regularization at construction.
-
-    GP types require a dense (Ns, Ns) precision matrix and gain nothing from
-    the matrix-free operator backend; they must use the dense backend.
-    """
-    gp_source = PixelizedSourceModel(n=5, regularization_type="gaussian",
-    )
-    phys = PhysicalModel(
-        lens_mass=[_static_sie()],
-        source_light=[gp_source],
-        lens_light=[],
-    )
-    config = _sim_config()
-    with pytest.raises(ValueError, match="finite-difference"):
-        PixelizedLensOperator(phys, config)
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("n", [2, 5])
 @pytest.mark.parametrize("reg_type", ["first-order", "second-order"])
 def test_matvec_free_degenerate_grid_matches_dense(n, reg_type):
@@ -2395,10 +2351,10 @@ def test_matvec_free_degenerate_grid_matches_dense(n, reg_type):
     only the near-boundary first-gradient fallback runs.  This guards the
     ``if self.n > 2`` / ``if self.n > 2`` boundary branches.
     """
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -1.0, 1.0, -0.5, 1.5
 
-    reg_dense, _ = builder.matrix(xmin, xmax, ymin, ymax)
+    reg_dense = builder.matrix(xmin, xmax, ymin, ymax)
     s = jnp.linspace(-1.0, 1.0, n * n)
 
     result_free = builder.matvec_free(s, xmin, xmax, ymin, ymax)
@@ -2421,11 +2377,11 @@ def test_block_diag_R_is_principal_submatrix(reg_type, use_scale):
     includes those contributions by construction.
     """
     n = 10  # square grid with block_size=4
-    builder = DenseRegularizationBuilder(n, reg_type)
+    builder = FiniteDifferenceRegularization(n, reg_type)
     xmin, xmax, ymin, ymax = -2.0, 2.0, -1.0, 3.0
     scale = jnp.linspace(0.3, 2.0, n * n) if use_scale else None
 
-    R_full, _ = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
+    R_full = builder.matrix(xmin, xmax, ymin, ymax, scale=scale)
 
     # Check several blocks: interior, edge, and corner blocks
     for x_s, x_e, y_s, y_e in [(2, 6, 2, 6), (0, 4, 0, 4), (6, 10, 6, 10)]:

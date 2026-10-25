@@ -677,7 +677,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 
         # Dense backend: explicit design matrix and regularization matrix.
         design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
-        reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
+        reg_matrix = likelihood._regularization_matrix(source_bbox)
         linear_params, chol, _ = likelihood._solve_source(
             design_matrix, reg_matrix, lambda_j,
         )

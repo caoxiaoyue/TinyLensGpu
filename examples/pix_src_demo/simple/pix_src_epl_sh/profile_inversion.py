@@ -1,9 +1,8 @@
 """Profile one pixelized-source log-evidence evaluation by numerical stage.
 
-This script intentionally mirrors the model setup in ``bench_inversion.py`` and
-``bench_inversion_matern32.py`` while using ``nsub=2`` to match the fitting
-workflow. It writes diagnostic timing summaries only; no optimization is
-performed here.
+This script intentionally mirrors the model setup in ``bench_inversion.py``
+while using ``nsub=2`` to match the fitting workflow. It writes diagnostic
+timing summaries only; no optimization is performed here.
 """
 
 # pyright: reportMissingImports=false
@@ -49,7 +48,7 @@ def build_prob_model(regularization_type):
     Parameters
     ----------
     regularization_type : str
-        Either ``"first-order"`` or ``"matern32"``.
+        Finite-difference regularization type (``"first-order"``).
 
     Returns
     -------
@@ -131,23 +130,7 @@ def build_prob_model(regularization_type):
             prior_settings=[-6.907755278982137, 6.907755278982137],
             limits=[-13.815510557964274, 13.815510557964274],
     )
-    if regularization_type == "matern32":
-        pix_src = PixelizedSourceModel(n=40,
-            regularization_type="matern32",
-            log_lambda_reg=log_lambda_reg,
-            kernel_scale=ParamU(
-                "kernel_scale",
-                0.3,
-                prior_type="log_uniform",
-                prior_settings=[0.01, 2.0],
-                limits=[1e-3, 10.0],
-            ),
-        )
-    else:
-        pix_src = PixelizedSourceModel(n=40,
-            regularization_type="first-order",
-            log_lambda_reg=log_lambda_reg,
-        )
+    pix_src = PixelizedSourceModel(n=40, regularization_type=regularization_type, log_lambda_reg=log_lambda_reg)
 
     phys_model = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])
     epl.theta_E.to_dynamic()
@@ -159,9 +142,6 @@ def build_prob_model(regularization_type):
     shear.gamma1.to_dynamic()
     shear.gamma2.to_dynamic()
     pix_src.log_lambda_reg.to_dynamic()
-    if regularization_type == "matern32":
-        assert pix_src.kernel_scale is not None
-        pix_src.kernel_scale.to_dynamic()
 
     prob_model = PixelizedImageProbModel(
         image_data=image_data,
@@ -250,7 +230,7 @@ def profile_variant(label, output_path):
             return design_matrix
 
         design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-        reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
+        reg_matrix = prob_model._regularization_matrix(source_bbox)
         lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
         weighted_design = design_matrix / prob_model.noise_1d[:, None]
         rhs = weighted_design.T @ (prob_model.data_1d / prob_model.noise_1d)
@@ -259,7 +239,7 @@ def profile_variant(label, output_path):
         jax.block_until_ready(chol)
 
         def regmat_stage():
-            matrix, _ = prob_model._regularization_matrix(source_bbox)
+            matrix = prob_model._regularization_matrix(source_bbox)
             return matrix
 
         def curvature_stage():
@@ -351,10 +331,9 @@ def profile_variant(label, output_path):
 
 
 def main():
-    """Run both diagnostic profiling variants."""
+    """Run the first-order diagnostic profiling variant."""
     os.makedirs("output", exist_ok=True)
     profile_variant("first-order", "output/profile_first_order.json")
-    profile_variant("matern32", "output/profile_matern32.json")
 
 
 if __name__ == "__main__":

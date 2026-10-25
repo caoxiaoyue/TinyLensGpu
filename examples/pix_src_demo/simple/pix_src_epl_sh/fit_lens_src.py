@@ -200,7 +200,7 @@ best_params = jnp.array(q50_list)
 with ck.ActiveContext(prob_model):
     prob_model.fill_params(best_params)
     design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-    reg_matrix, _ = prob_model._regularization_matrix(source_bbox)
+    reg_matrix = prob_model._regularization_matrix(source_bbox)
     lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
     source_pixels, chol, curvature = prob_model._solve_source(
         design_matrix, reg_matrix, lam

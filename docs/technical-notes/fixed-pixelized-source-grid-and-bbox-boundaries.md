@@ -106,14 +106,12 @@ With a fixed bbox, the dense evidence model stores the regularization that no
 longer depends on the proposal. Finite-difference regularization is invariant
 on that grid, so construction stores the dense matrix and the evidence
 determinant `logdet(R)`, using negative infinity when the matrix is not
-positive definite. A Gaussian-process kernel is stored only when its scale is
-fixed; the cache then holds the precision and `log|K|`. The evidence reads
-that stored determinant and does not call `slogdet` again. The regularization
-helper still returns no covariance determinant for finite differences, and
-returns the stored `log|K|` for a cached Gaussian process. A different bbox is
-built for that call and does not replace the stored matrix or determinant.
-`log_lambda_reg` stays outside the cache: each evaluation uses `lambda * R`
-and still includes `0.5 * N_source * log(lambda)`.
+positive definite. The evidence reads that stored determinant and does not
+call `slogdet` again, and the regularization helper returns the stored
+matrix `R` directly. A different bbox is built for that call and does not
+replace the stored matrix or determinant. `log_lambda_reg` stays outside
+the cache: each evaluation uses `lambda * R` and still includes
+`0.5 * N_source * log(lambda)`.
 
 A second tier is filled only when that bbox is fixed and every lens-mass
 component and every unit-amplitude lens-light basis is fixed. An empty mass
@@ -131,7 +129,7 @@ again from the current mass and bases.
 Fixedness follows the operator rule, including transitive dependencies. A
 parameter is fixed when it is not dynamic, and a pointer counts as fixed only
 when it has children and those children are fixed. A pointer with no children,
-or a pointer driven by a dynamic parameter, does not freeze the kernel or the
+or a pointer driven by a dynamic parameter, does not freeze the
 lens mapping. The cache is filled in the
 constructor and is not invalidated later. Changing a fixed physical value, a
 parameter mode, the observations, or the bbox requires a new evidence model

@@ -21,7 +21,7 @@ from TinyLensGpu.ForwardSimulation import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.config import make_grid_2d
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
 from TinyLensGpu.utils.geometry.transforms import phi_q2_ellipticity
-from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
+from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
 from TinyLensGpu.utils.lensing.mapping import infer_source_bbox as infer_square_source_bbox
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -64,7 +64,7 @@ def _static_parametric_source() -> GaussianEllipse:
     return source
 
 
-def _pixelized_source(*, log_lambda_value: float = 0.0, with_gp: bool = False) -> PixelizedSourceModel:
+def _pixelized_source(*, log_lambda_value: float = 0.0) -> PixelizedSourceModel:
     """Build a pixelized source with dynamic regularization parameters."""
     log_lambda_reg = ParamU(
         "log_lambda_reg",
@@ -74,22 +74,7 @@ def _pixelized_source(*, log_lambda_value: float = 0.0, with_gp: bool = False) -
         limits=[jnp.log(1.0e-6), jnp.log(1.0e6)],
     )
     log_lambda_reg.to_dynamic()
-    if not with_gp:
-        return PixelizedSourceModel(n=5, log_lambda_reg=log_lambda_reg)
-
-    kernel_scale = ParamU(
-        "kernel_scale",
-        0.2,
-        prior_type="uniform",
-        prior_settings=[0.05, 1.0],
-        limits=[0.01, 5.0],
-    )
-    kernel_scale.to_dynamic()
-    return PixelizedSourceModel(n=5,
-        log_lambda_reg=log_lambda_reg,
-        kernel_scale=kernel_scale,
-        regularization_type="gaussian",
-    )
+    return PixelizedSourceModel(n=5, log_lambda_reg=log_lambda_reg)
 
 
 def _physical_model(*, source: PixelizedSourceModel | None = None) -> PhysicalModel:
@@ -317,14 +302,6 @@ def test_prior_transformation_sees_mass_and_regularization_parameters() -> None:
     _, prior_specs = make_prior_transformation(_prob_model())
 
     assert {spec.name for spec in prior_specs} == {"theta_E", "log_lambda_reg"}
-
-
-@pytest.mark.unit
-def test_prior_transformation_includes_gp_kernel_scale() -> None:
-    """Test that GP pixelized sources expose their kernel-scale parameter."""
-    _, prior_specs = make_prior_transformation(_prob_model(source=_pixelized_source(with_gp=True)))
-
-    assert {spec.name for spec in prior_specs} == {"theta_E", "log_lambda_reg", "kernel_scale"}
 
 
 @pytest.mark.unit
@@ -1018,8 +995,7 @@ def test_detach_bbox_gradients_flow_through_mass_params() -> None:
 def _normal_equation_evidence(model: PixelizedImageProbModel, source_bbox: tuple) -> float:
     """Evidence of one explicit source grid, solved outside the probability model."""
     design, _ = model.sim_obj.design_matrix(source_bbox=source_bbox)
-    regularizer, covariance_logdet = model._regularization_matrix(source_bbox)
-    assert covariance_logdet is None
+    regularizer = model._regularization_matrix(source_bbox)
     matrix = np.asarray(design, dtype=np.float64)
     precision = np.asarray(regularizer, dtype=np.float64)
     noise = np.asarray(model.noise_1d, dtype=np.float64)
@@ -1217,8 +1193,6 @@ def _regularized_source(
     reg_type: str = "second-order",
     *,
     log_lambda: float = 0.0,
-    kernel_scale: float = 0.2,
-    kernel_dynamic: bool = False,
 ) -> PixelizedSourceModel:
     """Build a pixelized source with a dynamic regularization strength."""
     log_lambda_reg = ParamU(
@@ -1229,28 +1203,10 @@ def _regularized_source(
         limits=[jnp.log(1.0e-6), jnp.log(1.0e6)],
     )
     log_lambda_reg.to_dynamic()
-    if reg_type not in ("exponential", "gaussian", "matern32", "matern52", "matern72"):
-        return PixelizedSourceModel(
-            n=5,
-            log_lambda_reg=log_lambda_reg,
-            regularization_type=reg_type,
-        )
-    scale = ParamU(
-        "kernel_scale",
-        kernel_scale,
-        prior_type="uniform",
-        prior_settings=[0.05, 1.0],
-        limits=[0.01, 5.0],
-    )
-    if kernel_dynamic:
-        scale.to_dynamic()
-    else:
-        scale.to_static()
     return PixelizedSourceModel(
         n=5,
         log_lambda_reg=log_lambda_reg,
         regularization_type=reg_type,
-        kernel_scale=scale,
     )
 
 
@@ -1281,8 +1237,6 @@ def _dense_model(
     image_data=None,
     position_likelihood=None,
     log_lambda: float = 0.0,
-    kernel_scale: float = 0.2,
-    kernel_dynamic: bool = False,
 ) -> PixelizedImageProbModel:
     """Build a small dense evidence model for cache tests."""
     data = jnp.ones((10, 10)) * 0.05 if image_data is None else image_data
@@ -1292,8 +1246,6 @@ def _dense_model(
         source = _regularized_source(
             reg_type,
             log_lambda=log_lambda,
-            kernel_scale=kernel_scale,
-            kernel_dynamic=kernel_dynamic,
         )
     phys_model = PhysicalModel(
         lens_mass=list(lens_mass),
@@ -1342,8 +1294,7 @@ def test_fixed_grid_reuses_finite_difference_regularization(monkeypatch, reg_typ
     """A fixed grid keeps the finite-difference matrix and its evidence determinant."""
     model = _dense_model(reg_type=reg_type)
     _assert_cache_agreement(model, _dense_model(reg_type=reg_type))
-    stored_matrix, covariance_logdet = model._regularization_matrix(model.infer_source_bbox())
-    assert covariance_logdet is None
+    stored_matrix = model._regularization_matrix(model.infer_source_bbox())
     evidence = float(model())
     image, source = model.forward_model(return_source=True)
 
@@ -1353,27 +1304,24 @@ def test_fixed_grid_reuses_finite_difference_regularization(monkeypatch, reg_typ
     cached_image, cached_source = model.forward_model(return_source=True)
     np.testing.assert_allclose(cached_image, image, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(cached_source, source, rtol=1e-6, atol=1e-6)
-    hit_matrix, hit_logdet = model._regularization_matrix(model._fixed_source_bbox)
-    assert hit_logdet is None
+    hit_matrix = model._regularization_matrix(model._fixed_source_bbox)
     assert hit_matrix is stored_matrix
 
     calls = []
 
     def _count_other_bbox(xmin, xmax, ymin, ymax, **kwargs):
         calls.append((xmin, xmax, ymin, ymax))
-        builder = DenseRegularizationBuilder(5, reg_type)
+        builder = FiniteDifferenceRegularization(5, reg_type)
         return builder.matrix(xmin, xmax, ymin, ymax, **kwargs)
 
     monkeypatch.setattr(model.reg_builder, "matrix", _count_other_bbox)
     other_bbox = (0.0, 1.2, 0.0, 1.2)
-    other_matrix, other_logdet = model._regularization_matrix(other_bbox)
+    other_matrix = model._regularization_matrix(other_bbox)
     assert len(calls) == 1
-    assert other_logdet is None
     assert other_matrix is not stored_matrix
 
     monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
-    restored, restored_logdet = model._regularization_matrix(model.infer_source_bbox())
-    assert restored_logdet is None
+    restored = model._regularization_matrix(model.infer_source_bbox())
     assert restored is stored_matrix
     np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
 
@@ -1445,62 +1393,6 @@ def test_unfixed_model_still_builds_regularization_and_design(monkeypatch) -> No
     monkeypatch.setattr(model.reg_builder, "matrix", _count_regularization)
     assert np.isfinite(float(model()))
     assert calls == {"design": 1, "regularization": 1}
-
-
-@pytest.mark.unit
-def test_static_gaussian_process_kernel_is_reused(monkeypatch) -> None:
-    """A static kernel scale stores the precision and log|K| for the fixed grid."""
-    model = _dense_model(reg_type="gaussian", dynamic_mass=True, kernel_dynamic=False)
-    matrix, log_covariance = model._regularization_matrix(model.infer_source_bbox())
-    assert log_covariance is not None
-    assert np.isfinite(float(np.asarray(log_covariance)))
-    evidence = float(model())
-    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
-    np.testing.assert_allclose(float(model()), evidence, rtol=1e-6, atol=1e-6)
-    hit_matrix, hit_logdet = model._regularization_matrix(model._fixed_source_bbox)
-    assert hit_matrix is matrix
-    np.testing.assert_allclose(hit_logdet, log_covariance, rtol=1e-6, atol=1e-6)
-    _assert_cache_agreement(
-        model,
-        _dense_model(reg_type="gaussian", dynamic_mass=True, kernel_dynamic=False),
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("driver", ["dynamic", "pointer", "childless-pointer"])
-def test_dynamic_kernel_scale_is_rebuilt_on_the_fixed_bbox(driver) -> None:
-    """A kernel scale that can still change is rebuilt on the frozen source grid."""
-    source = _regularized_source("gaussian", kernel_dynamic=(driver == "dynamic"))
-    if driver == "pointer":
-        scale_driver = ParamU(
-            "driver", 0.2, prior_type="uniform", prior_settings=[0.05, 1.0], limits=[0.01, 5.0],
-        )
-        scale_driver.to_dynamic()
-        source.kernel_scale = ck.Param("kernel_scale", lambda _: scale_driver.value, link=(scale_driver,))
-    elif driver == "childless-pointer":
-        source.kernel_scale = ck.Param("kernel_scale", lambda _: jnp.asarray(0.2))
-    model = _dense_model(source=source, dynamic_mass=True)
-    assert model._prepared.regularization is None
-    seen = []
-    regularize = model.reg_builder.matrix
-
-    def _record(xmin, xmax, ymin, ymax, **kwargs):
-        seen.append((float(xmin), float(xmax), float(ymin), float(ymax), float(kwargs["kernel_scale"])))
-        return regularize(xmin, xmax, ymin, ymax, **kwargs)
-
-    model.reg_builder.matrix = _record
-    assert np.isfinite(float(model()))
-    if driver == "pointer":
-        scale_driver.value = 0.55
-    elif driver == "dynamic":
-        source.kernel_scale.value = 0.55
-    assert np.isfinite(float(model()))
-    assert len(seen) == 2
-    np.testing.assert_allclose(seen[0][:4], _FIXED_BBOX, atol=1e-6)
-    np.testing.assert_allclose(seen[1][:4], _FIXED_BBOX, atol=1e-6)
-    if driver != "childless-pointer":
-        assert seen[0][4] != pytest.approx(seen[1][4])
-    assert model._prepared.regularization is None
 
 
 @pytest.mark.unit
@@ -1599,23 +1491,17 @@ def test_dynamic_mapping_skips_the_design_cache(monkeypatch, vary) -> None:
 
 
 @pytest.mark.unit
-def test_static_mass_and_dynamic_kernel_cache_only_the_design(monkeypatch) -> None:
-    """A moving kernel scale keeps the design cache and rebuilds the precision."""
-    model = _dense_model(reg_type="gaussian", kernel_dynamic=True, dynamic_mass=False)
+def test_static_mass_caches_design_and_regularization(monkeypatch) -> None:
+    """Fixed mass on a fixed grid caches both the design and the regularizer."""
+    model = _dense_model(dynamic_mass=False)
     assert model._prepared.design is not None
-    assert model._prepared.regularization is None
-    calls = []
-    regularize = model.reg_builder.matrix
-
-    def _count_regularization(*args, **kwargs):
-        calls.append(args[:4])
-        return regularize(*args, **kwargs)
-
-    monkeypatch.setattr(model.reg_builder, "matrix", _count_regularization)
+    assert model._prepared.regularization is not None
+    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
     monkeypatch.setattr(model.sim_obj, "design_matrix", _refuse_reconstruction)
     assert np.isfinite(float(model()))
-    assert len(calls) == 1
-    np.testing.assert_allclose(calls[0], _FIXED_BBOX, atol=1e-6)
+    image, source = model.forward_model(return_source=True)
+    assert image.shape == (10, 10)
+    assert source.shape == (25,)
 
 
 @pytest.mark.unit
@@ -1657,23 +1543,6 @@ def test_design_cache_keeps_position_and_nonfinite_penalties(monkeypatch) -> Non
     monkeypatch.setattr(nonfinite.sim_obj, "design_matrix", _refuse_reconstruction)
     assert float(shifted()) < float(plain())
     assert float(nonfinite()) == -1.0e10
-
-
-@pytest.mark.unit
-def test_pointer_with_fixed_children_reuses_the_kernel(monkeypatch) -> None:
-    """A pointer is fixed when every parameter it points at is fixed."""
-    source = _regularized_source("gaussian", kernel_dynamic=False)
-    scale_driver = ParamU("driver", 0.25, prior_type="uniform", prior_settings=[0.05, 1.0], limits=[0.01, 5.0])
-    scale_driver.to_static()
-    source.kernel_scale = ck.Param("kernel_scale", lambda _: scale_driver.value, link=(scale_driver,))
-    model = _dense_model(source=source, dynamic_mass=False, lens_mass=[_static_sie()])
-    matrix, log_covariance = model._regularization_matrix(model._fixed_source_bbox)
-    assert log_covariance is not None
-    monkeypatch.setattr(model.reg_builder, "matrix", _refuse_reconstruction)
-    hit_matrix, hit_logdet = model._regularization_matrix(model.infer_source_bbox())
-    assert hit_matrix is matrix
-    np.testing.assert_allclose(hit_logdet, log_covariance, rtol=1e-6, atol=1e-6)
-    assert np.isfinite(float(model()))
 
 
 if __name__ == "__main__":

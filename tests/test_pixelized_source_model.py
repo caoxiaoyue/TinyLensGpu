@@ -150,26 +150,6 @@ def test_rejects_retired_adaptive_hyperparams():
 
 
 @pytest.mark.unit
-def test_kernel_scale_exists_only_for_gp_regularization():
-    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
-
-    gp_model = PixelizedSourceModel(
-        n=5,
-        log_lambda_reg=jnp.log(10.0),
-        regularization_type="gaussian",
-        kernel_scale=2.0,
-    )
-    non_gp_model = PixelizedSourceModel(
-        n=5,
-        log_lambda_reg=jnp.log(10.0),
-        regularization_type="second-order",
-    )
-
-    assert isinstance(gp_model.kernel_scale, ParamU)
-    assert not hasattr(non_gp_model, "kernel_scale") or non_gp_model.kernel_scale is None
-
-
-@pytest.mark.unit
 def test_pixel_brightness_values_are_not_registered_as_caskade_params():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 
@@ -193,33 +173,6 @@ def test_pixel_brightness_values_are_not_registered_as_caskade_params():
     assert dynamic_names == {"theta_E", "log_lambda_reg"}
     assert "source_values" not in dynamic_names
     assert "brightness" not in dynamic_names
-
-
-@pytest.mark.unit
-def test_dynamic_params_include_kernel_scale_for_gp_regularization():
-    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
-
-    sie = SIE(theta_E=1.0, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
-    source = PixelizedSourceModel(
-        n=5,
-        log_lambda_reg=jnp.log(10.0),
-        regularization_type="gaussian",
-        kernel_scale=2.0,
-    )
-
-    sie.theta_E.to_dynamic()
-    sie.e1.to_static()
-    sie.e2.to_static()
-    sie.center_x.to_static()
-    sie.center_y.to_static()
-    source.log_lambda_reg.to_dynamic()
-    source.kernel_scale.to_dynamic()
-
-    model = PhysicalModel(lens_mass=[sie], source_light=[source], lens_light=[])
-
-    dynamic_names = {param.name for param in model.get_dynamic_params()}
-
-    assert dynamic_names == {"theta_E", "log_lambda_reg", "kernel_scale"}
 
 
 @pytest.mark.unit
@@ -258,6 +211,20 @@ def test_invalid_regularization_type_raises_value_error():
 
     with pytest.raises(ValueError):
         PixelizedSourceModel(n=5, log_lambda_reg=jnp.log(10.0), regularization_type="invalid")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "regularization_type", ["zero-order", "first-order", "second-order"]
+)
+def test_supported_finite_difference_regularization_types(regularization_type):
+    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+
+    source = PixelizedSourceModel(
+        n=5, log_lambda_reg=jnp.log(10.0),
+        regularization_type=regularization_type,
+    )
+    assert source.regularization_type == regularization_type
 
 
 if __name__ == "__main__":

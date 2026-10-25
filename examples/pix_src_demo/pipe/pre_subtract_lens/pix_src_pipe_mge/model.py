@@ -632,7 +632,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         likelihood.fill_params(jnp.array(q50))
         design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
         lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        reg_matrix, _ = likelihood._regularization_matrix(source_bbox)
+        reg_matrix = likelihood._regularization_matrix(source_bbox)
         source_pixels, chol, curvature = likelihood._solve_source(
             design_matrix, reg_matrix, jnp.asarray(lam_val)
         )

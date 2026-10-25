@@ -10,7 +10,6 @@ from jax import Array
 
 from TinyLensGpu.Inference.param_u import ParamU
 from TinyLensGpu.utils.inversion.regularization import (
-    GP_REGULARIZATION_TYPES,
     VALID_REGULARIZATION_TYPES,
 )
 from TinyLensGpu.utils.lensing.mapping import (
@@ -34,10 +33,7 @@ class PixelizedSourceModel(ck.Module):
         scalar.
     regularization_type : str, optional
         Regularization family. Supported values are ``"zero-order"``,
-        ``"first-order"``, ``"second-order"``, ``"exponential"``,
-        ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
-    kernel_scale : float or ParamU or None, optional
-        Kernel scale for GP-style regularization only.
+        ``"first-order"``, and ``"second-order"``.
     adaptive_reg_rho : float or ParamU, optional
         Galan-style adaptive regularization strength. ``0.0`` (default)
         disables adaptation and recovers uniform regularization. Larger
@@ -50,7 +46,6 @@ class PixelizedSourceModel(ck.Module):
         *,
         log_lambda_reg: float | ParamU | None = None,
         regularization_type: str = "second-order",
-        kernel_scale: float | ParamU | None = None,
         adaptive_reg_rho: float | ParamU = 0.0,
         adaptive_reg_alpha: float | ParamU | None = None,
         adaptive_reg_floor: float | ParamU | None = None,
@@ -90,17 +85,6 @@ class PixelizedSourceModel(ck.Module):
             adaptive_reg_rho if isinstance(adaptive_reg_rho, ParamU)
             else float(adaptive_reg_rho)
         )
-
-        if regularization_type in GP_REGULARIZATION_TYPES:
-            self.kernel_scale = (
-                kernel_scale if isinstance(kernel_scale, ParamU)
-                else ParamU("kernel_scale", kernel_scale, prior_type="log_uniform",
-                            prior_settings=[1e-4, 1e4], limits=[1e-4, 1e4])
-            )
-        elif kernel_scale is not None:
-            raise ValueError("kernel_scale is only valid for GP regularization types")
-        else:
-            self.kernel_scale = None
 
     @staticmethod
     def _validate_adaptive_reg_rho(adaptive_reg_rho: float | ParamU) -> None:

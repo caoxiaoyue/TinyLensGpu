@@ -16,7 +16,7 @@ TinyLensGpu supports a range of modeling approaches, from classical parametric f
 | **Point source position modeling** | `PointSourceProbModel` | `point_source/` | Fits lensed image positions by solving the lens equation and matching predicted/observed image positions with permutation invariance |
 | **Multi-band fitting** | `MultiBandImageProbModel`, `BandImageData` | `lens_src_multiband/`, `lens_src_multiband_galfitm/` | Simultaneous `g/r/i` image fitting with shared physical parameters and band-specific data/PSFs/alignment |
 | **GALFITM-style wavelength evolution** | `MultiBandImageProbModel`, Chebyshev utilities | `lens_src_multiband_galfitm/` | Multi-band fitting where Sérsic radius and index evolve with wavelength via Chebyshev polynomials |
-| **Pixelated source modeling** | `PixelizedSourceModel`, `PixelizedImageProbModel` | `pix_src/` | Grid-based source reconstruction (e.g. 40×40) with Bayesian evidence and regularization (first-order, Matern32, Gaussian, etc.) |
+| **Pixelated source modeling** | `PixelizedSourceModel`, `PixelizedImageProbModel` | `pix_src/` | Grid-based source reconstruction (e.g. 40×40) with Bayesian evidence and finite-difference regularization (zero-, first-, second-order) via dense or matrix-free operator backends |
 | **Shapelet source modeling** | `ShapeletBasisFunction`, `build_shapelet_set()` | `shapelet_src/` | Refregier (2003) shapelet basis reconstruction with analytically solved linear amplitudes; supports source-only or joint with lens light |
 
 ## Programmatic API

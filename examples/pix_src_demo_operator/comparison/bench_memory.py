@@ -74,8 +74,8 @@ for src_n in GRID_SIZES:
     _, _, bx, by = pm_op.sim_obj._get_beta_sub_and_seed()
     xmi, xma, ymi, yma = pm_op.sim_obj._infer_and_fix_bbox(bx, by)
 
-    from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
-    builder = DenseRegularizationBuilder(src_n, "first-order")
+    from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
+    builder = FiniteDifferenceRegularization(src_n, "first-order")
 
     block_chols, block_masks = pm_op.sim_obj.build_block_diag_preconditioner(
         pm_op.noise_1d, xmi, xma, ymi, yma, jnp.asarray(1.0), builder, block_size=pm_op.block_size,

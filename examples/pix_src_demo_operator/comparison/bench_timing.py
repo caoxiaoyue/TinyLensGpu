@@ -86,8 +86,8 @@ for src_n in GRID_SIZES:
     # Run one more time to capture PCG info
     _, _, bx, by = pm_op.sim_obj._get_beta_sub_and_seed()
     xmi, xma, ymi, yma = pm_op.sim_obj._infer_and_fix_bbox(bx, by)
-    from TinyLensGpu.utils.inversion.regularization import DenseRegularizationBuilder
-    builder = DenseRegularizationBuilder(src_n, "first-order")
+    from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
+    builder = FiniteDifferenceRegularization(src_n, "first-order")
     xmif, xmaf, ymif, ymaf = float(xmi), float(xma), float(ymi), float(yma)
     reg_data = builder.make_reg_data(xmif, xmaf, ymif, ymaf)
     lam = jnp.asarray(1.0)

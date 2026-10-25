@@ -1,25 +1,15 @@
 """Dense regularization matrix builders for pixelized source inversion.
 
-This module provides traditional finite-difference penalties and dense
-Gaussian-process covariance penalties for source-plane linear inversion.  The
-finite-difference operators are precomputed on index space and scaled by the
-physical source-grid spacing when a matrix is requested.
+This module provides traditional finite-difference penalties for
+source-plane linear inversion.  The finite-difference operators are
+precomputed on index space and scaled by the physical source-grid spacing
+when a matrix is requested.
 
 For matrix-free (operator) backends, the class also exposes
 :meth:`matvec_free`, :meth:`logdet_free`, :meth:`to_dense_free`, and
-:meth:`make_reg_data` for finite-difference types, which apply
-edge-weighted graph-Laplacian stencils directly (and a block-diagonal
-logdet approximation) to avoid materialising the full Ns x Ns
-regularisation matrix.
-
-.. note::
-
-    GP-style regularization (``exponential``, ``gaussian``, ``matern*``) is
-    **not** supported by the operator backend.  GP types inherently require a
-    dense ``(Ns, Ns)`` precision matrix, so they gain no memory benefit from
-    matrix-free operators.  Use the dense backend
-    (:class:`~TinyLensGpu.ObservationModel.LensImage.pixelized_image_model.PixelizedImageProbModel`)
-    for GP regularization instead.
+:meth:`make_reg_data`, which apply edge-weighted graph-Laplacian stencils
+directly (and a block-diagonal logdet approximation) to avoid
+materialising the full Ns x Ns regularisation matrix.
 """
 
 from __future__ import annotations
@@ -30,20 +20,11 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 
 VALID_REGULARIZATION_TYPES: frozenset[str] = frozenset({
     "zero-order", "first-order", "second-order",
-    "exponential", "gaussian",
-    "matern32", "matern52", "matern72",
 })
 """All supported regularization type names."""
-
-GP_REGULARIZATION_TYPES: frozenset[str] = frozenset({
-    "exponential", "gaussian",
-    "matern32", "matern52", "matern72",
-})
-"""GP-style regularization types that require a kernel_scale parameter."""
 
 
 def source_template_scale_map(
@@ -153,14 +134,13 @@ class RegData(NamedTuple):
     ``scale`` is the per-pixel adaptive factor from which edge
     weights are derived as geometric means.
 
-    Only finite-difference types are supported; GP types should use the dense
-    backend instead.
+    Only finite-difference types are supported.
     """
     scale: "jax.Array | None"  # (Ns,) per-pixel adaptive scale; None = uniform
     scale_factor: "jax.Array"  # scalar physical scaling factor (1/dx^2 or 1/dx^4)
 
 
-class DenseRegularizationBuilder:
+class FiniteDifferenceRegularization:
     """Build dense source-grid regularization matrices.
 
     Parameters
@@ -169,10 +149,7 @@ class DenseRegularizationBuilder:
         Number of source pixels per side (n x n square grid).
     regularization_type : str
         Regularization family. Supported values are ``"zero-order"``,
-        ``"first-order"``, ``"second-order"``, ``"exponential"``,
-        ``"gaussian"``, ``"matern32"``, ``"matern52"``, and ``"matern72"``.
-    jitter : float, optional
-        Diagonal jitter added to GP covariance matrices for numerical stability.
+        ``"first-order"``, and ``"second-order"``.
 
     Raises
     ------
@@ -186,8 +163,6 @@ class DenseRegularizationBuilder:
         self,
         n: int,
         regularization_type: str,
-        *,
-        jitter: float = 1e-6,
     ) -> None:
         self.n = int(n)
         if self.n < 2:
@@ -195,26 +170,19 @@ class DenseRegularizationBuilder:
 
         self.n_pixels = self.n * self.n
         self.regularization_type = regularization_type.lower()
-        self.jitter = float(jitter)
 
         if self.regularization_type not in self._VALID_TYPES:
             raise ValueError(f"Unsupported regularization_type: {regularization_type!r}.")
-        if self.jitter < 0.0:
-            raise ValueError("jitter must be non-negative.")
 
         self._identity = None
         self._dx_operator = self._dy_operator = None
         self._lx_operator = self._ly_operator = None
-        self._unit_coordinates = None
-
-        if self.regularization_type in ("zero-order", *GP_REGULARIZATION_TYPES):
+        if self.regularization_type == "zero-order":
             self._identity = jnp.eye(self.n_pixels)
         if self.regularization_type == "first-order":
             self._dx_operator, self._dy_operator = self._build_first_difference_operators()
         elif self.regularization_type == "second-order":
             self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
-        elif self.regularization_type in GP_REGULARIZATION_TYPES:
-            self._unit_coordinates = self._build_unit_coordinates()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -243,24 +211,6 @@ class DenseRegularizationBuilder:
         if not is_valid:
             raise ValueError("scale values must be finite and strictly positive.")
         return scale_arr
-
-    def _apply_diag_scale(self, matrix: "jax.Array", scale: "jax.Array | None") -> "jax.Array":
-        """If *scale* is not None, return ``diag(sqrt(scale)) @ matrix @ diag(sqrt(scale))``.
-
-        Otherwise return *matrix* unchanged.  Kept only for GP regularisation;
-        finite-difference types now use edge-weighted Laplacians instead.
-        """
-        scale = self._check_scale(scale, int(matrix.shape[0]))
-        if scale is not None:
-            sqrt_scale = jnp.sqrt(scale)
-            # Explicitly form the rank-1 outer-product scaling matrix first,
-            # then apply it with a single element-wise multiply.  This avoids
-            # chained broadcast-multiplies that can produce NaN in XLA's GEMM
-            # fusion autotuner when the surrounding computation (kron + add)
-            # is fused into a single kernel.
-            scale_mat = sqrt_scale[:, None] * sqrt_scale[None, :]
-            matrix = matrix * scale_mat
-        return matrix
 
     # ------------------------------------------------------------------
     # Edge-weight helpers for finite-difference adaptive regularisation
@@ -456,63 +406,17 @@ class DenseRegularizationBuilder:
         R = R + scale_factor * ((wly_full[:, None] * self._ly_operator).T @ self._ly_operator)
         return 0.5 * (R + R.T)
 
-    def matrix(self, xmin, xmax, ymin, ymax, *, kernel_scale: float | None = None, scale: "jax.Array | None" = None):
-        """Return the dense regularization matrix for a square source grid.
-
-        Parameters
-        ----------
-        xmin, xmax : float
-            Source-plane x-axis bounds.
-        ymin, ymax : float
-            Source-plane y-axis bounds.
-        kernel_scale : float, optional
-            GP kernel correlation scale. Required for GP regularization and
-            ignored for traditional finite-difference penalties.
-        scale : Array or None, optional
-            Per-pixel adaptive scale factor of shape ``(Ns,)``.  For
-            finite-difference types this is converted into edge weights via the
-            geometric mean; the returned matrix is the weighted graph
-            Laplacian ``G_x^T W_x G_x + G_y^T W_y G_y`` (with physical spacing).
-            When ``None`` (default), uniform edge weights of 1 are used.
-
-        Returns
-        -------
-        tuple[jax.Array, jax.Array | None]
-            ``(precision_matrix, logdet_covariance)`` for all regularization types.
-            For finite-difference types, ``logdet_covariance`` is ``None`` (callers
-            compute ``logdet`` via ``slogdet`` on the returned matrix).
-            For GP types, ``logdet_covariance`` is ``log|K|`` extracted from the
-            Cholesky factorization — callers compute ``logdet(H) = -logdet_covariance``
-            without an extra O(n³) ``slogdet`` call.
-
-        Raises
-        ------
-        ValueError
-            If the bounds produce a non-positive span, or a GP kernel scale is
-            missing or non-positive.
-        """
+    def matrix(self, xmin, xmax, ymin, ymax, *, scale: "jax.Array | None" = None) -> "jax.Array":
+        """Return the finite-difference precision matrix for the source grid."""
         scale = self._check_scale(scale)
         if self.regularization_type == "zero-order":
             mat = self._identity
             if scale is not None:
                 mat = mat * scale[:, None]
-            return mat, None
+            return mat
         if self.regularization_type == "first-order":
-            return self._weighted_first_order_dense(xmin, xmax, ymin, ymax, scale), None
-        if self.regularization_type == "second-order":
-            return self._weighted_second_order_dense(xmin, xmax, ymin, ymax, scale), None
-
-        if kernel_scale is None:
-            raise ValueError("kernel_scale must be provided for GP regularization.")
-        precision, logdet_cov = self._gp_matrix(xmin, xmax, ymin, ymax, kernel_scale)
-        if scale is not None:
-            precision = self._apply_diag_scale(precision, scale)
-            # logdet(diag(sqrt(scale)) @ precision @ diag(sqrt(scale)))
-            #  = logdet(precision) + sum(log(scale))
-            #  = -logdet_cov + sum(log(scale))
-            # So logdet_cov_new = logdet_cov - sum(log(scale))
-            logdet_cov = logdet_cov - jnp.sum(jnp.log(scale))
-        return precision, logdet_cov
+            return self._weighted_first_order_dense(xmin, xmax, ymin, ymax, scale)
+        return self._weighted_second_order_dense(xmin, xmax, ymin, ymax, scale)
 
     # ------------------------------------------------------------------
     # Matrix-free path  (used by operator / PCG backend)
@@ -535,14 +439,8 @@ class DenseRegularizationBuilder:
 
         Edge weights are derived from *scale* as geometric means of adjacent
         pixel scales.
-
-        Raises :exc:`ValueError` for GP types (caller should use the dense
-        fallback).
         """
         scale = self._check_scale(scale)
-        if self.regularization_type in GP_REGULARIZATION_TYPES:
-            raise ValueError("matvec_free is not supported for GP regularization types.")
-
         scale_factor = self._get_scale(xmin, xmax, ymin, ymax)
         scale_2d = self._scale_to_2d(scale)
 
@@ -1257,19 +1155,15 @@ class DenseRegularizationBuilder:
             (``prod det(R_ii) >= det(R)``).  The operator evidence backend
             uses ``exact=False`` for speed; callers that need exact logdet
             (e.g. for validation) should pass ``exact=True``.
-
-        Raises :exc:`ValueError` for GP types.
         """
         scale = self._check_scale(scale)
-        if self.regularization_type in GP_REGULARIZATION_TYPES:
-            raise ValueError("logdet_free is not supported for GP regularization types.")
         if self.regularization_type == "zero-order":
             logdet_r = jnp.array(0.0, dtype=jnp.float32)
             if scale is not None:
                 logdet_r = logdet_r + jnp.sum(jnp.log(scale))
             return logdet_r
         if exact:
-            R_full, _ = self.matrix(xmin, xmax, ymin, ymax, scale=scale)
+            R_full = self.matrix(xmin, xmax, ymin, ymax, scale=scale)
             _, logdet_r = jnp.linalg.slogdet(R_full)
             return logdet_r
         return self._logdet_block_diag(xmin, xmax, ymin, ymax, scale, block_size)
@@ -1280,17 +1174,9 @@ class DenseRegularizationBuilder:
     ) -> "jax.Array":
         """Materialise the dense ``(N_s, N_s)`` edge-weighted regularisation matrix.
 
-        For finite-difference types this is a thin wrapper around :meth:`matrix`;
-        for GP types it raises (use :meth:`matrix` with a ``kernel_scale``).
+        Thin wrapper around :meth:`matrix`.
         """
-        scale = self._check_scale(scale)
-        if self.regularization_type in GP_REGULARIZATION_TYPES:
-            raise ValueError(
-                "to_dense_free is not directly supported for GP types. "
-                "Use matrix() with a kernel_scale instead."
-            )
-        mat, _ = self.matrix(xmin, xmax, ymin, ymax, scale=scale)
-        return mat
+        return self.matrix(xmin, xmax, ymin, ymax, scale=scale)
 
     # ------------------------------------------------------------------
     # Block-diagonal R  (used by block-diagonal preconditioner)
@@ -1409,16 +1295,9 @@ class DenseRegularizationBuilder:
     ) -> "jax.Array":
         r"""Return the diagonal of the edge-weighted R matrix in :math:`O(N_s)`.
 
-        For finite-difference types the diagonal is computed from the weighted
-        Laplacian stencil.  For GP types, use ``jnp.diag`` on the full GP
-        precision matrix instead.
+        The diagonal is computed from the weighted Laplacian stencil.
         """
         scale = self._check_scale(scale)
-        if self.regularization_type in GP_REGULARIZATION_TYPES:
-            raise ValueError(
-                "diag_R is not supported for GP types. "
-                "Use jnp.diag on the full GP precision matrix instead."
-            )
         if self.regularization_type == "zero-order":
             if scale is not None:
                 return scale
@@ -1482,14 +1361,8 @@ class DenseRegularizationBuilder:
 
         Carries the per-pixel adaptive ``scale`` array and the physical spacing
         factors; the JIT matvec computes edge weights from ``scale`` on the fly.
-        Only finite-difference types are supported.
         """
         scale = self._check_scale(scale)
-        if self.regularization_type in GP_REGULARIZATION_TYPES:
-            raise ValueError(
-                "Operator backend does not support GP regularization types. "
-                "Use the dense backend (PixelizedImageProbModel) for GP regularization."
-            )
         scl = self._get_scale(xmin, xmax, ymin, ymax)
         return RegData(scale=scale, scale_factor=scl)
 
@@ -1594,69 +1467,4 @@ class DenseRegularizationBuilder:
 
         return lx_operator, ly_operator
 
-    def _build_unit_coordinates(self):
-        """Return source-grid coordinates for a unit half-size plane."""
-        x_axis = jnp.linspace(-1.0, 1.0, self.n)
-        y_axis = jnp.linspace(-1.0, 1.0, self.n)
-        source_x_mesh, source_y_mesh = jnp.meshgrid(x_axis, y_axis, indexing='xy')
-        return jnp.stack(
-            [source_x_mesh.reshape(-1), source_y_mesh.reshape(-1)],
-            axis=1,
-        )
-
-    def _gp_matrix(self, xmin, xmax, ymin, ymax, kernel_scale: float):
-        """Return (precision, logdet_covariance) for a GP regularization matrix.
-
-        Builds physical pixel coordinates from the source-plane bounds and
-        computes pairwise Euclidean distances in physical space.
-
-        Uses Cholesky decomposition to compute both the precision matrix K^{-1}
-        and log|K| in a single O(n^3) factorization, avoiding a separate slogdet call.
-
-        Returns
-        -------
-        tuple[jax.Array, jax.Array]
-            ``(precision, logdet_covariance)`` where precision is ``K^{-1}`` of shape
-            ``(n_pixels, n_pixels)`` and ``logdet_covariance`` is the scalar ``log|K|``.
-        """
-        x_scale = (xmax - xmin) / 2.0
-        y_scale = (ymax - ymin) / 2.0
-        x_shift = (xmax + xmin) / 2.0
-        y_shift = (ymax + ymin) / 2.0
-        x_phys = self._unit_coordinates[:, 0] * x_scale + x_shift
-        y_phys = self._unit_coordinates[:, 1] * y_scale + y_shift
-        delta_x = x_phys[:, None] - x_phys[None, :]
-        delta_y = y_phys[:, None] - y_phys[None, :]
-        distances = jnp.sqrt(delta_x ** 2 + delta_y ** 2)
-        r = distances / kernel_scale
-
-        if self.regularization_type == "exponential":
-            covariance = jnp.exp(-r)
-        elif self.regularization_type == "gaussian":
-            covariance = jnp.exp(-0.5 * r ** 2)
-        elif self.regularization_type == "matern32":
-            sqrt3_r = jnp.sqrt(3.0) * r
-            covariance = (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r)
-        elif self.regularization_type == "matern52":
-            sqrt5_r = jnp.sqrt(5.0) * r
-            covariance = (1.0 + sqrt5_r + 5.0 * r ** 2 / 3.0) * jnp.exp(-sqrt5_r)
-        elif self.regularization_type == "matern72":
-            sqrt7_r = jnp.sqrt(7.0) * r
-            covariance = (1.0 + sqrt7_r + 14.0 * r ** 2 / 5.0 + 7.0 * jnp.sqrt(7.0) * r ** 3 / 15.0) * jnp.exp(-sqrt7_r)
-        else:
-            raise RuntimeError(f"Unhandled GP regularization type: {self.regularization_type!r}")
-
-        stabilized = covariance + self.jitter * self._identity
-        # Single Cholesky factorization gives both precision and logdet(K).
-        # logdet(K) = 2 * sum(log(diag(L)))  where L = chol(K)
-        # K^{-1} via cho_solve avoids a second O(n^3) inv() call.
-        chol_k = jnp.linalg.cholesky(stabilized)
-        logdet_covariance = 2.0 * jnp.sum(jnp.log(jnp.diag(chol_k)))
-        eye = jnp.eye(self.n_pixels, dtype=stabilized.dtype)
-        precision = jsl.cho_solve((chol_k, True), eye)
-        # Enforce exact symmetry — cho_solve may introduce tiny asymmetry
-        # that can break downstream Cholesky factorizations.
-        precision = 0.5 * (precision + precision.T)
-        return precision, logdet_covariance
-
-__all__ = ["DenseRegularizationBuilder", "RegData", "VALID_REGULARIZATION_TYPES", "GP_REGULARIZATION_TYPES"]
+__all__ = ["FiniteDifferenceRegularization", "RegData", "VALID_REGULARIZATION_TYPES"]

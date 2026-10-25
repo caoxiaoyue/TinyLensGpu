@@ -27,7 +27,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import (
     is_pixelized_source_model,
 )
 from TinyLensGpu.utils.inversion.regularization import (
-    DenseRegularizationBuilder,
+    FiniteDifferenceRegularization,
     RegData,
     map_source_blocks,
 )
@@ -482,7 +482,7 @@ class PixelizedLensOperator:
             raise ValueError(
                 f"PixelizedLensOperator only supports finite-difference "
                 f"regularization types (zero-order, first-order, second-order), "
-                f"got {_reg_type!r}. Use the dense backend for GP types."
+                f"got {_reg_type!r}."
             )
         self.reg_type = _reg_type
         self.source_n = int(source.n)
@@ -930,7 +930,7 @@ class PixelizedLensOperator:
         ymin,
         ymax,
         lambda_reg: Array,
-        reg_builder: DenseRegularizationBuilder,
+        reg_builder: FiniteDifferenceRegularization,
         block_size: int = 10,
         scale: Array | None = None,
         *,
