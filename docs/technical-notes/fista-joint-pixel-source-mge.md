@@ -1,5 +1,10 @@
 # Stabilizing FISTA for joint pixel-source and MGE lens-light inversion
 
+> Historical experiment. FISTA was removed on 2026-10-24 after migrating its
+> implicit derivative to PNPG. Numerical results and FISTA commands below
+> describe the earlier implementation, not the current supported interface.
+> See [the current PNPG note](../technical-notes/pnpg-joint-pixel-source.md).
+
 ## Context
 
 The operator backend jointly solves the linear parameters

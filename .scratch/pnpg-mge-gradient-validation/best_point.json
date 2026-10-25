@@ -1,0 +1,27 @@
+{
+  "names": [
+    "theta_E",
+    "e1",
+    "e2",
+    "center_x",
+    "center_y",
+    "log_lambda_reg",
+    "e1_lens",
+    "e2_lens",
+    "center_x_lens",
+    "center_y_lens"
+  ],
+  "parameters": [
+    1.0001333128776926,
+    0.09816470506038442,
+    0.0007792985363166158,
+    -0.0009992414322091334,
+    -0.001052463382076058,
+    -7.568849810786912,
+    0.10019682790647172,
+    -0.0002349591406457969,
+    8.783760528045388e-08,
+    2.1632972869628256e-08
+  ],
+  "provenance": "Best valid evaluation and last accepted point before the failed candidate in optimization_resumed."
+}

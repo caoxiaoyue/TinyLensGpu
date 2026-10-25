@@ -7,8 +7,8 @@ solver behavior, and practical lens-modeling choices.
 
 ## Notes
 
-- [Stabilizing FISTA for joint pixel-source and MGE lens-light inversion](fista-joint-pixel-source-mge.md)
-- [Replacing scalar-step FISTA with PNPG](fista-joint-pixel-source-mge.md#pnpg-replacement)
+- [PNPG joint inversion and implicit derivatives](pnpg-joint-pixel-source.md)
+- [Historical scalar-step solver experiments](fista-joint-pixel-source-mge.md)
 - [GPU-memory study for the joint pixel-source + MGE operator backend](joint-pixel-source-mge-operator-memory.md)
 - [Point-source image-position solver performance study](point-source-position-solver-performance.md)
 - [Fixed pixelized-source grids and source-bbox boundary behavior](fixed-pixelized-source-grid-and-bbox-boundaries.md)

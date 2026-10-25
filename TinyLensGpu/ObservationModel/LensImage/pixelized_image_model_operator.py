@@ -1,7 +1,7 @@
 """Operator-based Bayesian evidence model for pixelized source inversions.
 
 This module provides :class:`PixelizedImageProbModelOperator`, which uses
-matrix-free operators and PCG, FISTA, or PNPG to solve the source inversion,
+matrix-free operators and PCG or PNPG to solve the source inversion,
 avoiding explicit construction of the (Nd × Ns) design matrix.
 
 """
@@ -33,8 +33,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
     EPSILON_REG,
     validate_lens_light_regularization,
 )
-from TinyLensGpu.utils.fista_solver import fista_nnls_solve_with_implicit_grad, FISTAInfo
-from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve, PNPGInfo
+from TinyLensGpu.utils.pnpg_solver import pnpg_nnls_solve_with_implicit_grad, PNPGInfo
 from TinyLensGpu.utils.inversion.regularization import (
     DenseRegularizationBuilder,
     RegData,
@@ -53,7 +52,7 @@ class InversionResult(NamedTuple):
     source_pixels: Array
     lens_amplitudes: Array | None
     source_bbox: tuple[Array, Array, Array, Array]
-    solver_info: PCGInfo | FISTAInfo | PNPGInfo
+    solver_info: PCGInfo | PNPGInfo
 
 
 class _PreparedData(NamedTuple):
@@ -77,8 +76,8 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     Same public API as :class:`PixelizedImageProbModel` but uses matrix-free
     operators and iterative source solvers instead of explicit Cholesky
-    decomposition. ``solver_type="pcg"`` is unconstrained. The ``"fista"`` and
-    ``"pnpg"`` solvers enforce non-negativity on source pixels and lens-light
+    decomposition. ``solver_type="pcg"`` is unconstrained. The ``"pnpg"``
+    solver enforces non-negativity on source pixels and lens-light
     intensities while retaining the unconstrained-curvature operator logdet
     approximation. PNPG uses diagonal metric equilibration and is preferred for
     ill-conditioned joint source/MGE systems.
@@ -89,12 +88,11 @@ class PixelizedImageProbModelOperator(ck.Module):
     Dynamic parameter values and solver controls are not cached. ``evaluate``
     returns evidence and reconstruction from the same solve.
 
-    With ``fixed_source_bbox``, PCG and FISTA support first-order reverse-mode
+    With ``fixed_source_bbox``, PCG and PNPG support first-order reverse-mode
     derivatives of reconstructions and evidence via implicit differentiation.
-    FISTA requires a locally stable active set. Failed forward/adjoint solves
+    PNPG requires a locally stable active set. Failed forward/adjoint solves
     or invalid active sets yield NaN gradients; the existing finite evidence
-    penalty and zero reconstruction on forward failure are unchanged. PNPG
-    does not currently provide this implicit-gradient path.
+    penalty and zero reconstruction on forward failure are unchanged.
 
     Parameters
     ----------
@@ -116,10 +114,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         Subsampling factor (default: 1).
     position_likelihood : dict, optional
         Position likelihood constraint configuration.
-    solver_type : {"pcg", "fista", "pnpg"}, optional
-        Source solver. ``"pcg"`` is unconstrained. ``"fista"`` and
-        ``"pnpg"`` solve the matrix-free non-negative quadratic with all
-        joint linear parameters constrained to be non-negative.
+    solver_type : {"pcg", "pnpg"}, optional
+        Source solver. ``"pcg"`` is unconstrained. ``"pnpg"`` solves the
+        matrix-free non-negative quadratic with all joint linear parameters
+        constrained to be non-negative.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox for
         S0-based adaptive regularization.
@@ -135,22 +133,17 @@ class PixelizedImageProbModelOperator(ck.Module):
         Fraction of ray-traced source-plane points trimmed from each tail
         during bbox inference when ``fixed_source_bbox`` is not supplied
         (default: 0.0 — use absolute min/max).
-    fista_max_iter : int, optional
-        Fixed iteration budget for ``solver_type="fista"``. The default is
-        intentionally conservative because evidence evaluation penalizes
-        non-converged source solves.
-    fista_rtol : float, optional
-        Relative tolerance for the projected-gradient convergence metric.
-    fista_power_iter : int, optional
-        Number of power iterations used for FISTA step-size estimation.
-    fista_step_safety : float, optional
-        Safety factor applied to the estimated Lipschitz constant.
     pnpg_max_iter : int, optional
         Fixed projected-Nesterov iteration budget.
     pnpg_rtol : float, optional
         Componentwise-scaled KKT tolerance used to gate the likelihood.
     pnpg_power_iter : int, optional
         Power iterations used to estimate the equilibrated Lipschitz constant.
+    pnpg_comp_rel_tol : float, optional
+        Relative strict-complementarity margin for implicit derivatives
+        (default: 1e-4). This does not change forward convergence. Redundant
+        bright bases may need a smaller margin in double precision; verify
+        KKT accuracy and finite-difference derivatives before using it.
     """
 
     def __init__(
@@ -171,19 +164,16 @@ class PixelizedImageProbModelOperator(ck.Module):
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
         source_bbox_padding: float = 0.05,
         source_bbox_outlier_frac: float = 0.0,
-        fista_max_iter: int = 1000,
-        fista_rtol: float = 1e-5,
-        fista_power_iter: int = 10,
-        fista_step_safety: float = 1.2,
         pnpg_max_iter: int = 1000,
         pnpg_rtol: float = 2e-2,
         pnpg_power_iter: int = 20,
         lens_light_regularization: float = EPSILON_REG,
+        pnpg_comp_rel_tol: float = 1e-4,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
-        if solver_type not in ("pcg", "fista", "pnpg"):
+        if solver_type not in ("pcg", "pnpg"):
             raise ValueError(
-                "solver_type must be 'pcg', 'fista', or 'pnpg', " f"got {solver_type!r}"
+                "solver_type must be 'pcg' or 'pnpg', " f"got {solver_type!r}"
             )
         self.solver_type = solver_type
         self.lens_light_regularization = validate_lens_light_regularization(
@@ -246,13 +236,12 @@ class PixelizedImageProbModelOperator(ck.Module):
         # PCG settings
         self.pcg_max_iter = 400
         self.pcg_rtol = 1e-5
-        self.fista_max_iter = int(fista_max_iter)
-        self.fista_rtol = float(fista_rtol)
-        self.fista_power_iter = int(fista_power_iter)
-        self.fista_step_safety = float(fista_step_safety)
         self.pnpg_max_iter = int(pnpg_max_iter)
         self.pnpg_rtol = float(pnpg_rtol)
         self.pnpg_power_iter = int(pnpg_power_iter)
+        if not np.isfinite(pnpg_comp_rel_tol) or pnpg_comp_rel_tol < 0.0:
+            raise ValueError("pnpg_comp_rel_tol must be finite and non-negative")
+        self.pnpg_comp_rel_tol = float(pnpg_comp_rel_tol)
 
         (
             self._pos_px,
@@ -628,7 +617,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         op_data=None,  # precomputed LensOperatorData
         source_rhs=None,
         lens_matrix=None,
-    ) -> tuple[Array, PCGInfo | FISTAInfo | PNPGInfo]:
+    ) -> tuple[Array, PCGInfo | PNPGInfo]:
         """Solve for joint MAP linear parameters with the configured solver.
 
         ``preconditioner`` may be a dense Cholesky factor (legacy) or a
@@ -693,7 +682,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 warm_start,
                 jnp.zeros_like(warm_start),
             )
-            source_pixels, solver_info = pnpg_nnls_solve(
+            source_pixels, solver_info = pnpg_nnls_solve_with_implicit_grad(
                 operator,
                 b,
                 preconditioner,
@@ -701,50 +690,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 max_iter=self.pnpg_max_iter,
                 rtol=self.pnpg_rtol,
                 power_iter=self.pnpg_power_iter,
-            )
-        elif self.solver_type == "fista":
-            # A block-Schur PCG solve provides a cheap curvature-aware warm
-            # start for the constrained problem. Projecting the unconstrained
-            # solution onto the non-negative orthant leaves FISTA to enforce
-            # the KKT conditions without spending thousands of iterations
-            # traversing the ill-conditioned source/MGE amplitude scales from
-            # the origin.
-            constrained_max_iter = self.fista_max_iter
-            if constrained_max_iter > 0:
-                warm_start, warm_info = pcg_solve(
-                    operator,
-                    b,
-                    preconditioner,
-                    max_iter=self.pcg_max_iter,
-                    rtol=self.pcg_rtol,
-                )
-                projected_warm_start = jnp.maximum(warm_start, 0.0)
-                warm_Ax = operator.matvec(projected_warm_start)
-                warm_objective = 0.5 * jnp.dot(projected_warm_start, warm_Ax) - jnp.dot(
-                    b, projected_warm_start
-                )
-                accept_warm_start = (
-                    warm_info.converged
-                    & jnp.isfinite(warm_objective)
-                    & (warm_objective < 0.0)
-                )
-                warm_start = jnp.where(
-                    accept_warm_start,
-                    projected_warm_start,
-                    jnp.zeros_like(warm_start),
-                )
-            else:
-                warm_start = jnp.zeros_like(b)
-            warm_start = jax.lax.stop_gradient(warm_start)
-            source_pixels, solver_info = fista_nnls_solve_with_implicit_grad(
-                operator,
-                b,
-                x0=warm_start,
-                preconditioner=preconditioner,
-                max_iter=self.fista_max_iter,
-                rtol=self.fista_rtol,
-                power_iter=self.fista_power_iter,
-                step_safety=self.fista_step_safety,
+                comp_rel_tol=self.pnpg_comp_rel_tol,
                 backward_pcg_max_iter=2 * self.pcg_max_iter,
                 backward_pcg_rtol=min(self.pcg_rtol, 1e-7),
             )

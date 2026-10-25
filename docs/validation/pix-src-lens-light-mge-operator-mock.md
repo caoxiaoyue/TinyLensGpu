@@ -1,5 +1,10 @@
 # Joint MGE operator mock validation
 
+> Historical experiment. FISTA was removed on 2026-10-24 after migrating its
+> implicit derivative to PNPG. Numerical results and FISTA commands below
+> describe the earlier implementation, not the current supported interface.
+> See [the current PNPG note](../technical-notes/pnpg-joint-pixel-source.md).
+
 Validation date: 2026-07-12
 
 The fit was run from

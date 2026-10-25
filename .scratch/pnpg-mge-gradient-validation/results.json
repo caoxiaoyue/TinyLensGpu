@@ -1,0 +1,230 @@
+{
+  "model": {
+    "source_n": 80,
+    "n_lens_light": 20,
+    "nsub": 4,
+    "n_data": 5024,
+    "n_parameters": 10,
+    "bbox": [
+      -0.37603193521499634,
+      0.5948321223258972,
+      -0.36532729864120483,
+      0.6055367588996887
+    ],
+    "lens_light_regularization": 1e-06
+  },
+  "environment": {
+    "package_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/TinyLensGpu/__init__.py",
+    "jax_version": "0.7.1",
+    "devices": [
+      "cuda:0"
+    ]
+  },
+  "gradient_check": {
+    "configuration": {
+      "x64": true,
+      "iterations": 30000,
+      "rtol": 0.02,
+      "pcg_iterations": 400,
+      "pcg_rtol": 1e-05,
+      "log_lambda": -8.0,
+      "check_fd": true,
+      "optimize": true,
+      "maxiter": 100,
+      "label": "full_validation",
+      "point_offset": 0.0,
+      "comp_rtol": 1e-10,
+      "fd_steps": [
+        0.0001,
+        3e-05,
+        1e-05
+      ],
+      "debug_grad": false,
+      "diagnose_logdet": false
+    },
+    "names": [
+      "theta_E",
+      "e1",
+      "e2",
+      "center_x",
+      "center_y",
+      "log_lambda_reg",
+      "e1_lens",
+      "e2_lens",
+      "center_x_lens",
+      "center_y_lens"
+    ],
+    "theta": [
+      1.0,
+      0.1,
+      0.0,
+      0.0,
+      0.0,
+      -8.0,
+      0.1,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "jacobian": [
+      [
+        1027.3231287919034,
+        -2166.187365489178,
+        1612.3616329917293,
+        30.25058089922902,
+        -928.7211343957911,
+        175.5241247800941,
+        -286.58000084204656,
+        -379.0141689118397,
+        1182.836326565284,
+        4362.541334437746
+      ],
+      [
+        -0.015297563777456518,
+        0.018597943092382562,
+        -0.011029344048458683,
+        0.05207634403387233,
+        -0.034950139084063886,
+        -0.0003128327461810662,
+        0.004632882068203687,
+        0.0027653043044231843,
+        0.001551514422284311,
+        6.625221686148774e-05
+      ],
+      [
+        -21.87892324029711,
+        -3.3179019227897806,
+        -3.0461465374201917,
+        -5.0832775525481715,
+        9.418399014616032,
+        -0.0016645928186240554,
+        7.490870564472087,
+        -0.5201355937078828,
+        0.5886116653275492,
+        0.8949348153662853
+      ]
+    ],
+    "selected_step": 0.0001,
+    "components_pass": [
+      true,
+      true,
+      true
+    ],
+    "relative_l2_error": [
+      0.0003108671856045406,
+      0.009919880623520063,
+      4.596459433091214e-05
+    ],
+    "step_sweep": [
+      {
+        "h": 0.0001,
+        "components_pass": [
+          true,
+          true,
+          true
+        ],
+        "relative_l2_error": [
+          0.0003108671856045406,
+          0.009919880623520063,
+          4.596459433091214e-05
+        ]
+      },
+      {
+        "h": 3e-05,
+        "components_pass": [
+          true,
+          false,
+          true
+        ],
+        "relative_l2_error": [
+          0.0005940374910114797,
+          0.01011374767527665,
+          4.439321376208429e-05
+        ]
+      },
+      {
+        "h": 1e-05,
+        "components_pass": [
+          false,
+          true,
+          true
+        ],
+        "relative_l2_error": [
+          0.001292726050279753,
+          0.0027012974147970947,
+          2.155972623950744e-05
+        ]
+      }
+    ],
+    "envelope_max_absolute_error": 2.7206260710954666e-07,
+    "scales": [
+      0.1,
+      0.1,
+      0.1,
+      0.05,
+      0.05,
+      1.0,
+      0.1,
+      0.1,
+      0.05,
+      0.05
+    ],
+    "comparison_relative_tolerance": 0.02,
+    "scaled_absolute_tolerances": [
+      0.01,
+      1e-06,
+      1e-05
+    ]
+  },
+  "optimization": {
+    "validation_pass": false,
+    "exit_code": 3,
+    "termination": "Nonfinite gradient rejected at both allowed iteration budgets",
+    "accepted_steps": 22,
+    "valid_evaluations": 46,
+    "rejected_budget_attempts": 33,
+    "initial_log_evidence": 2718.5157343708333,
+    "last_valid_log_evidence": 2747.4400029194635,
+    "last_valid_scaled_gradient_l2_norm": 0.2841645036150782,
+    "last_valid_point": "best_point.json",
+    "failed_point": "failed_point.json"
+  },
+  "last_valid_reconstruction": {
+    "log_evidence": 2747.4400029194635,
+    "source_min": 0.0,
+    "lens_min": 0.0,
+    "chi2_per_data": 0.9360428247956433,
+    "solver_info": {
+      "n_iter": 300000,
+      "convergence_metric": 1.867339620172877e-15,
+      "converged": true,
+      "failed": false,
+      "step_size": 0.09812821566653925,
+      "kkt_violation": 9.202341517977876e-16,
+      "min_active_residual": 8.243911906902213e-06
+    }
+  },
+  "failed_point_diagnostic": {
+    "log_evidence": 2747.4495933606972,
+    "finite_jacobian": false,
+    "solver_info": {
+      "n_iter": 300000,
+      "convergence_metric": 1.6804602741020647e-15,
+      "converged": true,
+      "failed": false,
+      "step_size": 0.09813019198621217,
+      "kkt_violation": 6.715456437234366e-16,
+      "min_active_residual": 2.977549229399301e-07
+    },
+    "free_stationarity_max": 2.1827872842550278e-11,
+    "strict_complementarity_failed_count": 1,
+    "basis_index_one_based": 20,
+    "amplitude": 0.0,
+    "dual_residual": 2.9775401344522834e-07,
+    "required_margin": 6.104278948052518e-07
+  },
+  "regression": {
+    "passed": 728,
+    "deselected_slow": 2
+  }
+}

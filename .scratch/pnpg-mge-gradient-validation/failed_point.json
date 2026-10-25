@@ -1,0 +1,27 @@
+{
+  "names": [
+    "theta_E",
+    "e1",
+    "e2",
+    "center_x",
+    "center_y",
+    "log_lambda_reg",
+    "e1_lens",
+    "e2_lens",
+    "center_x_lens",
+    "center_y_lens"
+  ],
+  "parameters": [
+    1.0001253849430125,
+    0.09818388204713437,
+    0.0007710353948401529,
+    -0.0010056520362601389,
+    -0.0010251556151445078,
+    -7.567368358428125,
+    0.100193215058163,
+    -0.00021188314778094422,
+    -4.738798192325964e-08,
+    8.289109956052347e-09
+  ],
+  "provenance": "First candidate rejected at both 100000 and 300000 PNPG iterations after 22 accepted L-BFGS-B continuation steps."
+}

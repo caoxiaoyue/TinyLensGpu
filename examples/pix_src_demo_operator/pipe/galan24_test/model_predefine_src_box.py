@@ -98,13 +98,12 @@ ADAPTIVE_REG_RHO = 2.0             # 0 = uniform, >0 strengthens faint-region re
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
 SOURCE_BBOX_RADIUS_FACTOR = 2.5
-FISTA_MAX_ITER = 1000
-FISTA_RTOL = 1.0e-5
-FISTA_POWER_ITER = 10
-FISTA_STEP_SAFETY = 1.2
+PNPG_MAX_ITER = 1000
+PNPG_RTOL = 2.0e-2
+PNPG_POWER_ITER = 20
 # Source solver for all pixelized stages.
 #   "pcg"  : preconditioned CG, unconstrained source, faster.
-#   "fista": non-negative constrained source, slower.
+#   "pnpg": non-negative source and lens-light amplitudes.
 SOLVER_TYPE = "pcg"
 OUT_DIR = Path("output_predefine_src_box")
 DATA_DIR = Path("data")
@@ -330,12 +329,11 @@ def _validate_source_package(source_package, expected_source_bbox=None):
     return source_package
 
 
-def _fista_kwargs():
+def _pnpg_kwargs():
     return dict(
-        fista_max_iter=FISTA_MAX_ITER,
-        fista_rtol=FISTA_RTOL,
-        fista_power_iter=FISTA_POWER_ITER,
-        fista_step_safety=FISTA_STEP_SAFETY,
+        pnpg_max_iter=PNPG_MAX_ITER,
+        pnpg_rtol=PNPG_RTOL,
+        pnpg_power_iter=PNPG_POWER_ITER,
     )
 
 
@@ -1002,7 +1000,7 @@ def build_stage_m0_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         fixed_source_bbox=fixed_source_bbox,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
     )
 
 
@@ -1133,7 +1131,7 @@ def build_stage_m1_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         fixed_source_bbox=fixed_source_bbox,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
     )
 
 
@@ -1428,7 +1426,7 @@ def build_stage_m2_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 
@@ -1520,7 +1518,7 @@ def build_stage_m3_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 

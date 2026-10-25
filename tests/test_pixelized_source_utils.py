@@ -10,14 +10,36 @@ pixelized reconstructions.
 import pytest
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
     infer_source_bbox,
+    lens_mapping_operator_bilinear_from,
     make_square_bbox,
     source_bbox_from_center_reff,
 )
+
+
+@pytest.mark.unit
+def test_bilinear_mapping_preserves_double_precision_derivatives():
+    """A sub-float32-ULP coordinate step must survive double-precision mapping."""
+    with jax.experimental.enable_x64():
+
+        def weight(x):
+            beta = jnp.stack([x, jnp.asarray(0.25)])[None, :]
+            weights, _, _ = lens_mapping_operator_bilinear_from(
+                beta, 0.0, 2.0, 0.0, 2.0, 3
+            )
+            return weights[0, 0]
+
+        x = jnp.asarray(0.75)
+        step = 1e-9
+        finite_difference = (weight(x + step) - weight(x - step)) / (2 * step)
+        expected = -0.75
+        np.testing.assert_allclose(jax.grad(weight)(x), expected, rtol=1e-7)
+        np.testing.assert_allclose(finite_difference, expected, rtol=1e-6)
 
 
 @pytest.fixture

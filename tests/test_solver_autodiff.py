@@ -7,9 +7,9 @@ import pytest
 
 from TinyLensGpu.utils.cg_solver import pcg_solve, pcg_solve_with_implicit_grad
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
-from TinyLensGpu.utils.fista_solver import (
-    fista_nnls_solve,
-    fista_nnls_solve_with_implicit_grad,
+from TinyLensGpu.utils.pnpg_solver import (
+    pnpg_nnls_solve,
+    pnpg_nnls_solve_with_implicit_grad,
 )
 
 
@@ -46,8 +46,10 @@ def test_pcg_solution_vjp_matches_dense_with_dynamic_preconditioner():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failure", ["forward", "backward", "degenerate", "kkt"])
-def test_fista_invalid_gradients_preserve_raw_forward(failure):
+@pytest.mark.parametrize(
+    "failure", ["forward", "backward", "degenerate", "kkt", "line_search"]
+)
+def test_pnpg_invalid_gradients_preserve_raw_forward(failure):
     matrix = jnp.array([[2.0, 0.2], [0.2, 1.0]])
     # At theta=0 this is either strictly interior or a degenerate active point.
     rhs = jnp.zeros(2) if failure == "degenerate" else jnp.array([1.0, 0.5])
@@ -56,14 +58,26 @@ def test_fista_invalid_gradients_preserve_raw_forward(failure):
     rtol = 1.0 if failure == "kkt" else 1e-5
 
     def solve(theta):
-        return fista_nnls_solve_with_implicit_grad(
-            _operator(matrix), rhs + theta, initial, jnp.eye(2), rtol=rtol,
-            max_iter=budget, backward_pcg_max_iter=0 if failure == "backward" else 100,
+        return pnpg_nnls_solve_with_implicit_grad(
+            _operator(matrix),
+            rhs + theta,
+            jnp.eye(2),
+            initial,
+            rtol=rtol,
+            max_iter=budget,
+            max_backtracking=0 if failure == "line_search" else 30,
+            backward_pcg_max_iter=0 if failure == "backward" else 100,
         )
 
     x, info = solve(0.0)
-    raw_x, raw_info = fista_nnls_solve(
-        _operator(matrix), rhs, x0=initial, max_iter=budget, rtol=rtol,
+    raw_x, raw_info = pnpg_nnls_solve(
+        _operator(matrix),
+        rhs,
+        jnp.eye(2),
+        x0=initial,
+        max_iter=budget,
+        rtol=rtol,
+        max_backtracking=0 if failure == "line_search" else 30,
     )
     np.testing.assert_array_equal(x, raw_x)
     assert info.converged == raw_info.converged
@@ -74,14 +88,36 @@ def test_fista_invalid_gradients_preserve_raw_forward(failure):
 
 
 @pytest.mark.unit
-def test_fista_complementarity_uses_local_scales():
+def test_pnpg_componentwise_kkt_rejects_underconverged_bright_system():
+    """A permissive forward gate must not certify an inaccurate derivative."""
+    matrix = jnp.diag(jnp.array([2.0, 1.0, 3e5]))
+    initial = jnp.array([0.47, 0.4, 1.0 / 3.0])
+
+    def solve(theta):
+        rhs = jnp.array([1.0 + theta, 0.5, 1e5])
+        return pnpg_nnls_solve_with_implicit_grad(
+            _operator(matrix),
+            rhs,
+            jnp.eye(3),
+            initial,
+            max_iter=0,
+            rtol=1.0,
+        )
+
+    _, info = solve(0.0)
+    assert info.converged and info.kkt_violation > 1e-4
+    assert jnp.isnan(jax.jit(jax.grad(lambda t: solve(t)[0].sum()))(0.0))
+
+
+@pytest.mark.unit
+def test_pnpg_complementarity_uses_local_scales():
     """An unrelated bright coefficient must not invalidate a stable active pixel."""
     matrix = jnp.diag(jnp.array([1.0, 2.0]))
 
     def loss(theta):
         rhs = jnp.array([-0.1, 2e5 + theta])
-        x, _ = fista_nnls_solve_with_implicit_grad(
-            _operator(matrix), rhs, None, jnp.linalg.cholesky(matrix), max_iter=300,
+        x, _ = pnpg_nnls_solve_with_implicit_grad(
+            _operator(matrix), rhs, jnp.linalg.cholesky(matrix), None, max_iter=300
         )
         return jnp.sum(x)
 
@@ -89,9 +125,37 @@ def test_fista_complementarity_uses_local_scales():
 
 
 @pytest.mark.unit
+def test_pnpg_complementarity_margin_can_resolve_small_positive_dual():
+    """A bright coupled basis can have a small, strictly positive dual."""
+    with jax.experimental.enable_x64():
+        matrix = jnp.array([[2.0, 0.9], [0.9, 1.0]])
+        solution = jnp.array([0.0, 1e5])
+        rhs = matrix @ solution - jnp.array([0.01, 0.0])
+
+        def loss(theta, comp_rel_tol):
+            x, _ = pnpg_nnls_solve_with_implicit_grad(
+                _operator(matrix),
+                rhs + jnp.array([0.0, theta]),
+                jnp.linalg.cholesky(matrix),
+                x0=solution,
+                max_iter=1000,
+                rtol=1e-10,
+                comp_rel_tol=comp_rel_tol,
+            )
+            return x.sum()
+
+        assert jnp.isnan(jax.grad(lambda t: loss(t, 1e-4))(0.0))
+        np.testing.assert_allclose(
+            jax.grad(lambda t: loss(t, 1e-10))(0.0),
+            1.0,
+            atol=1e-8,
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("exact_initial", [False, True])
-def test_fista_kkt_rejects_wrong_free_set_with_bright_component(exact_initial):
-    """A bright independent component cannot hide a small pixel's KKT error."""
+def test_pnpg_resolves_free_set_with_bright_component(exact_initial):
+    """A bright independent component must not hide the small pixels' active set."""
     matrix = jnp.array([[4.0, 1.5, 0.0], [1.5, 1.0, 0.0], [0.0, 0.0, 3e5]])
     op = _operator(matrix)
     precond = jnp.linalg.cholesky(matrix)
@@ -105,39 +169,34 @@ def test_fista_kkt_rejects_wrong_free_set_with_bright_component(exact_initial):
 
     def solve(theta):
         rhs = jnp.array([theta, -5.0, 1e5])
-        return fista_nnls_solve_with_implicit_grad(
-            op, rhs, initial(rhs), precond, max_iter=1000,
+        return pnpg_nnls_solve_with_implicit_grad(
+            op, rhs, precond, initial(rhs), max_iter=1000
         )
 
     rhs = jnp.array([-1.0, -5.0, 1e5])
     x, info = solve(-1.0)
-    raw_x, raw_info = fista_nnls_solve(op, rhs, x0=initial(rhs), max_iter=1000)
+    raw_x, raw_info = pnpg_nnls_solve(op, rhs, precond, x0=initial(rhs), max_iter=1000)
     np.testing.assert_array_equal(x, raw_x)
     for actual, expected in zip(info[:5], raw_info[:5]):
         np.testing.assert_array_equal(actual, expected)
     assert info.converged
     assert not info.failed
     gradient = jax.jit(jax.grad(lambda theta: solve(theta)[0][0]))(-1.0)
-    # The exact NNQP solution has both first pixels strictly active for theta < 0.
-    if exact_initial:
-        np.testing.assert_allclose(x, solution, atol=1e-7)
-        np.testing.assert_allclose(gradient, 0.0, atol=1e-7)
-    else:
-        assert x[0] > 0.1  # Raw global convergence accepts an incorrect free set.
-        assert jnp.isnan(gradient)
-        assert info.kkt_violation > 1e-4
+    # Equilibration resolves the small coefficients even with a bright component.
+    np.testing.assert_allclose(x, solution, atol=1e-7)
+    np.testing.assert_allclose(gradient, 0.0, atol=1e-7)
 
 
 @pytest.mark.unit
-def test_fista_detaches_external_pcg_warm_start():
+def test_pnpg_detaches_external_pcg_warm_start():
     matrix = jnp.array([[2.0, 0.3], [0.3, 1.0]])
     rhs = jnp.array([0.7, -0.3])
 
     def loss(theta):
         op = _operator(matrix + theta * jnp.eye(2))
         warm, _ = pcg_solve(op, rhs, jnp.eye(2))
-        x, _ = fista_nnls_solve_with_implicit_grad(
-            op, rhs, warm, jnp.eye(2), max_iter=300,
+        x, _ = pnpg_nnls_solve_with_implicit_grad(
+            op, rhs, jnp.eye(2), warm, max_iter=300
         )
         return x.sum()
 
@@ -146,7 +205,7 @@ def test_fista_detaches_external_pcg_warm_start():
 
 
 @pytest.mark.slow
-def test_fista_active_set_stress_matches_known_solution_and_dense_derivative():
+def test_pnpg_active_set_stress_matches_known_solution_and_dense_derivative():
     # Double precision separates convergence of a moderately ill-conditioned
     # problem from the single-precision residual floor. The active set is
     # constructed from an exact feasible solution and strictly positive dual.
@@ -160,26 +219,39 @@ def test_fista_active_set_stress_matches_known_solution_and_dense_derivative():
         def loss(theta, iterative):
             a = matrix + theta * jnp.eye(5)
             if iterative:
-                x, _ = fista_nnls_solve_with_implicit_grad(
-                    _operator(a), rhs, None, jnp.linalg.cholesky(a),
-                    max_iter=8000, rtol=1e-8, backward_pcg_rtol=1e-10,
+                x, _ = pnpg_nnls_solve_with_implicit_grad(
+                    _operator(a),
+                    rhs,
+                    jnp.linalg.cholesky(a),
+                    None,
+                    max_iter=8000,
+                    rtol=1e-08,
+                    backward_pcg_rtol=1e-10,
                 )
             else:
-                x = jnp.zeros(5).at[free].set(
-                    jnp.linalg.solve(a[free][:, free], rhs[free])
+                x = (
+                    jnp.zeros(5)
+                    .at[free]
+                    .set(jnp.linalg.solve(a[free][:, free], rhs[free]))
                 )
             return c @ x
 
-        x, info = fista_nnls_solve_with_implicit_grad(
-            _operator(matrix), rhs, None, jnp.linalg.cholesky(matrix),
-            max_iter=8000, rtol=1e-8,
+        x, info = pnpg_nnls_solve_with_implicit_grad(
+            _operator(matrix),
+            rhs,
+            jnp.linalg.cholesky(matrix),
+            None,
+            max_iter=8000,
+            rtol=1e-08,
         )
         assert info.converged
         assert x[1] == 0.0
         np.testing.assert_allclose(x, solution, rtol=1e-6, atol=1e-8)
         np.testing.assert_allclose(
             jax.grad(lambda t: loss(t, True))(0.0),
-            jax.grad(lambda t: loss(t, False))(0.0), rtol=1e-6, atol=1e-8,
+            jax.grad(lambda t: loss(t, False))(0.0),
+            rtol=1e-6,
+            atol=1e-8,
         )
 
 
@@ -188,11 +260,14 @@ def test_fista_active_set_stress_matches_known_solution_and_dense_derivative():
 @pytest.mark.parametrize("variable", ["matrix", "rhs"])
 def test_pcg_failed_solve_preserves_forward_but_rejects_gradient(failure, variable):
     """NaN primals alone cannot invalidate the independent RHS derivative."""
+
     def solve(theta):
         a = jnp.array([[2.0]]) + (theta if variable == "matrix" else 0.0)
         b = jnp.array([1.0]) + (theta if variable == "rhs" else 0.0)
         return pcg_solve_with_implicit_grad(
-            _operator(a), b, jnp.eye(1),
+            _operator(a),
+            b,
+            jnp.eye(1),
             max_iter=0 if failure == "forward" else 10,
             backward_max_iter=0 if failure == "backward" else 10,
         )
@@ -206,7 +281,7 @@ def test_pcg_failed_solve_preserves_forward_but_rejects_gradient(failure, variab
 
 @pytest.mark.unit
 @pytest.mark.parametrize("constrained", [False, True])
-def test_fista_solution_vjp_matches_dense_free_set(constrained):
+def test_pnpg_solution_vjp_matches_dense_free_set(constrained):
     matrix = jnp.array([[4.0, 0.4, 0.2], [0.4, 2.5, 0.3], [0.2, 0.3, 1.5]])
     solution = jnp.array([0.5, 0.0 if constrained else 0.4, 0.8])
     dual = jnp.array([0.0, 0.3 if constrained else 0.0, 0.0])
@@ -218,17 +293,20 @@ def test_fista_solution_vjp_matches_dense_free_set(constrained):
         a = matrix + theta[0] * jnp.eye(3)
         b = rhs + theta[1] * jnp.array([0.2, -0.3, 0.4])
         if iterative:
-            x, _ = fista_nnls_solve_with_implicit_grad(
-                _operator(a), b, None, jnp.linalg.cholesky(a),
-                max_iter=300, rtol=1e-6,
+            x, _ = pnpg_nnls_solve_with_implicit_grad(
+                _operator(a), b, jnp.linalg.cholesky(a), None, max_iter=300, rtol=1e-06
             )
         else:
             x = jnp.zeros(3).at[free].set(jnp.linalg.solve(a[free][:, free], b[free]))
         return cotangent @ x
 
-    x, info = fista_nnls_solve_with_implicit_grad(
-        _operator(matrix), rhs, None, jnp.linalg.cholesky(matrix),
-        max_iter=300, rtol=1e-6,
+    x, info = pnpg_nnls_solve_with_implicit_grad(
+        _operator(matrix),
+        rhs,
+        jnp.linalg.cholesky(matrix),
+        None,
+        max_iter=300,
+        rtol=1e-06,
     )
     assert info.converged
     np.testing.assert_allclose(x, solution, rtol=2e-5, atol=2e-6)

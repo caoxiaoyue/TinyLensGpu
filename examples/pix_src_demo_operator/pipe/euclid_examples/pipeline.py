@@ -97,10 +97,9 @@ ADAPTIVE_REG_RHO = 2.0
 ADAPTIVE_REG_RHO_PRIOR_MAX = 8.0
 PIXEL_REGULARIZATION_TYPE = "first-order"
 SOURCE_BBOX_PADDING = 0.30
-FISTA_MAX_ITER = 1000
-FISTA_RTOL = 1.0e-5
-FISTA_POWER_ITER = 10
-FISTA_STEP_SAFETY = 1.2
+PNPG_MAX_ITER = 1000
+PNPG_RTOL = 2.0e-2
+PNPG_POWER_ITER = 20
 SOLVER_TYPE = "pcg"
 
 
@@ -300,12 +299,11 @@ def _validate_source_package(source_package):
     return source_package
 
 
-def _fista_kwargs():
+def _pnpg_kwargs():
     return dict(
-        fista_max_iter=FISTA_MAX_ITER,
-        fista_rtol=FISTA_RTOL,
-        fista_power_iter=FISTA_POWER_ITER,
-        fista_step_safety=FISTA_STEP_SAFETY,
+        pnpg_max_iter=PNPG_MAX_ITER,
+        pnpg_rtol=PNPG_RTOL,
+        pnpg_power_iter=PNPG_POWER_ITER,
     )
 
 
@@ -951,7 +949,7 @@ def build_stage_m0_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
     )
 
 
@@ -1081,7 +1079,7 @@ def build_stage_m1_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
     )
 
 
@@ -1348,7 +1346,7 @@ def build_stage_m2_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 
@@ -1436,7 +1434,7 @@ def build_stage_m3_likelihood(
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
         source_bbox_padding=SOURCE_BBOX_PADDING,
-        **_fista_kwargs(),
+        **_pnpg_kwargs(),
         **_fixed_source_kwargs(s1_package),
     )
 

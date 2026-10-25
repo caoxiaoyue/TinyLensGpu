@@ -1,3 +1,7 @@
+> Historical spec: the 2026-10-24 solver consolidation supersedes FISTA
+> requirements below. The supported operator solvers are PCG and PNPG, with
+> fixed-bbox implicit derivatives for both. See `docs/guides/guide.md`.
+
 ## Purpose
 
 Define hard non-negative reconstruction for the matrix-free operator

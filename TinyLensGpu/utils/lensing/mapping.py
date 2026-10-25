@@ -47,7 +47,9 @@ def lens_mapping_operator_bilinear_from(
     n: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Build bilinear interpolation weights/indices on a square source grid."""
-    beta = jnp.asarray(data_mesh_beta, dtype=jnp.float32)
+    # Keep coordinate precision: downcasting float64 rays quantizes small
+    # parameter steps and makes finite differences disagree with autodiff.
+    beta = jnp.asarray(data_mesh_beta)
 
     dx = (x_max - x_min) / (n - 1)
     dy = (y_max - y_min) / (n - 1)

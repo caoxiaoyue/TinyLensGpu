@@ -165,7 +165,11 @@ Run the complete example from its own directory so its relative data paths resol
   - `pnpg`: preferred non-negative solve for ill-conditioned joint pixel-source
     and MGE lens-light systems; uses matrix-free diagonal equilibration,
     backtracking, and a componentwise KKT convergence gate
-  - `fista`: retained for compatibility with existing scalar-step workflows
+  - `pcg` and `pnpg` are the only supported operator solvers. The former
+    `fista` option and all `fista_*` constructor arguments have been removed.
+    Migrate non-negative workflows to `solver_type="pnpg"` and the
+    `pnpg_max_iter`, `pnpg_rtol`, `pnpg_power_iter` controls; retune convergence
+    instead of copying the old tolerance, because the metrics differ.
   - Tune `pnpg_max_iter`, `pnpg_rtol`, and `pnpg_power_iter` on representative
     likelihood points before sampling; failed convergence is gated rather than
     accepted as a finite likelihood
@@ -201,7 +205,7 @@ Run the complete example from its own directory so its relative data paths resol
     `prob_model(theta)` and `forward_model(theta, return_source=True)` remain
     compatible but are independent calls. Reconstruction alone does not compute
     evidence determinants. All three interfaces support JIT/vmap.
-  - With a **fixed source bbox**, `pcg` and `fista` also support first-order
+  - With a **fixed source bbox**, `pcg` and `pnpg` also support first-order
     reverse-mode gradients of source/lens-light reconstructions and evidence.
     Pass the parameter vector through the model's public interface:
 
@@ -216,19 +220,35 @@ Run the complete example from its own directory so its relative data paths resol
     Use this array-returning model interface for autodiff; the scalar
     `make_likelihood` convenience wrapper converts its result to a Python float.
     The solver gradients use implicit differentiation, not differentiation of
-    the finite iteration sequence. FISTA requires a locally stable active set
+    the finite iteration sequence. PNPG requires a locally stable active set
     with strict complementarity. Forward/adjoint non-convergence or an invalid
     active set produces **NaN gradients**, while forward failure retains the
     existing evidence penalty and zero reconstruction. Check `solver_info`
-    before accepting a gradient; the FISTA wrapper also reports
+    before accepting a gradient; the PNPG wrapper also reports
     `kkt_violation`, the largest componentwise KKT residual normalized by
     `1 + abs(b_i) + abs((Ax)_i)`, and the unnormalized `min_active_residual`
     (infinity when every variable is free). KKT tolerances are checked per
     component so a bright coefficient cannot hide another component's error.
     Its complementarity check uses component scales
     and the free-variable stationarity error. Stop or adjust solver settings
-    when gradients are non-finite. PNPG and higher-order derivatives are not
-    covered by this gradient interface.
+    when gradients are non-finite. A successful forward convergence flag alone
+    does not guarantee an accurate derivative: PNPG also checks per-component
+    KKT residuals and strict complementarity, and may need a tighter tolerance
+    and larger iteration budget for gradients than for forward-only sampling.
+    The derivative does not pass through PNPG backtracking, the PCG warm start,
+    or the numerical preconditioner. Only first-order reverse-mode derivatives
+    with a fixed source bbox are supported; higher-order derivatives remain
+    outside this gradient interface.
+    `pnpg_comp_rel_tol` controls the relative strict-complementarity margin
+    (default `1e-4`) independently of forward convergence. Bright redundant
+    MGE bases can require a smaller margin after converging in float64; retain
+    the positive dual/KKT checks and verify finite-difference gradients when
+    changing it. See the [20-MGE gradient validation](../validation/pnpg-mge-fixed-bbox-gradients.md)
+    for the precision, iteration budgets, and local optimization checks.
+    That model passes reference-point gradient checks, but its full tested
+    optimizer rejected a gradient at the configured complementarity safety
+    margin after 22 accepted steps; stable optimization convergence is not
+    established for the large example.
 
 ---
 

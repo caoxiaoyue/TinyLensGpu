@@ -38,11 +38,23 @@ def resolve_position_likelihood_attrs(
         ``True`` when a position penalty should be applied.
     """
     if config is None:
-        return None, None, jnp.array(0.0, dtype=jnp.float32), jnp.array(0.0, dtype=jnp.float32), False
+        return (
+            None,
+            None,
+            jnp.array(0.0, dtype=jnp.float32),
+            jnp.array(0.0, dtype=jnp.float32),
+            False,
+        )
 
     positions = config.get("positions", [])
     if positions is None or len(positions) < 2:
-        return None, None, jnp.array(0.0, dtype=jnp.float32), jnp.array(0.0, dtype=jnp.float32), False
+        return (
+            None,
+            None,
+            jnp.array(0.0, dtype=jnp.float32),
+            jnp.array(0.0, dtype=jnp.float32),
+            False,
+        )
 
     pos_px = jnp.array([p[0] for p in positions], dtype=jnp.float32)
     pos_py = jnp.array([p[1] for p in positions], dtype=jnp.float32)
@@ -95,11 +107,16 @@ def compute_position_penalty_jax(
 
     dx = beta_x[:, None] - beta_x[None, :]
     dy = beta_y[:, None] - beta_y[None, :]
-    dist = jnp.sqrt(dx * dx + dy * dy)
+    squared_distance = dx * dx + dy * dy
+    zero = squared_distance == 0.0
+    # Self-pairs (and coincident rays) have zero distance. Keep sqrt's input
+    # positive on that branch so an unused 0 / 0 derivative cannot poison VJPs.
+    dist = jnp.where(zero, 0.0, jnp.sqrt(jnp.where(zero, 1.0, squared_distance)))
     max_sep = jnp.max(dist)
 
     exceed = jnp.maximum(0.0, max_sep - pos_thr)
-    ratio = jnp.where(pos_thr > 0.0, exceed / pos_thr, 0.0)
+    denominator = jnp.where(pos_thr > 0.0, pos_thr, 1.0)
+    ratio = jnp.where(pos_thr > 0.0, exceed / denominator, 0.0)
     pen_continuous = pos_minl * (1.0 - jnp.exp(-ratio))
 
     return jnp.clip(pen_continuous, min=pos_minl, max=0.0)

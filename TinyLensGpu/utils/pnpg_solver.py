@@ -9,18 +9,28 @@ import jax
 import jax.numpy as jnp
 from jax import Array, lax
 
-from TinyLensGpu.utils.cg_solver import preconditioner_diagonal
+from TinyLensGpu.utils.cg_solver import (
+    MaskedPreconditioner,
+    pcg_solve,
+    preconditioner_diagonal,
+)
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 
 
 class PNPGInfo(NamedTuple):
-    """Diagnostics returned by :func:`pnpg_nnls_solve`."""
+    """Forward diagnostics; implicit wrapper also fills KKT/active-set fields.
+
+    ``n_iter`` is the fixed iteration budget executed, not an early-stop count.
+    Raw solves leave ``kkt_violation`` and ``min_active_residual`` as NaN.
+    """
 
     n_iter: Array
     convergence_metric: Array
     converged: Array
     failed: Array
     step_size: Array
+    kkt_violation: Array
+    min_active_residual: Array
 
 
 class _PNPGState(NamedTuple):
@@ -66,7 +76,7 @@ def pnpg_nnls_solve(
 
     With ``D = diag(P)`` from the operator preconditioner, the change of
     variables ``x = D**-1/2 y`` preserves non-negativity while removing the
-    source/MGE amplitude-scale disparity that makes scalar-step FISTA stall.
+    source/MGE amplitude-scale disparity that can stall unscaled iterations.
     A projected PCG estimate may be supplied as ``x0``; it is rescaled along
     its feasible ray to guarantee an objective no worse than the zero vector.
     """
@@ -222,8 +232,129 @@ def pnpg_nnls_solve(
         converged=converged,
         failed=failed,
         step_size=final.step,
+        kkt_violation=jnp.asarray(jnp.nan, dtype),
+        min_active_residual=jnp.asarray(jnp.nan, dtype),
     )
     return solution, info
 
 
-__all__ = ["pnpg_nnls_solve", "PNPGInfo"]
+def _masked_curvature_matvec(vector, data, spec):
+    """Stable kernel: the operator and mask are dynamic PyTree children."""
+    operator, free = data
+    return free * operator.matvec(free * vector) + (1.0 - free) * vector
+
+
+def _checked_cotangent(leaf, valid):
+    # Operator data include integer indices. Their cotangents have dtype float0,
+    # which must not be subjected to floating-point arithmetic or NaN filling.
+    if leaf.dtype == jax.dtypes.float0:
+        return leaf
+    return jnp.where(valid, leaf, jnp.full_like(leaf, jnp.nan))
+
+
+def pnpg_nnls_solve_with_implicit_grad(
+    operator: CurvatureOperator,
+    b: Array,
+    preconditioner,
+    x0: Array | None = None,
+    *,
+    active_tol: float = 1e-8,
+    kkt_rel_tol: float = 1e-4,
+    kkt_abs_tol: float = 1e-8,
+    comp_rel_tol: float = 1e-4,
+    comp_abs_tol: float = 1e-8,
+    backward_pcg_max_iter: int = 800,
+    backward_pcg_rtol: float = 1e-6,
+    backward_pcg_atol: float = 1e-12,
+    **kwargs,
+) -> tuple[Array, PNPGInfo]:
+    """PNPG with a first-order, fixed-active-set implicit reverse derivative.
+
+    Forward iterates match :func:`pnpg_nnls_solve`, even on failure. Gradients
+    of the solution with respect to operator data and b are NaN if the forward
+    solve, KKT checks, strict complementarity or adjoint solve fail. Diagnostic
+    fields are auxiliary outputs, not differentiable objectives. No derivative
+    is taken through the initial guess or numerical preconditioner.
+
+    Each KKT residual is checked against ``kkt_abs_tol + kkt_rel_tol *
+    (1 + abs(b_i) + abs((Ax)_i))``. ``kkt_violation`` reports the largest
+    componentwise normalized residual. On active variables,
+    the dual residual must exceed ``comp_abs_tol + comp_rel_tol *
+    max(abs(b_i), abs((Ax)_i))`` plus the largest free-variable stationarity
+    error. This uses the local amplitude scale instead of allowing a bright,
+    unrelated lens-light coefficient to set every variable's threshold.
+    Near active-set changes the classical derivative need not exist.
+    """
+    # A zero numerical cotangent alone does not prevent transposition of an
+    # external warm-start while_loop. Detach before entering the custom VJP.
+    if x0 is not None:
+        x0 = lax.stop_gradient(x0)
+
+    def forward(op, rhs, initial, precond):
+        x, info = pnpg_nnls_solve(op, rhs, precond, x0=initial, **kwargs)
+        Ax = op.matvec(x)
+        residual = Ax - rhs
+        free = x > active_tol
+        stationarity_error = jnp.max(jnp.where(free, jnp.abs(residual), 0.0))
+        kkt_error = jnp.where(free, jnp.abs(residual), jnp.maximum(-residual, 0.0))
+        # A global norm lets a bright, unrelated coefficient hide an incorrect
+        # free set in a faint component, producing a finite but wrong VJP.
+        scale = 1.0 + jnp.abs(rhs) + jnp.abs(Ax)
+        violation = jnp.max(kkt_error / scale)
+        min_active = jnp.min(jnp.where(free, jnp.inf, residual))
+        margin = (
+            comp_abs_tol
+            + comp_rel_tol * jnp.maximum(jnp.abs(rhs), jnp.abs(Ax))
+            + stationarity_error
+        )
+        strict_ok = jnp.all(free | (residual > margin))
+        kkt_ok = jnp.all(kkt_error <= kkt_abs_tol + kkt_rel_tol * scale)
+        valid = (
+            info.converged
+            & (~info.failed)
+            & kkt_ok
+            & strict_ok
+            & jnp.all(jnp.isfinite(x))
+        )
+        info = info._replace(kkt_violation=violation, min_active_residual=min_active)
+        return (x, info), (op, x, precond, free.astype(x.dtype), valid)
+
+    @jax.custom_vjp
+    def solve(op, rhs, initial, precond):
+        return forward(op, rhs, initial, precond)[0]
+
+    def backward(saved, cotangents):
+        op, x, precond, free, forward_valid = saved
+        g_x, _ = cotangents
+        masked_op = CurvatureOperator(
+            data=(op, free),
+            kernel=_masked_curvature_matvec,
+            spec=None,
+            size=op.size,
+        )
+        adjoint, info = pcg_solve(
+            masked_op,
+            free * g_x,
+            MaskedPreconditioner(precond, free),
+            max_iter=backward_pcg_max_iter,
+            rtol=backward_pcg_rtol,
+            atol=backward_pcg_atol,
+        )
+        valid = (
+            forward_valid
+            & info.converged
+            & (~info.failed)
+            & jnp.all(jnp.isfinite(adjoint))
+        )
+        adjoint = free * adjoint
+        _, pullback = jax.vjp(lambda operator: operator.matvec(x), op)
+        g_op = pullback(-adjoint)[0]
+        g_op = jax.tree_util.tree_map(lambda v: _checked_cotangent(v, valid), g_op)
+        g_b = _checked_cotangent(adjoint, valid)
+        return g_op, g_b, None, None
+
+    solve.defvjp(forward, backward)
+    return solve(operator, b, x0, preconditioner)
+
+
+__all__ = ["pnpg_nnls_solve", "pnpg_nnls_solve_with_implicit_grad", "PNPGInfo"]

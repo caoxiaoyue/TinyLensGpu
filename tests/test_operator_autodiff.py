@@ -17,13 +17,21 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
 )
 
 
-def _build_model(solver, joint=False):
+def _build_model(solver, joint=False, adaptive=False):
     sie = SIE(theta_E=0.12, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
     sie.theta_E.to_dynamic()
     lam = ParamU("log_lambda_reg", 0.0)
     lam.to_dynamic()
+    rho = 0.0
+    if adaptive:
+        rho = ParamU(
+            "adaptive_reg_rho", 1.0, prior_type="uniform",
+            prior_settings=[0.0, 3.0], limits=[0.0, 3.0],
+        )
+        rho.to_dynamic()
     source = PixelizedSourceModel(
         n=5, log_lambda_reg=lam, regularization_type="first-order",
+        adaptive_reg_rho=rho,
     )
     lens_light = []
     if joint:
@@ -45,6 +53,11 @@ def _build_model(solver, joint=False):
     model = PixelizedImageProbModelOperator(
         mock, jnp.full_like(mock, 0.05), psf, 0.08, phys,
         solver_type=solver, fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
+        fixed_reg_template=jnp.linspace(0.1, 1.0, 25) if adaptive else None,
+        position_likelihood=dict(
+            positions=[[-0.2, 0.0], [0.2, 0.0]],
+            threshold_arcsec=1.0, min_log_like=-10.0,
+        ),
     )
     # Use caskade's public vector interface, not mutation of parameters in a
     # traced Python closure. Its dynamic parameter ordering is authoritative.
@@ -55,10 +68,11 @@ def _build_model(solver, joint=False):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("solver", ["pcg", "fista"])
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
 @pytest.mark.parametrize("joint", [False, True])
-def test_operator_reconstruction_and_evidence_jacobian(solver, joint):
-    model, theta, steps = _build_model(solver, joint)
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_operator_reconstruction_and_evidence_jacobian(solver, joint, adaptive):
+    model, theta, steps = _build_model(solver, joint, adaptive)
     weights = jnp.linspace(0.5, 1.5, 25)
 
     def outputs(parameters):
@@ -85,7 +99,7 @@ def test_operator_reconstruction_and_evidence_jacobian(solver, joint):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("solver", ["pcg", "fista"])
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
 def test_operator_batched_value_and_grad_matches_individual_calls(solver):
     model, theta, steps = _build_model(solver, joint=True)
     points = jnp.stack([theta, theta + 0.1 * steps])
@@ -100,13 +114,16 @@ def test_operator_batched_value_and_grad_matches_individual_calls(solver):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("solver", ["pcg", "fista"])
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
 def test_operator_failed_forward_keeps_penalty_and_rejects_gradient(solver):
     model, theta, _ = _build_model(solver)
     if solver == "pcg":
         model.pcg_max_iter = 0
     else:
-        model.fista_max_iter = 0
+        setattr(model, solver + "_max_iter", 0)
+        if solver == "pnpg":
+            # A projected PCG warm start can already pass PNPG's forward gate.
+            model.pnpg_rtol = 0.0
     result = model.evaluate(theta)
     assert not result.solver_info.converged
     assert float(result.log_evidence) == -1e10

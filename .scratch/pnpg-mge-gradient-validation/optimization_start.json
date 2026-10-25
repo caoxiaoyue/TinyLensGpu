@@ -1,0 +1,27 @@
+{
+  "names": [
+    "theta_E",
+    "e1",
+    "e2",
+    "center_x",
+    "center_y",
+    "log_lambda_reg",
+    "e1_lens",
+    "e2_lens",
+    "center_x_lens",
+    "center_y_lens"
+  ],
+  "parameters": [
+    1.0005444154154117,
+    0.09744800870136286,
+    0.0012993953489993358,
+    -0.0008334878152549312,
+    0.0005113211483997372,
+    -7.880111115459369,
+    0.10096368600084193,
+    -0.0018154450585135956,
+    -7.045910034875101e-05,
+    1.1097020097387681e-05
+  ],
+  "provenance": "Best valid evaluation from the first four accepted L-BFGS-B steps; used for the rescaled continuation."
+}
