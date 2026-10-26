@@ -60,9 +60,24 @@ from astropy.io import fits
 from matplotlib.colors import LogNorm
 from nautilus import Sampler
 
+from TinyLensGpu.example_support import (
+    SamplingConfig,
+    StageStorageConfig,
+    draw_image_panel,
+    export_source_package,
+    is_square_bbox,
+    load_stage,
+    normalize_source_bbox,
+    require_valid_reconstruction,
+    run_sampling,
+    save_stage,
+    source_axes_from_bbox,
+    source_bboxes_match,
+    stage_from_payload,
+    validate_source_package,
+)
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
@@ -87,6 +102,7 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
+
 
 # ------------------------------------------------------------------ #
 NSRC = 100
@@ -113,74 +129,25 @@ DATA_DIR = Path("data")
 
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
-
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized:
-        sampler_kwargs["n_batch"] = 100
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    sampler.run(verbose=True, n_eff=n_eff)
-
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64))
-    weights /= weights.sum()
-
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return StagePosterior.from_likelihood(likelihood, samples, weights, log_z=log_z)
+    return run_sampling(
+        likelihood,
+        SamplingConfig(n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+                       n_batch=100 if vectorized else None),
+        tag=tag, sampler_factory=Sampler,
+    )
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    if stage is not None:
-        stage_payload = stage.cache_payload()
-        payload = dict(
-            samples=stage_payload["samples"],
-            weights=stage_payload["weights"],
-            param_names=stage_payload["param_names"],
-            log_z=stage_payload["log_z"],
-            stage_schema={
-                key: stage_payload[key]
-                for key in ("param_names", "prior_specs")
-                if key in stage_payload
-            },
-            extra=extra or {},
-        )
-    else:
-        payload = dict(
-            samples=samples, weights=weights,
-            param_names=param_names, log_z=log_z,
-            stage_schema={"param_names": list(param_names)},
-            extra=extra or {},
-        )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to {OUT_DIR}/stage_{tag}.pkl")
+    save_stage(StageStorageConfig(OUT_DIR, include_schema=True),
+               tag, samples, weights, param_names, log_z, extra=extra, stage=stage)
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
+    return load_stage(StageStorageConfig(OUT_DIR, include_schema=True), tag)
 
 
 def _stage_from_payload(payload):
-    """Rehydrate a stage posterior from a cached stage payload."""
-    schema = payload.get("stage_schema", {})
-    prior_specs = payload.get("prior_specs") or schema.get("prior_specs")
-    param_names = payload.get("param_names") or schema.get("param_names")
-    return StagePosterior.from_schema(
-        payload["samples"],
-        payload["weights"],
-        prior_specs=prior_specs,
-        param_names=None if prior_specs is not None else param_names,
-        log_z=payload.get("log_z"),
-    )
+    return stage_from_payload(payload)
 
 
 def _print_summary(tag: str, samples, weights, param_names):
@@ -203,40 +170,19 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
 
 
 def _source_axes_from_bbox(source_bbox, n=NSRC):
-    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
-    return (
-        np.linspace(xmin, xmax, int(n), dtype=np.float64),
-        np.linspace(ymin, ymax, int(n), dtype=np.float64),
-    )
+    return source_axes_from_bbox(source_bbox, n)
 
 
 def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
-    return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
+    return is_square_bbox(source_bbox, rtol=rtol, atol=atol)
 
 
 def _normalize_source_bbox(source_bbox, *, label="Source bbox"):
-    if source_bbox is None or len(source_bbox) != 4:
-        raise ValueError(f"{label} must contain four values.")
-    bbox = tuple(float(v) for v in source_bbox)
-    if not np.all(np.isfinite(bbox)):
-        raise ValueError(f"{label} values must be finite.")
-    if not (bbox[0] < bbox[1] and bbox[2] < bbox[3]):
-        raise ValueError(f"{label} must satisfy xmin < xmax and ymin < ymax.")
-    if not _is_square_bbox(bbox):
-        raise ValueError(f"{label} must be square.")
-    return bbox
+    return normalize_source_bbox(source_bbox, label=label)
 
 
 def _source_bboxes_match(left, right):
-    if left is None or right is None:
-        return False
-    try:
-        left_bbox = _normalize_source_bbox(left)
-        right_bbox = _normalize_source_bbox(right)
-    except (TypeError, ValueError):
-        return False
-    return bool(np.allclose(left_bbox, right_bbox, rtol=1.0e-6, atol=1.0e-7))
+    return source_bboxes_match(left, right)
 
 
 def _make_source_scale(
@@ -252,83 +198,10 @@ def _make_source_scale(
 
 
 def _validate_source_package(source_package, expected_source_bbox=None):
-    legacy_keys = [k for k in ("nx", "ny") if k in source_package]
-    if legacy_keys:
-        raise KeyError(
-            "Source package uses legacy source-grid keys "
-            f"{', '.join(legacy_keys)}; regenerate S0 with the single-n "
-            "source-grid schema."
-        )
-
-    required = (
-        "source_pixels",
-        "source_bbox",
-        "source_x_axis",
-        "source_y_axis",
-        "n",
-        "lambda_best",
-        "log_lambda_best",
+    return validate_source_package(
+        source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO,
+        expected_source_bbox=expected_source_bbox, normalize_bbox=True, check_axes=True,
     )
-    missing = [k for k in required if k not in source_package]
-    if missing:
-        raise KeyError("Source package missing required keys: " + ", ".join(missing))
-
-    n = int(source_package["n"])
-    if n != NSRC:
-        raise ValueError(
-            f"Source grid dimension n={n} does not match configured n={NSRC}."
-        )
-    source_pixels = np.asarray(source_package["source_pixels"])
-    if source_pixels.shape != (n * n,):
-        raise ValueError(
-            f"Source source_pixels must have shape ({n * n},), "
-            f"got {source_pixels.shape}."
-        )
-    for axis_name in ("source_x_axis", "source_y_axis"):
-        axis = np.asarray(source_package[axis_name])
-        if axis.shape != (n,):
-            raise ValueError(
-                f"S0 {axis_name} must have shape ({n},), got {axis.shape}."
-            )
-    bbox = _normalize_source_bbox(
-        source_package["source_bbox"], label="Source source_bbox",
-    )
-    source_package["source_bbox"] = bbox
-    if (
-        expected_source_bbox is not None
-        and not _source_bboxes_match(bbox, expected_source_bbox)
-    ):
-        raise ValueError(
-            "Source package bbox does not match the fixed stage-A source bbox."
-        )
-
-    expected_x_axis, expected_y_axis = _source_axes_from_bbox(bbox, n)
-    for axis_name, expected_axis in (
-        ("source_x_axis", expected_x_axis),
-        ("source_y_axis", expected_y_axis),
-    ):
-        if not np.allclose(
-            np.asarray(source_package[axis_name], dtype=np.float64),
-            expected_axis,
-            rtol=1.0e-6,
-            atol=1.0e-7,
-        ):
-            raise ValueError(f"Source {axis_name} does not match source_bbox.")
-
-    scale_map = source_package.get("scale_map")
-    if scale_map is None:
-        scale_map = np.asarray(_make_source_scale(source_package), dtype=np.float32)
-        source_package["scale_map"] = scale_map
-    else:
-        scale_map = np.asarray(scale_map, dtype=np.float32)
-        if scale_map.shape != (n * n,):
-            raise ValueError(
-                f"Source scale_map must have shape ({n * n},), got {scale_map.shape}."
-            )
-        if not np.all(np.isfinite(scale_map) & (scale_map > 0.0)):
-            raise ValueError("Source scale_map values must be finite and positive.")
-        source_package["scale_map"] = scale_map
-    return source_package
 
 
 def _pnpg_kwargs():
@@ -554,42 +427,7 @@ def _valid_log_evidence(values) -> np.ndarray:
 
 
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
-    """Solve source pixels for the current pixelized likelihood configuration."""
-    q50 = [medians[n] for n in param_names]
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        result, diagnostics = likelihood.evaluate_with_diagnostics()
-        source_pixels = result.source_pixels
-        solver_info = result.solver_info
-        xmin, xmax, ymin, ymax = result.source_bbox
-        if not diagnostics.valid:
-            if solver_info is not None and not bool(np.asarray(solver_info.converged)):
-                if hasattr(solver_info, "residual_norm"):
-                    metric_label = "residual"
-                    metric_value = float(solver_info.residual_norm)
-                else:
-                    metric_label = "convergence_metric"
-                    metric_value = float(solver_info.convergence_metric)
-                raise InvalidReconstructionError(
-                    f"{likelihood.solver_type.upper()} failed while solving the "
-                    "stage source template "
-                    f"({metric_label}={metric_value:.4e}, "
-                    f"n_iter={int(solver_info.n_iter)})."
-                )
-            raise InvalidReconstructionError(
-                f"{likelihood.solver_type.upper()} failed while solving the "
-                f"stage source template ({diagnostics.invalid_reason})."
-            )
-    source_bbox = (float(xmin), float(xmax), float(ymin), float(ymax))
-    x_axis, y_axis = _source_axes_from_bbox(source_bbox, NSRC)
-    return dict(
-        source_pixels=np.asarray(source_pixels, dtype=np.float64),
-        source_image=np.asarray(source_pixels, dtype=np.float64).reshape(NSRC, NSRC),
-        source_bbox=source_bbox,
-        source_x_axis=x_axis,
-        source_y_axis=y_axis,
-        n=NSRC,
-    )
+    return export_source_package(likelihood, medians, param_names, n=NSRC)
 
 
 # ------------------------------------------------------------------ #
@@ -757,15 +595,20 @@ def run_stage_b(image_data, noise_map, circular_mask=None):
     extent = [-nx_img * DPIX / 2, nx_img * DPIX / 2,
               -ny_img * DPIX / 2, ny_img * DPIX / 2]
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-    im0 = axes[0].imshow(image_data, origin="lower", extent=extent, cmap="magma")
-    axes[0].set_title("obs (treated as lens-subtracted)")
-    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
-    im1 = axes[1].imshow(snr_map, origin="lower", extent=extent, cmap="magma",
-                         vmin=-3, vmax=np.nanpercentile(snr_map, 99.5))
-    axes[1].set_title("S/N map + arc mask boundary")
+    im0 = draw_image_panel(
+        axes[0], image_data,
+        title='obs (treated as lens-subtracted)',
+        title_size=plt.rcParams["axes.titlesize"], xlabel=None,
+        extent=extent, cmap='magma',
+    )
+    im1 = draw_image_panel(
+        axes[1], snr_map,
+        title='S/N map + arc mask boundary',
+        title_size=plt.rcParams["axes.titlesize"], xlabel=None,
+        extent=extent, cmap='magma', vmin=-3, vmax=np.nanpercentile(snr_map, 99.5),
+    )
     axes[1].contour(~feature_mask, levels=[0.5], origin="lower", extent=extent,
                     colors="red", linewidths=1.5)
-    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     plt.tight_layout()
     OUT_DIR.mkdir(exist_ok=True)
     plt.savefig(OUT_DIR / "stage_b_mask.png", dpi=120, bbox_inches="tight")
@@ -952,7 +795,7 @@ def _epl_mass_from_medians(medians: dict):
 
 
 # ------------------------------------------------------------------ #
-# Stage M0 — SIE + shear + uniform pixelized source  
+# Stage M0 — SIE + shear + uniform pixelized source
 # ------------------------------------------------------------------ #
 def build_stage_m0_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
@@ -1219,10 +1062,9 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
         result, diagnostics = likelihood.evaluate_with_diagnostics(
             include_effective_dof=True,
         )
-        if not diagnostics.valid:
-            raise InvalidReconstructionError(
-                f"[{tag}] Cannot plot reconstruction: {diagnostics.invalid_reason}"
-            )
+        require_valid_reconstruction(
+            result, diagnostics, context=f"plotting [{tag}]",
+        )
         lam_val = diagnostics.lambda_reg
         rho_val = diagnostics.adaptive_reg_rho
         xmin, xmax, ymin, ymax = result.source_bbox
@@ -1283,29 +1125,48 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                                f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
                                dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]:
-        im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
+        im = draw_image_panel(
+            ax,
+            img,
+            title=title,
+            xlabel=None,
+            extent=ext_i,
+            **kw,
+        )
         if ax == axes[0] and has_pos_penalty:
             ax.plot(pos_px_np, pos_py_np, 'rx', markersize=8, label='Marked pos')
             ax.legend(loc='upper right', fontsize=8)
-        ax.set_title(title, fontsize=11)
         ax.set_xlabel("arcsec")
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="magma",
-                         norm=LogNorm(vmin=log_vmin_src, vmax=src_vmax))
+
+    im3 = draw_image_panel(
+        axes[3],
+        src_img,
+        title=f"Source reconstruction\n(λ={float(lam_val):.2e})",
+        xlabel=None,
+        extent=ext_s,
+        cmap="magma",
+        norm=LogNorm(vmin=log_vmin_src, vmax=src_vmax),
+    )
     if has_pos_penalty:
         axes[3].plot(beta_x_np, beta_y_np, 'rx', markersize=8, label='Traced pos')
         axes[3].legend(loc='upper right', fontsize=8)
-    axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
     axes[3].set_xlabel("arcsec")
-    plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+
 
     # Panel 5: adaptive reg scale map
-    im4 = axes[4].imshow(scale_img, origin="lower", extent=ext_s,
-                         cmap="plasma", vmin=1.0, vmax=max(1.0, float(np.nanmax(scale_img))))
-    axes[4].set_title(f"Reg precision scale\n(rho={rho:.2f})", fontsize=11)
+    im4 = draw_image_panel(
+        axes[4],
+        scale_img,
+        title=f"Reg precision scale\n(rho={rho:.2f})",
+        xlabel=None,
+        extent=ext_s,
+        cmap="plasma",
+        vmin=1.0,
+        vmax=max(1.0, float(np.nanmax(scale_img))),
+        colorbar_kwargs={"label": "$\\lambda_i / \\lambda_{\\rm global}$"},
+    )
     axes[4].set_xlabel("arcsec")
-    plt.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04,
-                 label=r"$\lambda_i / \lambda_{\rm global}$")
+
 
     axes[0].set_ylabel("arcsec")
     # Panels 1-3: zoom to unmasked pixel region
