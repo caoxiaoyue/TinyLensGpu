@@ -11,6 +11,7 @@ This directory holds specs, tickets, research, and reproduction material. Follow
 | Operator constrained solvers | [Historical spec](operator-fista-nnls/spec.md) | FISTA requirements are explicitly superseded by the solver-consolidation note at the top. |
 | Square pixelized source grids | [Spec](square-pixelized-source-grid/spec.md) | Requirements record; completion is not asserted by this index. |
 | Stage posterior transfer | [Spec](stage-posterior-transfer/spec.md) | Requirements record; completion is not asserted by this index. |
+| Pixelized workflow structural refactor | [Overview](pixelized-workflow-refactor/README.md); [spec](pixelized-workflow-refactor/spec.md) | Three agreed P1 changes; the spec defines compatibility, diagnostic availability, test seams, and delivery order. |
 
 ## Research and reproduction records
 
