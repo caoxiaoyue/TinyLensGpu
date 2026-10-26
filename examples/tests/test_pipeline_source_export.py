@@ -48,8 +48,8 @@ def _load_source_package_helper(path):
 @pytest.mark.unit
 @pytest.mark.parametrize("relative_path", _PIPE_PACKAGE_HELPERS)
 @pytest.mark.parametrize("converged", [True, False])
-def test_source_package_helper_uses_public_evaluate(relative_path, converged, examples_dir):
-    """Pipe source-package helpers go through one public evaluate() call."""
+def test_source_package_helper_uses_public_diagnostics(relative_path, converged, examples_dir):
+    """Pipe source-package helpers go through one public diagnostics call."""
     import caskade as ck
     import jax.numpy as jnp
     import numpy as np
@@ -74,6 +74,10 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged, ex
 
         @ck.forward
         def evaluate(self):
+            raise AssertionError("source export must use diagnostics")
+
+        @ck.forward
+        def evaluate_with_diagnostics(self, **_kwargs):
             calls.append(None)
             pixels = jnp.arange(9, dtype=jnp.float32) + self.amplitude.value
             info = SimpleNamespace(
@@ -82,14 +86,10 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged, ex
                 convergence_metric=0.1,
                 n_iter=3,
             )
-            return InversionResult(
+            result = InversionResult(
                 jnp.asarray(0.0), jnp.zeros((3, 3)), pixels, None,
                 (-0.3, 0.3, -0.3, 0.3), info,
             )
-
-        @ck.forward
-        def evaluate_with_diagnostics(self, **_kwargs):
-            result = self.evaluate()
             diagnostics = SimpleNamespace(
                 valid=bool(self._converged),
                 invalid_reason=None if self._converged else "probe not converged",
@@ -568,7 +568,7 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
         "_run_sampler", "_dump_stage", "_load_stage", "_stage_from_payload",
         "_print_summary", "_is_square_bbox", "_source_axes_from_bbox",
         "_make_source_scale", "_validate_source_package", "_pnpg_kwargs",
-        "_source_param_value", "_epl_mass_from_stage",
+        "_epl_mass_from_stage",
         "_solve_pixel_source_for_package", "_plot_pix_stage",
         "build_stage_m1_likelihood", "run_stage_m1",
     }

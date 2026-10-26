@@ -117,7 +117,7 @@ def _load_survey_callers(examples_dir, relative_path):
     selected = [
         node for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name in {
-            "_plot_pix_stage", "_unmasked_extent", "_source_param_value",
+            "_plot_pix_stage", "_unmasked_extent",
             "_source_axes_from_bbox", "_solve_pixel_source_for_package",
         }
     ]
