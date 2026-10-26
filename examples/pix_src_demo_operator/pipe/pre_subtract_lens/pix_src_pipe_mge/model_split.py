@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pickle
 import time
 from pathlib import Path
 
@@ -35,8 +34,16 @@ from astropy.io import fits
 from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.example_support import (
+    SamplingConfig,
+    StageStorageConfig,
+    run_sampling,
+    save_stage,
+    load_stage,
+    draw_image_panel,
+    require_valid_reconstruction,
+)
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
@@ -69,48 +76,21 @@ DATA_DIR = Path("data")
 
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
-
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized:
-        sampler_kwargs["n_batch"] = 100
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    
-    t0 = time.time()
-    sampler.run(verbose=True, n_eff=n_eff)
-    t1 = time.time()
-    print(f"[{tag}] sampling took {t1 - t0:.2f} seconds")
-
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64))
-    weights /= weights.sum()
-
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return samples, weights, param_names, log_z
+    return run_sampling(
+        likelihood,
+        SamplingConfig(n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+                       n_batch=100 if vectorized else None),
+        tag=tag, sampler_factory=Sampler,
+    )
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    payload = dict(
-        samples=samples, weights=weights,
-        param_names=param_names, log_z=log_z,
-        extra=extra or {},
-    )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to output/stage_{tag}.pkl")
+    save_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=False),
+               tag, samples, weights, param_names, log_z, extra=extra)
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
+    return load_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=False), tag)
 
 
 def _posterior_median(samples, weights, param_names):
@@ -232,9 +212,11 @@ def run_stage_a(image_data, noise_map, psf_kernel):
     print(" Stage A : SIE + shear + MGE lens light + MGE source light")
     print("=" * 60)
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel)
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=200, n_eff=2000, tag="stage-A", vectorized=True, 
     )
+    samples, weights = stage.samples, stage.weights
+    names, logz = list(stage.param_names), stage.log_z
     _print_summary("stage-A", samples, weights, names)
 
     medians = _posterior_median(samples, weights, names)
@@ -410,13 +392,15 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         weights_a,
         names_a,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood,
         n_live=200,
         n_eff=800,
         tag="stage-L",
         vectorized=True,
     )
+    samples, weights = stage.samples, stage.weights
+    names, logz = list(stage.param_names), stage.log_z
     _print_summary("stage-L", samples, weights, names)
 
     medians = _posterior_median(samples, weights, names)
@@ -659,10 +643,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     result, diagnostics = likelihood.evaluate_with_diagnostics(
         jnp.asarray(q50), include_effective_dof=True,
     )
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(
-            f"Reconstruction failed while plotting {tag}: {diagnostics.invalid_reason}"
-        )
+    require_valid_reconstruction(result, diagnostics, context=f"plotting {tag}")
     image_data = np.asarray(likelihood.image_data)
     mask       = ~np.asarray(likelihood.unmask, dtype=bool)  # True = excluded
 
@@ -700,16 +681,10 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                                f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
                                dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]:
-        im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
-        ax.set_title(title, fontsize=11)
-        ax.set_xlabel("arcsec")
+        draw_image_panel(ax, img, title=title, extent=ext_i, **kw)
         ax.set_xlim(x_min_p, x_max_p)
         ax.set_ylim(y_min_p, y_max_p)
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
-    axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
-    axes[3].set_xlabel("arcsec")
-    plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+    draw_image_panel(axes[3], src_img, title=f"Source reconstruction\n(λ={float(lam_val):.2e})", extent=ext_s, cmap='viridis')
     axes[0].set_ylabel("arcsec")
 
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
@@ -931,9 +906,11 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         position_likelihood,
         lambda_fixed,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=800, tag="stage-M2", vectorized=True,
     )
+    samples, weights = stage.samples, stage.weights
+    names, logz = list(stage.param_names), stage.log_z
     _print_summary("stage-M2", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
     _dump_stage("m2", samples, weights, names, logz, extra=dict(

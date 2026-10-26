@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pickle
 import time
 from pathlib import Path
 
@@ -44,8 +43,21 @@ from astropy.io import fits
 from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.example_support import (
+    SamplingConfig,
+    StageStorageConfig,
+    run_sampling,
+    save_stage,
+    load_stage,
+    stage_from_payload,
+    draw_image_panel,
+    export_source_package,
+    require_valid_reconstruction,
+    source_axes_from_bbox,
+    validate_source_package,
+    is_square_bbox,
+)
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
@@ -86,47 +98,25 @@ DATA_DIR = Path("data")
 
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized: sampler_kwargs["n_batch"] = 100
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    sampler.run(verbose=True, n_eff=n_eff)
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64)); weights /= weights.sum()
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return StagePosterior.from_likelihood(likelihood, samples, weights, log_z=log_z)
+    return run_sampling(
+        likelihood,
+        SamplingConfig(n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+                       n_batch=100 if vectorized else None),
+        tag=tag, sampler_factory=Sampler,
+    )
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    if stage is not None:
-        sp = stage.cache_payload()
-        payload = dict(samples=sp["samples"], weights=sp["weights"], param_names=sp["param_names"], log_z=sp["log_z"],
-                       stage_schema={k:sp[k] for k in ("param_names","prior_specs") if k in sp}, extra=extra or {})
-    else:
-        payload = dict(samples=samples, weights=weights, param_names=param_names, log_z=log_z,
-                       stage_schema={"param_names": list(param_names)}, extra=extra or {})
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f: pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to {OUT_DIR}/stage_{tag}.pkl")
+    save_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True),
+               tag, samples, weights, param_names, log_z, extra=extra, stage=stage)
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f: return pickle.load(f)
+    return load_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True), tag)
 
 
 def _stage_from_payload(payload):
-    s = payload.get("stage_schema", {})
-    return StagePosterior.from_schema(payload["samples"], payload["weights"],
-                                       prior_specs=payload.get("prior_specs") or s.get("prior_specs"),
-                                       param_names=None if (payload.get("prior_specs") or s.get("prior_specs")) else (payload.get("param_names") or s.get("param_names")),
-                                       log_z=payload.get("log_z"))
+    return stage_from_payload(payload)
 
 
 def _print_summary(tag, samples, weights, param_names):
@@ -144,12 +134,11 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
 
 
 def _source_axes_from_bbox(source_bbox, n=NSRC):
-    xmin,xmax,ymin,ymax = [float(v) for v in source_bbox]
-    return (np.linspace(xmin,xmax,int(n),dtype=np.float64), np.linspace(ymin,ymax,int(n),dtype=np.float64))
+    return source_axes_from_bbox(source_bbox, n)
 
 
 def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    xmin,xmax,ymin,ymax = [float(v) for v in source_bbox]; return np.isclose(xmax-xmin,ymax-ymin,rtol=rtol,atol=atol)
+    return is_square_bbox(source_bbox, rtol=rtol, atol=atol)
 
 
 def _make_source_scale(source_package, rho=ADAPTIVE_REG_RHO):
@@ -157,31 +146,7 @@ def _make_source_scale(source_package, rho=ADAPTIVE_REG_RHO):
 
 
 def _validate_source_package(source_package):
-    if [k for k in ("nx","ny") if k in source_package]:
-        raise KeyError("Source package uses legacy source-grid keys")
-    required = ("source_pixels","source_bbox","source_x_axis","source_y_axis","n","lambda_best","log_lambda_best")
-    missing = [k for k in required if k not in source_package]
-    if missing: raise KeyError("Source package missing: "+", ".join(missing))
-    n=int(source_package["n"])
-    if n!=NSRC: raise ValueError(f"S0 n={n} != configured {NSRC}")
-    sp=np.asarray(source_package["source_pixels"])
-    if sp.shape!=(n*n,): raise ValueError(f"Source source_pixels shape {sp.shape} != ({n*n},)")
-    for an in ("source_x_axis","source_y_axis"):
-        a=np.asarray(source_package[an])
-        if a.shape!=(n,): raise ValueError(f"S0 {an} shape {a.shape} != ({n},)")
-    bbox=tuple(float(v) for v in source_package["source_bbox"])
-    if len(bbox)!=4 or not np.all(np.isfinite(bbox)): raise ValueError("Source source_bbox invalid")
-    if not (bbox[0]<bbox[1] and bbox[2]<bbox[3]): raise ValueError("Source source_bbox not sorted")
-    if not _is_square_bbox(bbox): raise ValueError("Source source_bbox not square")
-    sm=source_package.get("scale_map")
-    if sm is None:
-        sm=np.asarray(_make_source_scale(source_package),dtype=np.float32); source_package["scale_map"]=sm
-    else:
-        sm=np.asarray(sm,dtype=np.float32)
-        if sm.shape!=(n*n,): raise ValueError(f"Source scale_map shape {sm.shape} != ({n*n},)")
-        if not np.all(np.isfinite(sm)&(sm>0.0)): raise ValueError("Source scale_map invalid")
-        source_package["scale_map"]=sm
-    return source_package
+    return validate_source_package(source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO)
 
 
 def _pnpg_kwargs():
@@ -216,18 +181,10 @@ def _valid_log_evidence(values) -> np.ndarray:
 
 
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
-    q50=[medians[n] for n in param_names]
-    result, diagnostics = likelihood.evaluate_with_diagnostics(jnp.asarray(q50))
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(
-            f"Reconstruction failed while exporting the stage source template: {diagnostics.invalid_reason}"
-        )
-    sp = result.source_pixels
-    xmin, xmax, ymin, ymax = result.source_bbox
-    sbbox=(float(xmin),float(xmax),float(ymin),float(ymax))
-    xa,ya=_source_axes_from_bbox(sbbox,NSRC)
-    return dict(source_pixels=np.asarray(sp,dtype=np.float64), source_image=np.asarray(sp,dtype=np.float64).reshape(NSRC,NSRC),
-                source_bbox=sbbox, source_x_axis=xa, source_y_axis=ya, n=NSRC)
+    return export_source_package(
+        likelihood, medians, param_names, n=NSRC,
+        context="exporting the stage source template",
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -441,10 +398,7 @@ def _plot_pix_stage(tag,likelihood,medians,param_names,save_path):
     result, diagnostics = likelihood.evaluate_with_diagnostics(
         jnp.asarray(q50), include_effective_dof=True,
     )
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(
-            f"Reconstruction failed while plotting {tag}: {diagnostics.invalid_reason}"
-        )
+    require_valid_reconstruction(result, diagnostics, context=f"plotting {tag}")
     idata = np.asarray(likelihood.image_data)
     mask = ~np.asarray(likelihood.unmask, dtype=bool)
     xmin, xmax, ymin, ymax = result.source_bbox
@@ -479,16 +433,11 @@ def _plot_pix_stage(tag,likelihood,medians,param_names,save_path):
         (axes[1],mi,"Model image",dict(vmin=0,vmax=vmax,cmap="viridis")),
         (axes[2],np.where(mask,np.nan,rn),f"Norm. residual\nχ²/ν={chi2_nu:.3f}",dict(vmin=-3,vmax=3,cmap="RdBu_r")),
     ]:
-        im=ax.imshow(img,origin="lower",extent=ext_i,**kw)
+        draw_image_panel(ax, img, title=title, extent=ext_i, **kw)
         if ax==axes[0] and hpp: ax.plot(pxn,pyn,'rx',markersize=8,label='Marked pos'); ax.legend(loc='upper right',fontsize=8)
-        ax.set_title(title,fontsize=11); ax.set_xlabel("arcsec"); plt.colorbar(im,ax=ax,fraction=0.046,pad=0.04)
-    im3=axes[3].imshow(si,origin="lower",extent=ext_s,cmap="viridis")
+    draw_image_panel(axes[3], si, title=f"Source reconstruction\n(λ={float(lv):.2e})", extent=ext_s, cmap='viridis')
     if hpp: axes[3].plot(bXn,bYn,'rx',markersize=8,label='Traced pos'); axes[3].legend(loc='upper right',fontsize=8)
-    axes[3].set_title(f"Source reconstruction\n(λ={float(lv):.2e})",fontsize=11); axes[3].set_xlabel("arcsec")
-    plt.colorbar(im3,ax=axes[3],fraction=0.046,pad=0.04)
-    im4=axes[4].imshow(sci,origin="lower",extent=ext_s,cmap="plasma",vmin=1.0,vmax=max(1.0,float(np.nanmax(sci))))
-    axes[4].set_title(f"Reg precision scale\n(rho={rv:.2f})",fontsize=11); axes[4].set_xlabel("arcsec")
-    plt.colorbar(im4,ax=axes[4],fraction=0.046,pad=0.04,label=r"$\lambda_i / \lambda_{\rm global}$")
+    draw_image_panel(axes[4], sci, title=f"Reg precision scale\n(rho={rv:.2f})", extent=ext_s, cmap='plasma', vmin=1.0, vmax=max(1.0, float(np.nanmax(sci))), colorbar_kwargs={"label": '$\\lambda_i / \\lambda_{\\rm global}$'})
     axes[0].set_ylabel("arcsec")
     for ax in axes[:3]: ax.set_xlim(*xl); ax.set_ylim(*yl)
     lbl="  ".join(f"{n}={medians[n]:+.4f}" for n in ("theta_E","gamma","e1_mass","e2_mass") if n in medians)
