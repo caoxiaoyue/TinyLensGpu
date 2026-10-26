@@ -15,7 +15,9 @@ def load_case(examples_dir, relative, monkeypatch, tmp_path):
     path = examples_dir / 'pix_src_demo_operator' / relative
     spec = importlib.util.spec_from_file_location('joint_support_case', path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with monkeypatch.context() as import_context:
+        import_context.chdir(path.parent)
+        spec.loader.exec_module(module)
     monkeypatch.setattr(module, 'OUT_DIR', tmp_path)
     return module
 

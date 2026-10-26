@@ -21,3 +21,14 @@
 ## Comments
 
 - Claimed by Codex on `integration/pixelized-workflow-refactor` after tickets 11–14 resolved; completing inventory, compatibility harnesses, documentation, review and final verification.
+
+- Final two-axis review: Spec reported no findings. Standards reported one P2
+  test-isolation issue: the joint-support loader imported the simultaneous-MGE
+  entry point without restoring its `os.chdir` side effect. Fixed the loader
+  with a nested monkeypatch context that records the caller's directory before
+  module execution and restores it immediately afterward (including exceptions).
+  Verification in conda `tinylens_gpu`, with `XLA_PYTHON_CLIENT_PREALLOCATE=false`
+  and `MPLBACKEND=Agg`: direct real MGE-import probe asserted the original cwd
+  both immediately after `load_case` and after outer monkeypatch teardown;
+  `pytest test_joint_shared_support.py -q` from `examples/tests` -> **7 passed**.
+  No scientific model, sampler controls, or saved artifacts changed.
