@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pickle
 from pathlib import Path
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
@@ -32,8 +31,6 @@ from astropy.io import fits
 from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
     InvalidReconstructionError,
@@ -52,6 +49,10 @@ from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
 from TinyLensGpu.Inference import StagePosterior
+from TinyLensGpu.example_support import (
+    SamplingConfig, StageStorageConfig, draw_image_panel,
+    load_stage, run_sampling, save_stage, require_valid_reconstruction,
+)
 
 import caskade as ck
 
@@ -65,54 +66,31 @@ DATA_DIR = Path("data")
 
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
-
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized:
-        sampler_kwargs["n_batch"] = n_live
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    sampler.run(verbose=True, n_eff=n_eff)
-
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64))
-    weights /= weights.sum()
-
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return samples, weights, param_names, log_z
+    return run_sampling(
+        likelihood,
+        SamplingConfig(
+            n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+            n_batch=n_live if vectorized else None,
+        ),
+        tag=tag, sampler_factory=Sampler,
+    )
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    payload = dict(
-        samples=samples, weights=weights,
-        param_names=param_names, log_z=log_z,
-        extra=extra or {},
+    save_stage(
+        StageStorageConfig(output_dir=OUT_DIR, include_schema=False),
+        tag, samples, weights, param_names, log_z, extra=extra,
     )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to output/stage_{tag}.pkl")
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
+    return load_stage(
+        StageStorageConfig(output_dir=OUT_DIR, include_schema=False), tag,
+    )
 
 
 def _posterior_median(samples, weights, param_names):
-    """Return dict of weighted medians keyed by param name."""
-    out = {}
-    q = np.array([0.5])
-    for i, name in enumerate(param_names):
-        out[name] = float(weighted_quantile(
-            np.asarray(samples[:, i]), weights, q)[0])
-    return out
+    return StagePosterior(samples, weights, param_names).medians()
 
 
 def _print_summary(tag: str, samples, weights, param_names):
@@ -208,8 +186,11 @@ def run_stage_a(image_data, noise_map, psf_kernel):
     print(" Stage A : SIE + shear + single-Sersic lens light + single-Sersic source light")
     print("=" * 60)
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel)
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=200, n_eff=2000, tag="stage-A", vectorized=True, 
+    )
+    samples, weights, names, logz = (
+        stage.samples, stage.weights, stage.param_names, stage.log_z,
     )
     _print_summary("stage-A", samples, weights, names)
 
@@ -379,12 +360,15 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
         weights_a,
         names_a,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood,
         n_live=1000,
         n_eff=2000,
         tag="stage-L",
         vectorized=True,
+    )
+    samples, weights, names, logz = (
+        stage.samples, stage.weights, stage.param_names, stage.log_z,
     )
     _print_summary("stage-L", samples, weights, names)
 
@@ -439,10 +423,10 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
             (axes[2], diff,               "Residual (X - M)", dict(cmap="RdBu_r")),
             (axes[3], diff_norm,          "(X - M) / noise", dict(vmin=-2, vmax=2, cmap="RdBu_r")),
         ]:
-            im = ax.imshow(img, origin="lower", extent=ext, **kw)
-            ax.set_title(title, fontsize=11)
+            im = draw_image_panel(
+                ax, img, extent=ext, title=title, title_size=11, xlabel=None, **kw
+            )
             ax.set_xlabel("arcsec")
-            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         axes[0].set_ylabel("arcsec")
         plt.suptitle("Stage L : lens light diagnostic", fontsize=11)
         plt.tight_layout()
@@ -606,8 +590,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path, positions=
     result, diagnostics = likelihood.evaluate_with_diagnostics(
         jnp.asarray(q50), include_effective_dof=True,
     )
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+    require_valid_reconstruction(result, diagnostics, context="plotting reconstruction")
 
     source_bbox = result.source_bbox
     source_pixels = result.source_pixels
@@ -635,18 +618,24 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path, positions=
                                f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
                                dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]):
-        im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
-        ax.set_title(title, fontsize=11)
+        im = draw_image_panel(
+            ax, img, extent=ext_i, title=title, title_size=11, xlabel=None, **kw
+        )
         ax.set_xlabel("arcsec")
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         if positions is not None and i_ax in (0, 1):
             pos = np.asarray(positions)
             ax.scatter(pos[:, 0], pos[:, 1], s=40, fc='none', ec='red',
                        linewidth=1.5, marker='o')
-    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
-    axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
+    im3 = draw_image_panel(
+        axes[3],
+        src_img,
+        extent=ext_s,
+        cmap="viridis",
+        title=f"Source reconstruction\n(λ={float(lam_val):.2e})",
+        title_size=11,
+        xlabel=None,
+    )
     axes[3].set_xlabel("arcsec")
-    plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
     axes[0].set_ylabel("arcsec")
 
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
@@ -718,8 +707,11 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
         passer,
         position_likelihood,
     )
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=500, n_eff=1000, tag="stage-M", vectorized=False,
+    )
+    samples, weights, names, logz = (
+        stage.samples, stage.weights, stage.param_names, stage.log_z,
     )
     _print_summary("stage-M", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
