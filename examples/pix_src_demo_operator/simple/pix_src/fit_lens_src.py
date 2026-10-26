@@ -25,6 +25,8 @@ os.chdir(Path(__file__).parent)
 import numpy as np
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
@@ -35,6 +37,8 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+import caskade as ck
 
 # ------------------------------------------------------------------ #
 # True parameters (for reference)
@@ -180,7 +184,7 @@ result, diagnostics = prob_model.evaluate_with_diagnostics(
     best_params, include_effective_dof=True,
 )
 if not diagnostics.valid:
-    raise RuntimeError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+    raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
 xmin, xmax, ymin, ymax = result.source_bbox
 source_pixels_np = np.asarray(result.source_pixels)
@@ -233,12 +237,13 @@ plt.suptitle(
     f"e1={q50_list[1]:.3f}, λ={float(jnp.exp(lam_med)):.2e})",
     fontsize=12,
 )
-overlay_critical_and_caustics(
-    image_axes=[axes[0], axes[1], axes[2]],
-    source_ax=axes[3],
-    lens_mass=prob_model.phys_model,
-)
-
+with ck.ActiveContext(prob_model):
+    prob_model.fill_params(best_params)
+    overlay_critical_and_caustics(
+        image_axes=[axes[0], axes[1], axes[2]],
+        source_ax=axes[3],
+        lens_mass=prob_model.phys_model,
+    )
 plt.tight_layout()
 plt.savefig("output/fit_map_visualization.png", dpi=150, bbox_inches="tight")
 print("  Saved output/fit_map_visualization.png")

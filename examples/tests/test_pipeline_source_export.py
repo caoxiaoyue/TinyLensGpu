@@ -32,7 +32,14 @@ def _load_source_package_helper(path):
         if isinstance(node, ast.FunctionDef)
         and node.name in {"_source_axes_from_bbox", "_solve_pixel_source_for_package"}
     ]
-    namespace = {"np": np, "jnp": jnp, "ck": ck, "NSRC": 3}
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+
+    namespace = {
+        "np": np, "jnp": jnp, "ck": ck, "NSRC": 3,
+        "InvalidReconstructionError": InvalidReconstructionError,
+    }
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
          namespace)
     return namespace["_solve_pixel_source_for_package"]
@@ -80,6 +87,15 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged, ex
                 (-0.3, 0.3, -0.3, 0.3), info,
             )
 
+        @ck.forward
+        def evaluate_with_diagnostics(self, **_kwargs):
+            result = self.evaluate()
+            diagnostics = SimpleNamespace(
+                valid=bool(self._converged),
+                invalid_reason=None if self._converged else "probe not converged",
+            )
+            return result, diagnostics
+
     probe = ProbeLikelihood()
     probe.amplitude.to_dynamic()
     object.__setattr__(probe, "_converged", converged)
@@ -112,8 +128,7 @@ def test_source_package_helper_uses_public_evaluate(relative_path, converged, ex
     np.testing.assert_allclose(package["source_y_axis"], np.linspace(-0.3, 0.3, 3))
 
 
-@pytest.fixture(scope="module")
-def small_source_export_model():
+def _small_source_export_model(image_data=None):
     import TinyLensGpu  # ensure CASKADE_BACKEND selected before caskade
     import jax.numpy as jnp
     from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
@@ -137,11 +152,18 @@ def small_source_export_model():
     bbox = (-0.4,0.4,-0.4,0.4)
     sim = PixelizedLensSimulator(phys, SimulatorConfig(dpix=0.08,npix=10,psf_kernel=psf))
     image = sim.simulate(jnp.linspace(0.1,1.0,9), source_bbox=bbox)
+    if image_data is not None:
+        image = jnp.asarray(image_data)
     return PixelizedImageProbModelOperator(
         image, jnp.ones_like(image)*0.05, psf, 0.08, phys,
         solver_type="pcg", block_size=2, fixed_source_bbox=bbox,
         fixed_reg_template=jnp.abs(jnp.linspace(-1.0,1.0,9)),
     )
+
+
+@pytest.fixture(scope="module")
+def small_source_export_model():
+    return _small_source_export_model()
 
 
 @pytest.mark.unit
@@ -199,3 +221,547 @@ def test_source_package_matches_legacy_real_operator(
     np.testing.assert_allclose(package["source_x_axis"],np.linspace(expected_bbox[0],expected_bbox[1],3),rtol=1e-6,atol=1e-7)
     np.testing.assert_allclose(package["source_y_axis"],np.linspace(expected_bbox[2],expected_bbox[3],3),rtol=1e-6,atol=1e-7)
     np.testing.assert_allclose(np.asarray(model.get_values("flat")),initial,rtol=0,atol=0)
+
+
+_MIGRATED_PACKAGE_HELPERS = (
+    "no_lens_light/model.py",
+    "no_lens_light/model_adpt_reg.py",
+    "galan24_test/model.py",
+    "galan24_test/model_predefine_src_box.py",
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _MIGRATED_PACKAGE_HELPERS)
+@pytest.mark.parametrize("failure", ["nan_image", "unconverged"])
+def test_source_package_helper_rejects_invalid_reconstruction(
+    relative_path, failure, examples_dir,
+):
+    """Migrated helpers raise 'failed' for real invalid reconstructions."""
+    import jax.numpy as jnp
+    import numpy as np
+
+    helper = _load_source_package_helper(
+        examples_dir / "pix_src_demo_operator" / "pipe" / relative_path
+    )
+    if failure == "unconverged":
+        model = _small_source_export_model()
+        model.pcg_max_iter = 0
+    else:
+        model = _small_source_export_model(
+            image_data=np.full((10, 10), np.nan)
+        )
+    names = [p.name for p in model.get_dynamic_params()]
+    medians = {n: float(np.asarray(p.value)) for n, p in
+               zip(names, model.get_dynamic_params())}
+    with pytest.raises(RuntimeError, match="failed"):
+        helper(model, medians, names)
+
+
+# ------------------------------------------------------------------
+# Plot-block and stage-flow coverage for migrated basic diagnostics
+# ------------------------------------------------------------------
+
+_SIMPLE_PLOT_FITS = (
+    "simple/pix_src/fit_lens_src.py",
+    "simple/pix_src/fit_src_pos_like.py",
+    "simple/pix_src/fit_lens_src_pos_like.py",
+    "simple/pix_compact_src/fit_src_pos_like.py",
+    "simple/pix_src_epl_sh/fit_lens_src.py",
+    "simple/pix_src_epl_sh/fit_lens_src_pos_like.py",
+)
+
+_DEMO_INVERSION_FILES = (
+    "simple/pix_src/demo_inversion.py",
+    "simple/pix_src_epl_sh/demo_inversion.py",
+)
+
+
+@pytest.fixture
+def close_figures():
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
+def _simple_plot_block(fit_path):
+    """Statements from `best_params` onward (reconstruction + plot section)."""
+    tree = ast.parse(fit_path.read_text(), filename=str(fit_path))
+    for i, node in enumerate(tree.body):
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "best_params" for t in node.targets)
+        ):
+            return tree.body[i:]
+    raise AssertionError(f"plot block not found in {fit_path}")
+
+
+def _small_operator_namespace(tmp_path, monkeypatch, image_data=None):
+    """Small real operator model plus the names migrated plot blocks expect."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import jax.numpy as jnp
+    import caskade as ck
+
+    from TinyLensGpu.Inference import ParamU
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        PixelizedImageProbModelOperator,
+    )
+    from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
+    from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    sie = SIE(theta_E=0.12, e1=0.0, e2=0.0, center_x=0.0, center_y=0.0)
+    for p in (sie.theta_E, sie.e1, sie.e2, sie.center_x, sie.center_y):
+        p.to_static()
+    sie.theta_E.to_dynamic()
+    lam = ParamU(
+        "log_lambda_reg", 0.0, prior_type="uniform",
+        prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
+        limits=[jnp.log(1e-6), jnp.log(1e6)],
+    )
+    lam.to_dynamic()
+    pix_src = PixelizedSourceModel(n=5, log_lambda_reg=lam)
+    phys = PhysicalModel(lens_mass=[sie], source_light=[pix_src], lens_light=[])
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = True
+    data = np.full((10, 10), 0.05) if image_data is None else image_data
+    prob_model = PixelizedImageProbModelOperator(
+        image_data=data, noise_map=np.full((10, 10), 0.1),
+        psf_kernel=_delta_kernel(), dpix=0.08, phys_model=phys,
+        mask=mask, nsub=1,
+    )
+    for outdir in ("output", "output_pos_like"):
+        (tmp_path / outdir).mkdir(exist_ok=True)
+    monkeypatch.chdir(tmp_path)
+    namespace = {
+        "np": np, "jnp": jnp, "plt": plt, "ck": ck,
+        "InvalidReconstructionError": InvalidReconstructionError,
+        "prob_model": prob_model, "pix_src": pix_src,
+        "q50_list": [float(np.asarray(p.value)) for p in prob_model.get_dynamic_params()],
+        "param_names": [p.name for p in prob_model.get_dynamic_params()],
+        "image_data": np.asarray(prob_model.image_data),
+        "noise_map": np.asarray(prob_model.noise_map),
+        "mask": mask, "DPIX": 0.08,
+        "overlay_critical_and_caustics": overlay_critical_and_caustics,
+    }
+    return namespace, tmp_path
+
+
+def _delta_kernel():
+    import numpy as np
+
+    return np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+
+
+def _plot_artifacts(tmp_path):
+    return list(tmp_path.glob("output/*.png")) + list(tmp_path.glob("output_pos_like/*.png"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _SIMPLE_PLOT_FITS)
+def test_simple_plot_block_uses_public_diagnostics(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """Migrated simple plot blocks run on a real small operator model."""
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    namespace, tmp = _small_operator_namespace(tmp_path, monkeypatch)
+    exec(compile(ast.Module(body=_simple_plot_block(path), type_ignores=[]),
+                 str(path), "exec"), namespace)
+    assert _plot_artifacts(tmp)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _SIMPLE_PLOT_FITS)
+def test_simple_plot_block_rejects_invalid_reconstruction(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """A nonfinite observation raises InvalidReconstructionError before artifacts."""
+    import numpy as np
+
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    namespace, tmp = _small_operator_namespace(
+        tmp_path, monkeypatch, image_data=np.full((10, 10), np.nan)
+    )
+    with pytest.raises(InvalidReconstructionError):
+        exec(compile(ast.Module(body=_simple_plot_block(path), type_ignores=[]),
+                     str(path), "exec"), namespace)
+    assert not _plot_artifacts(tmp)
+
+
+def _demo_loop_body(path):
+    """Body of the per-lambda inversion loop in the demo scripts."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.For) and getattr(node.target, "id", "") == "LAMBDA":
+            return node.body
+    raise AssertionError(f"LAMBDA loop not found in {path}")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _DEMO_INVERSION_FILES)
+def test_demo_inversion_block_uses_public_diagnostics(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """Demo inversion loop iteration plots from one diagnostics call."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import jax.numpy as jnp
+    import os
+
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        PixelizedImageProbModelOperator,
+    )
+    from TinyLensGpu.PhysicalModel import (
+        EPL, PhysicalModel, Shear, SIE, PixelizedSourceModel,
+    )
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    epl = EPL(theta_E=1.0, gamma=2.2, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    shear = Shear(gamma1=0.05, gamma2=0.05)
+    sie = SIE(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    mask = np.zeros((10, 10), dtype=bool)
+    monkeypatch.chdir(tmp_path)
+    namespace = {
+        "np": np, "jnp": jnp, "plt": plt, "os": os,
+        "InvalidReconstructionError": InvalidReconstructionError,
+        "PixelizedImageProbModelOperator": PixelizedImageProbModelOperator,
+        "PhysicalModel": PhysicalModel, "PixelizedSourceModel": PixelizedSourceModel,
+        "SIE": SIE, "EPL": EPL, "Shear": Shear,
+        "overlay_critical_and_caustics": overlay_critical_and_caustics,
+        "image_data": np.full((10, 10), 0.05),
+        "noise_map": np.full((10, 10), 0.1),
+        "psf_kernel": _delta_kernel(),
+        "mask": mask, "DPIX": 0.05,
+        "sie": sie, "epl": epl, "shear": shear,
+        "results_summary": [], "LAMBDA": 1.0,
+    }
+    exec(compile(ast.Module(body=_demo_loop_body(path), type_ignores=[]),
+                 str(path), "exec"), namespace)
+    assert namespace["results_summary"] and list(namespace["results_summary"][0]) == [
+        "lambda", "log_ev", "chi2_nu",
+    ]
+    assert list(tmp_path.glob("output/demo_inversion_lambda*.png"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _DEMO_INVERSION_FILES)
+def test_demo_inversion_block_rejects_invalid_reconstruction(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """Demo loop raises InvalidReconstructionError before writing a figure."""
+    import numpy as np
+
+    import caskade as ck
+    import jax.numpy as jnp
+
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        PixelizedImageProbModelOperator,
+    )
+    from TinyLensGpu.PhysicalModel import (
+        EPL, PhysicalModel, Shear, SIE, PixelizedSourceModel,
+    )
+
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    monkeypatch.chdir(tmp_path)
+    epl = EPL(theta_E=1.0, gamma=2.2, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+    shear = Shear(gamma1=0.05, gamma2=0.05)
+    sie = SIE(theta_E=1.0, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import os
+
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    namespace = {
+        "np": np, "jnp": jnp, "plt": plt, "os": os, "ck": ck,
+        "InvalidReconstructionError": InvalidReconstructionError,
+        "PixelizedImageProbModelOperator": PixelizedImageProbModelOperator,
+        "PhysicalModel": PhysicalModel, "PixelizedSourceModel": PixelizedSourceModel,
+        "SIE": SIE, "EPL": EPL, "Shear": Shear,
+        "overlay_critical_and_caustics": overlay_critical_and_caustics,
+        "image_data": np.full((10, 10), np.nan),
+        "noise_map": np.full((10, 10), 0.1),
+        "psf_kernel": _delta_kernel(),
+        "mask": np.zeros((10, 10), dtype=bool), "DPIX": 0.05,
+        "sie": sie, "epl": epl, "shear": shear,
+        "results_summary": [], "LAMBDA": 1.0,
+    }
+    with pytest.raises(InvalidReconstructionError):
+        exec(compile(ast.Module(body=_demo_loop_body(path), type_ignores=[]),
+                     str(path), "exec"), namespace)
+    assert not list(tmp_path.glob("output/*.png"))
+
+
+@pytest.mark.unit
+def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
+    tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """run_stage_m1 raises InvalidReconstructionError and keeps prior artifacts."""
+    import pickle
+    import time
+
+    import caskade as ck
+    import jax.numpy as jnp
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from TinyLensGpu.Inference import ParamU, StagePosterior
+    from TinyLensGpu.Inference.build_likelihood import make_likelihood
+    from TinyLensGpu.Inference.build_prior import make_prior_transformation
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        PixelizedImageProbModelOperator,
+    )
+    from TinyLensGpu.PhysicalModel import (
+        EPL, PhysicalModel, Shear, PixelizedSourceModel,
+    )
+    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
+    from TinyLensGpu.utils.misc import weighted_quantile
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    class ControlledSampler:
+        """Control only the external sampler; keep assembly/inversion/IO real."""
+
+        log_z = -12.0
+
+        def __init__(self, prior, loglike, *, n_dim, **kwargs):
+            self.samples = np.tile(np.asarray(prior(jnp.full(n_dim, 0.5))), (3, 1))
+
+        def run(self, *, verbose, n_eff):
+            pass
+
+        def posterior(self):
+            return self.samples, np.zeros(3), np.zeros(3)
+
+    path = examples_dir / "pix_src_demo_operator" / "pipe" / "no_lens_light" / "model.py"
+    selected_names = {
+        "_run_sampler", "_dump_stage", "_load_stage", "_stage_from_payload",
+        "_print_summary", "_is_square_bbox", "_source_axes_from_bbox",
+        "_make_source_scale", "_validate_source_package", "_pnpg_kwargs",
+        "_source_param_value", "_epl_mass_from_stage",
+        "_solve_pixel_source_for_package", "_plot_pix_stage",
+        "build_stage_m1_likelihood", "run_stage_m1",
+    }
+    selected = [
+        node for node in ast.parse(path.read_text(), filename=str(path)).body
+        if isinstance(node, ast.FunctionDef) and node.name in selected_names
+    ]
+    assert len(selected) == len(selected_names)
+    namespace = dict(
+        np=np, jnp=jnp, plt=plt, ck=ck, pickle=pickle, time=time,
+        ParamU=ParamU, StagePosterior=StagePosterior,
+        make_likelihood=make_likelihood,
+        make_prior_transformation=make_prior_transformation,
+        PixelizedImageProbModelOperator=PixelizedImageProbModelOperator,
+        PhysicalModel=PhysicalModel, PixelizedSourceModel=PixelizedSourceModel,
+        EPL=EPL, Shear=Shear,
+        source_template_scale_map=source_template_scale_map,
+        overlay_critical_and_caustics=overlay_critical_and_caustics,
+        InvalidReconstructionError=InvalidReconstructionError,
+        Sampler=ControlledSampler, OUT_DIR=tmp_path / "output",
+        DPIX=0.08, NSUB_PIX=1, NSRC=5, SOLVER_TYPE="pcg",
+        SOURCE_BBOX_PADDING=0.05, ADAPTIVE_REG_RHO=1.0, PIXEL_REGULARIZATION_TYPE="first-order", PNPG_MAX_ITER=200, PNPG_RTOL=2.0e-2, PNPG_POWER_ITER=10,
+        weighted_quantile=weighted_quantile, print=print,
+    )
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
+         namespace)
+
+    names_a = ["theta_E", "e1_mass", "e2_mass", "center_x_mass",
+               "center_y_mass", "gamma1", "gamma2"]
+    center = np.asarray([0.17, 0.1, 0.03, 0.0, 0.0, 0.0, 0.0])
+    stage_a = StagePosterior(
+        np.stack((center - 0.001, center, center + 0.001)),
+        np.ones(3) / 3, names_a,
+    )
+    position_likelihood = dict(
+        positions=[[0.16, 0.04], [-0.16, 0.04]],
+        threshold_arcsec=0.01, min_log_like=-1e6,
+    )
+    common = dict(
+        noise_map=np.full((10, 10), 0.1), psf_kernel=_delta_kernel(),
+        feature_mask=np.zeros((10, 10), dtype=bool),
+        stage_a=stage_a, position_likelihood=position_likelihood,
+        log_lambda_fixed=0.0,
+    )
+
+    # A converged run persists its stage posterior first.
+    namespace["run_stage_m1"](np.full((10, 10), 0.05), **common)
+    stage_path = tmp_path / "output" / "stage_m1.pkl"
+    assert stage_path.exists() and stage_path.stat().st_size > 0
+
+    # A nonfinite observation then raises InvalidReconstructionError; the
+    # retained posterior artifact is not corrupted by the abort.
+    with pytest.raises(InvalidReconstructionError):
+        namespace["run_stage_m1"](np.full((10, 10), np.nan), **common)
+    assert stage_path.exists() and stage_path.stat().st_size > 0
+    saved = namespace["_load_stage"]("m1")
+    assert saved["log_z"] == ControlledSampler.log_z
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _SIMPLE_PLOT_FITS)
+def test_simple_fit_imports_keep_jax_backend(relative_path, examples_dir):
+    """Original import order selects the JAX Caskade backend in a fresh process."""
+    import os
+    import subprocess
+    import sys
+
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    tree = ast.parse(path.read_text(), filename=str(path))
+    imports = [
+        ast.unparse(node)
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    script = "\n".join(imports) + """
+import caskade
+assert caskade.backend.backend == "jax", caskade.backend.backend
+from TinyLensGpu.Inference import ParamU
+import jax.numpy as jnp
+p = ParamU("theta_E", 1.0)
+assert isinstance(jnp.asarray(p.value), jnp.ndarray)
+"""
+    repo_root = examples_dir.parent
+    env = {k: v for k, v in os.environ.items() if k != "CASKADE_BACKEND"}
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=repo_root, env=env,
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+_OPERATOR_PIPE_PLOTS = (
+    "no_lens_light/model.py",
+    "no_lens_light/model_adpt_reg.py",
+    "galan24_test/model.py",
+    "galan24_test/model_predefine_src_box.py",
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _OPERATOR_PIPE_PLOTS)
+def test_pipe_plot_overlay_uses_fitted_parameters(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """_plot_pix_stage overlays ray-trace with the median parameters, not defaults."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import jax.numpy as jnp
+    import caskade as ck
+
+    from matplotlib.colors import LogNorm
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    path = examples_dir / "pix_src_demo_operator" / "pipe" / relative_path
+    tree = ast.parse(path.read_text(), filename=str(path))
+    selected = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_plot_pix_stage"
+    ]
+    assert len(selected) == 1
+
+    model = _small_source_export_model()
+    captured = {}
+
+    def overlay_probe(*, image_axes, source_ax, lens_mass):
+        captured["theta_E"] = float(
+            np.asarray(lens_mass.lens_mass[0].theta_E.value)
+        )
+
+    namespace = {
+        "np": np, "jnp": jnp, "plt": plt, "ck": ck,
+        "InvalidReconstructionError": InvalidReconstructionError,
+        "overlay_critical_and_caustics": overlay_probe,
+        "LogNorm": LogNorm, "DPIX": 0.08,
+    }
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
+         namespace)
+
+    names = [p.name for p in model.get_dynamic_params()]
+    medians = {
+        n: float(np.asarray(p.value))
+        for n, p in zip(names, model.get_dynamic_params())
+    }
+    medians["theta_E"] = 0.45  # distinct from the 0.12 construction value
+    assert medians["theta_E"] != float(np.asarray(model.phys_model.lens_mass[0].theta_E.value))
+
+    save_path = tmp_path / "stage_m_model.png"
+    monkeypatch.chdir(tmp_path)
+    namespace["_plot_pix_stage"](
+        "stage-M", model, medians, names, str(save_path)
+    )
+    assert save_path.exists() and save_path.stat().st_size > 0
+    assert captured["theta_E"] == pytest.approx(0.45)
+    # Original library overlay still usable with the fitted context semantics.
+    namespace["overlay_critical_and_caustics"] = overlay_critical_and_caustics
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("relative_path", _SIMPLE_PLOT_FITS)
+def test_simple_plot_overlay_uses_fitted_parameters(
+    relative_path, tmp_path, monkeypatch, examples_dir, close_figures,
+):
+    """Simple fit overlays see the fitted theta_E, not construction defaults."""
+    import numpy as np
+
+    path = examples_dir / "pix_src_demo_operator" / relative_path
+    namespace, tmp = _small_operator_namespace(tmp_path, monkeypatch)
+    names = namespace["param_names"]
+    assert "theta_E" in names
+    q50 = list(namespace["q50_list"])
+    q50[names.index("theta_E")] = 0.45  # distinct from construction value
+    namespace["q50_list"] = q50
+
+    captured = {}
+    real_overlay = namespace["overlay_critical_and_caustics"]
+
+    def overlay_probe(*, image_axes, source_ax, lens_mass):
+        captured["theta_E"] = float(
+            np.asarray(lens_mass.lens_mass[0].theta_E.value)
+        )
+        return real_overlay(
+            image_axes=image_axes, source_ax=source_ax, lens_mass=lens_mass
+        )
+
+    namespace["overlay_critical_and_caustics"] = overlay_probe
+    exec(compile(ast.Module(body=_simple_plot_block(path), type_ignores=[]),
+                 str(path), "exec"), namespace)
+    assert _plot_artifacts(tmp)
+    assert captured["theta_E"] == pytest.approx(0.45)
