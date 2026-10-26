@@ -31,7 +31,6 @@ Usage::
 from __future__ import annotations
 
 import os
-import pickle
 import time
 from pathlib import Path
 
@@ -52,13 +51,19 @@ from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.example_support import (
-    SamplingConfig, StageStorageConfig, run_sampling, save_stage, load_stage,
-    stage_from_payload, draw_image_panel, export_source_package,
-    require_valid_reconstruction, source_axes_from_bbox, validate_source_package,
+    SamplingConfig,
+    StageStorageConfig,
+    run_sampling,
+    save_stage,
+    load_stage,
+    stage_from_payload,
+    draw_image_panel,
+    export_source_package,
+    require_valid_reconstruction,
+    validate_source_package,
 )
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
@@ -148,13 +153,8 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _source_axes_from_bbox(source_bbox, n=NSRC):
-    return source_axes_from_bbox(source_bbox, n)
 
 
-def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
-    return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
 
 
 def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):

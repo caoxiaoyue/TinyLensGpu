@@ -357,6 +357,64 @@ Run the complete example from its own directory so its relative data paths resol
 
 ---
 
+
+### Shared pixelized example support
+
+Maintained dense and operator pixelized examples use `TinyLensGpu.example_support`
+for sampling, stage storage, source-package transfer, and image panels. Model
+construction, stage order, masks, grid and solver settings, paths, and rendering
+variants remain in each case's entry point. Launch and resume commands are
+unchanged; for example, from `examples/pix_src_demo_operator/pipe/slacs_examples/`,
+use `python model.py J0737+3216 --skip-done`.
+
+Pass sampling choices explicitly. For a case using 300 live points, batches of
+100 and vectorized likelihood evaluation, the adapter is:
+
+```python
+from TinyLensGpu.example_support import SamplingConfig, run_sampling
+
+stage = run_sampling(
+    likelihood,
+    SamplingConfig(n_live=300, n_eff=600, vectorized=True, n_batch=100),
+    tag="stage-M1",
+)
+medians = stage.medians()
+```
+
+`run_sampling` returns `StagePosterior`, including parameter ordering and prior
+metadata. Keep the originating case's `n_batch`, `vectorized_chunk_size`, weight
+normalization, sampler and run options; some dense examples use `n_batch=n_live`,
+and the dense matrix case uses a smaller batch for its pixelized stage. Optional
+before/after hooks support the existing warmup and metrics output in specialized
+cases. Importing the shared package adds no working-directory, environment, JAX
+precision, or pyplot initialization changes; runtime policy stays with entry
+points.
+
+`StageStorageConfig(output_dir=..., include_schema=...)`, `save_stage`, and
+`load_stage` preserve `stage_{tag}.pkl` payloads. Select `include_schema=False`
+for legacy cases and `True` for cases already writing `stage_schema`.
+`stage_from_payload` reads both formats. Existing case adapters retain their
+filenames, fields and numerical array representations. B1938's M4/M5 schema
+validation and protected-M5 overwrite checks still run at the case layer.
+
+`export_source_package` consumes the public diagnostic result and returns the
+raw dictionary with source pixels/image, square bbox, axes and `n`. A prepared
+template also carries `lambda_best` and `log_lambda_best`.
+`validate_source_package(package, expected_n=..., rho=...)` validates that
+contract, generates or coerces the float32 scale map in place, and returns the
+same dictionary. The Galan variants additionally request bbox normalization,
+axis checks and, where applicable, the expected fixed bbox. Do not substitute a
+raw export for a prepared template in a later stage.
+
+Formal source export and diagnostic plotting stop with
+`InvalidReconstructionError` on explicit operator non-convergence or nonfinite
+reconstruction values; saved stage posteriors remain available. Unsupported
+operator joint effective-parameter statistics are distinct from failure:
+valid component images and raw chi-square remain usable. Shared image panels
+retain the case's masking, crop, color, labels and overlays.
+
+---
+
 ## 5. Testing & Quality
 
 From the repository root, activate the environment and select a suite:

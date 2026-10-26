@@ -71,7 +71,6 @@ from TinyLensGpu.example_support import (
     require_valid_reconstruction,
     run_sampling,
     save_stage,
-    source_axes_from_bbox,
     source_bboxes_match,
     stage_from_payload,
     validate_source_package,
@@ -169,8 +168,6 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _source_axes_from_bbox(source_bbox, n=NSRC):
-    return source_axes_from_bbox(source_bbox, n)
 
 
 def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):

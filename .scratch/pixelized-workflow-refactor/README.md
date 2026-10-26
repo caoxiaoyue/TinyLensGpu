@@ -41,3 +41,34 @@ its own acceptance criteria, blockers, triage status, and lifecycle state.
 Start with [01: Restore native JAX array truthiness](issues/01-restore-native-array-truthiness.md),
 then select open tickets whose blockers are resolved. The parent specification
 remains the authority for scope and scientific behavior.
+
+## Shared-support inventory (tickets 11–15)
+
+The maintained caller inventory contains 37 modules using
+`TinyLensGpu.example_support`:
+
+| Family | Modules | Preserved case differences |
+| --- | ---: | --- |
+| Dense pipelines and simple demos | 14 | SLACS, three pre-subtraction variants, simultaneous MGE, and the dense `no_lens_light/model_matrix.py`; legacy schema-less stages, live-point-dependent batches, matrix M2 batch 1, simple CSV/gzip outputs |
+| Basic operator and Galan | 12 | Six fitting scripts, two inversion demos, standard/adaptive no-lens-light and inferred/predefined Galan pipelines; fixed templates, expected bbox checks, case batch choices |
+| Operator surveys | 6 | SLACS, Euclid, standard/Sersic/MGE/split pre-subtraction; metadata, paths, masks, crop and five/four-panel variants, split legacy stages |
+| Operator joint and subhalo | 5 | Two simple joint scripts, simultaneous MGE, 0946 and B1938; chunking, checkpoint/metrics hooks, M4/M5 schemas and protected M5 output |
+
+All pipeline sampler adapters now return `StagePosterior`; public stage-wrapper
+return shapes and existing artifact formats remain case-specific. No direct
+`Sampler(...)` construction or private tuple-returning sampler remains in these
+two maintained example trees. All stage readers/writers delegate to shared
+storage, including the separate comparison-cache readers in the subhalo cases.
+Retained serialization is intentional: simple scripts write their existing
+`fit_results.pkl.gz`/CSV contracts (not stage files), and predefined Galan
+annotates an existing cached payload during resume without replacing its schema.
+
+Profiling, JAXPR dumps, simulations, and the manual numeric-only
+`comparison/compare_backends.py` are not formal plot/export or pipeline-support
+callers. They retain their existing public numerical/profiling behavior.
+Unused local bbox/axis helpers and obsolete imports were removed after the
+source/export migration. Case model construction, stage flow, plot variants and
+compatibility adapters remain explicit.
+
+Focused evidence lives in tickets 11–14. Ticket 15 records final separate-process
+core, example and benchmark runs and review outcomes.

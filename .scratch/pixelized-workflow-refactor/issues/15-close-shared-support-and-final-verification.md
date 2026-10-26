@@ -5,7 +5,7 @@
 **Blocked by:** 11: Migrate dense pipelines to shared run support; 12: Migrate basic operator workflows to shared run support; 13: Migrate operator survey workflows to shared run support; 14: Migrate operator joint and subhalo workflows to shared run support
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -17,3 +17,7 @@
 - [ ] Run the core regression suite once and the examples regression suite once, in separate processes using the documented project environment; include relevant unchanged gradient and batching coverage.
 - [ ] Run affected existing benchmark checks where relevant without inventing a new timing threshold, and record commands, outcomes, limitations, and retained evidence with the implementation work.
 - [ ] Keep the three P1 changes independently reviewable and reversible; do not add new operator joint effective-parameter mathematics or require long full-data scientific sampling as an acceptance gate.
+
+## Comments
+
+- Claimed by Codex on `integration/pixelized-workflow-refactor` after tickets 11–14 resolved; completing inventory, compatibility harnesses, documentation, review and final verification.

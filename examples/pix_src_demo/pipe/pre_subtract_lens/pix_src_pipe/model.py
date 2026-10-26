@@ -51,8 +51,13 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 
 from TinyLensGpu.Inference import StagePosterior
 from TinyLensGpu.example_support import (
-    SamplingConfig, StageStorageConfig, draw_image_panel,
-    load_stage, run_sampling, save_stage, require_valid_reconstruction,
+    SamplingConfig,
+    StageStorageConfig,
+    draw_image_panel,
+    load_stage,
+    run_sampling,
+    save_stage,
+    require_valid_reconstruction,
 )
 
 import caskade as ck

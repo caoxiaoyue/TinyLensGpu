@@ -2,6 +2,13 @@
 
 import ast
 
+from TinyLensGpu import example_support
+
+# Script blocks execute in isolated namespaces; supply their shared imports.
+_SUPPORT_IMPORTS = {
+    name: getattr(example_support, name) for name in example_support.__all__
+}
+
 import pytest
 
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
@@ -87,7 +94,11 @@ def _tracer_namespace(tmp_path, monkeypatch, image_data=None):
 
     param_names = [p.name for p in prob_model.get_dynamic_params()]
     q50_list = [float(np.asarray(p.value)) for p in prob_model.get_dynamic_params()]
+    import caskade as ck
+
     namespace = {
+        **_SUPPORT_IMPORTS,
+        "ck": ck,
         "np": np,
         "jnp": jnp,
         "plt": plt,
@@ -132,7 +143,7 @@ def test_tracer_plot_block_rejects_invalid_reconstruction(
     namespace, artifact = _tracer_namespace(
         tmp_path, monkeypatch, image_data=np.full((10, 10), np.nan)
     )
-    with pytest.raises(RuntimeError, match="Cannot plot reconstruction"):
+    with pytest.raises(RuntimeError, match="plot.*reconstruction"):
         exec(
             compile(ast.Module(body=block, type_ignores=[]), str(fit_path), "exec"),
             namespace,
@@ -301,6 +312,7 @@ def _run_joint_plot(relative_path, likelihood, medians, examples_dir, tmp_path, 
         return tmp_path / "joint.png"
     fit_path = examples_dir / relative_path
     namespace = dict(
+        _SUPPORT_IMPORTS,
         np=np, jnp=jnp, plt=plt, ck=ck, time=time, script_t0=time.time(),
         prob_model=likelihood, q50_list=list(medians.values()),
         param_names=list(medians), image_data=np.asarray(likelihood.image_data),

@@ -57,9 +57,7 @@ from TinyLensGpu.example_support import (
     draw_image_panel,
     export_source_package,
     require_valid_reconstruction,
-    source_axes_from_bbox,
     validate_source_package,
-    is_square_bbox,
 )
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel import PointSourceProbModel
@@ -174,12 +172,8 @@ def _unmasked_extent(mask, dpix):
     return [float(x0), float(x1), float(y0), float(y1)]
 
 
-def _source_axes_from_bbox(source_bbox, n=NSRC):
-    return source_axes_from_bbox(source_bbox, n)
 
 
-def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    return is_square_bbox(source_bbox, rtol=rtol, atol=atol)
 
 
 def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):

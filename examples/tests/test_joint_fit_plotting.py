@@ -2,6 +2,13 @@
 
 import ast
 
+from TinyLensGpu import example_support
+
+# Script blocks execute in isolated namespaces; supply their shared imports.
+_SUPPORT_IMPORTS = {
+    name: getattr(example_support, name) for name in example_support.__all__
+}
+
 import pytest
 
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
@@ -57,6 +64,7 @@ def test_joint_fit_overlay_uses_correct_axes_and_parameter_context(fit_path, exa
         ))
 
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "ck": ck,
         "axes": axes,
         "prob_model": prob_model,
@@ -200,6 +208,7 @@ def _tracer_namespace(
     param_names = [p.name for p in prob_model.get_dynamic_params()]
     q50_list = [float(np.asarray(p.value)) for p in prob_model.get_dynamic_params()]
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np,
         "jnp": jnp,
         "plt": plt,
@@ -251,7 +260,7 @@ def test_tracer_plot_block_rejects_invalid_reconstruction(
     namespace, artifact = _tracer_namespace(
         tmp_path, monkeypatch, image_data=np.full((10, 10), np.nan)
     )
-    with pytest.raises(InvalidReconstructionError, match="Cannot plot reconstruction"):
+    with pytest.raises(InvalidReconstructionError, match="plotting.*nonfinite"):
         exec(
             compile(ast.Module(body=block, type_ignores=[]), str(fit_path), "exec"),
             namespace,
@@ -310,7 +319,7 @@ def test_dense_stage_rejects_nonfinite_before_figure(
         pytest.fail("An invalid reconstruction reached figure creation")
 
     monkeypatch.setattr(namespace["plt"], "subplots", unexpected_figure)
-    with pytest.raises(InvalidReconstructionError, match="Cannot plot reconstruction: .*nonfinite"):
+    with pytest.raises(InvalidReconstructionError, match="plotting.*nonfinite"):
         plot("test", namespace["prob_model"], medians,
              namespace["param_names"], artifact)
     assert not artifact.exists()
@@ -395,7 +404,7 @@ def test_dense_simple_fit_rejects_nonfinite_before_figure(
 
     monkeypatch.setattr(namespace["plt"], "subplots", unexpected_figure)
     path = examples_dir / relative_path
-    with pytest.raises(InvalidReconstructionError, match="Cannot plot reconstruction: .*nonfinite"):
+    with pytest.raises(InvalidReconstructionError, match="plotting.*nonfinite"):
         exec(compile(ast.Module(body=_tracer_plot_block(path), type_ignores=[]),
                      str(path), "exec"), namespace)
     assert not artifact.exists()
@@ -449,7 +458,7 @@ def test_dense_inversion_demo_outputs_only_valid_reconstruction(
             pytest.fail("An invalid reconstruction reached figure creation")
 
         monkeypatch.setattr(namespace["plt"], "subplots", unexpected_figure)
-        with pytest.raises(InvalidReconstructionError, match="Cannot plot reconstruction: .*nonfinite"):
+        with pytest.raises(InvalidReconstructionError, match="plotting.*nonfinite"):
             exec(block, namespace)
         assert namespace["results_summary"] == []
         assert not artifact.exists()
@@ -587,6 +596,7 @@ def test_dense_stage_propagates_invalid_reconstruction_and_keeps_posterior(
     ]
     assert len(selected) == len(selected_names)
     namespace = dict(
+        _SUPPORT_IMPORTS,
         np=np, jnp=jnp, plt=plt, ck=ck, pickle=pickle, time=time,
         ParamU=ParamU, StagePosterior=StagePosterior,
         make_likelihood=make_likelihood,

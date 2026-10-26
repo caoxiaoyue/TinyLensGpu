@@ -26,7 +26,10 @@ from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.example_support import (
-    SamplingConfig, run_sampling, posterior_quantiles, draw_image_panel,
+    SamplingConfig,
+    run_sampling,
+    posterior_quantiles,
+    draw_image_panel,
     require_valid_reconstruction,
 )
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, GaussianEllipse

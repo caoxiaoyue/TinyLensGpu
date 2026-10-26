@@ -2,6 +2,13 @@
 
 import ast
 
+from TinyLensGpu import example_support
+
+# Script blocks execute in isolated namespaces; supply their shared imports.
+_SUPPORT_IMPORTS = {
+    name: getattr(example_support, name) for name in example_support.__all__
+}
+
 import pytest
 
 import TinyLensGpu  # noqa: F401 -- select the JAX backend before importing caskade
@@ -42,6 +49,7 @@ def _load_source_package_helper(path):
     )
 
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "jnp": jnp, "ck": ck, "NSRC": 3,
         "InvalidReconstructionError": InvalidReconstructionError,
         "export_source_package": export_source_package,
@@ -352,6 +360,7 @@ def _small_operator_namespace(tmp_path, monkeypatch, image_data=None):
         (tmp_path / outdir).mkdir(exist_ok=True)
     monkeypatch.chdir(tmp_path)
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "jnp": jnp, "plt": plt, "ck": ck,
         "InvalidReconstructionError": InvalidReconstructionError,
         "prob_model": prob_model, "pix_src": pix_src,
@@ -451,6 +460,7 @@ def test_demo_inversion_block_uses_public_diagnostics(
     mask = np.zeros((10, 10), dtype=bool)
     monkeypatch.chdir(tmp_path)
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "jnp": jnp, "plt": plt, "os": os,
         "InvalidReconstructionError": InvalidReconstructionError,
         "PixelizedImageProbModelOperator": PixelizedImageProbModelOperator,
@@ -508,6 +518,7 @@ def test_demo_inversion_block_rejects_invalid_reconstruction(
     from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "jnp": jnp, "plt": plt, "os": os, "ck": ck,
         "InvalidReconstructionError": InvalidReconstructionError,
         "PixelizedImageProbModelOperator": PixelizedImageProbModelOperator,
@@ -576,7 +587,7 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
     path = examples_dir / "pix_src_demo_operator" / "pipe" / "no_lens_light" / "model.py"
     selected_names = {
         "_run_sampler", "_dump_stage", "_load_stage", "_stage_from_payload",
-        "_print_summary", "_is_square_bbox", "_source_axes_from_bbox",
+        "_print_summary",
         "_make_source_scale", "_validate_source_package", "_pnpg_kwargs",
         "_epl_mass_from_stage",
         "_solve_pixel_source_for_package", "_plot_pix_stage",
@@ -588,6 +599,7 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
     ]
     assert len(selected) == len(selected_names)
     namespace = dict(
+        _SUPPORT_IMPORTS,
         np=np, jnp=jnp, plt=plt, ck=ck, pickle=pickle, time=time,
         ParamU=ParamU, StagePosterior=StagePosterior,
         make_likelihood=make_likelihood,
@@ -716,6 +728,7 @@ def test_pipe_plot_overlay_uses_fitted_parameters(
         )
 
     namespace = {
+        **_SUPPORT_IMPORTS,
         "np": np, "jnp": jnp, "plt": plt, "ck": ck,
         "InvalidReconstructionError": InvalidReconstructionError,
         "overlay_critical_and_caustics": overlay_probe,

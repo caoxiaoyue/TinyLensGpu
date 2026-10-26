@@ -49,7 +49,11 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 
 from TinyLensGpu.Inference import StagePosterior
 from TinyLensGpu.example_support import (
-    SamplingConfig, StageStorageConfig, run_sampling, save_stage, load_stage,
+    SamplingConfig,
+    StageStorageConfig,
+    run_sampling,
+    save_stage,
+    load_stage,
     require_valid_reconstruction,
     draw_image_panel,
 )

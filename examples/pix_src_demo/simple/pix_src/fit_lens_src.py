@@ -32,7 +32,10 @@ from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
 from TinyLensGpu.example_support import (
-    SamplingConfig, draw_image_panel, posterior_quantiles, run_sampling,
+    SamplingConfig,
+    draw_image_panel,
+    posterior_quantiles,
+    run_sampling,
     require_valid_reconstruction,
 )
 from TinyLensGpu.utils import load_lens_data

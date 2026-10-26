@@ -59,12 +59,10 @@ from TinyLensGpu.example_support import (
     StageStorageConfig,
     draw_image_panel,
     export_source_package,
-    is_square_bbox,
     load_stage,
     require_valid_reconstruction,
     run_sampling,
     save_stage,
-    source_axes_from_bbox,
     validate_source_package,
 )
 from TinyLensGpu.Inference import ParamU
@@ -154,12 +152,8 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _source_axes_from_bbox(source_bbox, n=NSRC):
-    return source_axes_from_bbox(source_bbox, n)
 
 
-def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    return is_square_bbox(source_bbox, rtol=rtol, atol=atol)
 
 
 def _make_source_scale(

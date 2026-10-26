@@ -18,7 +18,10 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.chdir(Path(__file__).parent)
 
 import numpy as np
-from TinyLensGpu.example_support import draw_image_panel, require_valid_reconstruction
+from TinyLensGpu.example_support import (
+    draw_image_panel,
+    require_valid_reconstruction,
+)
 import matplotlib.pyplot as plt
 
 from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
@@ -151,6 +154,8 @@ for LAMBDA in LAMBDA_LIST:
     axes[2].set_xlabel("arcsec")
 
     # Panel 4: source reconstruction
+    reg_label = f"1st-order, λ={LAMBDA}"
+    title_suffix = f"\n({reg_label})\nlog Z = {log_ev:.2f}"
     im3 = draw_image_panel(
         axes[3],
         source_image,
@@ -160,8 +165,6 @@ for LAMBDA in LAMBDA_LIST:
         title_size=11,
         xlabel=None,
     )
-    reg_label = f"1st-order, λ={LAMBDA}"
-    title_suffix = f"\n({reg_label})\nlog Z = {log_ev:.2f}"
     axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
 
     plt.suptitle(

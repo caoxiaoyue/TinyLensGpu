@@ -45,7 +45,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import pickle
 import time
 from pathlib import Path
 
@@ -92,9 +91,15 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 
 from TinyLensGpu.Inference import StagePosterior
 from TinyLensGpu.example_support import (
-    SamplingConfig, StageStorageConfig, run_sampling, save_stage, load_stage,
-    stage_from_payload, source_axes_from_bbox,
-    validate_source_package, export_source_package, require_valid_reconstruction,
+    SamplingConfig,
+    StageStorageConfig,
+    run_sampling,
+    save_stage,
+    load_stage,
+    stage_from_payload,
+    validate_source_package,
+    export_source_package,
+    require_valid_reconstruction,
     draw_image_panel,
 )
 
@@ -316,8 +321,6 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _source_axes_from_bbox(source_bbox, n=NSRC):
-    return source_axes_from_bbox(source_bbox, n)
 
 
 def _stage_a_source_bbox(stage_a: StagePosterior):
@@ -1877,8 +1880,9 @@ def run_m5_from_cache(cache_dir: str, out_dir: str):
         raise FileExistsError(f"Refusing to overwrite {out_dir / 'stage_m5.pkl'}")
 
     def cached(tag):
-        with (cache_dir / f"stage_{tag}.pkl").open("rb") as f:
-            return pickle.load(f)
+        return load_stage(
+            StageStorageConfig(output_dir=cache_dir, include_schema=True), tag,
+        )
 
     a, m1, m2, m3, m4, reference_m5 = (
         cached(tag) for tag in ("a", "m1", "m2", "m3", "m4", "m5")
