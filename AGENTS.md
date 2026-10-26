@@ -74,7 +74,7 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 ## Codebase Conventions
 
 - **Caskade modules**: All physical components inherit from `caskade.Module`. The backend is forced to `'jax'` in `TinyLensGpu/__init__.py`.
-- **Jax Array bool**: `TinyLensGpu/__init__.py` monkey-patches `jax.Array.__bool__` for legacy compatibility with `array or default` patterns. Prefer explicit `None` checks in new code.
+- **Jax Array bool**: JAX arrays use native truthiness; select optional arrays with explicit `None` checks (`x if x is not None else default`). Do not reintroduce a `jax.Array.__bool__` patch.
 - **Linear solvers**: Parametric image models use `"nnls"` for non-negative amplitudes or `"normal"` for unconstrained amplitudes. Pixelized models use different solver choices; see `docs/agents/codebase-map.md` before selecting one.
 - **nsub**: 1 (fast) → 3+ (high accuracy). Sub-pixel integration factor.
 - **No formatting configs**: `black`, `flake8`, `isort`, `ruff` are in dev extras but no `.flake8`, `pyproject.toml`, or `ruff.toml` exists. Use defaults.

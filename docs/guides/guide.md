@@ -395,6 +395,16 @@ The shared `pythonpath = .` setting makes each suite import the current checkout
 | First likelihood call takes 10–15s | JIT compilation | Expected; keep batch size modest while debugging |
 | `ResourceExhaustedError` | GPU memory | Set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, reduce `batch_size` |
 | NaNs in likelihood | Parameters out of bounds or bad data | Check prior ranges, ensure FITS inputs have no NaN/Inf, enable masks |
+| `ValueError` on `array or default` | Ambiguous JAX array truthiness | Use an explicit `None` check: `array if array is not None else default` |
+
+### Native JAX array truthiness
+
+Earlier releases patched `jax.Array.__bool__` at import so `optional_array or
+default` worked. The patch is removed: importing TinyLensGpu no longer changes
+JAX boolean behavior for other code in the process. Select optional arrays
+with explicit `None` checks (`x if x is not None else default`). Multi-element
+arrays still raise `ValueError` on `bool(...)`; scalar arrays keep native
+truthiness. There is no switch that reinstalls the patch.
 
 ---
 

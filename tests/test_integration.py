@@ -25,6 +25,56 @@ from TinyLensGpu.ObservationModel.LensImage.multi_band_image_model import (
 from TinyLensGpu.utils import LinearSolver
 
 
+def test_import_preserves_native_jax_array_truthiness():
+    """Importing TinyLensGpu must not patch JAX array boolean behavior."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    script = r'''
+import jax
+import jax.numpy as jnp
+
+pre_array_bool = getattr(jax.Array, "__bool__", None)
+pre_impl_bool = type(jnp.array([1, 2])).__bool__
+
+def nonscalar_raises():
+    try:
+        bool(jnp.array([1, 2]))
+    except ValueError:
+        return True
+    return False
+
+pre_nonscalar_raises = nonscalar_raises()
+pre_scalar = (bool(jnp.array(0)), bool(jnp.array(1)))
+
+import TinyLensGpu
+
+post_array_bool = getattr(jax.Array, "__bool__", None)
+post_impl_bool = type(jnp.array([1, 2])).__bool__
+
+assert pre_array_bool is post_array_bool, "jax.Array.__bool__ changed on import"
+assert pre_impl_bool is post_impl_bool, "concrete array __bool__ changed on import"
+assert pre_nonscalar_raises and nonscalar_raises(), "non-scalar truthiness should raise ValueError"
+assert pre_scalar == (False, True), "native scalar truthiness before import"
+assert (bool(jnp.array(0)), bool(jnp.array(1))) == (False, True), "scalar truthiness after import"
+import caskade
+assert caskade.backend.backend == "jax"
+'''
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_forward_simulation_exports_simulation_result():
     from TinyLensGpu.ForwardSimulation import SimulationResult
     from TinyLensGpu.ForwardSimulation.LensImage import SimulationResult as LensImageSimulationResult
