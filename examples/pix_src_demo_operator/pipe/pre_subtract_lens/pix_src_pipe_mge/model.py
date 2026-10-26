@@ -262,9 +262,6 @@ def _fixed_source_kwargs(source_package):
     )
 
 
-def _source_param_value(value):
-    return value.value if hasattr(value, "value") else value
-
 
 def _reg_hyperparams_from_payload(stage_payload, tag):
     medians = stage_payload.get("extra", {}).get("medians")

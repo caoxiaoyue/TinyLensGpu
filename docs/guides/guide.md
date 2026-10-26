@@ -272,12 +272,43 @@ Run the complete example from its own directory so its relative data paths resol
     only the scalar log evidence, `forward_model(theta, ...)` when only
     reconstructions are needed, `evaluate(theta)` when evidence and
     reconstructions should come from one solve, and
-    `reconstruct_component_images` to map already-solved amplitudes to
-    component images. Examples that inspect the Cholesky factor or curvature
-    (for effective-degrees-of-freedom diagnostics) or the block
-    preconditioner, and profiling scripts that time internal stages,
-    intentionally keep using those internals — they are not covered by the
-    public result interface, and none of these APIs are deprecated.
+    `evaluate_with_diagnostics(theta, ...)` when plots, exports, or stage
+    consumers need the reconstruction plus host-side diagnostics:
+
+    ```python
+    result, diagnostics = prob_model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True, include_components=True,
+    )
+    if not diagnostics.valid:
+        from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
+        raise InvalidReconstructionError(diagnostics.invalid_reason)
+    # Use result.model_image/source_pixels/source_bbox and diagnostics.source_image/
+    # lens_light_image; no second reconstruction is needed.
+    ```
+
+    The single-parameter host-side diagnostic entry point returns the same
+    `InversionResult` plus an `InversionDiagnostics` from one reconstruction.
+    It is not the JIT/vmap interface; `evaluate`, `forward_model`, and the
+    likelihood are unchanged. `include_effective_dof` and
+    `include_components` default to ``False`` and skip the optional
+    statistics/component work; unrequested fields stay `None`. Basic
+    diagnostics always include `normalized_residuals`, `chi2`, `lambda_reg`,
+    `adaptive_reg_rho`, `regularization_scale`, and an enabled position
+    record. The dense `effective_dof_method` is `"dense_curvature"` and keeps
+    the existing lens-light-regularized curvature convention (NNLS gets no
+    new constrained-DOF interpretation); the operator source-only method is
+    `"operator_source_block_preconditioner"`, the existing approximation.
+    Requested operator *joint* effective/residual/reduced statistics stay
+    `None` with `effective_dof_method="operator_joint_unsupported"` and an
+    explanatory `effective_dof_reason`; a valid reconstruction remains
+    usable and raw `chi2`/component images are still returned. `valid` is
+    `False` only on explicit solver non-convergence or nonfinite
+    reconstruction arrays (dense `solver_info` stays `None`). Raising
+    `InvalidReconstructionError` stops the current stage before formal
+    output while previously saved artifacts are retained; unrelated plot
+    errors keep their legacy handling. Application plots and exports should
+    use this public diagnostic endpoint; internal profiling scripts remain
+    legitimate and existing public APIs are retained.
   - With a **fixed source bbox**, the operator backend's `pcg` and `pnpg`
     solvers also support first-order
     reverse-mode gradients of source/lens-light reconstructions and evidence.
