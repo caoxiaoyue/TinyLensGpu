@@ -26,19 +26,26 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
-from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
+from TinyLensGpu.example_support import (
+    SamplingConfig,
+    draw_image_panel,
+    posterior_quantiles,
+    require_valid_reconstruction,
+    run_sampling,
+)
+from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
     PixelizedImageProbModelOperator,
 )
 from TinyLensGpu.ObservationModel import PointSourceProbModel
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
+
 import caskade as ck
+
 
 # ------------------------------------------------------------------ #
 # True parameters (must match sim_data.py)
@@ -161,37 +168,20 @@ prob_model = PixelizedImageProbModelOperator(
 # Prior transformation and likelihood
 # ------------------------------------------------------------------ #
 print("[3] Building prior and likelihood ...")
-prior, prior_specs = make_prior_transformation(prob_model)
-param_names = [s.name for s in prior_specs]
-
-print(f"  {len(param_names)} dynamic parameters:")
-for s in prior_specs:
-    print(f"    {s.name:15s}: {s.describe()}")
-
-loglike = make_likelihood(prob_model, vectorized=True)
-
-# ------------------------------------------------------------------ #
-# Nautilus nested sampling
-# ------------------------------------------------------------------ #
 print("[4] Running Nautilus sampler ...")
-sampler = Sampler(
-    prior,
-    loglike,
-    n_dim=len(param_names),
-    n_live=200,
-    n_batch=100,
-    vectorized=True,
-)
-
 t0 = time.time()
-sampler.run(verbose=True, n_eff=800)
+stage = run_sampling(
+    prob_model,
+    SamplingConfig(n_live=200, n_eff=800,
+                   vectorized=True, n_batch=100,
+                   stabilize_weights=True),
+    tag="pixelized-fit", sampler_factory=Sampler,
+)
 print(f"  Sampling done in {time.time() - t0:.1f} s")
-
-# ------------------------------------------------------------------ #
-# Posterior summary
-# ------------------------------------------------------------------ #
 print("[5] Processing results ...")
-samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+samples, weights = stage.samples, stage.weights
+param_names, log_z = stage.param_names, stage.log_z
+quantiles = posterior_quantiles(stage)
 q16_list = [float(qs[0]) for qs in quantiles.values()]
 q50_list = [float(qs[1]) for qs in quantiles.values()]
 q84_list = [float(qs[2]) for qs in quantiles.values()]
@@ -226,8 +216,9 @@ best_params = jnp.array(q50_list)
 result, diagnostics = prob_model.evaluate_with_diagnostics(
     best_params, include_effective_dof=True,
 )
-if not diagnostics.valid:
-    raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+require_valid_reconstruction(
+    result, diagnostics, context="plotting reconstruction",
+)
 
 xmin, xmax, ymin, ymax = result.source_bbox
 source_pixels_np = np.asarray(result.source_pixels)
@@ -251,34 +242,65 @@ ext_s  = [float(xmin), float(xmax), float(ymin), float(ymax)]
 fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
 vmax = np.nanpercentile(image_data[~mask], 99.5)
 
-im0 = axes[0].imshow(image_data, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax,
-                     interpolation="nearest", aspect="equal")
-axes[0].set_title("Lensed arc (data)", fontsize=11)
+im0 = draw_image_panel(
+    axes[0],
+    image_data,
+    title="Lensed arc (data)",
+    xlabel=None,
+    extent=ext_i,
+    cmap="viridis",
+    vmin=0,
+    vmax=vmax,
+    interpolation="nearest",
+    aspect="equal",
+)
 axes[0].set_xlabel("arcsec"); axes[0].set_ylabel("arcsec")
-plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
-im1 = axes[1].imshow(model_image, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax,
-                     interpolation="nearest", aspect="equal")
-axes[1].set_title("Pix-src model image\n(operator)", fontsize=11)
+
+im1 = draw_image_panel(
+    axes[1],
+    model_image,
+    title="Pix-src model image\n(operator)",
+    xlabel=None,
+    extent=ext_i,
+    cmap="viridis",
+    vmin=0,
+    vmax=vmax,
+    interpolation="nearest",
+    aspect="equal",
+)
 axes[1].set_xlabel("arcsec")
-plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
 
 resid_display = np.where(mask, np.nan, resid_norm)
-im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
-                     cmap="RdBu_r", vmin=-3, vmax=3,
-                     interpolation="nearest", aspect="equal")
-axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
+im2 = draw_image_panel(
+    axes[2],
+    resid_display,
+    title=f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}",
+    xlabel=None,
+    extent=ext_i,
+    cmap="RdBu_r",
+    vmin=-3,
+    vmax=3,
+    interpolation="nearest",
+    aspect="equal",
+)
 axes[2].set_xlabel("arcsec")
-plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
 
 lam_med = q50_list[param_names.index("log_lambda_reg")]
-im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s,
-                     cmap="viridis", interpolation="nearest", aspect="equal")
-axes[3].set_title(f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+im3 = draw_image_panel(
+    axes[3],
+    source_image,
+    title=f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e})",
+    xlabel=None,
+    extent=ext_s,
+    cmap="viridis",
+    interpolation="nearest",
+    aspect="equal",
+)
 axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
-plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+
 
 plt.suptitle(
     f"Fit: SIE + pix src + pos-like (operator)  "

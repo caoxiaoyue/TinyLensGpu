@@ -5,7 +5,7 @@
 **Blocked by:** 10: Transfer a source template and render it through shared support
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,7 @@
 - [ ] Preserve each case's stage payload format, resume behavior, example launch method, and explicit model and stage assembly.
 - [ ] Use shared plotting and export support while keeping the public diagnostic results, existing render variants, and approved invalid-reconstruction handling.
 - [ ] Verify representative complete stage transitions and saved artifacts for the materially different source-template and grid variants; record focused verification without requiring full scientific sampling.
+
+## Comments
+
+- Claimed by `/root/basic_support` on `codex/pwr-12-basic-support` in `/tmp/tinylens-pwr-12`; based on integration commit `83f6002`.
