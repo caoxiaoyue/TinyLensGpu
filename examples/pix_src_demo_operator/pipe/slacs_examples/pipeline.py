@@ -55,6 +55,9 @@ from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
+from TinyLensGpu.example_support import (
+    SamplingConfig, StageStorageConfig, run_sampling, save_stage, load_stage, stage_from_payload,
+)
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.PhysicalModel import (
@@ -96,74 +99,32 @@ DATA_DIR = Path("data")
 
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
+    return run_sampling(
+        likelihood,
+        SamplingConfig(
+            n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+            n_batch=100 if vectorized else None,
+        ),
+        tag=tag, sampler_factory=Sampler,
+    )
 
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized:
-        sampler_kwargs["n_batch"] = 100
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    sampler.run(verbose=True, n_eff=n_eff)
 
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64))
-    weights /= weights.sum()
-
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return StagePosterior.from_likelihood(likelihood, samples, weights, log_z=log_z)
+def _stage_storage() -> StageStorageConfig:
+    return StageStorageConfig(output_dir=OUT_DIR, include_schema=True)
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    if stage is not None:
-        stage_payload = stage.cache_payload()
-        payload = dict(
-            samples=stage_payload["samples"],
-            weights=stage_payload["weights"],
-            param_names=stage_payload["param_names"],
-            log_z=stage_payload["log_z"],
-            stage_schema={
-                key: stage_payload[key]
-                for key in ("param_names", "prior_specs")
-                if key in stage_payload
-            },
-            extra=extra or {},
-        )
-    else:
-        payload = dict(
-            samples=samples, weights=weights,
-            param_names=param_names, log_z=log_z,
-            stage_schema={"param_names": list(param_names)},
-            extra=extra or {},
-        )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to {OUT_DIR}/stage_{tag}.pkl")
+    save_stage(_stage_storage(), tag, samples, weights, param_names, log_z,
+               extra=extra, stage=stage)
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
+    return load_stage(_stage_storage(), tag)
 
 
 def _stage_from_payload(payload):
     """Rehydrate a stage posterior from a cached stage payload."""
-    schema = payload.get("stage_schema", {})
-    prior_specs = payload.get("prior_specs") or schema.get("prior_specs")
-    param_names = payload.get("param_names") or schema.get("param_names")
-    return StagePosterior.from_schema(
-        payload["samples"],
-        payload["weights"],
-        prior_specs=prior_specs,
-        param_names=None if prior_specs is not None else param_names,
-        log_z=payload.get("log_z"),
-    )
+    return stage_from_payload(payload)
 
 
 def _print_summary(tag: str, samples, weights, param_names):
