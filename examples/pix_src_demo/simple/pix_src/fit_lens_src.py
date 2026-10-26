@@ -27,15 +27,14 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
-from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
+from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
-from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
-    InvalidReconstructionError,
+from TinyLensGpu.example_support import (
+    SamplingConfig, draw_image_panel, posterior_quantiles, run_sampling,
+    require_valid_reconstruction,
 )
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
@@ -119,37 +118,17 @@ prob_model = PixelizedImageProbModel(
 # Prior transformation and likelihood
 # ------------------------------------------------------------------ #
 print("[3] Building prior and likelihood ...")
-prior, prior_specs = make_prior_transformation(prob_model)
-param_names = [s.name for s in prior_specs]
-
-print(f"  {len(param_names)} dynamic parameters:")
-for s in prior_specs:
-    print(f"    {s.name:15s}: {s.describe()}")
-
-loglike = make_likelihood(prob_model, vectorized=False)
-
-# ------------------------------------------------------------------ #
-# Nautilus nested sampling
-# ------------------------------------------------------------------ #
-print("[4] Running Nautilus sampler ...")
-sampler = Sampler(
-    prior,
-    loglike,
-    n_dim=len(param_names),
-    n_live=200,
-    vectorized=False,
-    # n_batch=800,
-)
-
 t0 = time.time()
-sampler.run(verbose=True, n_eff=800)
+stage = run_sampling(
+    prob_model,
+    SamplingConfig(n_live=200, n_eff=800, vectorized=False, n_batch=None,
+                   stabilize_weights=True),
+    tag="fit", sampler_factory=Sampler,
+)
 print(f"  Sampling done in {time.time() - t0:.1f} s")
-
-# ------------------------------------------------------------------ #
-# Posterior summary
-# ------------------------------------------------------------------ #
-print("[5] Processing results ...")
-samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+samples, weights = stage.samples, stage.weights
+param_names, log_z = stage.param_names, stage.log_z
+quantiles = posterior_quantiles(stage)
 q16_list = [float(qs[0]) for qs in quantiles.values()]
 q50_list = [float(qs[1]) for qs in quantiles.values()]
 q84_list = [float(qs[2]) for qs in quantiles.values()]
@@ -182,8 +161,7 @@ best_params = jnp.array(q50_list)
 result, diagnostics = prob_model.evaluate_with_diagnostics(
     best_params, include_effective_dof=True,
 )
-if not diagnostics.valid:
-    raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+require_valid_reconstruction(result, diagnostics, context="plotting reconstruction")
 
 source_bbox      = result.source_bbox
 source_pixels_np = np.asarray(result.source_pixels)
@@ -207,30 +185,57 @@ ext_s  = [float(source_bbox[0]), float(source_bbox[1]),
 fig, axes = plt.subplots(1, 4, figsize=(17, 4.2))
 vmax = np.nanpercentile(image_data[~mask], 99.5)
 
-im0 = axes[0].imshow(image_data, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax)
-axes[0].set_title("Lensed arc (data)", fontsize=11)
+im0 = draw_image_panel(
+    axes[0],
+    image_data,
+    extent=ext_i,
+    cmap="viridis",
+    vmin=0,
+    vmax=vmax,
+    title="Lensed arc (data)",
+    title_size=11,
+    xlabel=None,
+)
 axes[0].set_xlabel("arcsec"); axes[0].set_ylabel("arcsec")
-plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
-im1 = axes[1].imshow(model_image, origin="lower", extent=ext_i,
-                     cmap="viridis", vmin=0, vmax=vmax)
-axes[1].set_title("Pix-src model image", fontsize=11)
+im1 = draw_image_panel(
+    axes[1],
+    model_image,
+    extent=ext_i,
+    cmap="viridis",
+    vmin=0,
+    vmax=vmax,
+    title="Pix-src model image",
+    title_size=11,
+    xlabel=None,
+)
 axes[1].set_xlabel("arcsec")
-plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
 resid_display = np.where(mask, np.nan, resid_norm)
-im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
-                     cmap="RdBu_r", vmin=-3, vmax=3)
-axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
+im2 = draw_image_panel(
+    axes[2],
+    resid_display,
+    extent=ext_i,
+    cmap="RdBu_r",
+    vmin=-3,
+    vmax=3,
+    title=f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}",
+    title_size=11,
+    xlabel=None,
+)
 axes[2].set_xlabel("arcsec")
-plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
 lam_med = q50_list[param_names.index("log_lambda_reg")]
-im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[3].set_title(f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+im3 = draw_image_panel(
+    axes[3],
+    source_image,
+    extent=ext_s,
+    cmap="viridis",
+    title=f"Source reconstruction\n(λ={float(jnp.exp(lam_med)):.2e})",
+    title_size=11,
+    xlabel=None,
+)
 axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
-plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
 plt.suptitle(
     f"Fit: SIE + pix src  (θ_E={q50_list[0]:.3f}\", "

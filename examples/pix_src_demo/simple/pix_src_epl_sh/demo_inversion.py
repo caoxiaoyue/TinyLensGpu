@@ -18,14 +18,12 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.chdir(Path(__file__).parent)
 
 import numpy as np
+from TinyLensGpu.example_support import draw_image_panel, require_valid_reconstruction
 import matplotlib.pyplot as plt
 
 from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
-from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
-    InvalidReconstructionError,
-)
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
@@ -79,8 +77,7 @@ for LAMBDA in LAMBDA_LIST:
 
     # Solve once for the evidence, source, image and source grid.
     result, diagnostics = prob_model.evaluate_with_diagnostics()
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+    require_valid_reconstruction(result, diagnostics, context="plotting reconstruction")
     source_pixels = np.asarray(result.source_pixels)
     log_ev = float(result.log_evidence)
     model_image = np.asarray(result.model_image)
@@ -111,34 +108,61 @@ for LAMBDA in LAMBDA_LIST:
 
     # Panel 1: data
     vmax = np.nanpercentile(image_data[~mask], 99.5)
-    im0 = axes[0].imshow(image_data, origin="lower", extent=ext_i, cmap="viridis",
-                         vmin=0, vmax=vmax)
-    axes[0].set_title("Lensed arc (data)", fontsize=11)
+    im0 = draw_image_panel(
+        axes[0],
+        image_data,
+        extent=ext_i,
+        cmap="viridis",
+        vmin=0,
+        vmax=vmax,
+        title="Lensed arc (data)",
+        title_size=11,
+        xlabel=None,
+    )
     axes[0].set_xlabel("arcsec"); axes[0].set_ylabel("arcsec")
-    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
     # Panel 2: model image
-    im1 = axes[1].imshow(model_image, origin="lower", extent=ext_i, cmap="viridis",
-                         vmin=0, vmax=vmax)
-    axes[1].set_title("Pix-src model image", fontsize=11)
+    im1 = draw_image_panel(
+        axes[1],
+        model_image,
+        extent=ext_i,
+        cmap="viridis",
+        vmin=0,
+        vmax=vmax,
+        title="Pix-src model image",
+        title_size=11,
+        xlabel=None,
+    )
     axes[1].set_xlabel("arcsec")
-    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
     # Panel 3: normalized residual
     resid_display = np.where(mask, np.nan, resid_norm)
-    im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
-                         cmap="RdBu_r", vmin=-3, vmax=3)
-    axes[2].set_title(f"Norm. residual (σ)\nχ²/N_pix = {chi2_nu:.3f}", fontsize=11)
+    im2 = draw_image_panel(
+        axes[2],
+        resid_display,
+        extent=ext_i,
+        cmap="RdBu_r",
+        vmin=-3,
+        vmax=3,
+        title=f"Norm. residual (σ)\nχ²/N_pix = {chi2_nu:.3f}",
+        title_size=11,
+        xlabel=None,
+    )
     axes[2].set_xlabel("arcsec")
-    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
     # Panel 4: source reconstruction
-    im3 = axes[3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
+    im3 = draw_image_panel(
+        axes[3],
+        source_image,
+        extent=ext_s,
+        cmap="viridis",
+        title=f"Source reconstruction{title_suffix}",
+        title_size=11,
+        xlabel=None,
+    )
     reg_label = f"1st-order, λ={LAMBDA}"
     title_suffix = f"\n({reg_label})\nlog Z = {log_ev:.2f}"
-    axes[3].set_title(f"Source reconstruction{title_suffix}", fontsize=11)
     axes[3].set_xlabel("arcsec"); axes[3].set_ylabel("arcsec")
-    plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
 
     plt.suptitle(
         f"Pixelized source inversion (EPL+Shear fixed, λ={LAMBDA})",
