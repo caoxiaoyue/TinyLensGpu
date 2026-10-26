@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pickle
 import time
 from pathlib import Path
 
@@ -52,7 +51,6 @@ from nautilus import Sampler
 
 from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
     InvalidReconstructionError,
@@ -72,6 +70,10 @@ from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
 from TinyLensGpu.Inference import StagePosterior
+from TinyLensGpu.example_support import (
+    SamplingConfig, StageStorageConfig, draw_image_panel,
+    load_stage, run_sampling, save_stage, require_valid_reconstruction,
+)
 
 import caskade as ck
 
@@ -91,27 +93,14 @@ DATA_DIR = Path("data")
 # ------------------------------------------------------------------ #
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str,
                   vectorized: bool = True, n_batch: int = 100):
-    prior, prior_specs = make_prior_transformation(likelihood)
-    param_names = [spec.name for spec in prior_specs]
-    print(f"\n[{tag}] {len(param_names)} dynamic params:")
-    for spec in prior_specs:
-        print(f"    {spec.name:25s} {spec.describe()}")
-
-    loglike = make_likelihood(likelihood, vectorized=vectorized)
-    sampler_kwargs = dict(n_live=n_live, vectorized=vectorized)
-    if vectorized:
-        sampler_kwargs["n_batch"] = n_batch
-    sampler = Sampler(prior, loglike, n_dim=len(param_names), **sampler_kwargs)
-    sampler.run(verbose=True, n_eff=n_eff)
-
-    samples, log_w, _ = sampler.posterior()
-    samples = np.asarray(samples, dtype=np.float64)
-    weights = np.exp(np.asarray(log_w, dtype=np.float64))
-    weights /= weights.sum()
-
-    log_z = float(sampler.log_z)
-    print(f"[{tag}] log_z = {log_z:.3f}")
-    return samples, weights, param_names, log_z
+    return run_sampling(
+        likelihood,
+        SamplingConfig(
+            n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+            n_batch=n_batch if vectorized else None,
+        ),
+        tag=tag, sampler_factory=Sampler,
+    )
 
 
 def _eval_grid_chunked(loglike_fn, grid, chunk_size: int = 10):
@@ -132,30 +121,20 @@ def _eval_grid_chunked(loglike_fn, grid, chunk_size: int = 10):
 
 
 def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    payload = dict(
-        samples=samples, weights=weights,
-        param_names=param_names, log_z=log_z,
-        extra=extra or {},
+    save_stage(
+        StageStorageConfig(output_dir=OUT_DIR, include_schema=False),
+        tag, samples, weights, param_names, log_z, extra=extra,
     )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to output_matrix/stage_{tag}.pkl")
 
 
 def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
+    return load_stage(
+        StageStorageConfig(output_dir=OUT_DIR, include_schema=False), tag,
+    )
 
 
 def _posterior_median(samples, weights, param_names):
-    """Return dict of weighted medians keyed by param name."""
-    out = {}
-    q = np.array([0.5])
-    for i, name in enumerate(param_names):
-        out[name] = float(weighted_quantile(
-            np.asarray(samples[:, i]), weights, q)[0])
-    return out
+    return StagePosterior(samples, weights, param_names).medians()
 
 
 def _print_summary(tag: str, samples, weights, param_names):
@@ -253,8 +232,11 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
     t0 = time.time()
     likelihood = build_stage_a_likelihood(image_data, noise_map, psf_kernel,
                                           circular_mask=circular_mask)
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=2000, tag="stage-A", vectorized=True,
+    )
+    samples, weights, names, logz = (
+        stage.samples, stage.weights, stage.param_names, stage.log_z,
     )
     t1 = time.time()
     _print_summary("stage-A", samples, weights, names)
@@ -670,8 +652,7 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
     result, diagnostics = likelihood.evaluate_with_diagnostics(
         jnp.asarray(q50), include_effective_dof=True,
     )
-    if not diagnostics.valid:
-        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
+    require_valid_reconstruction(result, diagnostics, context="plotting reconstruction")
 
     source_bbox = result.source_bbox
     source_pixels = result.source_pixels
@@ -721,20 +702,26 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
                                f"Norm. residual\nχ²/ν={chi2_nu:.3f}",
                                dict(vmin=-3, vmax=3, cmap="RdBu_r")),
     ]:
-        im = ax.imshow(img, origin="lower", extent=ext_i, **kw)
+        im = draw_image_panel(
+            ax, img, extent=ext_i, title=title, title_size=11, xlabel=None, **kw
+        )
         if ax == axes[0] and has_pos_penalty:
             ax.plot(pos_px_np, pos_py_np, 'rx', markersize=8, label='Marked pos')
             ax.legend(loc='upper right', fontsize=8)
-        ax.set_title(title, fontsize=11)
         ax.set_xlabel("arcsec")
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im3 = axes[3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
+    im3 = draw_image_panel(
+        axes[3],
+        src_img,
+        extent=ext_s,
+        cmap="viridis",
+        title=f"Source reconstruction\n(λ={float(lam_val):.2e})",
+        title_size=11,
+        xlabel=None,
+    )
     if has_pos_penalty:
         axes[3].plot(beta_x_np, beta_y_np, 'rx', markersize=8, label='Traced pos')
         axes[3].legend(loc='upper right', fontsize=8)
-    axes[3].set_title(f"Source reconstruction\n(λ={float(lam_val):.2e})", fontsize=11)
     axes[3].set_xlabel("arcsec")
-    plt.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
     axes[0].set_ylabel("arcsec")
     # Panels 1-3: zoom to unmasked pixel region
     for ax in axes[:3]:
@@ -819,9 +806,12 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
     )
     # Dense-matrix backend: evaluate one likelihood call at a time to keep
     # the PSF-convolved design matrix memory footprint minimal.
-    samples, weights, names, logz = _run_sampler(
+    stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M2",
         vectorized=True, n_batch=1,
+    )
+    samples, weights, names, logz = (
+        stage.samples, stage.weights, stage.param_names, stage.log_z,
     )
     t1 = time.time()
     _print_summary("stage-M2", samples, weights, names)

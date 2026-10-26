@@ -24,14 +24,16 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from nautilus import Sampler
 
-from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
+from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.example_support import (
+    SamplingConfig, run_sampling, posterior_quantiles, draw_image_panel,
+    require_valid_reconstruction,
+)
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel import PointSourceProbModel
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.utils import load_lens_data, generate_radial_basis_knots
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
@@ -211,41 +213,22 @@ prob_model = PixelizedImageProbModelOperator(
 # Prior transformation and likelihood
 # ------------------------------------------------------------------ #
 print("[4] Building prior and likelihood ...")
-prior, prior_specs = make_prior_transformation(prob_model)
-param_names = [s.name for s in prior_specs]
-
-print(f"  {len(param_names)} dynamic parameters:")
-for s in prior_specs:
-    print(f"    {s.name:20s}: {s.describe()}")
-
-loglike = make_likelihood(
-    prob_model,
-    vectorized=True,
-    vectorized_chunk_size=100,
-)
-
-# ------------------------------------------------------------------ #
-# Nautilus nested sampling
-# ------------------------------------------------------------------ #
 print("[5] Running Nautilus sampler ...")
-sampler = Sampler(
-    prior,
-    loglike,
-    n_dim=len(param_names),
-    n_live=125,
-    vectorized=True,
-    n_batch=100,
-)
-
 t0 = time.time()
-sampler.run(verbose=True, n_eff=400, f_live=0.1)
+stage = run_sampling(
+    prob_model,
+    SamplingConfig(
+        n_live=125, n_eff=400, vectorized=True,
+        n_batch=100, vectorized_chunk_size=100,
+        stabilize_weights=True, run_kwargs=dict(f_live=0.1),
+    ),
+    tag="joint-fit", sampler_factory=Sampler,
+)
 print(f"  Sampling done in {time.time() - t0:.1f} s")
-
-# ------------------------------------------------------------------ #
-# Posterior summary
-# ------------------------------------------------------------------ #
 print("[6] Processing results ...")
-samples, weights, quantiles, log_z = nautilus_posterior_summary(sampler, param_names)
+samples, weights = stage.samples, stage.weights
+param_names, log_z = stage.param_names, stage.log_z
+quantiles = posterior_quantiles(stage)
 q16_list = [float(qs[0]) for qs in quantiles.values()]
 q50_list = [float(qs[1]) for qs in quantiles.values()]
 q84_list = [float(qs[2]) for qs in quantiles.values()]
@@ -279,10 +262,7 @@ best_params = jnp.array(q50_list)
 result, diagnostics = prob_model.evaluate_with_diagnostics(
     best_params, include_components=True,
 )
-if not diagnostics.valid:
-    raise InvalidReconstructionError(
-        f"Reconstruction failed while plotting joint fit: {diagnostics.invalid_reason}"
-    )
+require_valid_reconstruction(result, diagnostics, context="plotting joint fit")
 source_pixels = result.source_pixels
 lens_amplitudes = result.lens_amplitudes
 xmin, xmax, ymin, ymax = result.source_bbox
@@ -345,51 +325,78 @@ fig, axes = plt.subplots(2, 4, figsize=(18, 9))
 vmax = np.nanpercentile(image_data[~mask], 99.5)
 
 # Row 1: Data, Model, Residual, Source
-im0 = axes[0, 0].imshow(image_data, origin="lower", extent=ext_i,
-                        cmap="viridis", vmin=0, vmax=vmax)
-axes[0, 0].set_title("Observed image", fontsize=11)
-axes[0, 0].set_xlabel("arcsec"); axes[0, 0].set_ylabel("arcsec")
-plt.colorbar(im0, ax=axes[0, 0], fraction=0.046, pad=0.04)
+im0 = draw_image_panel(
+    axes[0, 0],
+    image_data,
+    extent=ext_i,
+    title='Observed image',
+    cmap='viridis',
+    vmin=0,
+    vmax=vmax,
+    ylabel='arcsec',
+)
 
-im1 = axes[0, 1].imshow(model_image, origin="lower", extent=ext_i,
-                        cmap="viridis", vmin=0, vmax=vmax)
-axes[0, 1].set_title("Joint model (source + lens light)", fontsize=11)
-axes[0, 1].set_xlabel("arcsec")
-plt.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
+im1 = draw_image_panel(
+    axes[0, 1],
+    model_image,
+    extent=ext_i,
+    title='Joint model (source + lens light)',
+    cmap='viridis',
+    vmin=0,
+    vmax=vmax,
+)
 
 resid_display = np.where(mask, np.nan, resid_norm)
-im2 = axes[0, 2].imshow(resid_display, origin="lower", extent=ext_i,
-                        cmap="RdBu_r", vmin=-3, vmax=3)
-axes[0, 2].set_title(
-    f"Norm. residual (sigma)\nchi^2/Ndata = {chi2_per_data:.3f}",
-    fontsize=11,
+im2 = draw_image_panel(
+    axes[0, 2],
+    resid_display,
+    extent=ext_i,
+    title=f'Norm. residual (sigma)\nchi^2/Ndata = {chi2_per_data:.3f}',
+    cmap='RdBu_r',
+    vmin=-3,
+    vmax=3,
 )
-axes[0, 2].set_xlabel("arcsec")
-plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-im3 = axes[0, 3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[0, 3].set_title(f"Source reconstruction\n(lambda={diagnostics.lambda_reg:.2e})", fontsize=11)
-axes[0, 3].set_xlabel("arcsec"); axes[0, 3].set_ylabel("arcsec")
-plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
+im3 = draw_image_panel(
+    axes[0, 3],
+    source_image,
+    extent=ext_s,
+    title=f'Source reconstruction\n(lambda={diagnostics.lambda_reg:.2e})',
+    cmap='viridis',
+    ylabel='arcsec',
+)
 
 # Row 2: Separated components
-im4 = axes[1, 0].imshow(source_image_2d, origin="lower", extent=ext_i,
-                        cmap="viridis", vmin=0, vmax=vmax)
-axes[1, 0].set_title("Lensed source only", fontsize=11)
-axes[1, 0].set_xlabel("arcsec"); axes[1, 0].set_ylabel("arcsec")
-plt.colorbar(im4, ax=axes[1, 0], fraction=0.046, pad=0.04)
+im4 = draw_image_panel(
+    axes[1, 0],
+    source_image_2d,
+    extent=ext_i,
+    title='Lensed source only',
+    cmap='viridis',
+    vmin=0,
+    vmax=vmax,
+    ylabel='arcsec',
+)
 
-im5 = axes[1, 1].imshow(lens_image_2d, origin="lower", extent=ext_i,
-                        cmap="viridis", vmin=0, vmax=vmax)
-axes[1, 1].set_title(f"Lens light only (MGE, N={N_gaussians_lens})\n(total flux={float(jnp.sum(lens_amplitudes)):.3f})", fontsize=11)
-axes[1, 1].set_xlabel("arcsec")
-plt.colorbar(im5, ax=axes[1, 1], fraction=0.046, pad=0.04)
+im5 = draw_image_panel(
+    axes[1, 1],
+    lens_image_2d,
+    extent=ext_i,
+    title=f'Lens light only (MGE, N={N_gaussians_lens})\n(total flux={float(jnp.sum(lens_amplitudes)):.3f})',
+    cmap='viridis',
+    vmin=0,
+    vmax=vmax,
+)
 
-im6 = axes[1, 2].imshow(image_data - lens_image_2d, origin="lower", extent=ext_i,
-                        cmap="viridis", vmin=0, vmax=vmax)
-axes[1, 2].set_title("Data - lens light", fontsize=11)
-axes[1, 2].set_xlabel("arcsec")
-plt.colorbar(im6, ax=axes[1, 2], fraction=0.046, pad=0.04)
+im6 = draw_image_panel(
+    axes[1, 2],
+    image_data - lens_image_2d,
+    extent=ext_i,
+    title='Data - lens light',
+    cmap='viridis',
+    vmin=0,
+    vmax=vmax,
+)
 
 # Mask overlay
 mask_overlay = np.zeros((*mask.shape, 3))

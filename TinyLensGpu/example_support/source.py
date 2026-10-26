@@ -53,14 +53,16 @@ def require_valid_reconstruction(result, diagnostics, *, context):
         )
 
 
-def export_source_package(likelihood, medians, param_names, *, n):
+def export_source_package(
+    likelihood, medians, param_names, *, n, context="exporting source package",
+):
     """Solve the source template once and package it in the single-n schema."""
     import jax.numpy as jnp
 
     theta = jnp.asarray([medians[name] for name in param_names])
     result, diagnostics = likelihood.evaluate_with_diagnostics(theta)
     require_valid_reconstruction(
-        result, diagnostics, context="exporting source package"
+        result, diagnostics, context=context
     )
     pixels = np.asarray(result.source_pixels, dtype=np.float64)
     bbox = tuple(float(v) for v in result.source_bbox)
