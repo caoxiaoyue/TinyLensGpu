@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 
 from TinyLensGpu.PhysicalModel import PhysicalModel, EPL, Shear
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
@@ -74,8 +75,12 @@ for LAMBDA in LAMBDA_LIST:
         mask=mask,
     )
 
-    # Solve once for the evidence, source, image and source grid.
-    result = prob_model.evaluate()
+    # Solve once for the evidence, source, image, source grid and diagnostics.
+    result, diagnostics = prob_model.evaluate_with_diagnostics()
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(
+            f"Cannot plot reconstruction: {diagnostics.invalid_reason}"
+        )
     source_pixels = np.asarray(result.source_pixels)
     log_ev = float(result.log_evidence)
     model_image = np.asarray(result.model_image)
@@ -83,8 +88,8 @@ for LAMBDA in LAMBDA_LIST:
     xmin, xmax, ymin, ymax = source_bbox
     print(f"  log evidence = {log_ev:.2f}")
 
-    resid_norm = (image_data - model_image) / noise_map
-    chi2_nu    = float(np.sum(resid_norm[~mask] ** 2) / (~mask).sum())
+    resid_norm = np.asarray(diagnostics.normalized_residuals)
+    chi2_nu    = float(diagnostics.chi2 / (~mask).sum())
     print(f"  χ²/ν = {chi2_nu:.3f}")
 
     results_summary.append({
