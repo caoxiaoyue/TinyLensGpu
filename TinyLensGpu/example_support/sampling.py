@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from TinyLensGpu.Inference import StagePosterior
-from TinyLensGpu.Inference.build_likelihood import make_likelihood
-from TinyLensGpu.Inference.build_prior import make_prior_transformation
-from TinyLensGpu.utils.misc import weighted_quantile
+if TYPE_CHECKING:
+    from TinyLensGpu.Inference import StagePosterior
 
 
 @dataclass(frozen=True)
@@ -30,6 +29,10 @@ def run_sampling(
     sampler_factory=None, before_sample=None, after_sample=None,
 ) -> StagePosterior:
     """Run nested sampling on ``likelihood`` and return a StagePosterior."""
+    from TinyLensGpu.Inference import StagePosterior
+    from TinyLensGpu.Inference.build_likelihood import make_likelihood
+    from TinyLensGpu.Inference.build_prior import make_prior_transformation
+
     prior, prior_specs = make_prior_transformation(likelihood)
     param_names = [spec.name for spec in prior_specs]
     print(f"\n[{tag}] {len(param_names)} dynamic params:")
@@ -69,6 +72,8 @@ def run_sampling(
 
 def posterior_quantiles(stage: StagePosterior, q=(0.16, 0.5, 0.84)):
     """Return ``{name: quantile_array}`` like nautilus_posterior_summary."""
+    from TinyLensGpu.utils.misc import weighted_quantile
+
     return {
         name: weighted_quantile(
             np.asarray(stage.samples)[:, i],
