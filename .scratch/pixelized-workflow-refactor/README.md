@@ -7,9 +7,9 @@ diagnostics, and shared example-pipeline support.
 The specification defines the test seams, compatibility requirements, approved
 behavior corrections, and delivery order. Use the environment and suite rules
 in [AGENTS.md](../../AGENTS.md) and the
-[project guide](../../docs/guides/guide.md) when implementation begins.
+[project guide](../../docs/guides/guide.md) for implementation and verification.
 
-Validation will use existing small core fixtures and temporary example artifacts;
+Validation uses existing small core fixtures and temporary example artifacts;
 full scientific datasets and long sampling runs are not required acceptance
 inputs. Record verification commands and output evidence with the corresponding
 implementation work under the [local tracker conventions](../../docs/agents/issue-tracker.md).
@@ -72,3 +72,9 @@ compatibility adapters remain explicit.
 
 Focused evidence lives in tickets 11–14. Ticket 15 records final separate-process
 core, example and benchmark runs and review outcomes.
+
+## Completion
+
+All tickets 01–15 and the parent spec are resolved. The [final verification
+record](verification.md) reports 813 core, 256 example/pipeline and 9 benchmark
+checks passing, plus the separate Standards and Spec review results.

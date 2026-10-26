@@ -1,7 +1,7 @@
 # Pixelized workflow structural refactor
 
 **Status:** ready-for-agent
-**State:** open
+**State:** resolved
 
 ## Problem Statement
 
@@ -152,5 +152,19 @@ The diagnostic interface will report which quantities were computed and how. Den
 - This specification is the synthesis of the completed design interview. The testing seams and acceptance approach were explicitly agreed; publishing it does not require another interview.
 - The user's final Q22 decision selects unavailable operator joint effective-parameter diagnostics for this effort. A subsequently discussed alternative that would add a new numerical estimator was not selected and is outside this specification.
 - Unavailability is a scope and implementation statement, not a mathematical claim that matrix-free operators cannot compute effective parameter counts.
-- `ready-for-agent` records specification readiness. Implementation remains open; no code migration or successful test run is asserted by this document.
+- `ready-for-agent` records specification readiness. Publication itself did not assert implementation or verification. Implementation is now resolved; see the completion record below.
 - Historical experiments and validation reports remain evidence for their stated models and configurations. They do not override this specification or establish validation of the new interfaces.
+
+## Completion record
+
+Completed on 2026-10-27 on `integration/pixelized-workflow-refactor`. All 15
+implementation tickets are resolved. The resumed work completed tickets 11–15
+after the existing tickets 01–10, preserving the separately reviewable native
+truthiness, public diagnostics and shared-support deliveries.
+
+Final separate-process verification: **813 core**, **256 example/pipeline**, and
+**9 benchmark** tests passed. The Standards review's one P2 test-isolation issue
+was fixed and rechecked; the Spec review found no actionable gaps. See the
+[verification record](verification.md), [caller inventory](README.md#shared-support-inventory-tickets-1115),
+and [ticket 15](issues/15-close-shared-support-and-final-verification.md) for
+commands, configuration, evidence and the small-data/controlled-sampling scope.
