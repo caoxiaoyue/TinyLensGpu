@@ -23,6 +23,9 @@ import matplotlib.pyplot as plt
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InvalidReconstructionError,
+)
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
@@ -74,16 +77,19 @@ for LAMBDA in LAMBDA_LIST:
     )
 
     # Solve once for the evidence, source, image and source grid.
-    result = prob_model.evaluate()
+    result, diagnostics = prob_model.evaluate_with_diagnostics()
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
     source_pixels = np.asarray(result.source_pixels)
     log_ev = float(result.log_evidence)
     model_image = np.asarray(result.model_image)
     source_bbox = result.source_bbox
     print(f"  log evidence = {log_ev:.2f}")
 
-    resid_norm = (image_data - model_image) / noise_map
-    chi2_nu    = float(np.sum(resid_norm[~mask] ** 2) / (~mask).sum())
-    print(f"  χ²/ν = {chi2_nu:.3f}")
+    resid_norm = np.asarray(diagnostics.normalized_residuals)
+    # Retain the demo's chi2 per active pixel (not effective residual DOF).
+    chi2_nu    = diagnostics.chi2 / int((~mask).sum())
+    print(f"  χ²/N_pix = {chi2_nu:.3f}")
 
     results_summary.append({
         'lambda': LAMBDA,
@@ -121,7 +127,7 @@ for LAMBDA in LAMBDA_LIST:
     resid_display = np.where(mask, np.nan, resid_norm)
     im2 = axes[2].imshow(resid_display, origin="lower", extent=ext_i,
                          cmap="RdBu_r", vmin=-3, vmax=3)
-    axes[2].set_title(f"Norm. residual (σ)\nχ²/ν = {chi2_nu:.3f}", fontsize=11)
+    axes[2].set_title(f"Norm. residual (σ)\nχ²/N_pix = {chi2_nu:.3f}", fontsize=11)
     axes[2].set_xlabel("arcsec")
     plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 
@@ -154,7 +160,7 @@ for LAMBDA in LAMBDA_LIST:
 # Summary Table
 # ------------------------------------------------------------------ #
 print("\n" + "="*60)
-print(f"{'LAMBDA':>10s} | {'log Evidence':>15s} | {'chi2/nu':>10s}")
+print(f"{'LAMBDA':>10s} | {'log Evidence':>15s} | {'chi2/N_pix':>10s}")
 print("-" * 60)
 for res in results_summary:
     print(f"{res['lambda']:10.1e} | {res['log_ev']:15.2f} | {res['chi2_nu']:10.3f}")

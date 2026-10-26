@@ -33,6 +33,9 @@ from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage import PixelizedImageProbModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InvalidReconstructionError,
+)
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -269,28 +272,26 @@ print("[8] Generating MAP visualization ...")
 import caskade as ck
 
 best_params = jnp.array(q50_list)
-with ck.ActiveContext(prob_model):
-    prob_model.fill_params(best_params)
-
-    n_source = prob_model.sim_obj.n_source_pixels
-    model_image, source_pixels, lens_amplitudes = prob_model.forward_model(
-        return_components=True
-    )
-    source_image_2d, lens_image_2d, source_bbox = (
-        prob_model.reconstruct_component_images(source_pixels, lens_amplitudes)
-    )
+result, diagnostics = prob_model.evaluate_with_diagnostics(
+    best_params, include_components=True,
+)
+if not diagnostics.valid:
+    raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
 # Build 2D images
 npix = image_data.shape[0]
-model_image = np.asarray(model_image)
-source_image_2d = np.asarray(source_image_2d)
-lens_image_2d = np.asarray(lens_image_2d)
+source_bbox = result.source_bbox
+source_pixels = result.source_pixels
+lens_amplitudes = result.lens_amplitudes
+model_image = np.asarray(result.model_image)
+source_image_2d = np.asarray(diagnostics.source_image)
+lens_image_2d = np.asarray(diagnostics.lens_light_image)
+resid_norm = np.asarray(diagnostics.normalized_residuals)
 
-resid_norm = (image_data - model_image) / noise_map
-
-# Chi-square
-dof = int((~mask).sum()) - n_source - (len(lens_amplitudes) if lens_amplitudes is not None else 0)
-chi2 = float(np.sum(resid_norm[~mask]**2))
+# Preserve this example's raw parameter-count denominator, not curvature DOF.
+chi2 = diagnostics.chi2
+n_lens = len(result.lens_amplitudes) if result.lens_amplitudes is not None else 0
+dof = int((~mask).sum()) - result.source_pixels.size - n_lens
 chi2_nu = chi2 / dof if dof > 0 else 0.0
 
 # Source reconstruction on source plane
@@ -325,9 +326,9 @@ axes[0, 2].set_title(f"Norm. residual (sigma)\nchi^2/ν = {chi2_nu:.3f}", fontsi
 axes[0, 2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-lam_med = q50_list[param_names.index("log_lambda_reg")]
+lam_val = diagnostics.lambda_reg
 im3 = axes[0, 3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+axes[0, 3].set_title(f"Source reconstruction\n(lambda={lam_val:.2e})", fontsize=11)
 axes[0, 3].set_xlabel("arcsec"); axes[0, 3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
 

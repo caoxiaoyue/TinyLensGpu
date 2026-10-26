@@ -35,6 +35,9 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InvalidReconstructionError,
+)
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel import (
@@ -51,7 +54,6 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
-import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
 DPIX = 0.05
@@ -599,28 +601,23 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path, positions=
     """4-panel diagnostic: data | model | norm-residual | source."""
     q50 = [medians[n] for n in param_names]
     image_data = np.asarray(likelihood.image_data)
-    noise_map  = np.asarray(likelihood.noise_map)
     mask       = ~np.asarray(likelihood.unmask, dtype=bool)  # True = excluded
 
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
-        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        reg_matrix = likelihood._regularization_matrix(source_bbox)
-        source_pixels, chol, curvature = likelihood._solve_source(
-            design_matrix, reg_matrix, jnp.asarray(lam_val)
-        )
-        inv_F = jsl.cho_solve((chol, True), jnp.eye(curvature.shape[0]))
-        N_eff = float(jnp.trace(inv_F @ (curvature - jnp.asarray(lam_val) * reg_matrix)))
+    result, diagnostics = likelihood.evaluate_with_diagnostics(
+        jnp.asarray(q50), include_effective_dof=True,
+    )
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
-    model_1d = np.array(design_matrix @ source_pixels)
-    model_image = np.zeros(image_data.shape)
-    model_image[~mask] = model_1d
-    resid_norm = (image_data - model_image) / noise_map
-
-    chi2 = float(np.sum(resid_norm[~mask] ** 2))
-    dof  = int((~mask).sum()) - N_eff
-    chi2_nu = chi2 / dof if dof > 0 else 0.0
+    source_bbox = result.source_bbox
+    source_pixels = result.source_pixels
+    model_image = np.asarray(result.model_image)
+    resid_norm = np.asarray(diagnostics.normalized_residuals)
+    lam_val = diagnostics.lambda_reg
+    chi2 = diagnostics.chi2
+    N_eff = diagnostics.effective_parameters
+    dof = diagnostics.residual_dof
+    chi2_nu = diagnostics.reduced_chi2
 
     n = likelihood.phys_model.source_light[0].n
     src_img = np.array(source_pixels).reshape(n, n)
@@ -655,11 +652,13 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path, positions=
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
-    overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
-        source_ax=axes[3],
-        lens_mass=likelihood.phys_model,
-    )
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(jnp.asarray(q50))
+        overlay_critical_and_caustics(
+            image_axes=[axes[0], axes[1], axes[2]],
+            source_ax=axes[3],
+            lens_mass=likelihood.phys_model,
+        )
     plt.tight_layout()
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
@@ -729,6 +728,8 @@ def run_stage_m(image_data, noise_map, psf_kernel, feature_mask,
         _plot_pix_stage("stage-M", likelihood, medians, names,
                         str(OUT_DIR / "stage_m_model.png"),
                         positions=position_likelihood["positions"])
+    except InvalidReconstructionError:
+        raise
     except Exception as err:
         print(f"[stage-M] plotting failed (non-fatal): {err}")
     return samples, weights, names, medians
@@ -802,6 +803,8 @@ def main(skip_done: bool = False):
             _plot_pix_stage("stage-M", lkl_m, medians_m, names_m,
                             str(OUT_DIR / "stage_m_model.png"),
                             positions=position_likelihood["positions"])
+        except InvalidReconstructionError:
+            raise
         except Exception as err:
             print(f"[stage-M] plotting failed (non-fatal): {err}")
 

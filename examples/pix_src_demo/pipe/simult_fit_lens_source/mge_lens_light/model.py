@@ -36,6 +36,9 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InvalidReconstructionError,
+)
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model import PixelizedImageProbModel
 from TinyLensGpu.PhysicalModel import (
@@ -52,7 +55,6 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
-import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
 DPIX = 0.05
@@ -557,63 +559,29 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     """7-panel diagnostic: data | model | resid | source | lensed src | lens light | mask."""
     q50 = [medians[n] for n in param_names]
     image_data = np.asarray(likelihood.image_data)
-    noise_map = np.asarray(likelihood.noise_map)
     mask = ~np.asarray(likelihood.unmask, dtype=bool)  # True = excluded
 
-    n_source = likelihood.sim_obj.n_source_pixels
+    result, diagnostics = likelihood.evaluate_with_diagnostics(
+        jnp.asarray(q50), include_effective_dof=True, include_components=True,
+    )
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        design_matrix, source_bbox = likelihood.sim_obj.design_matrix()
-        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        reg_matrix = likelihood._regularization_matrix(source_bbox)
-        source_pixels, chol, curvature = likelihood._solve_source(
-            design_matrix, reg_matrix, jnp.asarray(lam_val)
-        )
-        inv_F = jsl.cho_solve((chol, True), jnp.eye(curvature.shape[0]))
-        # Zero-pad reg_matrix to curvature shape for joint lens-light
-        # models; otherwise shapes (Ns,Ns) vs (Ns+Nl,Ns+Nl) mismatch.
-        if likelihood.has_lens_light:
-            reg_full = jnp.zeros_like(curvature)
-            reg_full = reg_full.at[:n_source, :n_source].set(reg_matrix)
-        else:
-            reg_full = reg_matrix
-        N_eff = float(jnp.trace(inv_F @ (curvature - jnp.asarray(lam_val) * reg_full)))
-
-
-    source_pixels_arr = np.array(source_pixels)
-    src_1d = source_pixels_arr[:n_source]
-
-    # Lens light amplitudes (if present)
+    source_bbox = result.source_bbox
+    src_1d = np.asarray(result.source_pixels)
     has_ll = likelihood.has_lens_light
-    ll_amps = source_pixels_arr[n_source:] if has_ll else None
-    if has_ll:
-        L = design_matrix[:, n_source:]
-        lens_1d = np.array(L @ ll_amps)
-    else:
-        lens_1d = np.zeros(design_matrix.shape[0])
-
-    F = design_matrix[:, :n_source]
-    lensed_src_1d = np.array(F @ src_1d)
-    model_1d = lensed_src_1d + lens_1d
+    ll_amps = result.lens_amplitudes
+    model_image = np.asarray(result.model_image)
+    lensed_src_image = np.asarray(diagnostics.source_image)
+    lens_image = np.asarray(diagnostics.lens_light_image)
+    resid_norm = np.asarray(diagnostics.normalized_residuals)
+    lam_val = diagnostics.lambda_reg
+    chi2 = diagnostics.chi2
+    N_eff = diagnostics.effective_parameters
+    dof = diagnostics.residual_dof
+    chi2_nu = diagnostics.reduced_chi2
 
     npix = image_data.shape[0]
-    flat_indices = likelihood.sim_obj.flat_indices
-
-    def _to_2d(vec_1d):
-        img = np.zeros((npix, npix))
-        img.put(flat_indices, vec_1d)
-        return img
-
-    model_image = _to_2d(model_1d)
-    lensed_src_image = _to_2d(lensed_src_1d)
-    lens_image = _to_2d(lens_1d)
-    resid_norm = (image_data - model_image) / noise_map
-
-    chi2 = float(np.sum(resid_norm[~mask] ** 2))
-    dof = int((~mask).sum()) - N_eff
-    chi2_nu = chi2 / dof if dof > 0 else 0.0
-
     n = likelihood.phys_model.source_light[0].n
     src_img = src_1d.reshape(n, n)
 
@@ -644,9 +612,8 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     axes[0, 2].set_xlabel("arcsec")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-    lam_med = medians.get("log_lambda_reg", 0.0)
     im3 = axes[0, 3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
-    axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+    axes[0, 3].set_title(f"Source reconstruction\n(lambda={lam_val:.2e})", fontsize=11)
     axes[0, 3].set_xlabel("arcsec")
     axes[0, 3].set_ylabel("arcsec")
     plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
@@ -690,11 +657,13 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
-    overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
-        source_ax=axes[3],
-        lens_mass=likelihood.phys_model,
-    )
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(jnp.asarray(q50))
+        overlay_critical_and_caustics(
+            image_axes=[axes[0, 0], axes[0, 1], axes[0, 2]],
+            source_ax=axes[0, 3],
+            lens_mass=likelihood.phys_model,
+        )
     plt.tight_layout()
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
@@ -720,6 +689,8 @@ def run_stage_b(image_data, noise_map, psf_kernel,
         _plot_stage_b("stage-B", likelihood, medians, names,
                       str(OUT_DIR / "stage_b_model.png"),
                       positions=position_likelihood["positions"])
+    except InvalidReconstructionError:
+        raise
     except Exception as err:
         print(f"[stage-B] plotting failed (non-fatal): {err}")
     return samples, weights, names, medians
