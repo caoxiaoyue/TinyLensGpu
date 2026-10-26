@@ -1941,5 +1941,309 @@ def test_dense_evaluate_keeps_nonfinite_solve_penalty(monkeypatch, solver) -> No
     assert not bool(jnp.all(jnp.isfinite(result.model_image)))
 
 
+def _assert_result_matches_evaluate(model, theta, result) -> None:
+    """The diagnostic entry point returns the same result as evaluate()."""
+    reference = model.evaluate(theta)
+    np.testing.assert_allclose(
+        float(result.log_evidence), float(reference.log_evidence), rtol=2e-5, atol=2e-5
+    )
+    np.testing.assert_allclose(
+        np.asarray(result.model_image), np.asarray(reference.model_image), rtol=2e-5, atol=2e-5
+    )
+    np.testing.assert_allclose(
+        np.asarray(result.source_pixels), np.asarray(reference.source_pixels), rtol=2e-5, atol=2e-5
+    )
+    if reference.lens_amplitudes is None:
+        assert result.lens_amplitudes is None
+    else:
+        np.testing.assert_allclose(
+            np.asarray(result.lens_amplitudes), np.asarray(reference.lens_amplitudes),
+            rtol=2e-5, atol=2e-5,
+        )
+    for got, expected in zip(result.source_bbox, reference.source_bbox):
+        np.testing.assert_allclose(float(got), float(expected), rtol=1e-6, atol=1e-6)
+    assert result.solver_info is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+@pytest.mark.parametrize("joint", [False, True])
+@pytest.mark.parametrize("fixed_bbox", [True, False])
+def test_diagnostics_match_evaluate_and_report_unrequested_none(solver, joint, fixed_bbox) -> None:
+    """evaluate_with_diagnostics pairs the evaluate result with basic diagnostics."""
+    from TinyLensGpu.ObservationModel import InversionDiagnostics
+
+    lens_light = [_unit_lens_light()] if joint else []
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        lens_light=lens_light,
+        dynamic_mass=False,
+        solver_type=solver,
+        fixed_source_bbox=_FIXED_BBOX if fixed_bbox else None,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    with jax.default_matmul_precision("highest"):
+        result, diagnostics = model.evaluate_with_diagnostics(theta)
+        _assert_result_matches_evaluate(model, theta, result)
+
+    assert isinstance(diagnostics, InversionDiagnostics)
+    assert diagnostics.valid and diagnostics.invalid_reason is None
+    assert result.solver_info is None
+    # Unrequested optional fields stay None
+    assert diagnostics.effective_parameters is None
+    assert diagnostics.residual_dof is None
+    assert diagnostics.reduced_chi2 is None
+    assert diagnostics.effective_dof_method is None
+    assert diagnostics.effective_dof_reason is None
+    assert diagnostics.source_image is None
+    assert diagnostics.lens_light_image is None
+    assert diagnostics.position is None
+
+    expected_resid = (np.asarray(model.image_data) - np.asarray(result.model_image)) / np.asarray(
+        model.noise_map
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.normalized_residuals), expected_resid, rtol=2e-5, atol=2e-5
+    )
+    expected_chi2 = float(np.sum(expected_resid[np.asarray(model.unmask)] ** 2))
+    np.testing.assert_allclose(diagnostics.chi2, expected_chi2, rtol=2e-5, atol=2e-5)
+    n = int(model.source_model.n)
+    assert diagnostics.regularization_scale.shape == (n, n)
+    np.testing.assert_allclose(np.asarray(diagnostics.regularization_scale), 1.0, rtol=1e-6, atol=1e-6)
+    lam = float(np.asarray(jnp.exp(jnp.asarray(model.source_model.log_lambda_reg.value))))
+    np.testing.assert_allclose(diagnostics.lambda_reg, lam, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(diagnostics.adaptive_reg_rho, 0.0, atol=1e-7)
+
+
+@pytest.mark.unit
+def test_diagnostics_adaptive_regularization_scale() -> None:
+    """Adaptive regularization reports the S0-template scale map, not ones."""
+    # Adaptive regularization is only supported on a fixed source grid.
+    model = _dense_model(
+        source=_regularized_source("first-order", adaptive_reg_rho=1.0),
+        fixed_reg_template=_S0_TEMPLATE,
+        dynamic_mass=False,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(theta)
+    assert diagnostics.valid
+    n = int(model.source_model.n)
+    scale = np.asarray(diagnostics.regularization_scale)
+    assert scale.shape == (n, n)
+    assert not np.allclose(scale, 1.0)
+    expected = np.asarray(
+        source_template_scale_map(_S0_TEMPLATE, n, 1.0)
+    ).reshape(n, n)
+    np.testing.assert_allclose(scale, expected, rtol=2e-5, atol=2e-5)
+
+
+@pytest.mark.unit
+def test_diagnostics_include_components_sum_to_model_image() -> None:
+    """Requested component images sum to the model on active pixels."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        lens_light=[_unit_lens_light()],
+        dynamic_mass=False,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    with jax.default_matmul_precision("highest"):
+        result, diagnostics = model.evaluate_with_diagnostics(theta, include_components=True)
+    active = np.asarray(model.unmask)
+    total = np.asarray(diagnostics.source_image) + np.asarray(diagnostics.lens_light_image)
+    np.testing.assert_allclose(
+        total[active], np.asarray(result.model_image)[active], rtol=2e-5, atol=2e-5
+    )
+    # Source component matches the public reconstruction helper.
+    source_ref, lens_ref, _ = model.reconstruct_component_images(
+        result.source_pixels, result.lens_amplitudes
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.source_image), np.asarray(source_ref), rtol=2e-5, atol=2e-5
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.lens_light_image), np.asarray(lens_ref), rtol=2e-5, atol=2e-5
+    )
+
+
+def _dense_effective_dof_reference(model, source_bbox) -> tuple[float, float, float]:
+    """Independent NumPy effective-parameter reference at one fixed grid.
+
+    Uses the public simulator design matrix and a fresh regularization
+    builder; the physical prior keeps the joint convention where the
+    lens-light eps block stays inside the data curvature.
+    """
+    design, _ = model.sim_obj.design_matrix(source_bbox=source_bbox)
+    regularizer = FiniteDifferenceRegularization(
+        int(model.source_model.n), model.reg_type
+    ).matrix(*source_bbox)
+    matrix = np.asarray(design, dtype=np.float64)
+    precision = np.asarray(regularizer, dtype=np.float64)
+    noise = np.asarray(model.noise_1d, dtype=np.float64)
+    data = np.asarray(model.data_1d, dtype=np.float64)
+    lam = float(np.exp(np.asarray(model.source_model.log_lambda_reg.value)))
+    n_source = precision.shape[0]
+    n_total = matrix.shape[1]
+    weighted = matrix / noise[:, None]
+    data_curvature = weighted.T @ weighted
+    physical_prior = np.zeros((n_total, n_total))
+    physical_prior[:n_source, :n_source] = lam * precision
+    physical_prior[n_source:, n_source:] = np.eye(n_total - n_source) * float(model.eps_reg)
+    full = data_curvature + physical_prior
+    source_only = np.zeros((n_total, n_total))
+    source_only[:n_source, :n_source] = precision
+    effective = n_total - lam * float(np.trace(np.linalg.solve(full, source_only)))
+    dof = data.size - effective
+    return effective, dof, lam
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["cholesky", "nnls"])
+@pytest.mark.parametrize("joint", [False, True])
+def test_diagnostics_effective_dof_matches_independent_reference(solver, joint) -> None:
+    """Dense effective-parameter statistics match a NumPy curvature reference."""
+    lens_light = [_unit_lens_light()] if joint else []
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        lens_light=lens_light,
+        dynamic_mass=False,
+        solver_type=solver,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    with jax.default_matmul_precision("highest"):
+        result, diagnostics = model.evaluate_with_diagnostics(
+            theta, include_effective_dof=True
+        )
+    assert diagnostics.valid
+    assert diagnostics.effective_dof_method == "dense_curvature"
+    effective, dof, _ = _dense_effective_dof_reference(model, _FIXED_BBOX)
+    # The joint curvature carries the eps=1e-6 lens-light block, so the f32
+    # Cholesky factor is much less conditioned than the source-only system.
+    rtol = atol = 5e-4 if joint else 2e-5
+    np.testing.assert_allclose(
+        diagnostics.effective_parameters, effective, rtol=rtol, atol=atol
+    )
+    np.testing.assert_allclose(diagnostics.residual_dof, dof, rtol=rtol, atol=atol)
+    expected_reduced = diagnostics.chi2 / dof if dof > 0 else 0.0
+    np.testing.assert_allclose(
+        diagnostics.reduced_chi2, expected_reduced, rtol=2e-5, atol=2e-5
+    )
+
+
+@pytest.mark.unit
+def test_diagnostics_position_likelihood_fields() -> None:
+    """Enabled position constraints report penalty and mapped positions."""
+    positions = [[0.2, 0.0], [-0.2, 0.0]]
+    model = _dense_model(
+        source=_regularized_source("zero-order"),
+        dynamic_mass=False,
+        position_likelihood=dict(
+            positions=positions,
+            threshold_arcsec=0.01,
+            min_log_like=-20.0,
+        ),
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(theta)
+    assert diagnostics.valid and diagnostics.position is not None
+    positions_arr = np.asarray(positions, dtype=np.float32)
+    with ck.ActiveContext(model):
+        model.fill_params(theta)
+        bx, by = model.phys_model.deflection(
+            jnp.asarray(positions_arr[:, 0]), jnp.asarray(positions_arr[:, 1])
+        )
+    dist = np.sqrt(
+        (np.asarray(bx)[:, None] - np.asarray(bx)[None, :]) ** 2
+        + (np.asarray(by)[:, None] - np.asarray(by)[None, :]) ** 2
+    )
+    max_sep = float(dist.max())
+    penalty = -20.0 * (1.0 - np.exp(-max(0.0, max_sep - 0.01) / 0.01))
+    np.testing.assert_allclose(diagnostics.position.penalty, penalty, rtol=2e-5, atol=2e-5)
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.position.image_positions),
+        positions_arr,
+        rtol=1e-6, atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.position.source_positions),
+        np.stack([np.asarray(bx), np.asarray(by)], axis=-1),
+        rtol=2e-5, atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        diagnostics.position.max_separation, max_sep, rtol=2e-5, atol=2e-5
+    )
+    # The penalty is applied to the returned evidence exactly once.
+    expected = _normal_equation_evidence(model, _FIXED_BBOX) + penalty
+    np.testing.assert_allclose(
+        float(result.log_evidence), expected, rtol=2e-5, atol=2e-5
+    )
+
+
+@pytest.mark.unit
+def test_diagnostics_uses_one_source_solve(monkeypatch) -> None:
+    """One diagnostic request performs exactly one inversion."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        dynamic_mass=False,
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    solve = model._solve_source
+    calls = []
+
+    def counted_solve(*args, **kwargs):
+        calls.append(None)
+        return solve(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_solve_source", counted_solve)
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True, include_components=True
+    )
+    assert len(calls) == 1
+    assert diagnostics.valid
+
+
+@pytest.mark.unit
+def test_likelihood_paths_do_no_diagnostic_work(monkeypatch) -> None:
+    """evaluate/__call__/forward_model never assemble diagnostics."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        dynamic_mass=False,
+    )
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("likelihood path assembled diagnostics")
+
+    monkeypatch.setattr(dense_image_model, "reconstruction_diagnostics", refuse)
+    theta = jnp.asarray(model.get_values("flat"))
+    result = model.evaluate(theta)
+    assert np.isfinite(float(result.log_evidence))
+    assert np.isfinite(float(model(theta)))
+    model.forward_model(theta, return_source=True)
+
+
+@pytest.mark.unit
+def test_diagnostics_nonfinite_reconstruction_is_invalid() -> None:
+    """A nonfinite observation reports invalid diagnostics without raising."""
+    model = _dense_model(
+        source=_regularized_source("first-order"),
+        dynamic_mass=False,
+        fixed_source_bbox=None,
+        image_data=jnp.full((10, 10), jnp.nan),
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True, include_components=True
+    )
+    assert float(result.log_evidence) == -1.0e10
+    assert result.solver_info is None
+    assert not diagnostics.valid
+    assert diagnostics.invalid_reason is not None
+    assert "nonfinite" in diagnostics.invalid_reason
+    assert diagnostics.effective_parameters is None
+    assert diagnostics.residual_dof is None
+    assert diagnostics.reduced_chi2 is None
+    assert diagnostics.effective_dof_method is None
+    assert diagnostics.effective_dof_reason == diagnostics.invalid_reason
+
+
 if __name__ == "__main__":
     pytest.main()

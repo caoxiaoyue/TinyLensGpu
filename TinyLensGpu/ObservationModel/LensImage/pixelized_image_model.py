@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Dict, NamedTuple, Optional, Union
 
 import caskade as ck
@@ -25,7 +26,8 @@ from TinyLensGpu.utils.inversion.regularization import (
     FiniteDifferenceRegularization,
 )
 from TinyLensGpu.utils.linear_solver import fnnls_jax
-from .inversion_result import InversionResult
+from .inversion_result import InversionDiagnostics, InversionResult
+from ._inversion_diagnostics import reconstruction_diagnostics
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
     prepare_reg_template,
@@ -400,14 +402,16 @@ class PixelizedImageProbModel(ck.Module):
         image = jnp.zeros(self.image_data.size, dtype=values.dtype)
         return image.at[self.sim_obj.flat_indices].set(values).reshape(self.image_data.shape)
 
-    def _evaluate(self, *, compute_evidence: bool) -> InversionResult:
+    def _evaluate(
+        self, *, compute_evidence: bool, return_details: bool = False
+    ) -> InversionResult | tuple[InversionResult, tuple]:
         """Prepare, solve and reconstruct once; optionally compute exact determinant terms."""
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
         source_bbox = self._inversion_source_bbox()
         design_matrix, gram, rhs = self._design_terms(source_bbox)
         reg_matrix = self._regularization_matrix(source_bbox)
-        linear_params, chol, _ = self._solve_source(
+        linear_params, chol, curvature = self._solve_source(
             design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
         )
         n_source = self.sim_obj.n_source_pixels
@@ -433,10 +437,13 @@ class PixelizedImageProbModel(ck.Module):
                     + 0.5 * self.n_lens_light * jnp.log(self.eps_reg)
                 )
             log_evidence = jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
-        return InversionResult(
+        result = InversionResult(
             log_evidence, self._image_from_active(model_1d), source_pixels,
             lens_amplitudes, source_bbox, None,
         )
+        if return_details:
+            return result, (design_matrix, reg_matrix, lambda_reg, chol, curvature)
+        return result
 
     def _log_evidence(self) -> Array:
         """Return dense evidence before the optional position penalty."""
@@ -481,6 +488,66 @@ class PixelizedImageProbModel(ck.Module):
         if self._has_pos_penalty:
             log_ev = log_ev + self._position_likelihood_penalty_jax()
         return result._replace(log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10))
+
+    @ck.forward
+    def evaluate_with_diagnostics(
+        self,
+        *,
+        include_effective_dof: bool = False,
+        include_components: bool = False,
+    ) -> tuple[InversionResult, InversionDiagnostics]:
+        """Return the inversion result plus host-side diagnostics from one solve.
+
+        Shares ``evaluate``'s evidence and position-penalty convention.
+        ``include_effective_dof`` fills the dense-curvature effective
+        parameter statistics; ``include_components`` projects source and
+        lens-light contributions back onto the image. Unrequested fields stay
+        ``None``. Invalid reconstructions set ``valid=False`` with a reason
+        instead of raising.
+        """
+        result, details = self._evaluate(compute_evidence=True, return_details=True)
+        log_ev = result.log_evidence
+        if self._has_pos_penalty:
+            log_ev = log_ev + self._position_likelihood_penalty_jax()
+        result = result._replace(
+            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        )
+        diagnostics = reconstruction_diagnostics(self, result)
+        design_matrix, reg_matrix, lambda_reg, chol, curvature = details
+        n_source = self.sim_obj.n_source_pixels
+        if include_effective_dof:
+            if diagnostics.valid:
+                reg_full = jnp.zeros_like(curvature).at[:n_source, :n_source].set(reg_matrix)
+                inv_f = jsl.cho_solve(
+                    (chol, True), jnp.eye(curvature.shape[0], dtype=curvature.dtype)
+                )
+                effective = float(jnp.trace(inv_f @ (curvature - lambda_reg * reg_full)))
+                dof = int(self.data_1d.size) - effective
+                diagnostics = replace(
+                    diagnostics,
+                    effective_parameters=effective,
+                    residual_dof=dof,
+                    reduced_chi2=diagnostics.chi2 / dof if dof > 0 else 0.0,
+                    effective_dof_method="dense_curvature",
+                )
+            else:
+                diagnostics = replace(
+                    diagnostics,
+                    effective_dof_reason=diagnostics.invalid_reason,
+                )
+        if include_components:
+            source_1d = design_matrix[:, :n_source] @ result.source_pixels
+            lens_1d = (
+                design_matrix[:, n_source:] @ result.lens_amplitudes
+                if self.has_lens_light
+                else jnp.zeros_like(source_1d)
+            )
+            diagnostics = replace(
+                diagnostics,
+                source_image=self._image_from_active(source_1d),
+                lens_light_image=self._image_from_active(lens_1d),
+            )
+        return result, diagnostics
 
     @ck.forward
     def forward_model(self, *, return_source: bool = False, return_components: bool = False):
