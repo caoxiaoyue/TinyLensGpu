@@ -38,6 +38,7 @@ from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.PhysicalModel import (
     PhysicalModel,
     PixelizedSourceModel,
@@ -52,7 +53,6 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
-import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
 DPIX = 0.05
@@ -554,85 +554,35 @@ def build_stage_b_likelihood(
 
 def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=None):
     """7-panel diagnostic: data | model | resid | source | lensed src | lens light | mask."""
+    # Keep the legacy positions argument callable; the reconstruction's public
+    # diagnostics are now the source of the plotted constraint coordinates.
     q50 = [medians[n] for n in param_names]
+    theta = jnp.array(q50)
+    result, diagnostics = likelihood.evaluate_with_diagnostics(
+        theta, include_components=True, include_effective_dof=True,
+    )
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(f"Reconstruction failed while plotting {tag}: {diagnostics.invalid_reason}")
     image_data = np.asarray(likelihood.image_data)
-    noise_map = np.asarray(likelihood.noise_map)
     mask = ~np.asarray(likelihood.unmask, dtype=bool)  # True = excluded
 
-    n_source = likelihood.sim_obj.n_source_pixels
-
-    # NOTE: Operator backend does not support lens-light joint inversion.
-    # has_lens_light is checked via getattr for future compatibility.
-    has_ll = getattr(likelihood, 'has_lens_light', False)
-
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        lam_val = jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value)
-        lam_j = jnp.asarray(lam_val)
-
-        # --- Operator backend: PCG solve without building dense design matrix ---
-        xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = likelihood._get_bbox()
-        reg_data = likelihood._regularization_data(xmin, xmax, ymin, ymax)
-        op_data = likelihood.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
-        )
-        block_chols, block_masks = likelihood.sim_obj.build_block_diag_preconditioner(
-            likelihood.noise_1d, xmin, xmax, ymin, ymax, lam_j, likelihood.reg_builder, block_size=likelihood.block_size,
-        )
-        preconditioner = (block_chols, block_masks)
-        source_pixels, pcg_info = likelihood._solve_source(
-            xmin, xmax, ymin, ymax, lam_j, reg_data, preconditioner, op_data=op_data,
-        )
-        model_1d_j = likelihood.sim_obj.forward_model(
-            source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-        )
-
-        # N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-        n_s = likelihood.sim_obj.source_n
-        bs = likelihood.block_size
-        n_blocks = (n_s + bs - 1) // bs
-        trace_invPR = jnp.array(0.0, dtype=lam_j.dtype)
-        for by in range(n_blocks):
-            for bx in range(n_blocks):
-                bid = bx + by * n_blocks
-                x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
-                y_s, y_e = by * bs, min((by + 1) * bs, n_s)
-                if bid >= len(block_chols):
-                    break
-                R_block = likelihood.reg_builder.block_diag_R(
-                    x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
-                )
-                chol = block_chols[bid]
-                inv_block = jsl.cho_solve((chol, True), R_block)
-                trace_invPR = trace_invPR + jnp.trace(inv_block)
-        N_eff = float(likelihood.sim_obj.n_source_pixels - lam_j * trace_invPR)
-
-    source_pixels_arr = np.array(source_pixels)
-    src_1d = source_pixels_arr[:n_source]
-
-    # Lens light amplitudes (not available in operator backend)
-    ll_amps = source_pixels_arr[n_source:] if has_ll else None
-    model_1d = np.array(model_1d_j)
-    # Operator backend: model image from forward_model (combined source+lens light)
-    # Lens light / source separation not available without dense design matrix.
+    xmin, xmax, ymin, ymax = result.source_bbox
+    src_1d = np.asarray(result.source_pixels)
+    ll_amps = result.lens_amplitudes
     npix = image_data.shape[0]
-    model_1d = np.array(model_1d_j)
-    flat_indices = np.asarray(likelihood.sim_obj.flat_indices)
-
-    def _to_2d(vec_1d):
-        img = np.zeros((npix, npix))
-        img.flat[flat_indices] = vec_1d
-        return img
-
-    model_image = _to_2d(model_1d)
-    # Lens light and lensed source not separable in operator backend
-    lensed_src_image = np.zeros_like(model_image)
-    lens_image = np.zeros_like(model_image)
-    resid_norm = (image_data - model_image) / noise_map
-
-    chi2 = float(np.sum(resid_norm[~mask] ** 2))
-    dof = int((~mask).sum()) - N_eff
-    chi2_nu = chi2 / dof if dof > 0 else 0.0
+    model_image = np.asarray(result.model_image)
+    lensed_src_image = np.asarray(diagnostics.source_image)
+    lens_image = np.asarray(diagnostics.lens_light_image)
+    resid_norm = np.asarray(diagnostics.normalized_residuals)
+    chi2 = diagnostics.chi2
+    if diagnostics.reduced_chi2 is None:
+        statistic_label = (
+            "Effective parameters, residual DOF,\n"
+            "reduced chi^2 unavailable"
+        )
+        print(f"[{tag}] {diagnostics.effective_dof_reason}")
+    else:
+        statistic_label = f"chi^2/ν = {diagnostics.reduced_chi2:.3f}"
 
     n = likelihood.phys_model.source_light[0].n
     src_img = src_1d.reshape(n, n)
@@ -660,13 +610,14 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     resid_display = np.where(mask, np.nan, resid_norm)
     im2 = axes[0, 2].imshow(resid_display, origin="lower", extent=ext_i,
                             cmap="RdBu_r", vmin=-3, vmax=3)
-    axes[0, 2].set_title(f"Norm. residual\nchi^2/ν = {chi2_nu:.3f}", fontsize=11)
+    axes[0, 2].set_title(
+        f"Norm. residual\nchi^2 = {chi2:.3f}\n{statistic_label}", fontsize=11,
+    )
     axes[0, 2].set_xlabel("arcsec")
     plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-    lam_med = medians.get("log_lambda_reg", 0.0)
     im3 = axes[0, 3].imshow(src_img, origin="lower", extent=ext_s, cmap="viridis")
-    axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+    axes[0, 3].set_title(f"Source reconstruction\n(lambda={diagnostics.lambda_reg:.2e})", fontsize=11)
     axes[0, 3].set_xlabel("arcsec")
     axes[0, 3].set_ylabel("arcsec")
     plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
@@ -679,7 +630,7 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     axes[1, 0].set_ylabel("arcsec")
     plt.colorbar(im4, ax=axes[1, 0], fraction=0.046, pad=0.04)
 
-    total_ll_flux = float(np.sum(ll_amps)) if has_ll and ll_amps is not None else 0.0
+    total_ll_flux = float(np.sum(ll_amps))
     im5 = axes[1, 1].imshow(lens_image, origin="lower", extent=ext_i,
                             cmap="viridis", vmin=0, vmax=vmax)
     axes[1, 1].set_title(
@@ -701,8 +652,8 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     axes[1, 3].set_title("Masks (grey=masked)", fontsize=11)
     axes[1, 3].set_xlabel("arcsec")
 
-    if positions is not None:
-        pos = np.asarray(positions)
+    if diagnostics.position is not None:
+        pos = np.asarray(diagnostics.position.image_positions)
         for ax in (axes[0, 0], axes[0, 1]):
             ax.scatter(pos[:, 0], pos[:, 1], s=40, fc='none', ec='red',
                        linewidth=1.5, marker='o')
@@ -710,11 +661,13 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
     lbl = "  ".join(f"{n}={medians[n]:+.4f}" for n in
                     ("theta_E", "gamma", "e1_mass", "e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}", fontsize=10)
-    overlay_critical_and_caustics(
-        image_axes=[axes[0], axes[1], axes[2]],
-        source_ax=axes[3],
-        lens_mass=likelihood.phys_model,
-    )
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(theta)
+        overlay_critical_and_caustics(
+            image_axes=[axes[0, 0], axes[0, 1], axes[1, 0]],
+            source_ax=axes[0, 3],
+            lens_mass=likelihood.phys_model,
+        )
     plt.tight_layout()
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
@@ -738,8 +691,9 @@ def run_stage_b(image_data, noise_map, psf_kernel,
     _dump_stage("b", samples, weights, names, logz, extra=dict(medians=medians))
     try:
         _plot_stage_b("stage-B", likelihood, medians, names,
-                      str(OUT_DIR / "stage_b_model.png"),
-                      positions=position_likelihood["positions"])
+                      str(OUT_DIR / "stage_b_model.png"))
+    except InvalidReconstructionError:
+        raise
     except Exception as err:
         print(f"[stage-B] plotting failed (non-fatal): {err}")
     return samples, weights, names, medians

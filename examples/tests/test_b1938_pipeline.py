@@ -8,6 +8,9 @@ from astropy.io import fits
 
 from TinyLensGpu.Inference import StagePosterior
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+    InvalidReconstructionError,
+)
 
 
 @pytest.fixture
@@ -96,16 +99,115 @@ def test_all_pixelized_builders_share_grid_and_pcg_budget(model, stages):
     assert not hasattr(model, "build_stage_m0_likelihood")
 
 
-def test_failed_source_solve_does_not_export_a_zero_plot(model, stages):
-    lkl = model.build_stage_m1_likelihood(**inputs(), stage_a=stages[0])
+@pytest.mark.parametrize("failure", ["unconverged", "nonfinite"])
+def test_failed_source_solve_does_not_export_a_zero_plot(model, stages, failure):
+    data = inputs()
+    if failure == "nonfinite":
+        data["lens_subtracted_image"][:] = np.nan
+    lkl = model.build_stage_m1_likelihood(**data, stage_a=stages[0])
     prior, specs = make_prior_transformation(lkl)
     values = np.asarray(prior(np.full(len(specs), 0.5)))
     medians = dict(zip((spec.name for spec in specs), values))
-    lkl.pcg_max_iter = 0
+    if failure == "unconverged":
+        lkl.pcg_max_iter = 0
     destination = model.OUT_DIR.parent / "failed_plot.png"
-    with pytest.raises(RuntimeError, match="plotting stage-M1"):
+    with pytest.raises(InvalidReconstructionError, match="plotting stage-M1"):
         model._plot_pix_stage("stage-M1", lkl, medians, list(medians), str(destination))
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("failure", ["unconverged", "nonfinite"])
+def test_failed_stage_m1_cannot_export_source_package(model, stages, failure):
+    data = inputs()
+    if failure == "nonfinite":
+        data["lens_subtracted_image"][:] = np.nan
+    lkl = model.build_stage_m1_likelihood(**data, stage_a=stages[0])
+    prior, specs = make_prior_transformation(lkl)
+    values = np.asarray(prior(np.full(len(specs), 0.5)))
+    medians = dict(zip((spec.name for spec in specs), values))
+    if failure == "unconverged":
+        lkl.pcg_max_iter = 0
+    with pytest.raises(InvalidReconstructionError, match="exporting the stage source template"):
+        model._solve_pixel_source_for_package(lkl, medians, list(medians))
+    assert not model.OUT_DIR.exists()
+
+
+@pytest.fixture
+def fixed_sampler(model, monkeypatch):
+    class FixedSampler:
+        """Controlled external sampler; the stage still uses the real PCG model."""
+        log_z = 0.0
+        n_like = 3
+        n_eff = 3.0
+
+        def __init__(self, prior, loglike, n_dim, **kwargs):
+            self.values = np.asarray(prior(np.full(n_dim, 0.5)))
+
+        def run(self, **kwargs):
+            pass
+
+        def posterior(self):
+            return np.tile(self.values, (3, 1)), np.full(3, -np.log(3)), np.zeros(3)
+
+    monkeypatch.setattr(model, "Sampler", FixedSampler)
+
+
+def test_stage_m2_preserves_cache_but_propagates_invalid_reconstruction(
+    model, stages, monkeypatch, fixed_sampler,
+):
+    """A failed formal plot stops the stage, without discarding saved sampling."""
+    import pickle
+
+    monkeypatch.setattr(model, "PCG_MAX_ITER", 0)
+    model.OUT_DIR.mkdir()
+    data = inputs()
+    with pytest.raises(InvalidReconstructionError, match="plotting stage-M2"):
+        model.run_stage_m2(
+            data["lens_subtracted_image"], data["noise_map"], data["psf_kernel"],
+            data["feature_mask"], np.zeros((32, 32)), stages[1].medians(),
+            None, source_package(model, stages[0]),
+        )
+    with (model.OUT_DIR / "stage_m2.pkl").open("rb") as handle:
+        payload = pickle.load(handle)
+    assert payload["param_names"] == ["log_lambda_reg", "adaptive_reg_rho"]
+    assert payload["stage_schema"]["param_names"] == payload["param_names"]
+    assert not (model.OUT_DIR / "stage_m2_model.png").exists()
+
+
+def test_stage_m2_keeps_rendering_runtime_error_nonfatal(
+    model, stages, monkeypatch, fixed_sampler, capsys,
+):
+    """A valid real reconstruction survives an external rendering failure."""
+    import pickle
+    import matplotlib.pyplot as plt
+
+    attempted_paths = []
+
+    def fail_savefig(path, **kwargs):
+        attempted_paths.append(path)
+        raise RuntimeError("render backend failed")
+
+    monkeypatch.setattr(plt, "savefig", fail_savefig)
+    model.OUT_DIR.mkdir()
+    data = inputs()
+    try:
+        stage, medians, reg = model.run_stage_m2(
+            data["lens_subtracted_image"], data["noise_map"], data["psf_kernel"],
+            data["feature_mask"], np.zeros((32, 32)), stages[1].medians(),
+            None, source_package(model, stages[0]),
+        )
+    finally:
+        plt.close("all")
+    assert attempted_paths == [str(model.OUT_DIR / "stage_m2_model.png")]
+    assert "plotting failed (non-fatal): render backend failed" in capsys.readouterr().out
+    assert medians == stage.medians()
+    assert reg == medians
+    with (model.OUT_DIR / "stage_m2.pkl").open("rb") as handle:
+        payload = pickle.load(handle)
+    assert payload["param_names"] == stage.param_names
+    assert payload["stage_schema"]["param_names"] == stage.param_names
+    np.testing.assert_array_equal(payload["samples"], stage.samples)
+    assert not (model.OUT_DIR / "stage_m2_model.png").exists()
 
 
 def test_main_runs_m1_directly_after_stage_b(model, stages, monkeypatch):
