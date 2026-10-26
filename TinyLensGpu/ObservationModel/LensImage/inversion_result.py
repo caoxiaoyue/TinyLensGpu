@@ -11,6 +11,10 @@ from TinyLensGpu.utils.cg_solver import PCGInfo
 from TinyLensGpu.utils.pnpg_solver import PNPGInfo
 
 
+class InvalidReconstructionError(RuntimeError):
+    """A consumer rejected an unconverged or nonfinite reconstruction."""
+
+
 class InversionResult(NamedTuple):
     """One inversion's evidence and reconstruction on the returned source grid.
 
@@ -71,4 +75,7 @@ class InversionDiagnostics:
     lens_light_image: Array | None = None
 
 
-__all__ = ["InversionResult", "InversionDiagnostics", "PositionDiagnostics"]
+__all__ = [
+    "InvalidReconstructionError", "InversionResult",
+    "InversionDiagnostics", "PositionDiagnostics",
+]
