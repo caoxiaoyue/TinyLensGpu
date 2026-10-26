@@ -47,6 +47,7 @@ from TinyLensGpu.Inference import ParamU
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel import PointSourceProbModel
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
 from TinyLensGpu.PhysicalModel import (
@@ -64,7 +65,6 @@ from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caus
 from TinyLensGpu.Inference import StagePosterior
 
 import caskade as ck
-import jax.scipy.linalg as jsl
 
 # ------------------------------------------------------------------ #
 NSRC = 30
@@ -219,16 +219,13 @@ def _valid_log_evidence(values) -> np.ndarray:
 
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
     q50=[medians[n] for n in param_names]
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        result = likelihood.evaluate()
-        sp = result.source_pixels
-        si = result.solver_info
-        xmin,xmax,ymin,ymax = result.source_bbox
-        if not bool(np.asarray(si.converged)):
-            ml="residual" if hasattr(si,"residual_norm") else "convergence_metric"
-            mv=float(si.residual_norm) if hasattr(si,"residual_norm") else float(si.convergence_metric)
-            raise RuntimeError(f"{likelihood.solver_type.upper()} failed ({ml}={mv:.4e}, n_iter={int(si.n_iter)})")
+    result, diagnostics = likelihood.evaluate_with_diagnostics(jnp.asarray(q50))
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(
+            f"Reconstruction failed while exporting the stage source template: {diagnostics.invalid_reason}"
+        )
+    sp = result.source_pixels
+    xmin, xmax, ymin, ymax = result.source_bbox
     sbbox=(float(xmin),float(xmax),float(ymin),float(ymax))
     xa,ya=_source_axes_from_bbox(sbbox,NSRC)
     return dict(source_pixels=np.asarray(sp,dtype=np.float64), source_image=np.asarray(sp,dtype=np.float64).reshape(NSRC,NSRC),
@@ -443,41 +440,34 @@ def _epl_mass_from_medians(medians):
 # ------------------------------------------------------------------ #
 def _plot_pix_stage(tag,likelihood,medians,param_names,save_path):
     q50=[medians[n] for n in param_names]
-    idata=np.asarray(likelihood.image_data); nmap=np.asarray(likelihood.noise_map)
-    mask=~np.asarray(likelihood.unmask,dtype=bool); hpp=False
-    with ck.ActiveContext(likelihood):
-        likelihood.fill_params(jnp.array(q50))
-        lv=jnp.exp(likelihood.phys_model.source_light[0].log_lambda_reg.value); lj=jnp.asarray(lv)
-        rv=float(np.asarray(_source_param_value(likelihood.phys_model.source_light[0].adaptive_reg_rho)))
-        (xmin,xmax,ymin,ymax,bxs,bys,bx_seed,by_seed)=likelihood._get_bbox()
-        scale=likelihood._get_reg_scale()
-        rd=likelihood._regularization_data(xmin,xmax,ymin,ymax,scale=scale)
-        od=likelihood.sim_obj.precompute_operator_data(xmin,xmax,ymin,ymax,_betas_sub=(bxs,bys))
-        bc,bm=likelihood.sim_obj.build_block_diag_preconditioner(
-            likelihood.noise_1d,xmin,xmax,ymin,ymax,lj,likelihood.reg_builder,block_size=likelihood.block_size,scale=scale)
-        sp,_=likelihood._solve_source(xmin,xmax,ymin,ymax,lj,rd,(bc,bm),op_data=od)
-        m1d=likelihood.sim_obj.forward_model(sp,xmin,xmax,ymin,ymax,op_data=od)
-        ns=likelihood.sim_obj.source_n; bs=likelihood.block_size; nb=(ns+bs-1)//bs
-        tipr=jnp.array(0.0,dtype=lj.dtype)
-        for by in range(nb):
-            for bx in range(nb):
-                bid=bx+by*nb; xs,xe=bx*bs,min((bx+1)*bs,ns); ys,ye=by*bs,min((by+1)*bs,ns)
-                if bid>=len(bc): break
-                Rb=likelihood.reg_builder.block_diag_R(xs,xe,ys,ye,xmin,xmax,ymin,ymax,scale=scale)
-                tipr=tipr+jnp.trace(jsl.cho_solve((bc[bid],True),Rb))
-        Neff=float(likelihood.sim_obj.n_source_pixels-lj*tipr)
-        hpp=likelihood._has_pos_penalty
-        if hpp:
-            ppen=float(likelihood._position_likelihood_penalty_jax())
-            bX,bY=likelihood.phys_model.deflection(likelihood._pos_px,likelihood._pos_py)
-            dx=bX[:,None]-bX[None,:]; dy=bY[:,None]-bY[None,:]; ms=float(jnp.max(jnp.sqrt(dx*dx+dy*dy)))
-            print(f"[{tag}] Position likelihood penalty: {ppen:.4e}")
-            print(f"[{tag}] Maximum source-plane separation of marked images: {ms:.4e} arcsec")
-            bXn=np.array(bX); bYn=np.array(bY); pxn=np.array(likelihood._pos_px); pyn=np.array(likelihood._pos_py)
-    m1d_np=np.array(m1d); mi=np.zeros(idata.shape); mi[~mask]=m1d_np; rn=(idata-mi)/nmap
-    chi2=float(np.sum(rn[~mask]**2)); dof=int((~mask).sum())-Neff; chi2_nu=chi2/dof if dof>0 else 0.0
-    n=likelihood.phys_model.source_light[0].n; si=np.array(sp).reshape(n,n)
-    sci=np.array(scale).reshape(n,n) if scale is not None else np.ones((n,n))
+    result, diagnostics = likelihood.evaluate_with_diagnostics(
+        jnp.asarray(q50), include_effective_dof=True,
+    )
+    if not diagnostics.valid:
+        raise InvalidReconstructionError(
+            f"Reconstruction failed while plotting {tag}: {diagnostics.invalid_reason}"
+        )
+    idata = np.asarray(likelihood.image_data)
+    mask = ~np.asarray(likelihood.unmask, dtype=bool)
+    xmin, xmax, ymin, ymax = result.source_bbox
+    mi = np.asarray(result.model_image)
+    rn = np.asarray(diagnostics.normalized_residuals)
+    chi2 = diagnostics.chi2
+    Neff = diagnostics.effective_parameters
+    dof = diagnostics.residual_dof
+    chi2_nu = diagnostics.reduced_chi2
+    lv = diagnostics.lambda_reg
+    rv = diagnostics.adaptive_reg_rho
+    n = likelihood.phys_model.source_light[0].n
+    si = np.asarray(result.source_pixels).reshape(n, n)
+    sci = np.asarray(diagnostics.regularization_scale)
+    hpp = diagnostics.position is not None
+    if hpp:
+        position = diagnostics.position
+        print(f"[{tag}] Position likelihood penalty: {position.penalty:.4e}")
+        print(f"[{tag}] Maximum source-plane separation of marked images: {position.max_separation:.4e} arcsec")
+        bXn, bYn = np.asarray(position.source_positions).T
+        pxn, pyn = np.asarray(position.image_positions).T
     npix=idata.shape[0]
     ext_i=[-npix*DPIX/2,npix*DPIX/2,-npix*DPIX/2,npix*DPIX/2]
     ext_s=[float(xmin),float(xmax),float(ymin),float(ymax)]
@@ -505,7 +495,9 @@ def _plot_pix_stage(tag,likelihood,medians,param_names,save_path):
     for ax in axes[:3]: ax.set_xlim(*xl); ax.set_ylim(*yl)
     lbl="  ".join(f"{n}={medians[n]:+.4f}" for n in ("theta_E","gamma","e1_mass","e2_mass") if n in medians)
     plt.suptitle(f"[{tag}]  {lbl}",fontsize=10)
-    overlay_critical_and_caustics(image_axes=[axes[0],axes[1]],source_ax=axes[3],lens_mass=likelihood.phys_model)
+    with ck.ActiveContext(likelihood):
+        likelihood.fill_params(jnp.asarray(q50))
+        overlay_critical_and_caustics(image_axes=[axes[0],axes[1]],source_ax=axes[3],lens_mass=likelihood.phys_model)
     plt.tight_layout(); plt.savefig(save_path,dpi=120,bbox_inches="tight"); plt.close(fig)
     print(f"[{tag}] diagnostic plot saved to {save_path}")
 
@@ -551,7 +543,10 @@ def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None):
                            lambda_grid_coarse=np.asarray(lgc,dtype=np.float64),log_ev_coarse=np.asarray(lec,dtype=np.float64),
                            lambda_grid_fine=np.asarray(lgf,dtype=np.float64),log_ev_fine=np.asarray(lef,dtype=np.float64)))
     try: _plot_pix_stage("stage-M0",lkl,{**ma,"log_lambda_reg":llb_f},["log_lambda_reg"],str(OUT_DIR/"stage_m0_model.png"))
-    except Exception as err: print(f"[stage-M0] plot failed: {err}")
+    except Exception as err:
+        if isinstance(err, InvalidReconstructionError):
+            raise
+        print(f"[stage-M0] plot failed: {err}")
     return s0,llb_f
 
 def build_stage_m1_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,ll_fixed,cmask=None):
@@ -581,7 +576,10 @@ def run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,ll_fixed,cmask=None):
                 lambda_prior_limits=[float(ll_fixed)-0.5,float(ll_fixed)+0.5],
                 s1=s1,time_taken=t1-t0),stage=stage)
     try: _plot_pix_stage("stage-M1",lkl,med,n,str(OUT_DIR/"stage_m1_model.png"))
-    except Exception as err: print(f"[stage-M1] plot failed: {err}")
+    except Exception as err:
+        if isinstance(err, InvalidReconstructionError):
+            raise
+        print(f"[stage-M1] plot failed: {err}")
     return stage,med,s1
 
 def build_stage_m2_likelihood(ls_img,nmap,psk,fmask,med_m1,pl,s1_pkg,cmask=None):
@@ -611,7 +609,10 @@ def run_stage_m2(idata,nmap,psk,fmask,llm,med_m1,pl,s1_pkg,cmask=None):
     _dump_stage("m2",s,w,n,lz,extra=dict(medians=med,m2_mass_model="fixed-EPL+Shear",mass_medians_fixed=dict(med_m1),
                 reg_hyperparams=rhm2,time_taken=t1-t0),stage=stage)
     try: _plot_pix_stage("stage-M2",lkl,med,n,str(OUT_DIR/"stage_m2_model.png"))
-    except Exception as err: print(f"[stage-M2] plot failed: {err}")
+    except Exception as err:
+        if isinstance(err, InvalidReconstructionError):
+            raise
+        print(f"[stage-M2] plot failed: {err}")
     return stage,med,rhm2
 
 def build_stage_m3_likelihood(ls_img,nmap,psk,fmask,stage_m1,pl,rh_fixed,s1_pkg,cmask=None):
@@ -638,7 +639,10 @@ def run_stage_m3(idata,nmap,psk,fmask,llm,stage_m1,pl,rh_fixed,s1_pkg,cmask=None
     med=stage.medians()
     _dump_stage("m3",s,w,n,lz,extra=dict(medians=med,m3_mass_model="EPL+Shear",reg_hyperparams_fixed=dict(rh_fixed),time_taken=t1-t0),stage=stage)
     try: _plot_pix_stage("stage-M3",lkl,med,n,str(OUT_DIR/"stage_m3_model.png"))
-    except Exception as err: print(f"[stage-M3] plot failed: {err}")
+    except Exception as err:
+        if isinstance(err, InvalidReconstructionError):
+            raise
+        print(f"[stage-M3] plot failed: {err}")
     return stage,med
 
 
@@ -676,7 +680,10 @@ def main(skip_done=False, out_dir=None):
     if (OUT_DIR/"stage_m0.pkl").exists() and not (OUT_DIR/"stage_m0_model.png").exists():
         lkl=build_stage_m0_likelihood(ls,nmap,psk,fmask,stage_a,pl,cmask)
         try: _plot_pix_stage("stage-M0",lkl,{**ma,"log_lambda_reg":float(s0["log_lambda_best"])},["log_lambda_reg"],str(OUT_DIR/"stage_m0_model.png"))
-        except Exception as err: print(f"[stage-M0] re-plot failed: {err}")
+        except Exception as err:
+            if isinstance(err, InvalidReconstructionError):
+                raise
+            print(f"[stage-M0] re-plot failed: {err}")
 
     tm1=0.0; s1=None
     if skip_done and (OUT_DIR/"stage_m1.pkl").exists():
@@ -690,7 +697,10 @@ def main(skip_done=False, out_dir=None):
     if (OUT_DIR/"stage_m1.pkl").exists() and not (OUT_DIR/"stage_m1_model.png").exists():
         lkl=build_stage_m1_likelihood(ls,nmap,psk,fmask,stage_a,pl,llm0,cmask)
         try: _plot_pix_stage("stage-M1",lkl,mm1,nm1,str(OUT_DIR/"stage_m1_model.png"))
-        except Exception as err: print(f"[stage-M1] re-plot failed: {err}")
+        except Exception as err:
+            if isinstance(err, InvalidReconstructionError):
+                raise
+            print(f"[stage-M1] re-plot failed: {err}")
 
     tm2=0.0; rhm2=None
     if skip_done and (OUT_DIR/"stage_m2.pkl").exists():
@@ -700,7 +710,10 @@ def main(skip_done=False, out_dir=None):
     if not (OUT_DIR/"stage_m2_model.png").exists():
         lkl=build_stage_m2_likelihood(ls,nmap,psk,fmask,mm1,pl,s1,cmask)
         try: _plot_pix_stage("stage-M2",lkl,mm2,nm2,str(OUT_DIR/"stage_m2_model.png"))
-        except Exception as err: print(f"[stage-M2] plot failed: {err}")
+        except Exception as err:
+            if isinstance(err, InvalidReconstructionError):
+                raise
+            print(f"[stage-M2] plot failed: {err}")
     if rhm2 is None: raise RuntimeError("[stage-M2] Failed to determine source regularization hyperparameters.")
 
     tm3=0.0
@@ -711,7 +724,10 @@ def main(skip_done=False, out_dir=None):
     if not (OUT_DIR/"stage_m3_model.png").exists():
         lkl=build_stage_m3_likelihood(ls,nmap,psk,fmask,stage_m1,pl,rhm2,s1,cmask)
         try: _plot_pix_stage("stage-M3",lkl,mm3,nm3,str(OUT_DIR/"stage_m3_model.png"))
-        except Exception as err: print(f"[stage-M3] plot failed: {err}")
+        except Exception as err:
+            if isinstance(err, InvalidReconstructionError):
+                raise
+            print(f"[stage-M3] plot failed: {err}")
 
     print("\n"+"="*60); print(" Pipeline complete"); print("="*60)
     print(" Time summary:"); print(f"    Stage A:  {ta/60:.2f} min"); print(f"    Stage L:  {tl/60:.2f} min")
