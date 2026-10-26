@@ -121,10 +121,21 @@ def _load_survey_callers(examples_dir, relative_path):
             "_source_axes_from_bbox", "_solve_pixel_source_for_package",
         }
     ]
+    from TinyLensGpu.example_support import (
+        export_source_package, validate_source_package,
+        require_valid_reconstruction, source_axes_from_bbox,
+        draw_image_panel,
+    )
+
     namespace = dict(
         np=np, jnp=jnp, ck=ck, plt=plt, DPIX=0.08, NSRC=3,
         InvalidReconstructionError=InvalidReconstructionError,
         overlay_critical_and_caustics=overlay_critical_and_caustics,
+        export_source_package=export_source_package,
+        validate_source_package=validate_source_package,
+        require_valid_reconstruction=require_valid_reconstruction,
+        source_axes_from_bbox=source_axes_from_bbox,
+        draw_image_panel=draw_image_panel,
     )
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
          namespace)

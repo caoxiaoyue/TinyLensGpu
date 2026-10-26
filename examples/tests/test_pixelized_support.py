@@ -304,9 +304,15 @@ import jax
 import TinyLensGpu
 before = (os.getcwd(), dict(os.environ), jax.config.jax_enable_x64,
           jax.config.jax_default_matmul_precision)
+import sys
+pyplot_before = 'matplotlib.pyplot' in sys.modules
 import TinyLensGpu.example_support
+import TinyLensGpu.example_support.source
+import TinyLensGpu.example_support.plotting
 after = (os.getcwd(), dict(os.environ), jax.config.jax_enable_x64,
          jax.config.jax_default_matmul_precision)
+assert ('matplotlib.pyplot' in sys.modules) == pyplot_before, \
+    "support import loaded matplotlib.pyplot"
 assert before == after, "example_support import mutated process state"
 print("ok")
 '''
@@ -349,3 +355,351 @@ def test_posterior_quantiles():
     assert qs["a"].shape == (3,)
     assert qs["a"][1] == pytest.approx(0.5)   # interpolated CDF median
     assert qs["b"][1] == pytest.approx(1.5)
+
+
+# ------------------------------------------------------------------
+# Shared source-package and drawing helpers (ticket 10)
+# ------------------------------------------------------------------
+
+
+@pytest.fixture
+def close_figures():
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
+def _small_source_export_model(image_data=None):
+    import TinyLensGpu  # ensure CASKADE_BACKEND selected before caskade
+    import jax.numpy as jnp
+    from TinyLensGpu.PhysicalModel import PhysicalModel, SIE
+    from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
+    from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
+    from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
+    from TinyLensGpu.Inference import ParamU
+
+    mass = SIE(theta_E=0.12, e1=0.05, e2=0.0, center_x=0.0, center_y=0.0)
+    for p in (mass.theta_E, mass.e1, mass.e2, mass.center_x, mass.center_y):
+        p.to_static()
+    mass.theta_E.to_dynamic()
+    lam = ParamU("log_lambda_reg", 0.0, prior_type="uniform",
+                 prior_settings=[-3.0, 3.0], limits=[-3.0, 3.0])
+    rho = ParamU("adaptive_reg_rho", 0.6, prior_type="uniform",
+                 prior_settings=[0.0, 3.0], limits=[0.0, 3.0])
+    lam.to_dynamic()
+    rho.to_dynamic()
+    source = PixelizedSourceModel(
+        n=3, log_lambda_reg=lam, regularization_type="first-order",
+        adaptive_reg_rho=rho,
+    )
+    phys = PhysicalModel(lens_mass=[mass], source_light=[source], lens_light=[])
+    psf = jnp.asarray([[1.0]])
+    bbox = (-0.4, 0.4, -0.4, 0.4)
+    sim = PixelizedLensSimulator(phys, SimulatorConfig(dpix=0.08, npix=10, psf_kernel=psf))
+    image = sim.simulate(jnp.linspace(0.1, 1.0, 9), source_bbox=bbox)
+    if image_data is not None:
+        image = jnp.asarray(image_data)
+    return PixelizedImageProbModelOperator(
+        image, jnp.ones_like(image) * 0.05, psf, 0.08, phys,
+        solver_type="pcg", block_size=2, fixed_source_bbox=bbox,
+        fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+    )
+
+
+def _raw_source_package(n=3):
+    import numpy as np
+
+    x = np.linspace(-0.3, 0.3, n)
+    return dict(
+        source_pixels=np.arange(n * n, dtype=np.float64) + 1.0,
+        source_image=np.arange(n * n, dtype=np.float64).reshape(n, n) + 1.0,
+        source_bbox=(-0.3, 0.3, -0.3, 0.3),
+        source_x_axis=x,
+        source_y_axis=x.copy(),
+        n=n,
+    )
+
+
+@pytest.mark.unit
+def test_shared_source_helpers_importable():
+    from TinyLensGpu.example_support import (
+        draw_image_panel, export_source_package, require_valid_reconstruction,
+        source_axes_from_bbox, validate_source_package,
+    )
+
+    x, y = source_axes_from_bbox((-0.3, 0.3, -0.2, 0.2), 3)
+    np.testing.assert_allclose(x, [-0.3, 0.0, 0.3])
+    np.testing.assert_allclose(y, [-0.2, 0.0, 0.2])
+
+
+@pytest.mark.unit
+def test_validate_source_package_raw_vs_prepared():
+    from TinyLensGpu.example_support import validate_source_package
+
+    # Raw export: no lambda keys required, no scale_map generated, same dict.
+    raw = _raw_source_package()
+    assert validate_source_package(
+        raw, expected_n=3, rho=1.0, require_regularization=False
+    ) is raw
+    assert "scale_map" not in raw
+    # Prepared path requires the lambda keys.
+    with pytest.raises(KeyError, match="lambda_best"):
+        validate_source_package(_raw_source_package(), expected_n=3, rho=1.0)
+    prepared = _raw_source_package()
+    prepared.update(lambda_best=1.0, log_lambda_best=0.0)
+    assert validate_source_package(prepared, expected_n=3, rho=1.0) is prepared
+    assert prepared["scale_map"].dtype == np.float32
+    assert prepared["scale_map"].shape == (9,)
+    assert np.all(prepared["scale_map"] > 0)
+    # Error boundaries: obsolete keys, shape, axis, bbox, n mismatches.
+    bad = _raw_source_package(); bad["nx"] = 3
+    bad.update(lambda_best=1.0, log_lambda_best=0.0)
+    with pytest.raises(KeyError, match="legacy"):
+        validate_source_package(bad, expected_n=3, rho=1.0)
+    bad = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    bad["n"] = 4
+    with pytest.raises(ValueError, match="n=4"):
+        validate_source_package(bad, expected_n=3, rho=1.0)
+    bad = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    bad["source_pixels"] = np.ones(7)
+    with pytest.raises(ValueError, match="shape"):
+        validate_source_package(bad, expected_n=3, rho=1.0)
+    bad = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    bad["source_bbox"] = (-0.3, 0.5, -0.3, 0.3)
+    with pytest.raises(ValueError, match="square|rectangular"):
+        validate_source_package(bad, expected_n=3, rho=1.0)
+    bad = _raw_source_package(); bad["scale_map"] = -np.ones(9)
+    bad.update(lambda_best=1.0, log_lambda_best=0.0)
+    with pytest.raises(ValueError, match="positive"):
+        validate_source_package(bad, expected_n=3, rho=1.0)
+
+
+@pytest.mark.unit
+def test_validate_source_package_optional_bbox_axis_checks():
+    from TinyLensGpu.example_support import validate_source_package
+
+    pkg = _raw_source_package()
+    pkg.update(lambda_best=1.0, log_lambda_best=0.0)
+    # Galan predefine options: in-place bbox normalization + expected box + axes.
+    out = validate_source_package(
+        pkg, expected_n=3, rho=1.0, expected_source_bbox=(-0.3, 0.3, -0.3, 0.3),
+        normalize_bbox=True, check_axes=True,
+    )
+    assert out is pkg and pkg["source_bbox"] == (-0.3, 0.3, -0.3, 0.3)
+    with pytest.raises(ValueError, match="fixed stage-A source bbox"):
+        validate_source_package(
+            _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0},
+            expected_n=3, rho=1.0, expected_source_bbox=(-1, 1, -1, 1),
+            normalize_bbox=True,
+        )
+    bad = _raw_source_package(); bad["source_x_axis"] = np.zeros(3)
+    bad.update(lambda_best=1.0, log_lambda_best=0.0)
+    with pytest.raises(ValueError, match="source_x_axis"):
+        validate_source_package(
+            bad, expected_n=3, rho=1.0, normalize_bbox=True, check_axes=True
+        )
+    # Axis tolerance boundary: +5e-8 on the zero coordinate passes (atol=1e-7);
+    # +6e-7 on a nonzero coordinate fails.
+    pkg = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    pkg["source_x_axis"] = pkg["source_x_axis"].copy()
+    pkg["source_x_axis"][1] += 5e-8
+    validate_source_package(
+        pkg, expected_n=3, rho=1.0, normalize_bbox=True, check_axes=True
+    )
+    bad = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    bad["source_x_axis"] = bad["source_x_axis"].copy()
+    bad["source_x_axis"][0] += 6e-7
+    with pytest.raises(ValueError, match="source_x_axis"):
+        validate_source_package(
+            bad, expected_n=3, rho=1.0, normalize_bbox=True, check_axes=True
+        )
+    # A positive supplied float64 scale_map is coerced to equal float32 in place.
+    pkg = _raw_source_package() | {"lambda_best": 1.0, "log_lambda_best": 0.0}
+    supplied = np.linspace(0.5, 2.0, 9, dtype=np.float64)
+    pkg["scale_map"] = supplied
+    out = validate_source_package(pkg, expected_n=3, rho=1.0)
+    assert out is pkg
+    assert pkg["scale_map"].dtype == np.float32
+    np.testing.assert_allclose(pkg["scale_map"], supplied, rtol=1e-6)
+
+
+@pytest.mark.unit
+def test_require_valid_reconstruction():
+    from types import SimpleNamespace
+
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.example_support import require_valid_reconstruction
+
+    # Joint-unsupported effective diagnostics stay valid and must pass.
+    ok = SimpleNamespace(valid=True, invalid_reason=None)
+    require_valid_reconstruction(None, ok, context="test")
+    bad = SimpleNamespace(valid=False, invalid_reason="solver did not converge")
+    with pytest.raises(InvalidReconstructionError, match="test"):
+        require_valid_reconstruction(None, bad, context="test")
+
+
+@pytest.mark.unit
+def test_slacs_export_validate_next_stage_and_plot(
+    tmp_path, monkeypatch, examples_dir, close_figures
+):
+    """SLACS export -> prepared validation -> M2 builder -> plot, all shared."""
+    import ast
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import jax.numpy as jnp
+    import caskade as ck
+
+    from TinyLensGpu.Inference import ParamU
+    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
+        InvalidReconstructionError,
+    )
+    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
+        PixelizedImageProbModelOperator,
+    )
+    from TinyLensGpu.PhysicalModel import (
+        EPL, PhysicalModel, Shear, PixelizedSourceModel,
+    )
+    from TinyLensGpu.example_support import (
+        export_source_package, validate_source_package,
+        require_valid_reconstruction, source_axes_from_bbox,
+        draw_image_panel,
+    )
+    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
+    from TinyLensGpu.visualizer import overlay_critical_and_caustics
+
+    path = examples_dir / "pix_src_demo_operator" / "pipe" / "slacs_examples" / "pipeline.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+    wanted = {
+        "_epl_mass_from_medians", "_pnpg_kwargs", "_fixed_source_kwargs",
+        "build_stage_m2_likelihood", "_plot_pix_stage",
+        "_solve_pixel_source_for_package", "_validate_source_package",
+    }
+    selected = [
+        n for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name in wanted
+    ]
+    assert {n.name for n in selected} == wanted
+    namespace = dict(
+        np=np, jnp=jnp, plt=plt, ck=ck, time=__import__("time"),
+        ParamU=ParamU, EPL=EPL, Shear=Shear,
+        PixelizedSourceModel=PixelizedSourceModel,
+        PixelizedImageProbModelOperator=PixelizedImageProbModelOperator,
+        PhysicalModel=PhysicalModel,
+        export_source_package=export_source_package,
+        validate_source_package=validate_source_package,
+        require_valid_reconstruction=require_valid_reconstruction,
+        source_axes_from_bbox=source_axes_from_bbox,
+        draw_image_panel=draw_image_panel,
+        source_template_scale_map=source_template_scale_map,
+        InvalidReconstructionError=InvalidReconstructionError,
+        overlay_critical_and_caustics=overlay_critical_and_caustics,
+        DPIX=0.08, NSUB_PIX=1, NSRC=3, SOLVER_TYPE="pcg",
+        PIXEL_REGULARIZATION_TYPE="first-order",
+        ADAPTIVE_REG_RHO=1.0, ADAPTIVE_REG_RHO_PRIOR_MAX=8.0,
+        SOURCE_BBOX_PADDING=0.05,
+        PNPG_MAX_ITER=200, PNPG_RTOL=2.0e-2, PNPG_POWER_ITER=10,
+    )
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
+         namespace)
+
+    model = _small_source_export_model()
+    names = [p.name for p in model.get_dynamic_params()]
+    medians = {n: float(np.asarray(p.value)) for n, p in
+               zip(names, model.get_dynamic_params())}
+
+    # Raw export schema: public arrays only, np.float64.
+    pkg = namespace["_solve_pixel_source_for_package"](model, medians, names)
+    assert pkg["source_pixels"].dtype == np.float64
+    assert pkg["source_image"].shape == (3, 3)
+    x_ax, y_ax = pkg["source_x_axis"], pkg["source_y_axis"]
+    np.testing.assert_allclose(x_ax, np.linspace(*pkg["source_bbox"][:2], 3))
+    assert len(x_ax) == len(y_ax) == 3
+
+    # Prepared template + next-stage builder.
+    prepared = validate_source_package(
+        pkg | {"lambda_best": 1.0, "log_lambda_best": 0.0},
+        expected_n=3, rho=1.0,
+    )
+    m1_medians = dict(
+        theta_E=0.17, gamma=2.1, e1_mass=0.1, e2_mass=0.03,
+        center_x_mass=0.0, center_y_mass=0.0, gamma1=0.02, gamma2=-0.01,
+        log_lambda_reg=0.0,
+    )
+    m2 = namespace["build_stage_m2_likelihood"](
+        np.full((10, 10), 0.05), np.full((10, 10), 0.1),
+        np.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+        np.zeros((10, 10), dtype=bool), m1_medians, None, prepared,
+    )
+    # Public reconstruction uses the fixed bbox/template package.
+    result, diagnostics = m2.evaluate_with_diagnostics()
+    require_valid_reconstruction(result, diagnostics, context="m2 build check")
+    assert tuple(float(v) for v in result.source_bbox) == tuple(prepared["source_bbox"])
+    assert result.source_pixels.shape == (9,)
+
+    # Plot the M2 stage (not the original model) with its own medians and
+    # compare rendered images to its public result/diagnostics.
+    m2_names = [p.name for p in m2.get_dynamic_params()]
+    m2_medians = {
+        n: float(np.asarray(p.value))
+        for n, p in zip(m2_names, m2.get_dynamic_params())
+    }
+    m2_result, m2_diag = m2.evaluate_with_diagnostics(
+        jnp.asarray([m2_medians[n] for n in m2_names]),
+        include_effective_dof=True,
+    )
+    require_valid_reconstruction(m2_result, m2_diag, context="m2 plot check")
+    expected_scale = source_template_scale_map(
+        prepared["source_pixels"], 3, rho=m2_diag.adaptive_reg_rho,
+    ).reshape(3, 3)
+    np.testing.assert_allclose(
+        np.asarray(m2_diag.regularization_scale), expected_scale, rtol=2e-5, atol=1e-6,
+    )
+    assert np.unique(expected_scale).size > 1  # template scale is nonuniform
+
+    from matplotlib.axes import Axes
+
+    rendered = []
+    original_imshow = Axes.imshow
+
+    def capture(ax, image, *args, **kwargs):
+        rendered.append(np.asarray(image).copy())
+        return original_imshow(ax, image, *args, **kwargs)
+
+    monkeypatch.setattr(Axes, "imshow", capture)
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "stage_m.png"
+    namespace["_plot_pix_stage"](
+        "stage-M", m2, m2_medians, m2_names, str(out)
+    )
+    assert out.exists() and out.stat().st_size > 0
+    assert len(rendered) == 5
+    np.testing.assert_allclose(rendered[0], np.asarray(m2.image_data), rtol=2e-5)
+    np.testing.assert_allclose(
+        rendered[1], np.asarray(m2_result.model_image), rtol=2e-5
+    )
+    m2_mask = ~np.asarray(m2.unmask, dtype=bool)
+    np.testing.assert_allclose(
+        rendered[2][~np.isnan(rendered[2])],
+        np.asarray(m2_diag.normalized_residuals)[~m2_mask], rtol=2e-5, atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        rendered[3], np.asarray(m2_result.source_pixels).reshape(3, 3), rtol=2e-5, atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        rendered[4], np.asarray(m2_diag.regularization_scale), rtol=2e-5, atol=1e-6,
+    )
+
+    bad = _small_source_export_model(image_data=np.full((10, 10), np.nan))
+    with pytest.raises(InvalidReconstructionError):
+        namespace["_plot_pix_stage"](
+            "stage-M", bad, medians, names, str(tmp_path / "bad.png")
+        )
+    assert not (tmp_path / "bad.png").exists()

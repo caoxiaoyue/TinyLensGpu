@@ -35,10 +35,20 @@ def _load_source_package_helper(path):
     from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
         InvalidReconstructionError,
     )
+    from TinyLensGpu.example_support import (
+        export_source_package, validate_source_package,
+        require_valid_reconstruction, source_axes_from_bbox,
+        draw_image_panel,
+    )
 
     namespace = {
         "np": np, "jnp": jnp, "ck": ck, "NSRC": 3,
         "InvalidReconstructionError": InvalidReconstructionError,
+        "export_source_package": export_source_package,
+        "validate_source_package": validate_source_package,
+        "require_valid_reconstruction": require_valid_reconstruction,
+        "source_axes_from_bbox": source_axes_from_bbox,
+        "draw_image_panel": draw_image_panel,
     }
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
          namespace)

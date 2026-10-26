@@ -5,8 +5,10 @@ from __future__ import annotations
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from TinyLensGpu.Inference import StagePosterior
+if TYPE_CHECKING:
+    from TinyLensGpu.Inference import StagePosterior
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,8 @@ def load_stage(config: StageStorageConfig, tag: str) -> dict:
 
 def stage_from_payload(payload: dict) -> StagePosterior:
     """Rehydrate a stage posterior from a cached stage payload."""
+    from TinyLensGpu.Inference import StagePosterior
+
     schema = payload.get("stage_schema", {})
     prior_specs = payload.get("prior_specs") or schema.get("prior_specs")
     param_names = payload.get("param_names") or schema.get("param_names")
