@@ -24,7 +24,6 @@ os.chdir(Path(__file__).parent)
 
 import numpy as np
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
@@ -175,64 +174,26 @@ with gzip.open("output/fit_results.pkl.gz", "wb") as f:
 # ------------------------------------------------------------------ #
 print("[7] Generating MAP visualization ...")
 
-# Evaluate model at posterior median (operator backend — matrix-free visualization)
-import caskade as ck
-
+# Reconstruct once at the posterior median and read public diagnostics
 best_params = jnp.array(q50_list)
-with ck.ActiveContext(prob_model):
-    prob_model.fill_params(best_params)
-    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
+result, diagnostics = prob_model.evaluate_with_diagnostics(
+    best_params, include_effective_dof=True,
+)
+if not diagnostics.valid:
+    raise RuntimeError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
-    # --- Operator backend: PCG solve without building dense design matrix ---
-    xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub, _bx_seed, _by_seed = prob_model._get_bbox()
-    reg_data = prob_model._regularization_data(xmin, xmax, ymin, ymax)
-    op_data = prob_model.sim_obj.precompute_operator_data(
-        xmin, xmax, ymin, ymax, _betas_sub=(beta_x_sub, beta_y_sub),
-    )
-    block_chols, block_masks = prob_model.sim_obj.build_block_diag_preconditioner(
-        prob_model.noise_1d, xmin, xmax, ymin, ymax, lam, prob_model.reg_builder, block_size=prob_model.block_size,
-    )
-    preconditioner = (block_chols, block_masks)
-    source_pixels, pcg_info = prob_model._solve_source(
-        xmin, xmax, ymin, ymax, lam, reg_data, preconditioner, op_data=op_data,
-    )
-    model_1d = prob_model.sim_obj.forward_model(
-        source_pixels, xmin, xmax, ymin, ymax, op_data=op_data,
-    )
-
-    # Effective degrees of freedom: N_eff = Ns - λ Tr(P⁻¹ R) via block-diagonal preconditioner
-    n_s = prob_model.sim_obj.source_n
-    bs = prob_model.block_size
-    n_blocks = (n_s + bs - 1) // bs
-    trace_invPR = jnp.array(0.0, dtype=lam.dtype)
-    for by in range(n_blocks):
-        for bx in range(n_blocks):
-            bid = bx + by * n_blocks
-            x_s, x_e = bx * bs, min((bx + 1) * bs, n_s)
-            y_s, y_e = by * bs, min((by + 1) * bs, n_s)
-            if bid >= len(block_chols):
-                break
-            R_block = prob_model.reg_builder.block_diag_R(
-                x_s, x_e, y_s, y_e, xmin, xmax, ymin, ymax,
-            )
-            chol = block_chols[bid]
-            inv_block = jsl.cho_solve((chol, True), R_block)
-            trace_invPR = trace_invPR + jnp.trace(inv_block)
-    N_eff = float(prob_model.sim_obj.n_source_pixels - lam * trace_invPR)
-
-source_pixels_np = np.array(source_pixels)
-model_1d_np      = np.array(model_1d)
-model_image      = np.zeros(image_data.shape)
-model_image[~mask] = model_1d_np
-resid_norm       = (image_data - model_image) / noise_map
+xmin, xmax, ymin, ymax = result.source_bbox
+source_pixels_np = np.asarray(result.source_pixels)
+model_image      = np.asarray(result.model_image)
+resid_norm       = np.asarray(diagnostics.normalized_residuals)
 
 # Total chi-square and reduced chi-square
-chi2             = float(np.sum(resid_norm[~mask]**2))
-N_d              = int((~mask).sum())
-dof              = N_d - N_eff
-chi2_nu          = chi2 / dof if dof > 0 else 0.0
+chi2             = diagnostics.chi2
+N_eff            = diagnostics.effective_parameters
+dof              = diagnostics.residual_dof
+chi2_nu          = diagnostics.reduced_chi2
 
-source_image     = source_pixels_np.reshape(40, 40)
+source_image     = source_pixels_np.reshape(pix_src.n, pix_src.n)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,
