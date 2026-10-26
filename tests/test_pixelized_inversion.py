@@ -93,7 +93,13 @@ def _simulator(
     nsub: int = 1,
 ) -> PixelizedLensSimulator:
     """Build a small pixelized lens simulator for fast unit tests."""
-    config = SimulatorConfig(dpix=0.08, npix=10, nsub=nsub, psf_kernel=psf_kernel or _delta_psf(), mask=mask)
+    config = SimulatorConfig(
+        dpix=0.08,
+        npix=10,
+        nsub=nsub,
+        psf_kernel=psf_kernel if psf_kernel is not None else _delta_psf(),
+        mask=mask,
+    )
     return PixelizedLensSimulator(phys_model or _physical_model(), config)
 
 
@@ -115,7 +121,7 @@ def _prob_model(
     return PixelizedImageProbModel(
         image_data=data,
         noise_map=noise,
-        psf_kernel=psf_kernel or _delta_psf(),
+        psf_kernel=psf_kernel if psf_kernel is not None else _delta_psf(),
         dpix=0.08,
         phys_model=_physical_model(source=source),
         mask=mask,
