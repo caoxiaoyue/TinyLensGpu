@@ -7,6 +7,7 @@ import pytest
 from astropy.io import fits
 
 from TinyLensGpu.Inference import StagePosterior
+from TinyLensGpu.example_support import source_axes_from_bbox
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
     InvalidReconstructionError,
@@ -57,7 +58,7 @@ def inputs():
 
 def source_package(model, stage_a):
     bbox = model._stage_a_source_bbox(stage_a)
-    x, y = model._source_axes_from_bbox(bbox, model.NSRC)
+    x, y = source_axes_from_bbox(bbox, model.NSRC)
     return dict(n=model.NSRC, source_bbox=bbox,
                 source_pixels=np.ones(model.NSRC**2), source_x_axis=x,
                 source_y_axis=y, lambda_best=1.0, log_lambda_best=0.0)
