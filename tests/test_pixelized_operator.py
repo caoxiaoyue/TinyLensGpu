@@ -2890,5 +2890,345 @@ def test_block_diag_R_is_principal_submatrix(reg_type, use_scale):
         )
 
 
+# ------------------------------------------------------------------
+# evaluate_with_diagnostics
+# ------------------------------------------------------------------
+
+def _operator_model(image, noise, phys, solver="pcg", **kwargs):
+    """Build a small operator evidence model on a fixed source grid."""
+    kwargs.setdefault("fixed_source_bbox", _fixed_bbox())
+    return PixelizedImageProbModelOperator(
+        image, noise, _delta_psf(), 0.08, phys, solver_type=solver, **kwargs
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
+@pytest.mark.parametrize("joint", [False, True])
+def test_operator_diagnostics_match_evaluate_and_unrequested_none(solver, joint):
+    """Operator diagnostics pair the evaluate result with basic products."""
+    from TinyLensGpu.ObservationModel import InversionDiagnostics
+
+    if joint:
+        image, noise, phys = _make_joint_test_data()
+    else:
+        image, noise, phys, _ = _make_test_data()
+    model = _operator_model(image, noise, phys, solver=solver)
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(theta)
+    reference = model.evaluate(theta)
+
+    assert isinstance(diagnostics, InversionDiagnostics)
+    np.testing.assert_allclose(
+        float(result.log_evidence), float(reference.log_evidence), rtol=1e-5, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        np.asarray(result.model_image), np.asarray(reference.model_image), rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        np.asarray(result.source_pixels), np.asarray(reference.source_pixels), rtol=1e-5, atol=1e-5
+    )
+    if joint:
+        np.testing.assert_allclose(
+            np.asarray(result.lens_amplitudes), np.asarray(reference.lens_amplitudes),
+            rtol=1e-5, atol=1e-5,
+        )
+    assert diagnostics.valid and diagnostics.invalid_reason is None
+    assert bool(result.solver_info.converged)
+    assert diagnostics.effective_parameters is None
+    assert diagnostics.residual_dof is None
+    assert diagnostics.reduced_chi2 is None
+    assert diagnostics.effective_dof_method is None
+    assert diagnostics.effective_dof_reason is None
+    assert diagnostics.source_image is None
+    assert diagnostics.lens_light_image is None
+    assert diagnostics.position is None
+
+    expected_resid = (np.asarray(model.image_data) - np.asarray(result.model_image)) / np.asarray(
+        model.noise_map
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.normalized_residuals), expected_resid, rtol=1e-5, atol=1e-5
+    )
+    expected_chi2 = float(np.sum(expected_resid[np.asarray(model.unmask)] ** 2))
+    np.testing.assert_allclose(diagnostics.chi2, expected_chi2, rtol=1e-5, atol=1e-5)
+    n = int(model.source_model.n)
+    assert diagnostics.regularization_scale.shape == (n, n)
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.regularization_scale), 1.0, rtol=1e-6, atol=1e-6
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_adaptive_regularization_scale():
+    """Adaptive regularization reports the public S0-template scale map."""
+    image, noise, phys, _ = _make_test_data()
+    phys = _phys_model(_pix_src(adaptive_reg_rho=1.0))
+    model = _operator_model(
+        image, noise, phys, fixed_reg_template=_fixed_template()
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    _, diagnostics = model.evaluate_with_diagnostics(theta)
+    assert diagnostics.valid
+    n = int(model.source_model.n)
+    expected = np.asarray(
+        source_template_scale_map(_fixed_template(), n, 1.0)
+    ).reshape(n, n)
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.regularization_scale), expected, rtol=1e-4, atol=1e-4
+    )
+    np.testing.assert_allclose(diagnostics.adaptive_reg_rho, 1.0, atol=1e-6)
+
+
+def _operator_effective_dof_reference(model, bbox, block_size, rho, n):
+    """Independent NumPy trace over the block-diagonal preconditioner."""
+    from scipy.linalg import cho_solve as scipy_cho_solve
+
+    lam = float(np.exp(np.asarray(model.source_model.log_lambda_reg.value)))
+    scale = (
+        source_template_scale_map(_fixed_template(n), n, rho) if rho > 0.0 else None
+    )
+    block_chols, _ = model.sim_obj.build_block_diag_preconditioner(
+        model.noise_1d,
+        *bbox,
+        lam,
+        model.reg_builder,
+        block_size=block_size,
+        scale=scale,
+    )
+    reg_blocks = model.reg_builder.block_matrices(
+        *bbox, scale=scale, block_size=block_size
+    )
+    trace = 0.0
+    for chol, rblock in zip(block_chols, reg_blocks):
+        trace += float(
+            np.trace(scipy_cho_solve(
+                (np.asarray(chol), True), np.asarray(rblock)
+            ))
+        )
+    effective = int(model.sim_obj.n_source_pixels) - lam * trace
+    return effective, int(model.data_1d.size) - effective
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
+@pytest.mark.parametrize("block_size", [2, 5])
+@pytest.mark.parametrize("rho", [0.0, 1.0])
+def test_operator_diagnostics_effective_dof_matches_block_reference(solver, block_size, rho):
+    """Source-only effective parameters match an independent block trace."""
+    image, noise, phys, _ = _make_test_data()
+    phys = _phys_model(_pix_src(adaptive_reg_rho=rho))
+    kwargs = {"fixed_reg_template": _fixed_template()} if rho > 0.0 else {}
+    model = _operator_model(
+        image, noise, phys, solver=solver, block_size=block_size, **kwargs
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    _, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True
+    )
+    assert diagnostics.valid
+    assert diagnostics.effective_dof_method == "operator_source_block_preconditioner"
+    effective, dof = _operator_effective_dof_reference(
+        model, _fixed_bbox(), block_size, rho, int(model.source_model.n)
+    )
+    np.testing.assert_allclose(
+        diagnostics.effective_parameters, effective, rtol=1e-4, atol=1e-4
+    )
+    np.testing.assert_allclose(diagnostics.residual_dof, dof, rtol=1e-4, atol=1e-4)
+    expected_reduced = diagnostics.chi2 / dof if dof > 0 else 0.0
+    np.testing.assert_allclose(
+        diagnostics.reduced_chi2, expected_reduced, rtol=1e-4, atol=1e-4
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_joint_effective_dof_unsupported():
+    """Joint effective-parameter requests report unsupported, not invalid."""
+    image, noise, phys = _make_joint_test_data()
+    model = _operator_model(image, noise, phys)
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True, include_components=True
+    )
+    assert diagnostics.valid and diagnostics.invalid_reason is None
+    assert diagnostics.effective_parameters is None
+    assert diagnostics.residual_dof is None
+    assert diagnostics.reduced_chi2 is None
+    assert diagnostics.effective_dof_method == "operator_joint_unsupported"
+    assert "unsupported" in diagnostics.effective_dof_reason
+    # Raw chi-square and image products remain available.
+    assert np.isfinite(diagnostics.chi2)
+    active = np.asarray(model.unmask)
+    total = np.asarray(diagnostics.source_image) + np.asarray(diagnostics.lens_light_image)
+    np.testing.assert_allclose(
+        total[active], np.asarray(result.model_image)[active], rtol=1e-4, atol=1e-4
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_components_sum_to_model_image():
+    """Requested source/lens components sum to the model on active pixels."""
+    image, noise, phys = _make_joint_test_data()
+    model = _operator_model(image, noise, phys)
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_components=True
+    )
+    assert diagnostics.valid
+    active = np.asarray(model.unmask)
+    total = np.asarray(diagnostics.source_image) + np.asarray(diagnostics.lens_light_image)
+    np.testing.assert_allclose(
+        total[active], np.asarray(result.model_image)[active], rtol=1e-4, atol=1e-4
+    )
+    source_ref, lens_ref, _ = model.reconstruct_component_images(
+        result.source_pixels, result.lens_amplitudes
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.source_image), np.asarray(source_ref), rtol=1e-4, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.lens_light_image), np.asarray(lens_ref), rtol=1e-4, atol=1e-4
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_source_only_lens_image_zeros():
+    """A source-only model returns a zero lens-light component image."""
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(image, noise, phys)
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_components=True
+    )
+    assert diagnostics.valid
+    np.testing.assert_allclose(np.asarray(diagnostics.lens_light_image), 0.0)
+    active = np.asarray(model.unmask)
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.source_image)[active],
+        np.asarray(result.model_image)[active],
+        rtol=1e-4, atol=1e-4,
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_position_likelihood_fields():
+    """Enabled position constraints report penalty and mapped positions."""
+    positions = [[0.2, 0.0], [-0.2, 0.0]]
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(
+        image, noise, phys,
+        position_likelihood=dict(
+            positions=positions, threshold_arcsec=0.01, min_log_like=-20.0,
+        ),
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(theta)
+    assert diagnostics.valid and diagnostics.position is not None
+    positions_arr = np.asarray(positions, dtype=np.float32)
+    with ck.ActiveContext(model):
+        model.fill_params(theta)
+        bx, by = model.phys_model.deflection(
+            jnp.asarray(positions_arr[:, 0]), jnp.asarray(positions_arr[:, 1])
+        )
+    dist = np.sqrt(
+        (np.asarray(bx)[:, None] - np.asarray(bx)[None, :]) ** 2
+        + (np.asarray(by)[:, None] - np.asarray(by)[None, :]) ** 2
+    )
+    max_sep = float(dist.max())
+    penalty = -20.0 * (1.0 - np.exp(-max(0.0, max_sep - 0.01) / 0.01))
+    np.testing.assert_allclose(
+        diagnostics.position.penalty, penalty, rtol=1e-4, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.position.image_positions), positions_arr,
+        rtol=1e-6, atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        np.asarray(diagnostics.position.source_positions),
+        np.stack([np.asarray(bx), np.asarray(by)], axis=-1),
+        rtol=1e-4, atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        diagnostics.position.max_separation, max_sep, rtol=1e-4, atol=1e-4
+    )
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_unconverged_solve_is_invalid():
+    """Explicit non-convergence marks the zero reconstruction invalid."""
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(image, noise, phys, solver="pcg")
+    model.pcg_max_iter = 0
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True
+    )
+    assert not bool(result.solver_info.converged)
+    np.testing.assert_allclose(np.asarray(result.model_image), 0.0)
+    np.testing.assert_allclose(np.asarray(result.source_pixels), 0.0)
+    assert not diagnostics.valid
+    assert "converge" in diagnostics.invalid_reason
+    assert float(result.log_evidence) == -1.0e10
+    assert diagnostics.effective_parameters is None
+    assert diagnostics.effective_dof_reason == diagnostics.invalid_reason
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_nonfinite_observation_is_invalid():
+    """A nonfinite observation reports invalid diagnostics without raising."""
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(
+        np.full((10, 10), np.nan), noise, phys, fixed_source_bbox=None
+    )
+    theta = jnp.asarray(model.get_values("flat"))
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True
+    )
+    assert not diagnostics.valid
+    assert diagnostics.invalid_reason is not None
+    assert float(result.log_evidence) == -1.0e10
+    assert diagnostics.effective_dof_reason == diagnostics.invalid_reason
+
+
+@pytest.mark.unit
+def test_operator_diagnostics_uses_one_source_solve(monkeypatch):
+    """One diagnostic request performs exactly one inversion."""
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(image, noise, phys)
+    theta = jnp.asarray(model.get_values("flat"))
+    solve = model._solve_source
+    calls = []
+
+    def counted_solve(*args, **kwargs):
+        calls.append(None)
+        return solve(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_solve_source", counted_solve)
+    result, diagnostics = model.evaluate_with_diagnostics(
+        theta, include_effective_dof=True, include_components=True
+    )
+    assert len(calls) == 1
+    assert diagnostics.valid
+
+
+@pytest.mark.unit
+def test_operator_likelihood_paths_do_no_diagnostic_work(monkeypatch):
+    """evaluate/__call__/forward_model never assemble diagnostics."""
+    import TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator as op_model
+
+    image, noise, phys, _ = _make_test_data()
+    model = _operator_model(image, noise, phys)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("likelihood path assembled diagnostics")
+
+    monkeypatch.setattr(op_model, "reconstruction_diagnostics", refuse)
+    theta = jnp.asarray(model.get_values("flat"))
+    result = model.evaluate(theta)
+    assert np.isfinite(float(result.log_evidence))
+    assert np.isfinite(float(model(theta)))
+    model.forward_model(theta, return_source=True)
+
+
 if __name__ == "__main__":
     pytest.main()

@@ -8,11 +8,13 @@ avoiding explicit construction of the (Nd × Ns) design matrix.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Dict, NamedTuple, Optional, Union
 
 import caskade as ck
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import numpy as np
 from jax import Array
 
@@ -38,7 +40,8 @@ from TinyLensGpu.utils.inversion.regularization import (
     FiniteDifferenceRegularization,
     RegData,
 )
-from .inversion_result import InversionResult
+from .inversion_result import InversionDiagnostics, InversionResult
+from ._inversion_diagnostics import reconstruction_diagnostics
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
     prepare_reg_template,
@@ -620,7 +623,9 @@ class PixelizedImageProbModelOperator(ck.Module):
             )
         return self.reg_builder.logdet_blocks(blocks)
 
-    def _evaluate(self, *, compute_evidence):
+    def _evaluate(
+        self, *, compute_evidence, return_details: bool = False
+    ) -> InversionResult | tuple[InversionResult, tuple]:
         """Prepare, solve and reconstruct once; optionally compute evidence."""
         log_lambda = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda)
@@ -681,9 +686,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         n_source = self.sim_obj.n_source_pixels
         source = linear_params[:n_source]
         lens = linear_params[n_source:] if self.has_lens_light else None
-        model = self.sim_obj.forward_model(source, *bbox, op_data=op_data)
-        if lens is not None:
-            model = model + lens_matrix @ lens
+        model_source = self.sim_obj.forward_model(source, *bbox, op_data=op_data)
+        model_lens = lens_matrix @ lens if lens is not None else None
+        model = model_source + model_lens if model_lens is not None else model_source
 
         log_evidence = None
         if compute_evidence:
@@ -727,7 +732,10 @@ class PixelizedImageProbModelOperator(ck.Module):
             .set(model)
             .reshape(self.image_data.shape)
         )
-        return InversionResult(log_evidence, image, source, lens, bbox, solver_info)
+        result = InversionResult(log_evidence, image, source, lens, bbox, solver_info)
+        if not return_details:
+            return result
+        return result, (block_chols, reg_blocks, lambda_reg, model_source, model_lens)
 
     def _log_evidence(self) -> Array:
         """Evidence with log|P| and block log|R| approximations, as before.
@@ -752,6 +760,88 @@ class PixelizedImageProbModelOperator(ck.Module):
         return result._replace(
             log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
         )
+
+    @ck.forward
+    def evaluate_with_diagnostics(
+        self,
+        *,
+        include_effective_dof: bool = False,
+        include_components: bool = False,
+    ) -> tuple[InversionResult, InversionDiagnostics]:
+        """Return the inversion result plus host-side diagnostics from one solve.
+
+        Shares ``evaluate``'s evidence and position-penalty convention and its
+        solver-status/zero-reconstruction failure contract. Source-only
+        ``include_effective_dof`` fills the block-preconditioner
+        effective-parameter statistics; joint requests report
+        ``operator_joint_unsupported`` without marking the reconstruction
+        invalid. ``include_components`` returns the source and lens-light
+        images from the same solve. Unrequested fields stay ``None``.
+        """
+        result, details = self._evaluate(compute_evidence=True, return_details=True)
+        log_ev = result.log_evidence
+        if self._has_pos_penalty:
+            log_ev = log_ev + self._position_likelihood_penalty_jax()
+        result = result._replace(
+            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        )
+        diagnostics = reconstruction_diagnostics(self, result)
+        block_chols, reg_blocks, lambda_reg, model_source, model_lens = details
+        if include_effective_dof:
+            if self.has_lens_light:
+                diagnostics = replace(
+                    diagnostics,
+                    effective_dof_method="operator_joint_unsupported",
+                    effective_dof_reason=(
+                        "Effective-parameter diagnostics are unsupported for "
+                        "joint operator inversion."
+                    ),
+                )
+            elif diagnostics.valid:
+                trace_inv_pr = sum(
+                    jnp.trace(jsl.cho_solve((chol, True), rblock))
+                    for chol, rblock in zip(block_chols, reg_blocks)
+                )
+                effective = float(
+                    self.sim_obj.n_source_pixels - lambda_reg * trace_inv_pr
+                )
+                dof = int(self.data_1d.size) - effective
+                diagnostics = replace(
+                    diagnostics,
+                    effective_parameters=effective,
+                    residual_dof=dof,
+                    reduced_chi2=diagnostics.chi2 / dof if dof > 0 else 0.0,
+                    effective_dof_method="operator_source_block_preconditioner",
+                )
+            else:
+                diagnostics = replace(
+                    diagnostics, effective_dof_reason=diagnostics.invalid_reason
+                )
+        if include_components:
+            zeros_active = jnp.zeros_like(model_source)
+            source_component = jnp.where(
+                result.solver_info.converged, model_source, zeros_active
+            )
+            lens_component = (
+                jnp.where(result.solver_info.converged, model_lens, zeros_active)
+                if model_lens is not None
+                else zeros_active
+            )
+
+            def _component_image(values):
+                full = jnp.zeros(self.image_data.size, dtype=values.dtype)
+                return (
+                    full.at[self.sim_obj.flat_indices]
+                    .set(values)
+                    .reshape(self.image_data.shape)
+                )
+
+            diagnostics = replace(
+                diagnostics,
+                source_image=_component_image(source_component),
+                lens_light_image=_component_image(lens_component),
+            )
+        return result, diagnostics
 
     @ck.forward
     def forward_model(self, *, return_source=False, return_components=False):
