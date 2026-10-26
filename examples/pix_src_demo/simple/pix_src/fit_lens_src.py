@@ -24,7 +24,6 @@ os.chdir(Path(__file__).parent)
 
 import numpy as np
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 import matplotlib.pyplot as plt
 from nautilus import Sampler
 
@@ -175,39 +174,26 @@ with gzip.open("output/fit_results.pkl.gz", "wb") as f:
 # ------------------------------------------------------------------ #
 print("[7] Generating MAP visualization ...")
 
-# Evaluate model at posterior median
-import caskade as ck
-from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
-
-# Feed posterior median into the model and do a MAP source solve
+# Reconstruct once at the posterior median and read public diagnostics
 best_params = jnp.array(q50_list)
-with ck.ActiveContext(prob_model):
-    prob_model.fill_params(best_params)
-    design_matrix, source_bbox = prob_model.sim_obj.design_matrix()
-    reg_matrix = prob_model._regularization_matrix(source_bbox)
-    lam = jnp.exp(jnp.asarray(pix_src.log_lambda_reg.value))
-    source_pixels, chol, curvature = prob_model._solve_source(
-        design_matrix, reg_matrix, lam
-    )
-    
-    # Calculate effective degrees of freedom (N_d - N_eff)
-    inv_F = jsl.cho_solve((chol, True), jnp.eye(curvature.shape[0]))
-    ATA = curvature - lam * reg_matrix
-    N_eff = float(jnp.trace(inv_F @ ATA))
+result, diagnostics = prob_model.evaluate_with_diagnostics(
+    best_params, include_effective_dof=True,
+)
+if not diagnostics.valid:
+    raise RuntimeError(f"Cannot plot reconstruction: {diagnostics.invalid_reason}")
 
-source_pixels_np = np.array(source_pixels)
-model_1d         = np.array(design_matrix @ source_pixels)
-model_image      = np.zeros(image_data.shape)
-model_image[~mask] = model_1d
-resid_norm       = (image_data - model_image) / noise_map
+source_bbox      = result.source_bbox
+source_pixels_np = np.asarray(result.source_pixels)
+model_image      = np.asarray(result.model_image)
+resid_norm       = np.asarray(diagnostics.normalized_residuals)
 
 # Total chi-square and reduced chi-square
-chi2             = float(np.sum(resid_norm[~mask]**2))
-N_d              = int((~mask).sum())
-dof              = N_d - N_eff
-chi2_nu          = chi2 / dof if dof > 0 else 0.0
+chi2             = diagnostics.chi2
+N_eff            = diagnostics.effective_parameters
+dof              = diagnostics.residual_dof
+chi2_nu          = diagnostics.reduced_chi2
 
-source_image     = source_pixels_np.reshape(40, 40)
+source_image     = source_pixels_np.reshape(pix_src.n, pix_src.n)
 
 npix   = image_data.shape[0]
 ext_i  = [-npix * DPIX / 2,  npix * DPIX / 2,

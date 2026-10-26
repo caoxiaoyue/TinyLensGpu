@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from jax import Array
@@ -28,4 +29,46 @@ class InversionResult(NamedTuple):
     solver_info: PCGInfo | PNPGInfo | None
 
 
-__all__ = ["InversionResult"]
+@dataclass(frozen=True)
+class PositionDiagnostics:
+    """Observed and ray-traced image positions for a constrained inversion."""
+
+    penalty: float
+    max_separation: float
+    image_positions: Array  # (N, 2)
+    source_positions: Array  # (N, 2)
+
+
+@dataclass(frozen=True)
+class InversionDiagnostics:
+    """Host-side diagnostics from one pixelized-source inversion.
+
+    ``valid`` is False when the operator solve did not converge or the
+    reconstruction contains nonfinite values; ``invalid_reason`` explains it.
+    ``chi2`` is the chi-square over active pixels only, while
+    ``normalized_residuals`` is the full image in the established plot
+    convention. ``regularization_scale`` is the (n, n) S0-template scale map,
+    ones for uniform regularization. Optional effective-degrees-of-freedom and
+    component-image fields stay ``None`` unless requested; an invalid
+    reconstruction keeps the three statistics ``None`` and explains why in
+    ``effective_dof_reason``.
+    """
+
+    valid: bool
+    invalid_reason: str | None
+    normalized_residuals: Array
+    chi2: float
+    lambda_reg: float
+    adaptive_reg_rho: float
+    regularization_scale: Array
+    position: PositionDiagnostics | None = None
+    effective_parameters: float | None = None
+    residual_dof: float | None = None
+    reduced_chi2: float | None = None
+    effective_dof_method: str | None = None
+    effective_dof_reason: str | None = None
+    source_image: Array | None = None
+    lens_light_image: Array | None = None
+
+
+__all__ = ["InversionResult", "InversionDiagnostics", "PositionDiagnostics"]

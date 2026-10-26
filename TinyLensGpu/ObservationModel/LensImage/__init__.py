@@ -2,7 +2,7 @@
 Image-based probability models for gravitational lensing.
 """
 
-from .inversion_result import InversionResult
+from .inversion_result import InversionDiagnostics, InversionResult, PositionDiagnostics
 from .parametric_image_model import ImageProbModel
 from .pixelized_image_model import PixelizedImageProbModel
 from .point_source_model import PointSourceProbModel
@@ -14,9 +14,11 @@ LensLikelihood = ImageProbModel
 __all__ = [
     'BandImageData',
     'ImageProbModel',
+    'InversionDiagnostics',
     'InversionResult',
     'LensLikelihood',  # Alias
     'MultiBandImageProbModel',
     'PixelizedImageProbModel',
     'PointSourceProbModel',
+    'PositionDiagnostics',
 ]
