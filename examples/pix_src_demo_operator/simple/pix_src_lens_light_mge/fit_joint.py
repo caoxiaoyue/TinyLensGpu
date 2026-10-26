@@ -28,6 +28,7 @@ from TinyLensGpu.Inference import ParamU, nautilus_posterior_summary
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import PixelizedImageProbModelOperator
+from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.Inference.build_prior import make_prior_transformation
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
@@ -275,31 +276,30 @@ print("[8] Generating MAP visualization ...")
 import caskade as ck
 
 best_params = jnp.array(q50_list)
-with ck.ActiveContext(prob_model):
-    prob_model.fill_params(best_params)
-    n_source = prob_model.sim_obj.n_source_pixels
-    model_image, source_pixels, lens_amplitudes = prob_model.forward_model(
-        return_components=True
+result, diagnostics = prob_model.evaluate_with_diagnostics(
+    best_params, include_components=True,
+)
+if not diagnostics.valid:
+    raise InvalidReconstructionError(
+        f"Reconstruction failed while plotting joint fit: {diagnostics.invalid_reason}"
     )
-    source_image_2d, lens_image_2d, source_bbox = (
-        prob_model.reconstruct_component_images(source_pixels, lens_amplitudes)
-    )
-    xmin, xmax, ymin, ymax = source_bbox
+source_pixels = result.source_pixels
+lens_amplitudes = result.lens_amplitudes
+xmin, xmax, ymin, ymax = result.source_bbox
 
 # Build 2D images
 npix = image_data.shape[0]
-flat_indices = prob_model.sim_obj.flat_indices
 
-model_image = np.asarray(model_image)
-source_image_2d = np.asarray(source_image_2d)
-lens_image_2d = np.asarray(lens_image_2d)
+model_image = np.asarray(result.model_image)
+source_image_2d = np.asarray(diagnostics.source_image)
+lens_image_2d = np.asarray(diagnostics.lens_light_image)
 
-resid_norm = (image_data - model_image) / noise_map
+resid_norm = np.asarray(diagnostics.normalized_residuals)
 
 # The effective degrees of freedom of a regularized semi-linear inversion is
 # not ``Ndata - Nsource``. Report chi-square per fitted datum explicitly.
 n_data = int((~mask).sum())
-chi2 = float(np.sum(resid_norm[~mask]**2))
+chi2 = diagnostics.chi2
 chi2_per_data = chi2 / n_data
 
 arc_region = (~mask) & (source_image_2d / noise_map > 3.0)
@@ -367,9 +367,8 @@ axes[0, 2].set_title(
 axes[0, 2].set_xlabel("arcsec")
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046, pad=0.04)
 
-lam_med = q50_list[param_names.index("log_lambda_reg")]
 im3 = axes[0, 3].imshow(source_image, origin="lower", extent=ext_s, cmap="viridis")
-axes[0, 3].set_title(f"Source reconstruction\n(lambda={float(jnp.exp(lam_med)):.2e})", fontsize=11)
+axes[0, 3].set_title(f"Source reconstruction\n(lambda={diagnostics.lambda_reg:.2e})", fontsize=11)
 axes[0, 3].set_xlabel("arcsec"); axes[0, 3].set_ylabel("arcsec")
 plt.colorbar(im3, ax=axes[0, 3], fraction=0.046, pad=0.04)
 
@@ -404,11 +403,13 @@ plt.suptitle(
     f"(theta_E={q50_list[0]:.3f}\")",
     fontsize=12,
 )
-overlay_critical_and_caustics(
-    image_axes=[axes[0, 0], axes[0, 1], axes[1, 0]],
-    source_ax=axes[0, 3],
-    lens_mass=prob_model.phys_model,
-)
+with ck.ActiveContext(prob_model):
+    prob_model.fill_params(best_params)
+    overlay_critical_and_caustics(
+        image_axes=[axes[0, 0], axes[0, 1], axes[1, 0]],
+        source_ax=axes[0, 3],
+        lens_mass=prob_model.phys_model,
+    )
 
 plt.tight_layout()
 plt.savefig("output/fit_map_visualization.png", dpi=150, bbox_inches="tight")
