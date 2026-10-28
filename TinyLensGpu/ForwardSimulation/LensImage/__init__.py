@@ -9,5 +9,14 @@ from .config import SimulatorConfig, make_grid_2d
 from .parametric import LensSimulator
 from .pixelized import PixelizedLensSimulator
 from .results import SimulationResult
+from .potential_correction import PotentialCorrectionRenderer, PotentialRenderResult
 
-__all__ = ['SimulatorConfig', 'LensSimulator', 'PixelizedLensSimulator', 'SimulationResult', 'make_grid_2d']
+__all__ = [
+    "SimulatorConfig",
+    "LensSimulator",
+    "PixelizedLensSimulator",
+    "SimulationResult",
+    "make_grid_2d",
+    "PotentialCorrectionRenderer",
+    "PotentialRenderResult",
+]
