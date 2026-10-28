@@ -8,6 +8,7 @@ from .pixelized_image_model import PixelizedImageProbModel
 from .point_source_model import PointSourceProbModel
 from .multi_band_image_model import BandImageData, MultiBandImageProbModel
 from .potential_correction import SingleStepPotentialCorrection
+from .potential_correction_iterative import IterativePotentialCorrection, PotentialLinearization
 from .potential_correction_result import (
     PotentialCorrectionResult, PotentialCorrectionStrengths, PotentialSolverInfo,
 )
@@ -26,6 +27,8 @@ __all__ = [
     'PointSourceProbModel',
     'PositionDiagnostics',
     'SingleStepPotentialCorrection',
+    'IterativePotentialCorrection',
+    'PotentialLinearization',
     'PotentialCorrectionResult',
     'PotentialCorrectionStrengths',
     'PotentialSolverInfo',

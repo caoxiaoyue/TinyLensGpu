@@ -20,7 +20,10 @@ class PotentialCorrectionStrengths:
 
 @dataclass(frozen=True)
 class PotentialSolverInfo:
-    """Solver status against the actual coupled linear system."""
+    """Status of the actual inner linear system, including LM step damping.
+
+    Nonlinear convergence is recorded separately in the reconstruction result.
+    """
 
     method: str
     converged: bool
@@ -42,6 +45,12 @@ class PotentialCorrectionResult:
     ``log_evidence`` is None on failure. Evidence and determinant annotations
     are separate so local linearization and block determinant approximations
     can be identified independently by later backends and algorithms.
+
+    Iterative results set linear products to None and use the nonlinear image
+    for chi2/objective. History contains scalar dictionaries for initialization
+    and accepted/rejected attempts. ``success`` describes nonlinear convergence;
+    ``solver_info`` describes the last inner solve and may be converged even
+    when the nonlinear reconstruction stalls.
     """
 
     source_values: Array

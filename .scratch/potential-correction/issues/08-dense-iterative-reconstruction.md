@@ -5,7 +5,7 @@
 **Blocked by:** 07 — Operator tuning and single-step backend calibration.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,4 +27,12 @@
 The dependency on ticket 07 is the explicitly approved stage gate. This ticket
 does not repeatedly apply and sum the single-step solution. Operator iterations
 are ticket 09 and nested hyperparameter search is ticket 10.
+
+## Comments
+
+- 2026-10-29: Claimed by the ticket-08 implementer on branch `codex/pc-08`,
+  worktree `/tmp/tinylens-pc-08`, from integration `35d0318`. Ticket 07 is
+  resolved with its calibration report and retained summary. The approved
+  spec already confirms the public result/operator testing seams; development
+  uses focused red/green numerical slices. Operator iteration stays in 09.
 

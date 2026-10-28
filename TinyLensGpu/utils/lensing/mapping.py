@@ -37,16 +37,8 @@ def dense_mapping_from_weights_indices(
     return mapping_matrix.at[row_indices, col_indices].add(weights_flat)
 
 
-@partial(jax.jit, static_argnames=("n",))
-def lens_mapping_operator_bilinear_from(
-    data_mesh_beta: jnp.ndarray,
-    x_min: float,
-    x_max: float,
-    y_min: float,
-    y_max: float,
-    n: int,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Build bilinear interpolation weights/indices on a square source grid."""
+def _bilinear_cells(data_mesh_beta, x_min, x_max, y_min, y_max, n):
+    """Select the established cells, including duplicate upper-edge nodes."""
     # Keep coordinate precision: downcasting float64 rays quantizes small
     # parameter steps and makes finite differences disagree with autodiff.
     beta = jnp.asarray(data_mesh_beta)
@@ -74,6 +66,23 @@ def lens_mapping_operator_bilinear_from(
     i01 = iy1_c * n + ix0_c
     i11 = iy1_c * n + ix1_c
 
+    return fx, fy, (i00, i10, i01, i11), valid, dx, dy
+
+
+@partial(jax.jit, static_argnames=("n",))
+def lens_mapping_operator_bilinear_from(
+    data_mesh_beta: jnp.ndarray,
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    n: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Build bilinear interpolation weights/indices on a square source grid."""
+    fx, fy, corners, valid, _, _ = _bilinear_cells(
+        data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
+
     w00 = (1.0 - fx) * (1.0 - fy)
     w10 = fx * (1.0 - fy)
     w01 = (1.0 - fx) * fy
@@ -81,8 +90,28 @@ def lens_mapping_operator_bilinear_from(
 
     weights = jnp.where(valid[:, None],
                         jnp.stack([w00, w10, w01, w11], axis=1), 0.0)
-    indices = jnp.stack([i00, i10, i01, i11], axis=1).astype(jnp.int32)
+    indices = jnp.stack(corners, axis=1).astype(jnp.int32)
     return weights, indices, valid
+
+
+@partial(jax.jit, static_argnames=("n",))
+def bilinear_source_spatial_gradient(
+    source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n
+):
+    """Analytically differentiate the selected bilinear brightness branch.
+
+    Interior knots use the right/up cell. Clipped upper-endpoint nodes coincide,
+    giving zero derivative along that axis. Both derivatives vanish out of bounds.
+    This is a cell derivative, rather than interpolation of node differences.
+    """
+    fx, fy, corners, valid, dx, dy = _bilinear_cells(
+        data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
+    source_values = jnp.asarray(source_values)
+    s00, s10, s01, s11 = (source_values[index] for index in corners)
+    gx = ((1 - fy) * (s10 - s00) + fy * (s11 - s01)) / dx
+    gy = ((1 - fx) * (s01 - s00) + fx * (s11 - s10)) / dy
+    return jnp.where(valid, gx, 0), jnp.where(valid, gy, 0)
 
 
 def build_source_grid(n, xmin, xmax, ymin, ymax):

@@ -20,6 +20,7 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
     _psf_convolve_full_jit,
 )
 from TinyLensGpu.utils.lensing.mapping import (
+    bilinear_source_spatial_gradient,
     build_source_grid,
     lens_mapping_operator_bilinear_from,
 )
@@ -271,6 +272,21 @@ class PotentialCorrectionRenderer:
         if values.shape != (self.n_source,):
             raise ValueError(f"source_values must have shape ({self.n_source},)")
         return values
+
+    def source_spatial_gradient(self, source_values, mapping=None):
+        """Current bilinear spatial derivatives at the supplied corrected rays.
+
+        Uses exactly the brightness cells, clipping and out-of-bounds branches.
+        The default mapping is the fixed macro mapping (zero potential).
+        """
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            mapping = self.source_mapping() if mapping is None else mapping
+            return bilinear_source_spatial_gradient(
+                self._source_values(source_values),
+                jnp.stack((mapping.beta_x, mapping.beta_y), axis=1),
+                *self.source_bbox,
+                self.source_n,
+            )
 
     def _source_image_full(self, source_values, mapping):
         height, width = self.image_shape
