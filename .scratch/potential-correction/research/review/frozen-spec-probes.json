@@ -1,0 +1,58 @@
+{
+  "review_head": "e14ea508f53eec3ebe4c6f57f887aa6716a725fc",
+  "baseline": "5bbfdfae4031e92cb107d4bbfca3bf55e7c8e411",
+  "environment": "source ~/anaconda3/bin/activate && conda activate tinylens_gpu; XLA_PYTHON_CLIENT_PREALLOCATE=false; workspace PYTHONPATH",
+  "probes": [
+    {
+      "name": "single-step-tuning",
+      "script": "/tmp/pc_spec_artifact_probe.py",
+      "script_sha256": "e117697b0312ebf9ab8220e35221c0ff746df2277892a6ebf7356517cb9d0d5e",
+      "output_directory": "/tmp/pc-spec-tuning-cpb1973k",
+      "before_run_success": true,
+      "after_run_success": false,
+      "after_run_status_record": "/tmp/pc-spec-tuning-cpb1973k/tuning.json",
+      "after_run_has_valid_fit": false,
+      "after_run_failure_reasons": [
+        "nonfinite_system"
+      ],
+      "artifacts": [
+        {
+          "before_path": "/tmp/pc-spec-tuning-cpb1973k/reconstruction.npz",
+          "after_path": "/tmp/pc-spec-tuning-cpb1973k/reconstruction.npz",
+          "sha256_before": "b99974cf420f4f9e145d1d2a9b39c5df903eb7aef9c1e7d1325a6e1c4b8779dd",
+          "sha256_after": "b99974cf420f4f9e145d1d2a9b39c5df903eb7aef9c1e7d1325a6e1c4b8779dd",
+          "unchanged_assertion_observed_in_probe": true
+        }
+      ]
+    },
+    {
+      "name": "fixed-operator",
+      "script": "/tmp/pc_spec_operator_artifact_probe.py",
+      "script_sha256": "8a8eb0e5e55878a839b2f0ea38b823cb05f3091c6c1f5427e5492fe3a8a0be79",
+      "output_directory": "/tmp/pc-spec-operator-rwwfbyj0",
+      "before_run_success": true,
+      "after_run_success": false,
+      "after_run_status_record": "/tmp/pc-spec-operator-rwwfbyj0/failure.json",
+      "after_run_has_valid_fit": false,
+      "after_run_failure_reasons": [
+        "pcg_iteration_limit"
+      ],
+      "artifacts": [
+        {
+          "before_path": "/tmp/pc-spec-operator-rwwfbyj0/configuration.json",
+          "after_path": "/tmp/pc-spec-operator-rwwfbyj0/configuration.json",
+          "sha256_before": "6d6fb93261aa2511b639c3b9deba6b8fd5a37f1c2ced07c117756bf1a7315ada",
+          "sha256_after": "6d6fb93261aa2511b639c3b9deba6b8fd5a37f1c2ced07c117756bf1a7315ada",
+          "unchanged_assertion_observed_in_probe": true
+        },
+        {
+          "before_path": "/tmp/pc-spec-operator-rwwfbyj0/reconstruction.npz",
+          "after_path": "/tmp/pc-spec-operator-rwwfbyj0/reconstruction.npz",
+          "sha256_before": "797a66a62a800006eb6a703f39d0eacd244bad378a41755aa8b8c4981c740def",
+          "sha256_after": "797a66a62a800006eb6a703f39d0eacd244bad378a41755aa8b8c4981c740def",
+          "unchanged_assertion_observed_in_probe": true
+        }
+      ]
+    }
+  ]
+}
