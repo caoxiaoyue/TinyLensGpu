@@ -14,6 +14,10 @@ from .LensImage import (
     PixelizedImageProbModel,
     PointSourceProbModel,
     PositionDiagnostics,
+    SingleStepPotentialCorrection,
+    PotentialCorrectionResult,
+    PotentialCorrectionStrengths,
+    PotentialSolverInfo,
 )
 
 __all__ = [
@@ -25,4 +29,8 @@ __all__ = [
     'PixelizedImageProbModel',
     'PointSourceProbModel',
     'PositionDiagnostics',
+    'SingleStepPotentialCorrection',
+    'PotentialCorrectionResult',
+    'PotentialCorrectionStrengths',
+    'PotentialSolverInfo',
 ]

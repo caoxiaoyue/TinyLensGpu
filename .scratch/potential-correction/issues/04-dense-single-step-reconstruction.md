@@ -5,7 +5,7 @@
 **Blocked by:** 03 — Render supplied potential corrections.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -28,4 +28,15 @@ Deliver the dense fixed-strength numerical reference and callable evaluation
 boundary. Hyperparameter optimization is ticket 05, operator execution is
 ticket 06, and full scientific plotting/export is ticket 11. A small real
 example or regression must demonstrate this ticket without those later tickets.
+
+## Comments
+
+- 2026-10-28: Claimed by ticket04 agent on `codex/pc-04`, worktree
+  `/tmp/tinylens-pc-04`, based on integration `02c9239` (tickets 01–03).
+  Confirmed test seams are the public fixed-strength fit/result and focused
+  numerical operator contracts designated in the approved parent spec.
+- 2026-10-28: Ownership continued after the server restart by
+  `ticket04_resume` in the same branch/worktree. The interrupted uncommitted
+  dense implementation and tests were retained; remaining acceptance checks
+  and red→green work resume from that state.
 

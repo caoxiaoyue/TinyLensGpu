@@ -320,8 +320,12 @@ class PotentialCorrectionRenderer:
                 self.agg_segment_ids,
             )
 
-    def image_forward(self, subpixel_values) -> Array:
-        """Integrate a subpixel response, apply the existing PSF, and select data."""
+    def image_forward(self, subpixel_values, *, full_image=False) -> Array:
+        """Integrate and convolve a subpixel response with the existing PSF.
+
+        The default returns selected data pixels. ``full_image=True`` returns
+        the full native image, including PSF light outside the selected mask.
+        """
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             values = jnp.asarray(subpixel_values, dtype=self.dtype)
             if values.shape != self.query_x.shape:
@@ -336,11 +340,16 @@ class PotentialCorrectionRenderer:
                 self.agg_segment_ids,
                 self.n_active if self.nsub > 1 else 0,
             )
-            return _psf_convolve_full_jit(
+            convolved = _psf_convolve_full_jit(
                 full,
                 self.psf_fft,
                 *self.image_shape,
-            )[self.flat_indices]
+            )
+            return (
+                convolved.reshape(self.image_shape)
+                if full_image
+                else convolved[self.flat_indices]
+            )
 
     def image_adjoint(self, image_values) -> Array:
         """Transpose of image_forward, returning one value per image subpixel."""
@@ -363,9 +372,8 @@ class PotentialCorrectionRenderer:
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             source = self._source_values(source_values)
             potential = self.potential_grid._values(potential_values)
-            if (
-                not np.isfinite(np.asarray(source)).all()
-                or not np.isfinite(np.asarray(potential)).all()
+            if not bool(
+                jnp.all(jnp.isfinite(source)) & jnp.all(jnp.isfinite(potential))
             ):
                 raise ValueError("Supplied source and potential values must be finite")
             mapping = self.source_mapping(potential, macro_mapping=macro_mapping)
