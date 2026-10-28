@@ -58,8 +58,20 @@ the separate example check passed 14, and the allocation benchmark passed;
 see the [operator API and verification record](research/operator-single-step.md).
 That record also preserves an existing float32 source–lens-light Jacobian
 fixture limitation and its unchanged-baseline repeat evidence.
-Operator calibration, iterative fits and scientific reconstruction/performance
-validation remain outstanding downstream stages.
+Single-step backend calibration is now complete for the recorded 64x64
+Pseudo-Jaffe/control configuration, with a 49x49 source and 0.075 arcsec
+potential spacing. Six independent amplitude-prior sensitivity runs, bounded
+scans and both-backend DIRECT selections retain raw fields, failures,
+optimizer budgets/boundaries, and physical/discretization diagnostics. The
+adopted amplitude precision is 10000 for this configuration. Local recovery
+is useful while raw low modes, global errors and suppressed peaks remain
+explicit limitations; block evidence is approximate. See the
+[validation report](../../docs/validation/potential-correction-single-step-calibration.md)
+and [compact retained products](research/single-step-calibration/summary.json).
+Cached bounded inverse lower factors accelerate the same principal
+preconditioner, with focused numerical, legacy Schur/autodiff and allocation
+regressions passing. Iterative fits, full-size scientific outputs and workflow
+performance validation remain outstanding downstream stages.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or

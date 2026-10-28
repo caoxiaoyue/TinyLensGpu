@@ -76,6 +76,10 @@ def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
                     else "principal_block_cholesky"
                 )
                 assert fit.strengths.lambda_amplitude == row["lambda_amplitude"]
+                assert (
+                    row["selected"][backend]["initialization_provenance"]
+                    == fit.initialization_provenance
+                )
                 for field in (
                     "source_values",
                     "potential_values",

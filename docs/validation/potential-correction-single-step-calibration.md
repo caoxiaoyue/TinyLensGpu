@@ -1,167 +1,253 @@
-# Small single-step backend calibration
+# Single-step backend calibration on a 64x64 mock
 
-**Status: in progress.** This record preserves the physical-resolution and
-block-layout checks completed before the full public operator searches and
-amplitude-prior sensitivity runs finish. Ticket 07 remains claimed; finite
-evidence and the preliminary comparisons below do not resolve that gate.
+Completed 2026-10-29 in `tinylens_gpu`, with numerical implementation
+`694812d`. Ticket 07 passes for the configuration recorded here: the operator
+selects a similar localized reconstruction to the complete dense calculation,
+with a small, nonzero matched-control correction. Full potential and
+convergence recovery remain limited by low-order modes, regularization and
+resolution. The recovered convergence peak is substantially suppressed.
+This is reconstruction/backend calibration, without a detection-significance
+or subhalo-mass-precision claim.
 
-The runnable workflow is
-[`calibrate_single_step.py`](../../examples/potential_correction/calibrate_single_step.py),
-with the complete
-[physical/numerical configuration](../../examples/potential_correction/calibration_configuration.json).
-It writes inputs, raw selected fields and scalar scan/search records. The
-[exploration summary](../../.scratch/potential-correction/research/calibration-exploration-summary.json)
-retains earlier models/configurations and rejected layouts. The
-[selected dense reference](../../.scratch/potential-correction/research/selected-dense-calibration-reference.json)
-contains the recovered-field checks associated with the independently
-selected complete and approximate candidates below. Those approximate
-candidates use a dense reference solve, not an operator solve.
+The adopted demonstration uses independently fixed **lambda0=10000**,
+source bounds **[1e-5,1e-3]**, D4 bounds **[1e5,1e11]**, and float64.
+The incidence partition has source tiles of width 24, cap 1024 and actual block sizes
+(787,834,24,814,805,24,24,24,1). PCG uses maxiter 20000, rtol 1e-12, atol 0;
+the actual coupled-system residual must be below 1e-8. These choices apply to
+this geometry and initialization. A different scientific configuration needs
+its own approximation and prior-sensitivity check.
 
-## Physical and discrete problem
+## Reproduce and inspect
 
-The chosen small case has a 64x64 image, 0.0375 arcsec pixels, nsub=2,
-noise sigma 0.01 and seed 17. Subhalo and control share the same noise draw.
-The fixed true macro is SIS theta_E=0.8 with shear (0.05,0.02). The injected
-singular Pseudo-Jaffe has b=0.04 at (0.75,0.1) arcsec and
-rt=sqrt(0.04*0.8)=0.178885 arcsec. This stronger, explicitly configured
-perturbation is a small calibration case; it does not replace the default
-200x200/b=0.01 scientific mock or establish calibrated mass precision.
+From the repository root:
 
-Source widths are (0.16,0.12) arcsec, with the documented two-Gaussian clump
-model and clump_scale=0.7. The fixed 49x49 source spans [-0.4,0.4]^2 with
-0.016667 arcsec spacing. The Gaussian PSF has sigma 0.05 arcsec and size5,
-and retains the existing native circular FFT/mask semantics. The annulus is
-0.45<=R<=1.1 arcsec. The potential spacing is 0.075 arcsec. Counts are
-2252 data, 2401 source, 704 core and 936 potential unknowns, 3337 total.
-No source bounds are expanded and no observation pixels are eroded.
+```bash
+source ~/anaconda3/bin/activate && conda activate tinylens_gpu
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/calibrate_single_step.py \
+  --config examples/potential_correction/calibration_configuration.json \
+  --output output/potential_correction_calibration
+```
 
-The noiseless analytic mock is rendered independently from the sampled truth
-fields. Sampling its source onto this grid gives 0.11168 noise RMS mismatch
-in the control. Sampling both source and potential gives 0.27081 noise RMS
-mismatch in the subhalo image. The conditional-linear versus nonlinear
-sampled-truth discrepancy is 0.20093 noise RMS; the frozen source gradient is
-analytic, so this is not solely the bilinear source's Taylor remainder.
-The workflow separately computes the analytic-source Taylor remainder and
-source-interpolation/potential-discretization contributions.
+The complete [configuration](../../examples/potential_correction/calibration_configuration.json)
+contains all three independently fixed amplitude values 100,1000,10000.
+Every candidate starts with the same fixed macro and frozen analytic truth
+gradient; no fitted state is passed to another candidate. The driver saves
+raw public fields and distinct linear/nonlinear renderings, scalar candidate
+status, initialization provenance, geometry and truth conventions. Optional
+affine alignment is diagnostic only and changes no fitted field or evidence.
+The reusable example-level `source_incidence_blocks(renderer, mapping, gx, gy,
+source_tile=..., block_size=...)` consumes explicit initial arrays and retains
+no truth callable. Future iterative callers can use initial pixelized-source
+gradients while independently refreshing their numerical Jacobian.
 
-Potential truth is analytic nodal psi with psi(subhalo center)=0. Its
-constant and slope are not imposed on the fit. Raw fitted fields remain
-unchanged. All-core convergence uses the same centered physical differences
-on recovered and analytic nodal potential. Analytic point convergence is also
-reported, with R<1e-8 excluded and no invented core or pixel averaging.
-All derivative-valid core nodes remain in the whole-core errors. Two additional
-comparison domains were fixed before the fit: a local disk of radius
-max(2*rt,2*h), and core nodes inside the observation annulus with analytic
-macro-source brightness >=5% of its core maximum. The control uses the same
-local disk. These diagnostic domains do not replace derivative_valid.
+Retained evidence:
 
-## Layout comparison at independently fixed lambda0=1000
+- [Summary and scan](../../.scratch/potential-correction/research/single-step-calibration/summary.json).
+- [Complete candidate records](../../.scratch/potential-correction/research/single-step-calibration/complete-record.json.gz),
+  [inputs](../../.scratch/potential-correction/research/single-step-calibration/inputs.npz),
+  [raw selected fields](../../.scratch/potential-correction/research/single-step-calibration/selected-fields.npz).
+- [Independent layout exploration](../../.scratch/potential-correction/research/calibration-exploration-summary.json)
+  and [dense determinant-reference script](../../.scratch/potential-correction/experiments/calibration_block_reference.py).
+- [Boundary probe](../../.scratch/potential-correction/research/calibration-boundary-probe.json)
+  and [script](../../.scratch/potential-correction/experiments/calibration_boundary_probe.py).
 
-The independent dense diagnostic retains the complete coupled solve while
-changing only principal-block determinant terms. It uses the complete
-amplitude-augmented prior in both terms. The exact conditional evidence
-selected log10(lambda_s,lambda4)=(-4.24691,6.39506), logZ=6741.70581.
-Small incidence tiles and some field-separated layouts give worse control
-structure and remain rejected; the retained exploration records include them.
+The three amplitude cases were run in independent processes with separate
+configuration/log/output paths `/tmp/pc07-inverse-calibration-{100,1000,10000}`.
+Each process ran both observations, with all other controls unchanged.
+The [consolidation script](../../.scratch/potential-correction/experiments/summarize_single_step_calibration.py)
+requires complete case pairs, unique run identities, identical input arrays,
+identical geometry/partition and successful order/failure checks. Its retained
+manifest contains component configurations and file hashes. The original
+formatter omitted the public initialization-provenance dictionary; consolidation
+labels its completion from the explicit runner construction in `694812d`.
+A failing artifact test exposed that omission and the current driver now saves
+and verifies the public dictionary directly. Numerical fields were unchanged.
 
-The current large incidence candidate uses source tiles24 and cap1024.
-Sparse source-query/potential-stencil votes assign potential unknowns to source
-tiles, unilluminated support nodes attach spatially, and fields interleave
-before bounded splitting. It uses no dense cross matrix. Its actual block
-sizes are (787,834,24,814,805,24,24,24,1). It selects
-(-4.20576,6.32099), with complete logZ=6741.30194, a difference of 0.40387
-relative to the complete search selection. DIRECT budget termination remains
-visible; no global-maximization proof is claimed.
+Environment: Python 3.11.14, JAX 0.7.1, NumPy 2.4.6, SciPy 1.17.1,
+NVIDIA GeForce RTX 5080, driver 610.57.04. The retained summary records the
+observed software versions. These are the installed verification versions.
 
-| Physical subhalo, dense solves at selected strengths | Complete selection | Block selection |
+## Physical model, domains and discretization
+
+The image is 64x64 at 0.0375 arcsec/pixel, with nsub=2 for generation and
+reconstruction, noise sigma 0.01 and shared seed 17. The fixed true macro is
+SIS theta_E=0.8 plus shear (0.05,0.02). The singular Pseudo-Jaffe mock has
+b=0.04 at (0.75,0.1) arcsec and rt=sqrt(0.04*0.8)=0.178885 arcsec. This
+explicit stronger small-case perturbation does not replace the default
+200x200/b=0.01 scientific example. Source Gaussian widths are (0.16,0.12)
+arcsec with clump_scale=0.7 and the full two-clump parameters in JSON.
+
+The fixed 49x49 source spans [-0.4,0.4]^2 with 0.016667 arcsec spacing. The
+PSF has sigma 0.05 arcsec, size 5, and the existing native circular-FFT/mask
+semantics. The selected annulus is 0.45<=R<=1.1 arcsec. Potential spacing
+is 0.075 arcsec. Active counts are 2252 data, 2401 source, 704 core and 936
+potential unknowns, 3337 total. No source-box expansion, mask erosion or
+changed PSF convention is used.
+
+Potential truth is analytic nodal psi with psi(subhalo center)=0. Discrete
+truth derivatives apply the reconstruction's centered physical differences to
+those nodes, on all 704 valid core positions. Analytic convergence is also
+compared at core point samples, excluding R<1e-8, with no invented core or
+pixel averaging. Analytic peak kappa is 0.68927; discrete peak is 0.63144.
+All-core errors retain every derivative-valid core node. Two additional
+predeclared diagnostic domains are 526 illuminated core nodes (inside the
+annulus and analytic macro-source brightness>=5% of the core maximum), and 70
+local nodes in the matched disk of radius max(2*rt,2*h). They do not replace
+`derivative_valid`; support-only derivatives remain undefined/NaN.
+
+The supplied sampled truth differs from the noiseless analytic subhalo image
+by 0.27081 noise RMS. Its source-interpolation contribution at the discrete
+potential is 0.11428; the analytic-source/potential-discretization difference
+is 0.24837. These contributions need not add in quadrature. The control's
+source-interpolation mismatch is 0.11168. Analytic-source Taylor remainder is
+0.19989 noise RMS; conditional-linear versus nonlinear sampled-truth mismatch
+is 0.20093. The fitted conditional/nonlinear discrepancy is separately saved,
+because its frozen analytic gradient differs from the fitted source gradient.
+
+All 9008 macro/truth-corrected subpixel rays are inside the fixed source box,
+with minimum signed margins 0.02977/0.02431 arcsec. All selected fitted rays
+are inside; the minimum across all priors/backends/cases is 0.02207 arcsec.
+These checks identify source interpolation and potential discretization
+without attributing a source-box truncation error to either backend.
+
+## Selected fields and evidence at lambda0=10000
+
+| Subhalo result | Complete dense | Operator block evidence |
 | --- | ---: | ---: |
-| Source relative L2 error | 0.08542 | 0.08673 |
-| Potential RMSE, truth constant mean-centered only | 0.003639 | 0.003696 |
-| Recovered kappa peak position (arcsec) | (0.75,0.075) | (0.75,0.075) |
-| Distance to injected position (arcsec) | 0.025 | 0.025 |
-| Peak kappa (discrete truth 0.63144) | 0.27976 | 0.29059 |
-| Whole-core kappa RMSE (truth RMS 0.03130) | 0.03071 | 0.03180 |
-| Local kappa RMSE (truth RMS 0.09917) | 0.05852 | 0.05812 |
-| Local mean kappa (truth 0.04340) | 0.03676 | 0.03693 |
-| Linear image residual RMS/noise | 0.97287 | 0.97197 |
-| Nonlinear image residual RMS/noise | 1.00468 | 1.00332 |
+| lambda_source | 5.66352e-5 | 6.10954e-5 |
+| lambda4 | 1.66810e6 | 1.66810e6 |
+| Source relative L2 error | 0.08163 | 0.08206 |
+| Raw potential RMSE, center-zero truth | 0.015354 | 0.015354 |
+| Potential RMSE, truth mean-centered only | 0.0034265 | 0.0034286 |
+| Diagnostic affine-aligned potential RMSE | 0.0015222 | 0.0015234 |
+| Raw deflection-vector RMSE (arcsec) | 0.007749 | 0.007778 |
+| Whole-core kappa RMSE (truth RMS 0.03130) | 0.030718 | 0.030773 |
+| Illuminated-core kappa RMSE (truth RMS 0.03619) | 0.028813 | 0.028849 |
+| Local kappa RMSE (truth RMS 0.09917) | 0.059631 | 0.059554 |
+| Local mean kappa (truth 0.04340) | 0.032227 | 0.032352 |
+| Peak kappa (discrete truth 0.63144) | 0.306001 | 0.306976 |
+| Peak position (arcsec) | (0.75,0.075) | (0.75,0.075) |
+| Linear residual RMS/noise | 0.96968 | 0.97035 |
+| Nonlinear residual RMS/noise | 0.99849 | 0.99908 |
 
-Raw center-zero-truth potential errors and separately named affine diagnostic
-alignment are retained in JSON. The mean-centered truth row above only fixes
-a truth additive constant; it does not center, align or change fitted p.
-The whole-core error, peak attenuation, negative/low-order structure and
-mean potential remain important limits. Local recovery does not establish
-complete potential, deflection, convergence or subhalo-mass recovery.
+Both peaks are 0.025 arcsec from the injection. The whole-core kappa error
+remains close to the zero-field baseline; local improvement and localization
+do not establish complete field recovery. The raw potential error includes
+its unconstrained additive constant: fitted mean is near zero, whereas
+center-zero truth mean is 0.0149663. The separately labeled affine diagnostic
+removes a least-squares constant+x+y difference on U. It changes neither
+stored fields, source, renderings nor inference. Deflection and broad modes
+remain imperfect even after diagnostic alignment. The signed Gaussian source
+has about 22% negative nodes; their summed magnitude is about 2.7% of the
+positive-node sum. Nothing is clipped or substituted in the evidence.
 
-For the control, the complete search approaches the upper lambda4 bound
-(log10=10.98765), whereas this block candidate selects 10.0. Complete logZ
-difference is 1.79215. Source relative errors are 0.06805/0.06838;
-whole-core kappa RMS is 0.00271/0.00331, local RMS 0.00138/0.00188 and peak
-0.00576/0.00685. Thus the control correction is small compared with the
-injected peak but is nonzero. Its changed smoothing optimum must be assessed
-with these field differences, not excused solely as approximate evidence.
+The complete-evidence difference between the dense selection and a complete
+dense evaluation at the operator selection is 0.14592. This is distinct from
+the absolute block-evidence error: at the dense selected strengths, operator
+logZ differs by 88.4353 despite essentially identical fitted fields/objective.
+The determinant approximation is therefore not numerically interchangeable
+with complete evidence. At the two selected reconstructions, linear/nonlinear
+image RMS differences are 0.00378/0.00509 noise units.
 
-## Solver and workflow checks completed
+| Matched control result | Complete dense | Operator block evidence |
+| --- | ---: | ---: |
+| lambda_source | 6.71677e-5 | 6.71677e-5 |
+| lambda4 | 9.71973e10 (upper edge) | 1.18597e10 |
+| Source relative L2 error | 0.06780 | 0.06803 |
+| Whole-core kappa RMS | 0.002476 | 0.002790 |
+| Local kappa RMS | 0.001288 | 0.001563 |
+| Local mean kappa (truth 0) | 0.000260 | -0.000175 |
+| Largest kappa | 0.005185 | 0.006331 |
+| Linear/nonlinear residual RMS/noise | 0.96976/0.96983 | 0.96892/0.96903 |
 
-The public operator/DIRECT test plus existing operator cases passed32.
-It independently constructs the full coupled solution and principal prior/
-posterior determinants at the selected point, and checks that an all-failed
-PCG search returns no valid selected fit. The example driver first failed at
-its missing public seam, then passed; the missing incidence-layout test also
-failed before implementation. The final separate example check passed16,
-including both layouts, both physical observations, independent fixed
-amplitude strengths, raw field/domain exports, reversed candidates, failed
-PCG records and DIRECT budget/boundary metadata. These tiny test grids check
-assembly and provenance rather than scientific recovery.
+The control correction is nonzero, with its peak at (-0.825,-0.825) rather
+than the injected subhalo location. Its shape difference and all raw maps
+are retained. The complete-evidence cost of the operator choice is 1.58618;
+its changed optimum lies in a high-smoothing region and does not introduce a
+misleading localized perturbation for this mock. The selected control
+nonlinear-image difference is 0.01955 noise RMS. This observation is specific
+to the recorded signal/noise and initialization, not a false-positive rate.
 
-A physical fixed-strength cap128 preflight agreed with dense source/potential/
-convergence/images at roughly1e-10 or better through lambda4=1e9. At
-lambda4=1e11 it needed about6800 PCG iterations and a recomputed actual
-relative residual around2e-10. In one representative subhalo fit, all9008
-corrected subpixel rays remained inside the fixed source box, with minimum
-signed margin0.0275 arcsec. Full-run records retain actual macro, truth and
-fit margins. The candidate numerical controls are PCG maxiter20000,
-rtol1e-12, atol0 and actual full-system solve tolerance1e-8.
+## Independent amplitude sensitivity and bounds
 
-The cap1024 padded triangular preconditioner application made full searches
-expensive. The unfinished workers were stopped after their configurations, empty logs
-and explicit lack of completed runs were retained in the
-[interruption record](../../.scratch/potential-correction/research/interrupted-calibration-searches.json).
-A cached inverse lower factor now applies the same principal SPD preconditioner
-through two highest-precision bounded matvecs per PCG step. Original Cholesky
-factors, determinant terms, prior and curvature are retained; the legacy
-three-argument preconditioner still uses triangular solves. No full inverse,
-new determinant method or physical strength rescue is introduced.
+Each amplitude value was held fixed throughout its scans and two searches.
+The source box, macro, gradient, discretization, partition and noise were
+identical. Evidence differences between these physical priors were recorded,
+without optimizing or rescaling lambda0 inside a run.
 
-The new padded-SPD public operator contract first failed for the missing
-optional inverse factor and then passed in float64 and float32. The combined
-operator/inference/curvature check passed39. The
-[physical fixed-strength record](../../.scratch/potential-correction/research/inverse-factor-fixed-strengths.json)
-contains12 dense/operator pairs: both cases, all three independent amplitude
-values, a representative selected region and the weak-source/high-smoothing
-endpoint (lambda_s=1e-5,lambda4=1e11). All converged. Max absolute differences
-were2.93e-8 in source,8.07e-9 in potential,2.53e-10 in convergence,8.8e-11 in
-linear image and2.91e-8 in nonlinear image. Maximum recomputed relative system
-residual was2.57e-10. These actual extreme-strength checks establish numerical
-agreement, not complete scientific recovery.
+| Operator-selected subhalo | lambda0=100 | lambda0=1000 | lambda0=10000 |
+| --- | ---: | ---: | ---: |
+| Source relative L2 error | 0.10374 | 0.08673 | 0.08206 |
+| Raw fitted potential RMS | 0.003605 | 0.002117 | 0.001342 |
+| Diagnostic affine potential RMSE | 0.002318 | 0.001665 | 0.001523 |
+| Whole-core kappa RMSE | 0.038654 | 0.031803 | 0.030773 |
+| Local kappa RMSE | 0.059329 | 0.058123 | 0.059554 |
+| Local mean kappa | 0.032586 | 0.036928 | 0.032352 |
+| Peak kappa | 0.274464 | 0.290587 | 0.306976 |
+| Complete-evidence selection difference | 0.95113 | 0.40387 | 0.14592 |
 
-The isolated production-code
-[benchmark](../../.scratch/potential-correction/research/block-application-benchmark.json)
-uses9 padded834-wide synthetic well-conditioned float64 blocks. Median apply
-time was3.038ms for triangular solves and0.14045ms for cached factors, with
-11.90ms inverse-factor preparation per candidate and3.4e-16 relative numerical
-difference. This is an application-kernel comparison, not a22x workflow or
-ill-conditioned accuracy claim. The allocation regression still passed at
-13,099,264 JAX peak buffer bytes for18,465 coefficients and cap8; inverse
-factors remain bounded block arrays.
+The adopted 10000 retains the localized feature and stable source/local error,
+improves whole-core/control behavior and reduces determinant-induced selection
+changes. Its amplitude penalty is 16.8 versus chi2 about 2117, but the decision
+uses the field/evidence response above. Weakness is limited to this localized
+reconstruction interpretation: the raw potential changes substantially and
+one decade weaker prior changes local mean kappa by about 14%. The data do not
+fix all low-order modes. Peak suppression and prior sensitivity prevent a
+precise mass or full-potential interpretation.
 
-## Remaining gate
+The source optimum is interior to [1e-5,1e-3]. Subhalo D4 optima are interior
+to [1e5,1e11]. Dense controls approach the upper D4 bound and remain flagged.
+At selected control source strength, the separate same-geometry probe gives
+complete logZ 6916.94702/6917.10923/6917.12024 for D4 strengths 1e11/1e12/1e13.
+Thus extending 1e11 to 1e13 gains 0.17322 log units while whole-core control
+kappa RMS changes 0.0024746 to 0.0024888 (under 0.6%). The finite upper bound
+is a practical plateau truncation, not an enclosed finite global optimum.
+The block evidence has its different interior control maximum near 1e10.
 
-Complete the actual public operator scans/DIRECT selections for independently
-fixed lambda0 in {100,1000,10000}, compare matched-strength solver errors and
-selected recovered fields, retain raw products and all failures/boundaries,
-and assess amplitude-prior influence on both evidence and recovery. Only then
-adopt a demonstration amplitude precision, bounds and solve tolerances and
-resolve ticket07 if no materially misleading approximation remains. New
-scientific geometries, source grids and initializations need their own check;
-this small case does not validate every partition at 200x200.
+All 12 DIRECT searches retained budget termination (status 1), with 201–213
+actual evaluations for approximate maxfun 200. The total is 2452 successful
+inner evaluations; no inner failure was rewarded. These are bounded best
+candidates, not claims of optimizer convergence or proven global maxima.
+Independent dense determinant-reference searches also reproduce the lambda0=1000 choices. Rejected smaller-block layouts remain in the exploration record;
+finite evidence alone did not qualify them for adoption.
+
+## Numerical implementation and verification
+
+Across 90 matched scan pairs, maximum source/potential/convergence differences
+are 4.18e-8/2.13e-8/1.33e-9; maximum actual system relative residual is 3.50e-10.
+All six reversed-order checks pass (max field difference 7.20e-10, objective
+3.64e-12). Deliberate one-iteration PCG failures return an invalid objective
+and retain `pcg_iteration_limit`. The callable and all-invalid optimizer tests
+also verify failure propagation. This supports rtol 1e-12/maxiter 20000 with
+actual acceptance 1e-8; no lambda0 factorization rescue is used.
+
+The expensive triangular-vector preconditioner application was replaced by
+cached inverse lower factors and two highest-precision bounded matvecs.
+The same principal SPD preconditioner, original Cholesky/log determinants,
+complete prior and full coupled curvature are retained. The legacy three-arg
+constructor still works; source–lens-light Schur paths are unchanged. Extra
+storage is O(N*b), with no full cross-field or joint inverse. The
+[12 actual extreme-strength comparisons](../../.scratch/potential-correction/research/inverse-factor-fixed-strengths.json)
+include both cases, all three amplitude values and lambda4=1e11 with weak
+source regularization. All converge and match dense. The
+[interruption record](../../.scratch/potential-correction/research/interrupted-calibration-searches.json)
+labels the old unfinished searches; they produced no accepted run.
+
+The [isolated synthetic application benchmark](../../.scratch/potential-correction/research/block-application-benchmark.json)
+measures 9 well-conditioned 834-wide float64 blocks: median 3.038 ms triangular
+versus 0.14045 ms cached application, with 11.90 ms factor preparation and 3.4e-16
+relative difference. This is an application-kernel result, not a whole-workflow
+speed claim. The bounded allocation regression passes at 13,099,264 JAX peak
+buffer bytes for 18,465 coefficients/cap8, a storage stress case rather than
+an astrophysical configuration; CUDA context/driver memory is excluded.
+
+Commands use `tinylens_gpu` and `XLA_PYTHON_CLIENT_PREALLOCATE=false`.
+From `tests/`: curvature/operator/inference 39 passed; dense/rendering/shared
+solver/autodiff 62 passed; selected legacy PCG/Schur 23 passed. The exact file
+commands are recorded in the ticket. In separate processes from
+`examples/tests/`, the four relevant example files passed 16; the final
+initialization-metadata regression passed both layouts. From `benchmarks/`,
+the application and bounded-allocation checks each passed. New tests first
+failed at the missing public behavior before implementation. Whole-feature
+scientific plots, 200x200 exports, float32 scientific accuracy and workflow
+performance remain in tickets 11–14.

@@ -255,6 +255,7 @@ def _fit_record(result, truth, observation):
         evidence_method=result.evidence_method,
         determinant_method=result.determinant_method,
         evidence_is_exact=result.evidence_is_exact,
+        initialization_provenance=result.initialization_provenance,
         configuration={
             k: v for k, v in result.configuration.items() if k != "block_indices"
         },

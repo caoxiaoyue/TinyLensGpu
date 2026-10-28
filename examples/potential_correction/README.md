@@ -1,4 +1,4 @@
-# Potential-correction mock inputs
+# Potential-correction examples
 
 `generate_mock.py` creates single-band, lens-light-subtracted Pseudo-Jaffe
 subhalo observations and a matched no-subhalo control. It does not fit a
@@ -208,3 +208,15 @@ fixed during a run; refreshing an iterative Jacobian does not require retaining
 the truth gradient. Saved records contain its method, actual block sizes and
 complete indices. A source grid, mask, integration, initialization or potential
 spacing change requires rebuilding the partition and checking its approximation.
+
+The completed [64x64 calibration record](../../docs/validation/potential-correction-single-step-calibration.md)
+adopts independently fixed `lambda_amplitude=10000`, source-strength bounds
+`[1e-5,1e-3]`, D4 bounds `[1e5,1e11]`, and the declared incidence partition
+for that exact configuration. All six subhalo/control sensitivity runs are
+retained, including raw fields, low-mode/affine diagnostics, peak suppression,
+control artifacts and the dense upper-bound flag. DIRECT reaches its configured
+budget; successful inner fits and incomplete optimizer termination remain
+separate. The chosen block evidence reproduces a similar localized correction,
+while its absolute evidence differs from the complete calculation. This
+calibration does not establish precise mass recovery or transfer automatically
+to the 200x200 scientific example.
