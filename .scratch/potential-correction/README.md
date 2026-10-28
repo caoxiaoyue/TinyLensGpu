@@ -18,9 +18,10 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–09 and 11 are resolved and merged. Nested strength selection (10)
-is in progress. The iterative scientific example, precision/performance
-validation and final integration remain outstanding.
+Tickets 01–10 and 11 are resolved. Tickets 01–09 and 11 are merged; nested
+strength selection (10) is ready for integration. Iterative scientific
+outputs (12), precision/performance validation and final integration remain
+outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -52,6 +53,11 @@ Focused commands, configurations and outcomes are retained in:
   for current coupled actions, the shared control policy, fixed partition,
   damped-step/undamped-evidence separation, dense/float32 comparisons,
   failure propagation, JIT reuse and bounded observable allocation.
+- [Nested nonlinear strength selection](../../docs/validation/potential-correction-iterative-inference.md)
+  and its [retained scan/search record](research/iterative-strength-search.json)
+  for independent nonlinear references, actual DIRECT selections, cold-start
+  reproducibility, bounded partition calibration, rejected layouts, recovery
+  effects, budget/boundary status and explicit scalar candidate diagnostics.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
@@ -88,8 +94,9 @@ explicit limitations; block evidence is approximate. See the
 and [compact retained products](research/single-step-calibration/summary.json).
 Cached bounded inverse lower factors accelerate the same principal
 preconditioner, with focused numerical, legacy Schur/autodiff and allocation
-regressions passing. Iterative fits and workflow performance validation remain
-outstanding downstream stages.
+regressions passing. Both iterative backends and bounded nested strength
+selection are now implemented with focused numerical checks. Iterative
+scientific and workflow performance validation remain downstream stages.
 
 Ticket 11 adds the documented 200x200 fixed-strength single-step experiment
 with both backends and matched control. The explicit b=0.04 scenario retains
