@@ -5,7 +5,8 @@ with separate single-step and iterative algorithms and dense/operator backends.
 The approved requirements and scope are in the [spec](spec.md).
 
 - Spec triage: ready-for-agent.
-- Implementation lifecycle: open; no implementation or verification is claimed.
+- Implementation is in progress on `codex/potential-correction-integration`.
+  Consult individual tickets for their current lifecycle and verification.
 - The design uses the existing square source grid, a local potential support
   constructed around actual interpolation corners, complete fourth-difference
   windows, and a fixed independent weak amplitude prior.
@@ -14,6 +15,19 @@ The approved requirements and scope are in the [spec](spec.md).
   precede scientific examples and performance measurements.
 
 ## Implementation tickets
+
+### Implementation progress
+
+Tickets 01 and 02 are resolved and merged. Source preparation passed 62
+regularization, 23 precision/cache, and 372 source/operator/autodiff checks;
+see [the verification record](research/source-preparation-verification.md).
+The mock generator passed 12 example and 6 existing profile checks and ran its
+default 200-by-200 float64 configuration; see ticket 02 and the
+[mock documentation](../../examples/potential_correction/README.md).
+The integration checkout also passed all 268 current example tests in a
+separate process. The original core baseline passed 810 tests (3 slow tests
+deselected) before shared-code changes. These are stage checks, not final
+whole-spec verification.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or
