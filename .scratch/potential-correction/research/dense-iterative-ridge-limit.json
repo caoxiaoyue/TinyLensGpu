@@ -1,0 +1,35 @@
+{
+  "scope": "Observed fixture audit before correcting the coupled ridge-limit tests; no physical inference claim",
+  "dtype": "float32",
+  "image_shape": [4, 4],
+  "dpix": 0.1,
+  "source_n": 2,
+  "source_bbox": [-0.5, 0.5, -0.5, 0.5],
+  "macro": "zero shear",
+  "source_regularization": "zero-order",
+  "initial_source_values": [5.0, 5.0, 5.0, 5.0],
+  "initial_potential": 0,
+  "data": "constant -2",
+  "noise_sigma": 1.0,
+  "lambda_source": 3.0,
+  "lambda_potential": 0.4,
+  "initial_damping": 1.0,
+  "source_only_ridge_value": -1.1428571428571428,
+  "source_only_ridge_objective": 13.714285714285714,
+  "weak_case": {
+    "lambda_amplitude": 2.0,
+    "repetitions": 15,
+    "observed_termination_counts": {"converged_gradient": 11, "damping_limit": 3, "stalled": 1},
+    "example_escaped_objective": 11.65285873413086,
+    "example_escaped_potential_norm": 0.3620813190937042,
+    "interpretation": "Roundoff can escape the symmetric source-only stationary point to a lower coupled objective. Honest nonsmooth nonconvergence is not a precision test failure."
+  },
+  "controlled_limit_case": {
+    "lambda_amplitude": 100000000.0,
+    "repetitions": 15,
+    "observed_termination_counts": {"converged_gradient": 15},
+    "interpretation": "A strong explicit fixed amplitude prior supplies the controlled source-only ridge limit used by both corrected tests. Production defaults and convergence policies were unchanged."
+  },
+  "reproduction": ".scratch/potential-correction/experiments/iterative_ridge_limit.py --repeats 15",
+  "variability": "GPU reduction ordering can change the weak-case counts; these are observed counts, not guaranteed outcomes."
+}

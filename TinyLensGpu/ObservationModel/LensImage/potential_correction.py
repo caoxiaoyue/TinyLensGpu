@@ -13,18 +13,17 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
-import numpy as np
-
-from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer
-from TinyLensGpu.utils.inversion.potential_regularization import PotentialRegularization
-from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
 
 from .potential_correction_result import (
     PotentialCorrectionResult,
-    PotentialCorrectionStrengths,
+    PotentialCorrectionStrengths as PotentialCorrectionStrengths,
     PotentialSolverInfo,
 )
-from ._potential_correction_common import _dense_response_columns
+from ._potential_correction_common import (
+    _PotentialCorrectionProblem,
+    _dense_response_columns,
+    _positive,
+)
 
 
 class _DenseSolution(NamedTuple):
@@ -85,17 +84,7 @@ def _solve_dense(design, prior, data, noise):
         )
 
 
-def _positive(value, name):
-    try:
-        scalar = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite positive scalar") from exc
-    if not np.isfinite(scalar) or scalar <= 0:
-        raise ValueError(f"{name} must be a finite positive scalar")
-    return scalar
-
-
-class SingleStepPotentialCorrection:
+class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
     """A reusable fixed-strength conditional Gaussian reconstruction problem.
 
     Parameters
@@ -142,52 +131,20 @@ class SingleStepPotentialCorrection:
         macro_mapping=None,
         solve_rtol=None,
     ):
-        if not isinstance(renderer, PotentialCorrectionRenderer):
-            raise TypeError("renderer must be a PotentialCorrectionRenderer")
         if not callable(source_gradient):
             raise TypeError("source_gradient must be callable")
-        self.renderer = renderer
-        self.dtype = renderer.dtype
-        self.lambda_amplitude = _positive(lambda_amplitude, "lambda_amplitude")
-        self.solve_rtol = _positive(
-            (
-                (1e-8 if self.dtype == jnp.float64 else 1e-3)
-                if solve_rtol is None
-                else solve_rtol
-            ),
-            "solve_rtol",
+        super().__init__(
+            renderer,
+            image_data,
+            noise_map,
+            lambda_amplitude=lambda_amplitude,
+            source_regularization=source_regularization,
+            macro_mapping=macro_mapping,
+            solve_rtol=solve_rtol,
         )
-        self.n_source = renderer.n_source
-        self.n_potential = renderer.potential_grid.n_unknown
-        self.n_joint = self.n_source + self.n_potential
-        self.source_regularizer = FiniteDifferenceRegularization(
-            renderer.source_n,
-            source_regularization,
-        )
-        self.potential_regularizer = PotentialRegularization(renderer.potential_grid)
         self.source_gradient = source_gradient
-        self.macro_mapping = (
-            renderer.macro_mapping if macro_mapping is None else macro_mapping
-        )
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             self.mapping = renderer.source_mapping(macro_mapping=self.macro_mapping)
-            self.image_data = jnp.asarray(image_data, dtype=self.dtype)
-            self.noise_map = jnp.asarray(noise_map, dtype=self.dtype)
-            if (
-                self.image_data.shape != renderer.image_shape
-                or self.noise_map.shape != renderer.image_shape
-            ):
-                raise ValueError(
-                    "image_data and noise_map must match the native image shape"
-                )
-            self.data_active = self.image_data.ravel()[renderer.flat_indices]
-            self.noise_active = self.noise_map.ravel()[renderer.flat_indices]
-            if not bool(jnp.all(jnp.isfinite(self.data_active))):
-                raise ValueError("Selected image_data must be finite")
-            if not bool(
-                jnp.all(jnp.isfinite(self.noise_active) & (self.noise_active > 0))
-            ):
-                raise ValueError("Selected noise_map must be finite and positive")
             gradient = source_gradient(*self.macro_mapping)
             if not isinstance(gradient, (tuple, list)) or len(gradient) != 2:
                 raise ValueError("source_gradient must return (gradient_x, gradient_y)")
@@ -214,12 +171,6 @@ class SingleStepPotentialCorrection:
         self._dense_potential_roughness = None
         self._linear_image_kernel = jax.jit(self.forward_image)
         self._operator_backends = {}
-
-    def _joint(self, joint_values):
-        values = jnp.asarray(joint_values, dtype=self.dtype)
-        if values.shape != (self.n_joint,):
-            raise ValueError(f"joint_values must have shape ({self.n_joint},)")
-        return values[: self.n_source], values[self.n_source :]
 
     def _subpixel_forward(self, joint_values):
         source, potential = self._joint(joint_values)
@@ -257,58 +208,28 @@ class SingleStepPotentialCorrection:
                 )
             )
 
-    def prior_matvec(self, joint_values, lambda_source, lambda_potential):
-        """Apply the complete block prior without creating square matrices."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            source, potential = self._joint(joint_values)
-            return jnp.concatenate(
-                (
-                    jnp.asarray(lambda_source, dtype=self.dtype)
-                    * self.source_regularizer.matvec_free(
-                        source, *self.renderer.source_bbox
-                    ),
-                    self.potential_regularizer.matvec(
-                        potential,
-                        lambda_potential,
-                        self.lambda_amplitude,
-                    ),
-                )
-            )
-
     def dense_mapping(self):
         """Explicitly materialize the complete coupled image design matrix."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             if self._dense_design is None:
                 self._dense_design = jax.jit(
-                    lambda: _dense_response_columns(self.forward, self.n_joint, self.dtype)
+                    lambda: _dense_response_columns(
+                        self.forward, self.n_joint, self.dtype
+                    )
                 )()
             return self._dense_design
 
-    def dense_prior(self, lambda_source, lambda_potential):
-        """Explicitly materialize Q, including the independent all-node prior."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            if self._dense_source_prior is None:
-                self._dense_source_prior = self.source_regularizer.matrix(
-                    *self.renderer.source_bbox,
-                ).astype(self.dtype)
-                self._dense_potential_roughness = self.potential_regularizer.to_dense(
-                    1, 0
-                )
-            prior = jnp.zeros((self.n_joint, self.n_joint), dtype=self.dtype)
-            prior = prior.at[: self.n_source, : self.n_source].set(
-                jnp.asarray(lambda_source, dtype=self.dtype) * self._dense_source_prior
-            )
-            return prior.at[self.n_source :, self.n_source :].set(
-                jnp.asarray(lambda_potential, dtype=self.dtype)
-                * self._dense_potential_roughness
-                + jnp.asarray(self.lambda_amplitude, dtype=self.dtype)
-                * jnp.eye(self.n_potential, dtype=self.dtype)
-            )
-
     def fit(
-        self, lambda_source, lambda_potential, *, backend="dense",
-        block_size=64, block_indices=None, pcg_max_iter=400,
-        pcg_rtol=None, pcg_atol=0.0,
+        self,
+        lambda_source,
+        lambda_potential,
+        *,
+        backend="dense",
+        block_size=64,
+        block_indices=None,
+        pcg_max_iter=400,
+        pcg_rtol=None,
+        pcg_atol=0.0,
     ):
         """Solve one complete fixed-strength single-step candidate.
 
@@ -337,9 +258,14 @@ class SingleStepPotentialCorrection:
                 from .potential_correction_operator import fit_operator
 
                 return fit_operator(
-                    self, lambda_source, lambda_potential, block_size=block_size,
-                    block_indices=block_indices, pcg_max_iter=pcg_max_iter,
-                    pcg_rtol=pcg_rtol, pcg_atol=pcg_atol,
+                    self,
+                    lambda_source,
+                    lambda_potential,
+                    block_size=block_size,
+                    block_indices=block_indices,
+                    pcg_max_iter=pcg_max_iter,
+                    pcg_rtol=pcg_rtol,
+                    pcg_atol=pcg_atol,
                 )
             solved = _solve_dense(
                 self.dense_mapping(),
@@ -407,47 +333,16 @@ class SingleStepPotentialCorrection:
         It never changes the raw fields or their physical prior.
         """
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            source, potential = self._joint(joint_values)
-            reason = failure_reason or solver_info.reason
-            finite_fields = bool(
-                jnp.all(jnp.isfinite(source)) & jnp.all(jnp.isfinite(potential))
-            )
             linear_image = self._linear_image_kernel(joint_values)
-            linear_active = linear_image.ravel()[self.renderer.flat_indices]
-            if finite_fields:
-                rendered = self.renderer.render(
-                    source,
-                    potential,
-                    macro_mapping=self.macro_mapping,
-                )
-                nonlinear_image, nonlinear_active = (
-                    rendered.model_image,
-                    rendered.image_active,
-                )
-                deflection_x, deflection_y, convergence = (
-                    rendered.deflection_x,
-                    rendered.deflection_y,
-                    rendered.convergence,
-                )
-            else:
-                reason = reason or "nonfinite_fields"
-                nonlinear_image = jnp.full(
-                    self.renderer.image_shape, jnp.nan, dtype=self.dtype
-                )
-                nonlinear_active = jnp.full_like(self.data_active, jnp.nan)
-                deflection_x = deflection_y = convergence = jnp.full_like(
-                    potential, jnp.nan
-                )
-            residual = self.data_active - linear_active
-            nonlinear_residual = self.data_active - nonlinear_active
-            chi2 = jnp.vdot(residual / self.noise_active, residual / self.noise_active)
-            penalty = jnp.vdot(
-                jnp.asarray(joint_values, dtype=self.dtype),
-                self.prior_matvec(joint_values, lambda_source, lambda_potential),
+            products = self._result_products(
+                joint_values, lambda_source, lambda_potential, linear_image=linear_image
             )
+            reason = failure_reason or solver_info.reason
+            if not bool(jnp.all(jnp.isfinite(joint_values))):
+                reason = reason or "nonfinite_fields"
             if not bool(
                 jnp.all(jnp.isfinite(linear_image))
-                & jnp.all(jnp.isfinite(nonlinear_image))
+                & jnp.all(jnp.isfinite(products["nonlinear_model_image"]))
             ):
                 reason = reason or "nonfinite_model_image"
             if log_evidence is None or not bool(jnp.isfinite(log_evidence)):
@@ -455,54 +350,11 @@ class SingleStepPotentialCorrection:
             if not solver_info.converged or solver_info.failed:
                 reason = reason or "linear_solve_failed"
             success = reason is None
-
-            def full(values):
-                return (
-                    jnp.full(
-                        self.renderer.image_shape[0] * self.renderer.image_shape[1],
-                        jnp.nan,
-                        dtype=self.dtype,
-                    )
-                    .at[self.renderer.flat_indices]
-                    .set(values)
-                    .reshape(self.renderer.image_shape)
-                )
-
             return PotentialCorrectionResult(
-                source_values=source,
-                source_x_axis=self.renderer.source_x_axis,
-                source_y_axis=self.renderer.source_y_axis,
-                source_bbox=self.renderer.source_bbox,
-                potential_values=potential,
-                potential_grid=self.renderer.potential_grid,
-                deflection_x=deflection_x,
-                deflection_y=deflection_y,
-                convergence=convergence,
-                derivative_valid=self.renderer.potential_grid.derivative_valid,
-                potential_window_coverage=self.potential_regularizer.window_coverage,
-                linear_model_image=linear_image,
-                nonlinear_model_image=nonlinear_image,
-                linear_image_active=linear_active,
-                nonlinear_image_active=nonlinear_active,
-                linear_residual=full(residual),
-                nonlinear_residual=full(nonlinear_residual),
-                linear_normalized_residual=full(residual / self.noise_active),
-                nonlinear_normalized_residual=full(
-                    nonlinear_residual / self.noise_active
-                ),
-                data_active=self.data_active,
-                noise_active=self.noise_active,
-                strengths=PotentialCorrectionStrengths(
-                    lambda_source, lambda_potential, self.lambda_amplitude
-                ),
+                **products,
                 log_evidence=log_evidence if success else None,
-                chi2=chi2,
-                regularization_penalty=penalty,
-                objective=0.5 * (chi2 + penalty),
                 prior_logdet=prior_logdet,
                 posterior_logdet=posterior_logdet,
-                noise_logdet=self.noise_logdet,
-                dtype=self.dtype.name,
                 backend=backend,
                 algorithm="single_step",
                 status="success" if success else "failed",
@@ -515,19 +367,7 @@ class SingleStepPotentialCorrection:
                 evidence_is_exact=evidence_is_exact,
                 initialization_provenance=dict(self.initialization_provenance),
                 configuration={
-                    "source_n": self.renderer.source_n,
-                    "source_regularization": self.source_regularizer.regularization_type,
-                    "potential_spacing": self.renderer.potential_grid.spacing,
-                    "potential_regularization": "complete_pixel_unit_fourth_differences",
-                    "potential_amplitude_prior": "independent_all_unknowns",
-                    "nsub": self.renderer.nsub,
-                    "image_shape": self.renderer.image_shape,
-                    "n_data": self.renderer.n_active,
-                    "n_source": self.n_source,
-                    "n_potential": self.n_potential,
-                    "n_core": self.renderer.potential_grid.n_core,
-                    "solve_rtol": self.solve_rtol,
-                    "dtype": self.dtype.name,
+                    **self._configuration(),
                     **dict(solver_configuration or {}),
                 },
             )
