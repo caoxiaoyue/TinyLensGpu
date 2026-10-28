@@ -5,7 +5,7 @@
 **Blocked by:** None (can start immediately).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,3 +27,7 @@ analytic truth. It does not fit a correction or extend the entire mass-profile
 API. Do not confuse PseudoJaffeSubhalo with the separately parameterized cored
 PseudoJaffe component.
 
+
+## Comments
+
+- Claimed by `/root/ticket02` on branch `codex/pc-02`, based on integration `5bbfdfa`, in `/tmp/tinylens-pc-02`. Approved test seams: public mock generation, analytic truth helpers, and saved observation artifacts (parent spec Testing Decisions 1, 9, 11).
