@@ -1,0 +1,197 @@
+{
+  "environment": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "device": "NVIDIA GeForce RTX 5080"
+  },
+  "scope": "small fixed-strength algorithm checks; no astrophysical recovery or strength calibration",
+  "cases": {
+    "coupled_bilinear": {
+      "n_data": 16,
+      "n_source": 4,
+      "n_potential": 33,
+      "n_core": 9,
+      "nsub": 1,
+      "strengths": [
+        0.3,
+        0.02,
+        20.0
+      ],
+      "block_size": 7,
+      "block_sizes": [
+        2,
+        2,
+        7,
+        7,
+        7,
+        7,
+        5
+      ],
+      "block_partition_sha256": "3ffb2f56437b7ad3fcc38e14047c089282b0a89ddacffcd8f1773345d76b9f7e",
+      "changed_source_cells": 0,
+      "initial_objective": 0.5156439495471474,
+      "dense": {
+        "success": true,
+        "termination_reason": "converged_objective_update",
+        "objective": 0.44637959476212014,
+        "chi2": 0.00472010295789686,
+        "log_evidence": 8.979161832022058,
+        "prior_logdet": 95.20163034171622,
+        "posterior_logdet": 132.04083560744724,
+        "accepted_iterations": 16,
+        "final_scaled_gradient": 5.350190373776318e-09,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 1.3478551895861639e-20,
+          "relative_residual": 3.319404179583538e-14,
+          "reason": null
+        },
+        "determinant_method": "full_cholesky"
+      },
+      "operator": {
+        "success": true,
+        "termination_reason": "converged_objective_update",
+        "objective": 0.44637959476212025,
+        "chi2": 0.004720102957897164,
+        "log_evidence": -0.5044866629074392,
+        "prior_logdet": 95.22277997545754,
+        "posterior_logdet": 151.02928223104755,
+        "accepted_iterations": 16,
+        "final_scaled_gradient": 5.350192290231073e-09,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 29,
+          "residual_norm": 2.717840091600341e-20,
+          "relative_residual": 6.693309209345042e-14,
+          "reason": null
+        },
+        "determinant_method": "principal_block_cholesky"
+      },
+      "max_absolute_errors": {
+        "source_values": 4.440892098500626e-16,
+        "potential_values": 7.28583859910259e-17,
+        "nonlinear_model_image": 3.3306690738754696e-16,
+        "objective": 1.1102230246251565e-16,
+        "deflection_x": 3.469446951953614e-16,
+        "deflection_y": 2.8796409701215e-16,
+        "convergence": 4.690692279041286e-15
+      }
+    },
+    "changed_cells_nsub2": {
+      "n_data": 84,
+      "n_source": 25,
+      "n_potential": 97,
+      "n_core": 45,
+      "nsub": 2,
+      "strengths": [
+        0.0001,
+        100.0,
+        100.0
+      ],
+      "block_size": 16,
+      "block_sizes": [
+        13,
+        12,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        1
+      ],
+      "block_partition_sha256": "369c71bbeadc606117d0bce02e45397aa0d11b9af28c8df9922b34a08ef279d7",
+      "changed_source_cells": 11,
+      "initial_objective": 241.10112858408098,
+      "dense": {
+        "success": true,
+        "termination_reason": "converged_gradient",
+        "objective": 0.4129002279457418,
+        "chi2": 0.07564333840362406,
+        "log_evidence": 174.07276102470362,
+        "prior_logdet": 640.9341620464585,
+        "posterior_logdet": 911.2497572087741,
+        "accepted_iterations": 6,
+        "final_scaled_gradient": 6.0255406212268504e-09,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 2.3311480643720964e-16,
+          "relative_residual": 3.4783497828861085e-13,
+          "reason": null
+        },
+        "determinant_method": "full_cholesky"
+      },
+      "operator": {
+        "success": true,
+        "termination_reason": "converged_gradient",
+        "objective": 0.4129002279457465,
+        "chi2": 0.07564333840363066,
+        "log_evidence": 166.34698347457416,
+        "prior_logdet": 700.0853890666131,
+        "posterior_logdet": 985.8525393291876,
+        "accepted_iterations": 6,
+        "final_scaled_gradient": 6.025491852447488e-09,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 140,
+          "residual_norm": 6.690151789090227e-16,
+          "relative_residual": 9.98250096146099e-13,
+          "reason": null
+        },
+        "determinant_method": "principal_block_cholesky"
+      },
+      "max_absolute_errors": {
+        "source_values": 8.493206138382448e-15,
+        "potential_values": 7.871307772244762e-16,
+        "nonlinear_model_image": 7.771561172376096e-16,
+        "objective": 4.6629367034256575e-15,
+        "deflection_x": 9.421716878899034e-16,
+        "deflection_y": 1.2149569544872563e-15,
+        "convergence": 5.342948306008566e-15
+      }
+    }
+  },
+  "float32_coupled": {
+    "result": {
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "objective": 0.4463794529438019,
+      "chi2": 0.00472016166895628,
+      "log_evidence": -0.5043582916259766,
+      "prior_logdet": 95.2227783203125,
+      "posterior_logdet": 151.02902221679688,
+      "accepted_iterations": 8,
+      "final_scaled_gradient": 3.929420472559286e-06,
+      "solver_info": {
+        "method": "pcg",
+        "converged": true,
+        "failed": false,
+        "iterations": 20,
+        "residual_norm": 1.867431764779326e-10,
+        "relative_residual": 8.475751087644312e-07,
+        "reason": null
+      },
+      "determinant_method": "principal_block_cholesky"
+    },
+    "max_absolute_errors_vs_float64_dense": {
+      "source_values": 3.1048480913620224e-05,
+      "potential_values": 4.230331606847049e-06,
+      "nonlinear_model_image": 2.3470316479201614e-07,
+      "objective": 1.418183182555488e-07,
+      "deflection_x": 1.8524728164659443e-05,
+      "deflection_y": 1.0056262391858282e-05,
+      "convergence": 0.0001288098034981644
+    }
+  }
+}

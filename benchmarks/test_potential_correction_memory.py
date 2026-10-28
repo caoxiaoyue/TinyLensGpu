@@ -10,10 +10,11 @@ import pytest
 
 
 @pytest.mark.performance
-def test_operator_preparation_has_bounded_observable_allocation():
+@pytest.mark.parametrize("algorithm", ["single_step", "iterative"])
+def test_operator_preparation_has_bounded_observable_allocation(algorithm):
     script = Path(__file__).with_name("potential_correction_memory.py")
     completed = subprocess.run(
-        [sys.executable, str(script)],
+        [sys.executable, str(script), "--algorithm", algorithm],
         check=True,
         capture_output=True,
         text=True,
@@ -21,6 +22,9 @@ def test_operator_preparation_has_bounded_observable_allocation():
         timeout=180,
     )
     record = json.loads(completed.stdout.splitlines()[-1])
+    assert record["algorithm"] == algorithm
+    if algorithm == "iterative":
+        assert record["completed_linear_solves"] >= 2
     source, potential, joint, data = (
         record[key] for key in ("n_source", "n_potential", "n_joint", "n_data")
     )
