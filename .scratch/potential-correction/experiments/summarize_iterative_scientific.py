@@ -221,12 +221,33 @@ def main():
                         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                     }
                 )
+    run_record = json.loads((root / "validated-reference/run.json").read_text())
+    reference_root = Path(run_record["comparisons"]["single_step_reference"])
+    reference_files = []
+    for relative in ("run.json",) + tuple(
+        f"{case}/{backend}/{name}"
+        for case in ("subhalo", "control")
+        for backend in ("dense", "operator")
+        for name in ("result.json", "reconstruction.npz")
+    ):
+        path = reference_root / relative
+        reference_files.append(
+            {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
     write(
         "artifact-manifest.json",
         {
             "root": str(root),
             "scope": "Actual retained fits, diagnostic failures, configurations, histories, arrays and figures; no timing measurements. Historical diagnosis has its separately retained hash manifest.",
             "files": entries,
+            "single_step_reference": {
+                "root": str(reference_root),
+                "files": reference_files,
+            },
         },
     )
     print(

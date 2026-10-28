@@ -1,0 +1,40 @@
+{
+  "scope": "Focused ticket12 verification; float32 coupled stopping remains separate ticket13 work, without modified tests/defaults.",
+  "core_refinement_and_nested": {
+    "command": "pytest -q test_potential_correction_residual_refinement.py test_potential_correction_iterative_inference.py",
+    "directory": "tests",
+    "passed": 20,
+    "failed": 0
+  },
+  "examples": {
+    "command": "pytest -q test_potential_correction_iterative_scientific.py test_potential_correction_scientific.py",
+    "directory": "examples/tests",
+    "passed": 9,
+    "failed": 0
+  },
+  "bounded_allocation": {
+    "command": "pytest -q -s test_potential_correction_memory.py",
+    "directory": "benchmarks",
+    "passed": 2,
+    "failed": 0,
+    "scope": "toy allocation/storage regression, not scientific timing/peak memory"
+  },
+  "earlier_operator_compatibility": {
+    "command": "pytest -q test_potential_correction_residual_refinement.py test_potential_correction_iterative_operator.py",
+    "directory": "tests",
+    "passed": 18,
+    "failed": 1,
+    "failure_node": "test_operator_float32_matches_float64_coupled_reference_without_changing_defaults",
+    "termination_reason": "rejection_limit",
+    "refinement_attempted": false,
+    "refinement_accepted": false
+  },
+  "isolated_unchanged_integration_comparison": {
+    "command": "pytest -q test_potential_correction_iterative_operator.py::test_operator_float32_matches_float64_coupled_reference_without_changing_defaults",
+    "directory": "root integration tests",
+    "passed": 0,
+    "failed": 1,
+    "termination_reason": "rejection_limit",
+    "note": "One isolated baseline comparison only; no assertion, default, or numerical-tolerance changes."
+  }
+}

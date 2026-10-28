@@ -1,0 +1,468 @@
+{
+  "configuration": {
+    "mock": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 30000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense"
+    ],
+    "make_plots": false,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Matched ticket11 physical geometry and fixed smoothing. Explicit example-only stopping controls calibrated against strict failed endpoints, successful thresholds, and stricter control operator fit; public solver defaults unchanged. See docs/validation/potential-correction-iterative-scientific.md.",
+    "partition_source": "single_step",
+    "iteration_options": {
+      "gradient_atol": 0.0005,
+      "max_iter": 80
+    },
+    "solve_atol": 5e-05,
+    "source_regularization": "second-order",
+    "case_iteration_options": {
+      "control": {
+        "gradient_atol": 3e-05
+      }
+    }
+  },
+  "success": true,
+  "block_partition": {
+    "source": "single_step",
+    "geometry_sha256": "43ad7dd8de786725954778a61567d38d9238fb8f9148919db49ee0059897f9be",
+    "reference": "Exact ticket11 scientific200 source-incidence partition; fixed numerical choice, current iterative Jacobian always uses recovered nodal source",
+    "file_sha256": "203e0ccc7bfde571c44cd5bf0e02c07ef4b903f182c513e55b40ada9c4f32486",
+    "actual_sizes": [
+      788,
+      840,
+      24,
+      820,
+      812,
+      24,
+      24,
+      24,
+      1
+    ],
+    "cap": 1024
+  },
+  "sizes": {
+    "data": 22016,
+    "source": 2401,
+    "potential_core": 724,
+    "potential_support": 956,
+    "query_subpixels": 88064,
+    "image_shape": [
+      200,
+      200
+    ]
+  },
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "devices": [
+      "NVIDIA GeForce RTX 5080"
+    ],
+    "git_commit": "764e4b1487ea5bb6cf4459fc8fc07d44226c95ac",
+    "git_dirty": false,
+    "implementation_sha256": {
+      "examples/potential_correction/iterative_scientific.py": "34ab356a8ec04da2e13dee785cf93ca2a4d98a682c4d36c487261a004175c536",
+      "examples/potential_correction/result_products.py": "de9a9ab5e4f2be4fbae325169f1d106e519c4e2101242a9110fd6e0c994a84f9",
+      "examples/potential_correction/mock.py": "81b1b95a9a8817bbba17a232da23e3ddba29d426ac7dd3db163d2dfd6615c89f",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "196f5603bd26bb0394a812055e084410a3dbdf7c4e742c19cdc7a5c3ce2da827",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "0ccc30dc77bcf14dc7462c9d4f747fbdcb9d010c5c5a41c5e163fbd0e2ed7ff9",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+      "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "dbfa357ba6c93ed54d9840ad1603c375f3839c54774b51848b8d0780358002c6",
+      "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+      "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+      "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+    }
+  },
+  "initialization": "truth brightness at fixed source NODES; zero potential; each fit resets; current nodal gradients thereafter",
+  "scope": "fixed true macro nonlinear reconstruction; no detection significance, mass intervals or timing claim",
+  "comparisons": {
+    "algorithms": {},
+    "iterative_backends": {},
+    "single_step_backends": {},
+    "operator_algorithm_comparisons": {},
+    "primary_algorithm_comparison": "dense single-step versus dense iterative, at recorded strengths",
+    "interpretation": "raw fields; distinguish inference objectives/local linearization from determinant approximations; no detection statistic",
+    "single_step_reference": null
+  },
+  "runs": {
+    "subhalo/dense": {
+      "success": true,
+      "failure_reason": null,
+      "termination_reason": "converged_gradient",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 30000.0
+      },
+      "log_evidence": 69025.1226425647,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 4.5388734390658335e-12,
+        "relative_residual": 2.332797572438256e-13,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "configuration": {
+        "source_n": 49,
+        "source_regularization": "second-order",
+        "potential_spacing": 0.075,
+        "potential_regularization": "complete_pixel_unit_fourth_differences",
+        "potential_amplitude_prior": "independent_all_unknowns",
+        "nsub": 2,
+        "image_shape": [
+          200,
+          200
+        ],
+        "n_data": 22016,
+        "n_source": 2401,
+        "n_potential": 956,
+        "n_core": 724,
+        "solve_rtol": 1e-08,
+        "dtype": "float64",
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "gradient_atol": 0.0005,
+        "gradient_rtol": 1e-08,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001,
+        "damping_metric": "physical_curvature_diagonal",
+        "solve_atol": 5e-05,
+        "accepted_iterations": 33,
+        "final_damping": 5.880238822371627e-06,
+        "initial_scaled_gradient": 97.60704720821307,
+        "final_scaled_gradient": 0.0002645655100925757
+      },
+      "search": null,
+      "summary": {
+        "source_relative_l2": 0.06654734919206541,
+        "source_rmse": 0.023265479127015373,
+        "source_negative_node_fraction": 0.20241566014160767,
+        "source_negative_to_positive_sum": 0.022654900364825613,
+        "potential_rmse_raw_center_zero_truth": 0.015369351725077043,
+        "potential_rmse_mean_centered_truth": 0.0033739976638690384,
+        "potential_rms": 0.001573090202016559,
+        "potential_mean": 4.401153588423936e-09,
+        "deflection_vector_rmse_discrete_truth": 0.006925323600605069,
+        "convergence": {
+          "all_core": {
+            "count": 724,
+            "rmse_discrete_truth": 0.02746596152198694,
+            "truth_discrete_rms": 0.03086283532854628,
+            "rmse_analytic_point_truth": 0.028626627712789145,
+            "analytic_valid_count": 724,
+            "recovered_rms": 0.03399834487192107,
+            "recovered_mean": 0.001116928739957345,
+            "truth_discrete_mean": 0.004827277554311594,
+            "recovered_max": 0.30280472885682863,
+            "truth_discrete_max": 0.6314351815470731
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_discrete_truth": 0.025611127402934388,
+            "truth_discrete_rms": 0.036189779042003795,
+            "rmse_analytic_point_truth": 0.02728945786370797,
+            "analytic_valid_count": 526,
+            "recovered_rms": 0.035116856965663544,
+            "recovered_mean": 0.004301088352588976,
+            "truth_discrete_mean": 0.006286946014811116,
+            "recovered_max": 0.30280472885682863,
+            "truth_discrete_max": 0.6314351815470731
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_discrete_truth": 0.058459690939274264,
+            "truth_discrete_rms": 0.09916877174425745,
+            "rmse_analytic_point_truth": 0.06392420839538744,
+            "analytic_valid_count": 70,
+            "recovered_rms": 0.08755525898980061,
+            "recovered_mean": 0.039815799545718934,
+            "truth_discrete_mean": 0.04340187187363288,
+            "recovered_max": 0.30280472885682863,
+            "truth_discrete_max": 0.6314351815470731
+          }
+        },
+        "convergence_peak_xy_arcsec": [
+          0.75,
+          0.075
+        ],
+        "peak_distance_to_injected_position_arcsec": 0.02500000000000001,
+        "local_radius_arcsec": 0.35777087639996635,
+        "nonlinear_residual_rms_noise": 1.0019483579418962,
+        "source_box": {
+          "macro_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "analytic_truth_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.019113498358473813,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "fitted_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.031672362107096064,
+            "outside_analytic_brightness_fraction": 0.0
+          }
+        },
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -0.01499443604185747,
+            0.004650397434614236,
+            0.0005951105228760175
+          ],
+          "potential_rmse": 0.0012192184464244894,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        }
+      },
+      "objective": 11762.757766635847,
+      "chi2": 22101.873671805886,
+      "regularization_penalty": 1423.6418614658064,
+      "prior_logdet": 44690.82015767816,
+      "posterior_logdet": 45427.21147463652,
+      "maximum_true_residual_norm": 2.3354886644205137e-08,
+      "maximum_true_relative_residual": 5.691490992017553e-13
+    },
+    "control/dense": {
+      "success": true,
+      "failure_reason": null,
+      "termination_reason": "converged_gradient",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 30000.0
+      },
+      "log_evidence": 69494.02648955167,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 1.9108414954441563e-08,
+        "relative_residual": 1.1817320790666695e-09,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "configuration": {
+        "source_n": 49,
+        "source_regularization": "second-order",
+        "potential_spacing": 0.075,
+        "potential_regularization": "complete_pixel_unit_fourth_differences",
+        "potential_amplitude_prior": "independent_all_unknowns",
+        "nsub": 2,
+        "image_shape": [
+          200,
+          200
+        ],
+        "n_data": 22016,
+        "n_source": 2401,
+        "n_potential": 956,
+        "n_core": 724,
+        "solve_rtol": 1e-08,
+        "dtype": "float64",
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "gradient_atol": 3e-05,
+        "gradient_rtol": 1e-08,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001,
+        "damping_metric": "physical_curvature_diagonal",
+        "solve_atol": 5e-05,
+        "accepted_iterations": 17,
+        "final_damping": 5.807643281354693e-10,
+        "initial_scaled_gradient": 5.541313773948688,
+        "final_scaled_gradient": 9.227213357082512e-06
+      },
+      "search": null,
+      "summary": {
+        "source_relative_l2": 0.05169879585715615,
+        "source_rmse": 0.018074307549577156,
+        "source_negative_node_fraction": 0.19325281132861308,
+        "source_negative_to_positive_sum": 0.019754284637314014,
+        "potential_rmse_raw_center_zero_truth": 0.00019091068792405,
+        "potential_rmse_mean_centered_truth": 0.00019091068792405,
+        "potential_rms": 0.00019091068792405,
+        "potential_mean": -1.676566194240213e-10,
+        "deflection_vector_rmse_discrete_truth": 0.0003786917634646885,
+        "convergence": {
+          "all_core": {
+            "count": 724,
+            "rmse_discrete_truth": 0.0005304961971006293,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0005304961971006293,
+            "analytic_valid_count": 724,
+            "recovered_rms": 0.0005304961971006293,
+            "recovered_mean": 0.00022756814298320344,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.0015183727841848538,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_discrete_truth": 0.0005057928137199275,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0005057928137199275,
+            "analytic_valid_count": 526,
+            "recovered_rms": 0.0005057928137199275,
+            "recovered_mean": 0.00021475946923501529,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.00147249702484253,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_discrete_truth": 0.0005692625723805972,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0005692625723805972,
+            "analytic_valid_count": 70,
+            "recovered_rms": 0.0005692625723805972,
+            "recovered_mean": 0.00043825325388877366,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.0010974778312831926,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy_arcsec": [
+          -0.975,
+          -0.525
+        ],
+        "peak_distance_to_injected_position_arcsec": 1.8347343131908773,
+        "local_radius_arcsec": 0.35777087639996635,
+        "nonlinear_residual_rms_noise": 0.9958418480691731,
+        "source_box": {
+          "macro_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "analytic_truth_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "fitted_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024537820287506285,
+            "outside_analytic_brightness_fraction": 0.0
+          }
+        },
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -1.6765661942645618e-10,
+            0.0002640681425331823,
+            7.854373707614807e-06
+          ],
+          "potential_rmse": 7.0852137381596e-05,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        }
+      },
+      "objective": 11405.364171021803,
+      "chi2": 21833.288915830024,
+      "regularization_penalty": 977.4394262135839,
+      "prior_logdet": 52826.916180969216,
+      "posterior_logdet": 53340.28699518174,
+      "maximum_true_residual_norm": 7.910332325486424e-06,
+      "maximum_true_relative_residual": 6.886466105230682e-08
+    }
+  },
+  "backend_comparison": {}
+}

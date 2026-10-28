@@ -1,0 +1,296 @@
+{
+  "strict_failed_dense_to_gradient5e-4": {
+    "reference_success": false,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": 1.767875801306218e-08,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 8.016889374573566e-10,
+        "rms": 5.113192889539189e-11
+      },
+      "potential_values": {
+        "max_absolute": 4.2748986902457764e-10,
+        "rms": 2.0146967906873387e-11
+      },
+      "deflection_x": {
+        "max_absolute": 2.814270755237963e-09,
+        "rms": 2.1508905923236063e-10
+      },
+      "deflection_y": {
+        "max_absolute": 5.6039099172698614e-09,
+        "rms": 2.668016932921348e-10
+      },
+      "convergence": {
+        "max_absolute": 1.5100128153422432e-07,
+        "rms": 8.42950014545789e-09
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 4.171537797855062e-08,
+    "nonlinear_image_max_absolute_difference_noise": 5.06352348939032e-07,
+    "affine_alignment_applied": false,
+    "reference_strengths": null,
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": null
+  },
+  "dense_gradient5e-4_to_gradient1e-3": {
+    "reference_success": true,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": 1.9925628294004127e-06,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 3.4681004679182337e-07,
+        "rms": 3.007941778132927e-08
+      },
+      "potential_values": {
+        "max_absolute": 3.1865359850780095e-08,
+        "rms": 1.9499546781427095e-09
+      },
+      "deflection_x": {
+        "max_absolute": 2.3902324464012206e-07,
+        "rms": 2.135200254176521e-08
+      },
+      "deflection_y": {
+        "max_absolute": 4.0977441892811606e-07,
+        "rms": 2.5670045757966856e-08
+      },
+      "convergence": {
+        "max_absolute": 7.387005942743885e-06,
+        "rms": 4.6921925544478956e-07
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 3.497333861677788e-06,
+    "nonlinear_image_max_absolute_difference_noise": 3.6488588617267226e-05,
+    "affine_alignment_applied": false,
+    "reference_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": -9.33081901166588e-06,
+    "evidence_methods": [
+      "local_gauss_newton",
+      "local_gauss_newton"
+    ],
+    "determinant_methods": [
+      "full_cholesky",
+      "full_cholesky"
+    ],
+    "posterior_logdet_difference": 1.4676508726552129e-05,
+    "prior_logdet_difference": 0.0
+  },
+  "operator_gradient5e-4_to_gradient1e-3": {
+    "reference_success": true,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": 1.9925628294004127e-06,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 3.4681004679182337e-07,
+        "rms": 3.0079417781011955e-08
+      },
+      "potential_values": {
+        "max_absolute": 3.186535984470856e-08,
+        "rms": 1.949954677837981e-09
+      },
+      "deflection_x": {
+        "max_absolute": 2.390232445824425e-07,
+        "rms": 2.1352002541471723e-08
+      },
+      "deflection_y": {
+        "max_absolute": 4.097744188821459e-07,
+        "rms": 2.5670045757930443e-08
+      },
+      "convergence": {
+        "max_absolute": 7.387005942743885e-06,
+        "rms": 4.692192554395758e-07
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 3.4973338617516683e-06,
+    "nonlinear_image_max_absolute_difference_noise": 3.6488588606164996e-05,
+    "affine_alignment_applied": false,
+    "reference_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": -4.0918675949797034e-06,
+    "evidence_methods": [
+      "local_gauss_newton",
+      "local_gauss_newton"
+    ],
+    "determinant_methods": [
+      "principal_block_cholesky",
+      "principal_block_cholesky"
+    ],
+    "posterior_logdet_difference": 4.19859861722216e-06,
+    "prior_logdet_difference": 0.0
+  },
+  "strict_converged_operator_to_looser_residual_dense_control": {
+    "reference_success": true,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": -1.8189894035458565e-12,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 6.051825707231728e-13,
+        "rms": 2.0844114633815683e-13
+      },
+      "potential_values": {
+        "max_absolute": 1.6797869518969666e-13,
+        "rms": 8.306313214987029e-14
+      },
+      "deflection_x": {
+        "max_absolute": 1.2315322373002147e-13,
+        "rms": 1.202548958757427e-13
+      },
+      "deflection_y": {
+        "max_absolute": 3.135439499181436e-14,
+        "rms": 2.858463685040503e-14
+      },
+      "convergence": {
+        "max_absolute": 8.866388526151958e-15,
+        "rms": 1.8327661821319564e-15
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 2.2448668865143715e-13,
+    "nonlinear_image_max_absolute_difference_noise": 1.7569279364693102e-12,
+    "affine_alignment_applied": false,
+    "reference_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 100000000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 100000000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": -72.7546077905572,
+    "evidence_methods": [
+      "local_gauss_newton",
+      "local_gauss_newton"
+    ],
+    "determinant_methods": [
+      "principal_block_cholesky",
+      "full_cholesky"
+    ],
+    "posterior_logdet_difference": -602.8756977072699,
+    "prior_logdet_difference": -748.3849132883624
+  },
+  "strict_converged_operator_to_looser_residual_operator_control": {
+    "reference_success": true,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": 0.0,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 8.326672684688674e-16,
+        "rms": 1.8141090910834434e-16
+      },
+      "potential_values": {
+        "max_absolute": 2.667137344314341e-17,
+        "rms": 5.7489631422195105e-18
+      },
+      "deflection_x": {
+        "max_absolute": 6.071532165918825e-17,
+        "rms": 1.6592721422149795e-17
+      },
+      "deflection_y": {
+        "max_absolute": 4.840962700147777e-17,
+        "rms": 1.1091684354437885e-17
+      },
+      "convergence": {
+        "max_absolute": 2.3136874360840665e-16,
+        "rms": 6.204469503556044e-17
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 1.3392501581573621e-14,
+    "nonlinear_image_max_absolute_difference_noise": 6.661338147750939e-14,
+    "affine_alignment_applied": false,
+    "reference_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 100000000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 100000000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": -1.4551915228366852e-11,
+    "evidence_methods": [
+      "local_gauss_newton",
+      "local_gauss_newton"
+    ],
+    "determinant_methods": [
+      "principal_block_cholesky",
+      "principal_block_cholesky"
+    ],
+    "posterior_logdet_difference": 3.637978807091713e-11,
+    "prior_logdet_difference": 0.0
+  },
+  "calibration_to_adopted_dense_subhalo": {
+    "reference_success": true,
+    "candidate_success": true,
+    "candidate_minus_reference_objective": -5.4569682106375694e-12,
+    "raw_field_differences": {
+      "source_values": {
+        "max_absolute": 5.412337245047638e-16,
+        "rms": 8.567080968447803e-17
+      },
+      "potential_values": {
+        "max_absolute": 2.949029909160572e-17,
+        "rms": 5.139488014778832e-18
+      },
+      "deflection_x": {
+        "max_absolute": 8.109832250191573e-17,
+        "rms": 1.8510460092910868e-17
+      },
+      "deflection_y": {
+        "max_absolute": 7.654467337747661e-17,
+        "rms": 1.641460876317086e-17
+      },
+      "convergence": {
+        "max_absolute": 6.38378239159465e-16,
+        "rms": 1.408795181103322e-16
+      }
+    },
+    "nonlinear_image_rms_difference_noise": 1.2010174602038132e-14,
+    "nonlinear_image_max_absolute_difference_noise": 5.551115123125783e-14,
+    "affine_alignment_applied": false,
+    "reference_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_strengths": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0,
+      "lambda_amplitude": 10000.0
+    },
+    "candidate_minus_reference_log_evidence": 0.0,
+    "evidence_methods": [
+      "local_gauss_newton",
+      "local_gauss_newton"
+    ],
+    "determinant_methods": [
+      "full_cholesky",
+      "full_cholesky"
+    ],
+    "posterior_logdet_difference": 0.0,
+    "prior_logdet_difference": 0.0
+  },
+  "strict_failed_terminal_evidence": null,
+  "convention": "Raw signed fields; derivatives restricted to C; host float64; failed-state comparison has no evidence."
+}
