@@ -18,10 +18,17 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–06 are resolved and merged. Ticket 07 is the current calibration
-gate; iterative implementation and final scientific/performance verification
-remain outstanding. Numerical solve agreement does not establish that the
-operator's approximate evidence selects suitable strengths.
+Tickets 01–07 are resolved and merged. Dense iterative reconstruction (08)
+and the scientific single-step example (11) are in progress in separate
+worktrees. Final iterative, scientific, precision and performance verification
+remain outstanding.
+
+The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
+records six matched subhalo/control runs and adopts amplitude precision 10000
+for its explicitly configured physical model. It supports localized recovery,
+with peak suppression, low-mode sensitivity, boundary optima and approximation
+limits retained. Those results do not automatically validate different image,
+source, potential or physical configurations.
 
 Focused commands, configurations and outcomes are retained in:
 
@@ -34,6 +41,8 @@ Focused commands, configurations and outcomes are retained in:
 - [Operator single-step reconstruction](research/operator-single-step.md),
   including allocation evidence and the reproduced baseline float32
   finite-difference variability.
+- [Single-step calibration summary](research/single-step-calibration/summary.json)
+  and the linked complete inputs, selected fields and candidate records.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
