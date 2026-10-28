@@ -1,0 +1,23 @@
+{
+  "supported_small_case": "coupled37: fixed 16 float64 observations, four source nodes and 33 potential coefficients; cast the same observations and initial fields for float32",
+  "physical_strengths": {"source": 0.3, "fourth_difference": 0.02, "amplitude": 20.0},
+  "small32_controls": {
+    "solve_rtol": 0.00001,
+    "iterative_solve_atol": 0.000001,
+    "pcg_rtol": 0.00000001,
+    "pcg_max_iter": 400,
+    "gradient_atol": 0.0001,
+    "gradient_rtol": 0.00001,
+    "objective_rtol": 0.000001,
+    "step_rtol": 0.0001
+  },
+  "unchanged_existing_field_guard": {
+    "fields": ["source_values", "potential_values", "nonlinear_image_active", "objective"],
+    "atol": 0.0002,
+    "rtol": 0.0002
+  },
+  "small_evidence_absolute_budget_vs_strict_same_method_f64": 0.002,
+  "stability_measurements": "one cold plus five warm fits per algorithm/backend/dtype; strict float64 and float64 with the exact same named numerical controls",
+  "rejected_calibration": "PCG rtol 1e-5 misses the independent single-step source field guard even in float64; retained in ignored output/rejected-calibration-pcg1e-5",
+  "scope": "A named numerical configuration, not changed public solver defaults or a guarantee for stiff scientific priors"
+}
