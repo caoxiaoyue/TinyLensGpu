@@ -18,9 +18,8 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–12 are resolved. Tickets 01–11 are merged; iterative scientific
-outputs (12) are ready for integration. Precision/performance validation (13)
-and final integration (14) remain outstanding.
+Tickets 01–12 are resolved and merged. Precision/performance validation (13)
+is in progress; final integration (14) remains outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
