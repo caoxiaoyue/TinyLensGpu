@@ -6,7 +6,7 @@ pixelized-source derivatives. Exports consume only the public fit result.
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -28,8 +28,10 @@ from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 from examples.potential_correction.calibrate_single_step import source_incidence_blocks
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
 from examples.potential_correction.result_products import (
+    compare_reconstructions,
     export_failure,
     export_result,
+    load_result,
     optimization_record,
     write_json,
 )
@@ -110,12 +112,67 @@ def _partition(renderer, initial_source, config):
     return blocks, provenance
 
 
-def run_iterative_scientific(configuration, *, output):
+def _comparisons(results, reference_directory, mock, cases):
+    """Read saved public results; comparisons never construct or refit a solver."""
+    report = dict(
+        algorithms={},
+        iterative_backends={},
+        single_step_backends={},
+        operator_algorithm_comparisons={},
+        primary_algorithm_comparison="dense single-step versus dense iterative, at recorded strengths",
+        interpretation="raw fields; distinguish inference objectives/local linearization from determinant approximations; no detection statistic",
+    )
+    for case in cases:
+        dense, operator = (
+            results.get(f"{case}/{backend}") for backend in ("dense", "operator")
+        )
+        if dense is not None and operator is not None:
+            report["iterative_backends"][case] = compare_reconstructions(
+                dense, operator
+            )
+        if reference_directory is None:
+            continue
+        references = {}
+        for backend in ("dense", "operator"):
+            path = Path(reference_directory) / case / backend
+            if (path / "result.json").exists() and not (path / "failure.json").exists():
+                metadata = json.loads((path / "result.json").read_text())
+                if metadata["mock_configuration"] != asdict(mock):
+                    raise ValueError(
+                        "Single-step comparison requires the identical physical mock, PSF, noise and precision"
+                    )
+                references[backend] = load_result(path)
+        if "dense" in references and dense is not None:
+            report["algorithms"][case] = compare_reconstructions(
+                references["dense"], dense
+            )
+        if "operator" in references and operator is not None:
+            report["operator_algorithm_comparisons"][case] = compare_reconstructions(
+                references["operator"], operator
+            )
+        if len(references) == 2:
+            report["single_step_backends"][case] = compare_reconstructions(
+                references["dense"], references["operator"]
+            )
+    report["single_step_reference"] = (
+        None if reference_directory is None else str(reference_directory)
+    )
+    return report
+
+
+def run_iterative_scientific(configuration, *, output, single_step_reference=None):
     """Fit fixed strengths or optimize around complete reset-per-candidate runs."""
     config = dict(configuration)
     mode = config.get("mode", "fixed")
     if mode not in ("fixed", "tune"):
         raise ValueError("mode must be fixed or tune")
+    cases = config.get("cases", ["subhalo", "control"])
+    if (
+        not cases
+        or len(set(cases)) != len(cases)
+        or any(case not in ("subhalo", "control") for case in cases)
+    ):
+        raise ValueError("cases must be a nonempty unique subhalo/control selection")
     backends = config.get("backends", ["dense", "operator"])
     if (
         not backends
@@ -214,7 +271,7 @@ def run_iterative_scientific(configuration, *, output):
             "scope": "fixed true macro nonlinear reconstruction; no detection significance, mass intervals or timing claim",
         }
         results = {}
-        for case in ("subhalo", "control"):
+        for case in cases:
             observation = getattr(pair, case)
             problem = IterativePotentialCorrection(
                 renderer,
@@ -236,6 +293,7 @@ def run_iterative_scientific(configuration, *, output):
                 key = f"{case}/{backend}"
                 fit_options = {
                     **config.get("iteration_options", {}),
+                    **config.get("case_iteration_options", {}).get(case, {}),
                     **(options if backend == "operator" else {}),
                 }
                 search_metadata = None
@@ -307,6 +365,9 @@ def run_iterative_scientific(configuration, *, output):
                     record["runs"][key]["summary"] = metadata["summary"]
                 record["success"] &= result.success
                 write_json(output / "run.json", record)
+    record["comparisons"] = _comparisons(results, single_step_reference, mock, cases)
+    write_json(output / "comparisons.json", record["comparisons"])
+    write_json(output / "run.json", record)
     return IterativeScientificRun(results, record, output)
 
 
@@ -324,6 +385,7 @@ def main(argv=None):
     )
     parser.add_argument("--backend", choices=("dense", "operator", "both"))
     parser.add_argument("--mode", choices=("fixed", "tune"))
+    parser.add_argument("--single-step-reference", type=Path)
     parser.add_argument("--partition-source", choices=("single_step", "initial_nodal"))
     parser.add_argument("--no-plots", action="store_true")
     args = parser.parse_args(argv)
@@ -338,7 +400,9 @@ def main(argv=None):
         config["mode"] = args.mode
     if args.no_plots:
         config["make_plots"] = False
-    run = run_iterative_scientific(config, output=args.output)
+    run = run_iterative_scientific(
+        config, output=args.output, single_step_reference=args.single_step_reference
+    )
     print(
         json.dumps(
             {

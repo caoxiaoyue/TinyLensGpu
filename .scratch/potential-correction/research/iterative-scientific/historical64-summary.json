@@ -1,0 +1,1447 @@
+{
+  "scope": "exploratory64 tolerance calibration; no ticket12 claim, default change, timing or scientific200 acceptance",
+  "configuration": {
+    "mock": {
+      "npix": 64,
+      "dpix": 0.0375,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 5,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 10000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense",
+      "operator"
+    ],
+    "make_plots": true,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized."
+  },
+  "software": {
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "commit": "efbb3bacf2cda1343a3c6084ed3ddb76de3c272d",
+    "implementation_sha256": {
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "434fec092f922468fc68f8f2a65bb396de661af22ed0cb21826bf502cd61005c",
+      "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "dbfa357ba6c93ed54d9840ad1603c375f3839c54774b51848b8d0780358002c6"
+    }
+  },
+  "sizes": {
+    "data": 2252,
+    "source": 2401,
+    "core": 704,
+    "support": 936,
+    "queries": 9008
+  },
+  "specific_control_comparisons": {
+    "dense_subhalo_stopping": {
+      "left": "dense_subhalo_g1e-4",
+      "right": "dense_subhalo_g3e-5",
+      "both_successful": true,
+      "accepted_counts": [
+        18,
+        19
+      ],
+      "objective_difference": 5.7936631492339075e-08,
+      "log_evidence_difference_same_method": 6.446171028073877e-07,
+      "fields": {
+        "source_values": {
+          "max_abs": 7.721877726130089e-08,
+          "rms": 7.124371122340422e-09
+        },
+        "potential_values": {
+          "max_abs": 6.612239649914087e-09,
+          "rms": 7.716415673256492e-10
+        },
+        "deflection_x": {
+          "max_abs": 4.205003151236397e-08,
+          "rms": 6.074980602064724e-09
+        },
+        "deflection_y": {
+          "max_abs": 8.602307116287178e-08,
+          "rms": 7.511727748670069e-09
+        },
+        "convergence": {
+          "max_abs": 1.0543124814577087e-06,
+          "rms": 9.837271218132951e-08
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 1.586543954712029e-06
+    },
+    "operator_subhalo_stopping": {
+      "left": "operator_subhalo_g1e-4",
+      "right": "operator_subhalo_g3e-5",
+      "both_successful": true,
+      "accepted_counts": [
+        18,
+        19
+      ],
+      "objective_difference": 5.7937995734391734e-08,
+      "log_evidence_difference_same_method": 2.766610123217106e-07,
+      "fields": {
+        "source_values": {
+          "max_abs": 7.721877737232319e-08,
+          "rms": 7.124371138513554e-09
+        },
+        "potential_values": {
+          "max_abs": 6.612239644709916e-09,
+          "rms": 7.716415675381594e-10
+        },
+        "deflection_x": {
+          "max_abs": 4.2050031553997336e-08,
+          "rms": 6.074980603039581e-09
+        },
+        "deflection_y": {
+          "max_abs": 8.602307115246344e-08,
+          "rms": 7.511727748146927e-09
+        },
+        "convergence": {
+          "max_abs": 1.0543124820683314e-06,
+          "rms": 9.837271217302131e-08
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 1.5865439540451843e-06
+    },
+    "dense_control_absolute_tolerance": {
+      "left": "dense_control_a2e-5",
+      "right": "dense_control_a1e-3",
+      "both_successful": true,
+      "accepted_counts": [
+        17,
+        17
+      ],
+      "objective_difference": 2.2737367544323206e-13,
+      "log_evidence_difference_same_method": 1.363514456897974e-08,
+      "fields": {
+        "source_values": {
+          "max_abs": 2.382538610845586e-13,
+          "rms": 8.37288736681745e-14
+        },
+        "potential_values": {
+          "max_abs": 6.528068016709021e-14,
+          "rms": 2.958323033427352e-14
+        },
+        "deflection_x": {
+          "max_abs": 5.682281901953079e-14,
+          "rms": 3.4962945632652635e-14
+        },
+        "deflection_y": {
+          "max_abs": 4.864077890465168e-14,
+          "rms": 2.743111328376441e-14
+        },
+        "convergence": {
+          "max_abs": 6.539430455476669e-14,
+          "rms": 2.3752142708144546e-14
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 5.099889909439305e-13
+    },
+    "dense_control_absolute1e-4": {
+      "left": "dense_control_a1e-4",
+      "right": "dense_control_a1e-3",
+      "both_successful": true,
+      "accepted_counts": [
+        17,
+        17
+      ],
+      "objective_difference": -6.821210263296962e-13,
+      "log_evidence_difference_same_method": 2.3461325326934457e-08,
+      "fields": {
+        "source_values": {
+          "max_abs": 6.528666496308233e-13,
+          "rms": 2.1274498190734594e-13
+        },
+        "potential_values": {
+          "max_abs": 1.7108970490342656e-13,
+          "rms": 7.65904068007685e-14
+        },
+        "deflection_x": {
+          "max_abs": 1.235470059590682e-13,
+          "rms": 1.0316483624558724e-13
+        },
+        "deflection_y": {
+          "max_abs": 5.710492842481152e-14,
+          "rms": 4.289594986823709e-14
+        },
+        "convergence": {
+          "max_abs": 5.686033241469879e-14,
+          "rms": 2.105366356041115e-14
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 1.1336133214951151e-12
+    },
+    "operator_control_recursive_target_at_failed9_updates": {
+      "left": "operator_control_a2e-5_rtol1e-13",
+      "right": "operator_control_a2e-5",
+      "both_successful": false,
+      "accepted_counts": [
+        9,
+        9
+      ],
+      "objective_difference": -9.094947017729282e-13,
+      "log_evidence_difference_same_method": null,
+      "fields": {
+        "source_values": {
+          "max_abs": 1.1379786002407855e-15,
+          "rms": 1.7394145937667372e-16
+        },
+        "potential_values": {
+          "max_abs": 8.673617379884035e-18,
+          "rms": 2.0508326022613163e-18
+        },
+        "deflection_x": {
+          "max_abs": 2.168404344971009e-17,
+          "rms": 4.825161676706744e-18
+        },
+        "deflection_y": {
+          "max_abs": 2.5465198526253285e-17,
+          "rms": 5.2299773807609695e-18
+        },
+        "convergence": {
+          "max_abs": 3.0834709785487746e-16,
+          "rms": 3.850108859289487e-17
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 1.2602800157277722e-14
+    },
+    "matched_FAILED_terminal_states_after12_updates": {
+      "left": "operator_control_a1e-4_rtol1e-13",
+      "right": "dense_control_a1e-5",
+      "both_successful": false,
+      "accepted_counts": [
+        12,
+        12
+      ],
+      "objective_difference": -1.2055352272000164e-09,
+      "log_evidence_difference_same_method": null,
+      "fields": {
+        "source_values": {
+          "max_abs": 5.4731219556458655e-12,
+          "rms": 1.2525437631072818e-12
+        },
+        "potential_values": {
+          "max_abs": 1.2512403493956242e-12,
+          "rms": 4.5099771161113404e-13
+        },
+        "deflection_x": {
+          "max_abs": 1.6022290915893023e-12,
+          "rms": 7.289566662191449e-13
+        },
+        "deflection_y": {
+          "max_abs": 9.013391161910578e-13,
+          "rms": 2.7072365789090103e-13
+        },
+        "convergence": {
+          "max_abs": 2.4095118261735493e-12,
+          "rms": 8.081934322619285e-13
+        }
+      },
+      "nonlinear_image_rms_difference_noise": 2.791367617623621e-11
+    }
+  },
+  "completion_scope": {
+    "runs": 13,
+    "successful_numerical_candidates": 7,
+    "failed_candidates": 6,
+    "operator_control_certified": false,
+    "limitation": "No tested operator control fit converged under true-residual gates2e-5 or1e-4; tighter recursive stopping did not remove the gap. Failures and null evidence preserved. No physical/default or scientific200 acceptance change.",
+    "future12": "Re-read full spec after10 resolves; quantify nonlinear amplitude-prior sensitivity around1e4 separately from single-step conclusions. No extra prior probes made here.",
+    "synchronization": "all arrays in nested dataclasses/dicts/lists synchronized explicitly; no times measured or claimed"
+  },
+  "runs": {
+    "dense_subhalo_default": {
+      "case": "subhalo",
+      "backend": "dense",
+      "success": false,
+      "termination_reason": "stalled",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1661.1273757547353,
+      "chi2": 2330.7102813817974,
+      "regularization_penalty": 991.5444701276733,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 44195.21928299176,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 3.034627251588373e-15,
+        "relative_residual": 1.4814935722916252e-15,
+        "reason": null
+      },
+      "accepted_count": 27,
+      "max_inner_residual_abs": 1.6651824416149225e-08,
+      "max_inner_residual_relative": 4.447548225414306e-12,
+      "diagnostic_recomputed_terminal_scaled_gradient": 1.8947111629852497e-05,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.08897484074225889,
+        "source_rmse_truth": 0.031106307392411613,
+        "source_negative_fraction": 0.23573511037067887,
+        "potential_rmse_raw_truth": 0.015398900968827256,
+        "potential_rms": 0.0019810656862502556,
+        "deflection_vector_rmse_truth": 0.0090738682976859,
+        "nonlinear_residual_rms_noise": 1.0173255523561862,
+        "peak_xy": [
+          0.75,
+          0.075
+        ],
+        "peak_kappa": 0.21765701989218525,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.031072686024230165,
+            "truth_rms": 0.031297349217718984,
+            "recovered_rms": 0.03385024025178927,
+            "mean": -0.0030561590254808177
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0299823773735456,
+            "truth_rms": 0.036189779042003795,
+            "recovered_rms": 0.033893982111997095,
+            "mean": -0.002212482662759327
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.062466704844423245,
+            "truth_rms": 0.09916877174425745,
+            "recovered_rms": 0.0762059593383782,
+            "mean": 0.04381572885590767
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029536259187578018
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 2.0483566775752573,
+        "threshold": 2.0483566775752574e-08,
+        "residual_norm": 3.034627251588373e-15,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_subhalo_g1e-4": {
+      "case": "subhalo",
+      "backend": "dense",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1661.1273758302104,
+      "chi2": 2330.7114813022395,
+      "regularization_penalty": 991.5432703581816,
+      "log_evidence": 6426.056179401294,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 44195.21928299176,
+      "posterior_logdet": 44623.63953666527,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 5.426080360586001e-14,
+        "relative_residual": 2.371861031634895e-15,
+        "reason": null
+      },
+      "accepted_count": 18,
+      "max_inner_residual_abs": 1.7571021597756047e-08,
+      "max_inner_residual_relative": 4.544906981721588e-12,
+      "diagnostic_recomputed_terminal_scaled_gradient": 3.7964203933259295e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.08897484194882956,
+        "source_rmse_truth": 0.031106307814238253,
+        "source_negative_fraction": 0.23573511037067887,
+        "potential_rmse_raw_truth": 0.015398901037060566,
+        "potential_rms": 0.001981065632766277,
+        "deflection_vector_rmse_truth": 0.009073869346021713,
+        "nonlinear_residual_rms_noise": 1.017325814231199,
+        "peak_xy": [
+          0.75,
+          0.075
+        ],
+        "peak_kappa": 0.2176561648783104,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.031072715345066563,
+            "truth_rms": 0.031297349217718984,
+            "recovered_rms": 0.03385021551732771,
+            "mean": -0.0030561607093985183
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.029982417721093897,
+            "truth_rms": 0.036189779042003795,
+            "recovered_rms": 0.033893948721747016,
+            "mean": -0.0022124836898583973
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.06246684307994065,
+            "truth_rms": 0.09916877174425745,
+            "recovered_rms": 0.07620584355788367,
+            "mean": 0.04381574989814814
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029536258385138903
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 22.87688986924276,
+        "threshold": 2.287688986924276e-07,
+        "residual_norm": 5.426080360586001e-14,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_subhalo_g3e-5": {
+      "case": "subhalo",
+      "backend": "dense",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1661.1273757722738,
+      "chi2": 2330.7105896468975,
+      "regularization_penalty": 991.5441618976502,
+      "log_evidence": 6426.056178756677,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 44195.21928299176,
+      "posterior_logdet": 44623.63953807038,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 2.0071055623221228e-14,
+        "relative_residual": 5.447865332062566e-15,
+        "reason": null
+      },
+      "accepted_count": 19,
+      "max_inner_residual_abs": 1.6287367591201833e-08,
+      "max_inner_residual_relative": 4.668940383154887e-12,
+      "diagnostic_recomputed_terminal_scaled_gradient": 1.6026436659320354e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.08897484115257118,
+        "source_rmse_truth": 0.031106307535860033,
+        "source_negative_fraction": 0.23573511037067887,
+        "potential_rmse_raw_truth": 0.015398900990576565,
+        "potential_rms": 0.001981065672244843,
+        "deflection_vector_rmse_truth": 0.009073868583303672,
+        "nonlinear_residual_rms_noise": 1.0173256196330922,
+        "peak_xy": [
+          0.75,
+          0.075
+        ],
+        "peak_kappa": 0.2176567649251618,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.031072693019552775,
+            "truth_rms": 0.031297349217718984,
+            "recovered_rms": 0.03385023326180861,
+            "mean": -0.00305615952747859
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.029982387060259172,
+            "truth_rms": 0.036189779042003795,
+            "recovered_rms": 0.03389397272715763,
+            "mean": -0.0022124830377503665
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.06246673744493913,
+            "truth_rms": 0.09916877174425745,
+            "recovered_rms": 0.07620592669136542,
+            "mean": 0.043815736373007924
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029536258925590864
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 3.684205537368214,
+        "threshold": 3.684205537368214e-08,
+        "residual_norm": 2.0071055623221228e-14,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_control_default": {
+      "case": "control",
+      "backend": "dense",
+      "success": false,
+      "termination_reason": "linear_solve_failed",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1557.5422477012196,
+      "chi2": 2210.8057111094377,
+      "regularization_penalty": 904.2787842930015,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 52183.74140798989,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": false,
+        "failed": true,
+        "iterations": 1,
+        "residual_norm": 7.3185112817228995e-06,
+        "relative_residual": 2.6284853708572954e-08,
+        "reason": "linear_residual_exceeds_tolerance"
+      },
+      "accepted_count": 11,
+      "max_inner_residual_abs": 7.3185112817228995e-06,
+      "max_inner_residual_relative": 2.6284853708572954e-08,
+      "diagnostic_recomputed_terminal_scaled_gradient": 0.0034301972323979445,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06937498086724804,
+        "source_rmse_truth": 0.02425404150427822,
+        "source_negative_fraction": 0.2432319866722199,
+        "potential_rmse_raw_truth": 0.00016683002373344178,
+        "potential_rms": 0.00016683002373344178,
+        "deflection_vector_rmse_truth": 0.0006786576075874215,
+        "nonlinear_residual_rms_noise": 0.9908116304290809,
+        "peak_xy": [
+          0.975,
+          0.525
+        ],
+        "peak_kappa": 0.0016723040811338706,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.001308308756087088,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.001308308756087088,
+            "mean": -0.0006108624052198629
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0011178691678830044,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0011178691678830044,
+            "mean": -0.0005372068590064408
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.001012158223266642,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.001012158223266642,
+            "mean": 0.0008653587481282822
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029755048150781338
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 278.430740488996,
+        "threshold": 2.7843074048899597e-06,
+        "residual_norm": 7.3185112817228995e-06,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_control_a1e-3": {
+      "case": "control",
+      "backend": "dense",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1556.9688632242692,
+      "chi2": 2209.9699098571555,
+      "regularization_penalty": 903.9678165913829,
+      "log_evidence": 6602.738116568333,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 52183.74140798989,
+      "posterior_logdet": 52467.11481254121,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 8.350080379223015e-08,
+        "relative_residual": 4.302574866435988e-09,
+        "reason": null
+      },
+      "accepted_count": 17,
+      "max_inner_residual_abs": 1.6083984376930986e-05,
+      "max_inner_residual_relative": 1.3907701422553578e-07,
+      "diagnostic_recomputed_terminal_scaled_gradient": 2.052048901005332e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06934343381783094,
+        "source_rmse_truth": 0.02424301240652086,
+        "source_negative_fraction": 0.24281549354435653,
+        "potential_rmse_raw_truth": 0.0003959114877722538,
+        "potential_rms": 0.0003959114877722538,
+        "deflection_vector_rmse_truth": 0.0009679458091316115,
+        "nonlinear_residual_rms_noise": 0.9906243231771266,
+        "peak_xy": [
+          -0.8999999999999999,
+          -0.75
+        ],
+        "peak_kappa": 0.002155181386359964,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0016096763958691896,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0016096763958691896,
+            "mean": -0.0007544339696909034
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0013660207678503355,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0013660207678503355,
+            "mean": -0.0006738837574368791
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0009945436206306212,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0009945436206306212,
+            "mean": 0.0007362678393610797
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029244334472097955
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 19.407170446611556,
+        "threshold": 0.0010001940717044662,
+        "residual_norm": 8.350080379223015e-08,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_control_a2e-5": {
+      "case": "control",
+      "backend": "dense",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1556.9688632242694,
+      "chi2": 2209.9699098571286,
+      "regularization_penalty": 903.9678165914102,
+      "log_evidence": 6602.738116581968,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 52183.74140798989,
+      "posterior_logdet": 52467.11481251394,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 8.549689517567147e-08,
+        "relative_residual": 4.40542818580597e-09,
+        "reason": null
+      },
+      "accepted_count": 17,
+      "max_inner_residual_abs": 1.5518628472366474e-05,
+      "max_inner_residual_relative": 1.3418842331470655e-07,
+      "diagnostic_recomputed_terminal_scaled_gradient": 2.0520490936027972e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06934343381781924,
+        "source_rmse_truth": 0.02424301240651677,
+        "source_negative_fraction": 0.24281549354435653,
+        "potential_rmse_raw_truth": 0.000395911487752226,
+        "potential_rms": 0.000395911487752226,
+        "deflection_vector_rmse_truth": 0.0009679458091132524,
+        "nonlinear_residual_rms_noise": 0.9906243231771206,
+        "peak_xy": [
+          -0.8999999999999999,
+          -0.75
+        ],
+        "peak_kappa": 0.002155181386407727,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0016096763958869417,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0016096763958869417,
+            "mean": -0.0007544339696953607
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0013660207678641582,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0013660207678641582,
+            "mean": -0.0006738837574412591
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0009945436206321564,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0009945436206321564,
+            "mean": 0.0007362678393544289
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.02924433447212882
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 19.407170329353555,
+        "threshold": 2.0194071703293537e-05,
+        "residual_norm": 8.549689517567147e-08,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "dense_control_a1e-5": {
+      "case": "control",
+      "backend": "dense",
+      "success": false,
+      "termination_reason": "linear_solve_failed",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1557.3306005731515,
+      "chi2": 2210.4260573112006,
+      "regularization_penalty": 904.2351438351022,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 52183.74140798989,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": false,
+        "failed": true,
+        "iterations": 1,
+        "residual_norm": 1.2671042138089533e-05,
+        "relative_residual": 7.605763427320808e-08,
+        "reason": "linear_residual_exceeds_tolerance"
+      },
+      "accepted_count": 12,
+      "max_inner_residual_abs": 1.2671042138089533e-05,
+      "max_inner_residual_relative": 7.605763427320808e-08,
+      "diagnostic_recomputed_terminal_scaled_gradient": 0.0022823745542686017,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06936736202127913,
+        "source_rmse_truth": 0.024251377895524246,
+        "source_negative_fraction": 0.24281549354435653,
+        "potential_rmse_raw_truth": 0.00020010003447830605,
+        "potential_rms": 0.00020010003447830605,
+        "deflection_vector_rmse_truth": 0.0007766044803004835,
+        "nonlinear_residual_rms_noise": 0.9907265524985073,
+        "peak_xy": [
+          -0.8999999999999999,
+          -0.75
+        ],
+        "peak_kappa": 0.0019041554929020198,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0015190480945369864,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0015190480945369864,
+            "mean": -0.0007202025950986137
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0012925226411318383,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0012925226411318383,
+            "mean": -0.0006406580782152586
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0010040993812856897,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0010040993812856897,
+            "mean": 0.0007893848394839433
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.02966724173748686
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 166.59789985806867,
+        "threshold": 1.1665978998580687e-05,
+        "residual_norm": 1.2671042138089533e-05,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "operator_subhalo_g3e-5": {
+      "case": "subhalo",
+      "backend": "operator",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1661.127375772273,
+      "chi2": 2330.710589646895,
+      "regularization_penalty": 991.5441618976504,
+      "log_evidence": 6512.582151305349,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "principal_block_cholesky",
+      "prior_logdet": 44766.150831995124,
+      "posterior_logdet": 45021.5191419764,
+      "solver_info": {
+        "method": "pcg",
+        "converged": true,
+        "failed": false,
+        "iterations": 63,
+        "residual_norm": 3.4662278198975104e-12,
+        "relative_residual": 9.408345394438657e-13,
+        "reason": null
+      },
+      "accepted_count": 19,
+      "max_inner_residual_abs": 6.910668464661277e-07,
+      "max_inner_residual_relative": 2.0140130442665202e-11,
+      "diagnostic_recomputed_terminal_scaled_gradient": 1.6026436638267225e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.08897484115257126,
+        "source_rmse_truth": 0.031106307535860057,
+        "source_negative_fraction": 0.23573511037067887,
+        "potential_rmse_raw_truth": 0.015398900990576551,
+        "potential_rms": 0.001981065672244838,
+        "deflection_vector_rmse_truth": 0.009073868583303621,
+        "nonlinear_residual_rms_noise": 1.0173256196330915,
+        "peak_xy": [
+          0.75,
+          0.075
+        ],
+        "peak_kappa": 0.2176567649251615,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.031072693019552695,
+            "truth_rms": 0.031297349217718984,
+            "recovered_rms": 0.03385023326180856,
+            "mean": -0.0030561595274785414
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.02998238706025912,
+            "truth_rms": 0.036189779042003795,
+            "recovered_rms": 0.03389397272715762,
+            "mean": -0.0022124830377502724
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.06246673744493917,
+            "truth_rms": 0.09916877174425745,
+            "recovered_rms": 0.07620592669136557,
+            "mean": 0.043815736373008195
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029536258925590864
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 3.684205537295031,
+        "threshold": 3.6842055372950315e-08,
+        "residual_norm": 3.4662278198975104e-12,
+        "last_recursive_residual_norm": 3.466397512472446e-12
+      }
+    },
+    "operator_control_a2e-5": {
+      "case": "control",
+      "backend": "operator",
+      "success": false,
+      "termination_reason": "linear_solve_failed",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1559.5437674915615,
+      "chi2": 2214.0788777030057,
+      "regularization_penalty": 905.0086572801173,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "principal_block_cholesky",
+      "prior_logdet": 52925.159871197204,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "pcg",
+        "converged": false,
+        "failed": true,
+        "iterations": 3701,
+        "residual_norm": 5.169807965549777e-05,
+        "relative_residual": 3.503383157609098e-08,
+        "reason": "linear_residual_exceeds_tolerance"
+      },
+      "accepted_count": 9,
+      "max_inner_residual_abs": 5.169807965549777e-05,
+      "max_inner_residual_relative": 3.503383157609098e-08,
+      "diagnostic_recomputed_terminal_scaled_gradient": 0.0027400111812811733,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06920037938612744,
+        "source_rmse_truth": 0.02419299944679772,
+        "source_negative_fraction": 0.24198250728862974,
+        "potential_rmse_raw_truth": 6.851492611929006e-05,
+        "potential_rms": 6.851492611929006e-05,
+        "deflection_vector_rmse_truth": 0.00027726421029497235,
+        "nonlinear_residual_rms_noise": 0.991544822863464,
+        "peak_xy": [
+          0.8999999999999999,
+          0.3
+        ],
+        "peak_kappa": 0.0011393803056463725,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0005053978046570092,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0005053978046570092,
+            "mean": -0.00017931135590816628
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.00045839189239288593,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.00045839189239288593,
+            "mean": -0.00015005266202852005
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0007085748017545756,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0007085748017545756,
+            "mean": 0.0006454692253069855
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029768264546184642
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 1475.6615913738478,
+        "threshold": 3.475661591373848e-05,
+        "residual_norm": 5.169807965549777e-05,
+        "last_recursive_residual_norm": 1.4376549428726194e-09
+      }
+    },
+    "operator_subhalo_g1e-4": {
+      "case": "subhalo",
+      "backend": "operator",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1661.127375830211,
+      "chi2": 2330.71148130224,
+      "regularization_penalty": 991.5432703581816,
+      "log_evidence": 6512.58215158201,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "principal_block_cholesky",
+      "prior_logdet": 44766.150831995124,
+      "posterior_logdet": 45021.5191413072,
+      "solver_info": {
+        "method": "pcg",
+        "converged": true,
+        "failed": false,
+        "iterations": 75,
+        "residual_norm": 1.842568949934496e-11,
+        "relative_residual": 8.054280807297072e-13,
+        "reason": null
+      },
+      "accepted_count": 18,
+      "max_inner_residual_abs": 6.671320627632292e-07,
+      "max_inner_residual_relative": 2.1119826567990896e-11,
+      "diagnostic_recomputed_terminal_scaled_gradient": 3.7964203954465815e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.08897484194882956,
+        "source_rmse_truth": 0.03110630781423825,
+        "source_negative_fraction": 0.23573511037067887,
+        "potential_rmse_raw_truth": 0.01539890103706056,
+        "potential_rms": 0.0019810656327662705,
+        "deflection_vector_rmse_truth": 0.009073869346021654,
+        "nonlinear_residual_rms_noise": 1.0173258142311992,
+        "peak_xy": [
+          0.75,
+          0.075
+        ],
+        "peak_kappa": 0.21765616487831072,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.03107271534506642,
+            "truth_rms": 0.031297349217718984,
+            "recovered_rms": 0.03385021551732762,
+            "mean": -0.0030561607093984398
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0299824177210938,
+            "truth_rms": 0.036189779042003795,
+            "recovered_rms": 0.03389394872174699,
+            "mean": -0.0022124836898582737
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.062466843079940645,
+            "truth_rms": 0.09916877174425745,
+            "recovered_rms": 0.07620584355788382,
+            "mean": 0.043815749898148355
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029536258385138958
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 22.876889867871917,
+        "threshold": 2.2876889867871917e-07,
+        "residual_norm": 1.842568949934496e-11,
+        "last_recursive_residual_norm": 1.8424077982895696e-11
+      }
+    },
+    "operator_control_a2e-5_rtol1e-13": {
+      "case": "control",
+      "backend": "operator",
+      "success": false,
+      "termination_reason": "linear_solve_failed",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1559.5437674915606,
+      "chi2": 2214.078877703004,
+      "regularization_penalty": 905.0086572801174,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "principal_block_cholesky",
+      "prior_logdet": 52925.159871197204,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "pcg",
+        "converged": false,
+        "failed": true,
+        "iterations": 3744,
+        "residual_norm": 5.3921543227433476e-05,
+        "relative_residual": 3.654058866802818e-08,
+        "reason": "linear_residual_exceeds_tolerance"
+      },
+      "accepted_count": 9,
+      "max_inner_residual_abs": 5.3921543227433476e-05,
+      "max_inner_residual_relative": 3.654058866802818e-08,
+      "diagnostic_recomputed_terminal_scaled_gradient": 0.002740011181266913,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06920037938612775,
+        "source_rmse_truth": 0.02419299944679782,
+        "source_negative_fraction": 0.24198250728862974,
+        "potential_rmse_raw_truth": 6.851492611928933e-05,
+        "potential_rms": 6.851492611928933e-05,
+        "deflection_vector_rmse_truth": 0.0002772642102949699,
+        "nonlinear_residual_rms_noise": 0.9915448228634637,
+        "peak_xy": [
+          0.8999999999999999,
+          0.3
+        ],
+        "peak_kappa": 0.001139380305646387,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0005053978046570093,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0005053978046570093,
+            "mean": -0.00017931135590816368
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0004583918923928836,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0004583918923928836,
+            "mean": -0.00015005266202851433
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0007085748017545857,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0007085748017545857,
+            "mean": 0.0006454692253069943
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029768264546184642
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 1475.6615914787674,
+        "threshold": 3.4756615914787675e-05,
+        "residual_norm": 5.3921543227433476e-05,
+        "last_recursive_residual_norm": 1.341200727524714e-10
+      }
+    },
+    "dense_control_a1e-4": {
+      "case": "control",
+      "backend": "dense",
+      "success": true,
+      "termination_reason": "converged_gradient",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1556.9688632242685,
+      "chi2": 2209.969909857182,
+      "regularization_penalty": 903.967816591355,
+      "log_evidence": 6602.738116591794,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "prior_logdet": 52183.74140798989,
+      "posterior_logdet": 52467.114812494285,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 8.632008550004843e-08,
+        "relative_residual": 4.447845021822447e-09,
+        "reason": null
+      },
+      "accepted_count": 17,
+      "max_inner_residual_abs": 1.539596058912309e-05,
+      "max_inner_residual_relative": 1.3312772420697613e-07,
+      "diagnostic_recomputed_terminal_scaled_gradient": 2.0520496157250833e-05,
+      "metrics": {
+        "interpretation": "converged calibration candidate; NOT accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06934343381785503,
+        "source_rmse_truth": 0.024243012406529287,
+        "source_negative_fraction": 0.24281549354435653,
+        "potential_rmse_raw_truth": 0.0003959114877103982,
+        "potential_rms": 0.0003959114877103982,
+        "deflection_vector_rmse_truth": 0.000967945809065968,
+        "nonlinear_residual_rms_noise": 0.9906243231771324,
+        "peak_xy": [
+          -0.8999999999999999,
+          -0.75
+        ],
+        "peak_kappa": 0.002155181386304761,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0016096763958579668,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0016096763958579668,
+            "mean": -0.0007544339696896814
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.001366020767841076,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.001366020767841076,
+            "mean": -0.0006738837574351819
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0009945436206310531,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0009945436206310531,
+            "mean": 0.0007362678393692855
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029244334472206757
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 19.40717023109764,
+        "threshold": 0.00010019407170231098,
+        "residual_norm": 8.632008550004843e-08,
+        "last_recursive_residual_norm": null
+      }
+    },
+    "operator_control_a1e-4_rtol1e-13": {
+      "case": "control",
+      "backend": "operator",
+      "success": false,
+      "termination_reason": "linear_solve_failed",
+      "initialization_provenance": {
+        "source": "analytic truth brightness at fixed source NODES; no retained truth gradient",
+        "source_initialization": "supplied_truth_derived_source_node_intensities",
+        "potential_initialization": "zero",
+        "gradient_policy": "current_analytic_bilinear_branch",
+        "reset_each_fit": true
+      },
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "objective": 1557.330600571946,
+      "chi2": 2210.426057308541,
+      "regularization_penalty": 904.2351438353508,
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "principal_block_cholesky",
+      "prior_logdet": 52925.159871197204,
+      "posterior_logdet": null,
+      "solver_info": {
+        "method": "pcg",
+        "converged": false,
+        "failed": true,
+        "iterations": 4890,
+        "residual_norm": 0.00013344491385196869,
+        "relative_residual": 8.009999779529159e-07,
+        "reason": "linear_residual_exceeds_tolerance"
+      },
+      "accepted_count": 12,
+      "max_inner_residual_abs": 0.00013344491385196869,
+      "max_inner_residual_relative": 8.009999779529159e-07,
+      "diagnostic_recomputed_terminal_scaled_gradient": 0.00228237456210935,
+      "metrics": {
+        "interpretation": "diagnostic FAILED terminal state; not accepted scientific reconstruction",
+        "source_relative_l2_truth": 0.06936736202160781,
+        "source_rmse_truth": 0.02425137789563916,
+        "source_negative_fraction": 0.24281549354435653,
+        "potential_rmse_raw_truth": 0.00020010003472126545,
+        "potential_rms": 0.00020010003472126545,
+        "deflection_vector_rmse_truth": 0.0007766044807152714,
+        "nonlinear_residual_rms_noise": 0.9907265524979113,
+        "peak_xy": [
+          -0.8999999999999999,
+          -0.75
+        ],
+        "peak_kappa": 0.001904155494396031,
+        "kappa": {
+          "all_core": {
+            "count": 704,
+            "rmse_truth": 0.0015190480952162195,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0015190480952162195,
+            "mean": -0.0007202025953758
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_truth": 0.0012925226416957989,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0012925226416957989,
+            "mean": -0.0006406580784976101
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_truth": 0.0010040993814217723,
+            "truth_rms": 0.0,
+            "recovered_rms": 0.0010040993814217723,
+            "mean": 0.0007893848393008256
+          }
+        },
+        "source_box": {
+          "outside_count": 0,
+          "minimum_margin": 0.029667241736692385
+        }
+      },
+      "last_linear_acceptance": {
+        "rhs_norm_inferred_from_recorded_residuals": 166.59789953179347,
+        "threshold": 0.00010166597899531794,
+        "residual_norm": 0.00013344491385196869,
+        "last_recursive_residual_norm": 1.471358783932989e-11
+      }
+    }
+  }
+}

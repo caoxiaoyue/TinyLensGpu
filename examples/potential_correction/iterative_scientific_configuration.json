@@ -75,12 +75,17 @@
       "lambda_potential": 100000000000.0
     }
   },
-  "calibration_provenance": "Matched single-step physical geometry and fixed smoothing. Nonlinear controls and amplitude-prior sensitivity are separate iterative validations; see docs/validation/potential-correction-iterative-scientific.md.",
+  "calibration_provenance": "Matched ticket11 physical geometry and fixed smoothing. Explicit example-only stopping controls calibrated against strict failed endpoints, successful thresholds, and stricter control operator fit; public solver defaults unchanged. See docs/validation/potential-correction-iterative-scientific.md.",
   "partition_source": "single_step",
   "iteration_options": {
-    "gradient_atol": 3e-05,
+    "gradient_atol": 0.0005,
     "max_iter": 80
   },
-  "solve_atol": 2e-05,
-  "source_regularization": "second-order"
+  "solve_atol": 5e-05,
+  "source_regularization": "second-order",
+  "case_iteration_options": {
+    "control": {
+      "gradient_atol": 3e-05
+    }
+  }
 }

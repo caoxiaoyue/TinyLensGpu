@@ -1,0 +1,171 @@
+{
+  "scope": "Preserved historical strict64 failures and isolated-step diagnosis; no reclassification as successful fits",
+  "source_commit": "efbb3bacf2cda1343a3c6084ed3ddb76de3c272d",
+  "retained_artifacts": {
+    "/tmp/tinylens-pc-iterative-science-calibration.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-iterative-science-calibration.json",
+      "sha256": "adfa2452ce071739f1d10d691fafb1a88ecb6db767e8009b379d3fd71bd4bf23",
+      "bytes": 712690
+    },
+    "/tmp/tinylens-pc-iterative-science-calibration.manifest.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-iterative-science-calibration.manifest.json",
+      "sha256": "55f5827a2054339f844ca29d4554b045e65eac2b308120cd9118ad4ec478bc5d",
+      "bytes": 506
+    },
+    "/tmp/tinylens-pc-iterative-science-calibration.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-iterative-science-calibration.npz",
+      "sha256": "74d685f0ca9dd7c93816a5de1d4dceb0a7077714eb873f2520d3935dc8e22df0",
+      "bytes": 2584625
+    },
+    "/tmp/tinylens-pc-iterative-science-calibration.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-iterative-science-calibration.py",
+      "sha256": "c90fb703a983761d5467c991700c2481e91f81038f2dd7b7ca64f9d75ec41925",
+      "bytes": 13934
+    },
+    "/tmp/tinylens-pc-residual-budgeted-green.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-budgeted-green.json",
+      "sha256": "2146988d84837ba557efa745e643c4901525380e5ec73823f6367968da6c254b",
+      "bytes": 1319
+    },
+    "/tmp/tinylens-pc-residual-budgeted-green.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-budgeted-green.npz",
+      "sha256": "0e9cae4480c25d4eb6c7c1b6484f662fe9b394a31bc89ff9e2fc0b9b3610f8c9",
+      "bytes": 26032
+    },
+    "/tmp/tinylens-pc-residual-budgeted-red.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-budgeted-red.json",
+      "sha256": "18c6c0a6fd0a0982ea9c71e34780cd5d0f86a9edf365bdf859f0738fd6096aeb",
+      "bytes": 1022
+    },
+    "/tmp/tinylens-pc-residual-budgeted-red.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-budgeted-red.npz",
+      "sha256": "5f0cd56b7cb8f74292471e95ec5916cbb09946f0292d962ec05ddf6d814e7cda",
+      "bytes": 26028
+    },
+    "/tmp/tinylens-pc-residual-dense.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-dense.json",
+      "sha256": "fc7c0bfda143bbcf80baf7881d09a47616d1bbf56e6805763a33b39503c40bec",
+      "bytes": 2422
+    },
+    "/tmp/tinylens-pc-residual-dense.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-dense.npz",
+      "sha256": "2b3ee86c72ec5248bc7e5e3c886eff83a95d7170d944a0967c31d8f1c578a093",
+      "bytes": 26047
+    },
+    "/tmp/tinylens-pc-residual-dense.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-dense.py",
+      "sha256": "c98b19742e4fe94fdc9b7f5a11b1eb87f62029402a3b48bcd88075d5c5c88192",
+      "bytes": 3879
+    },
+    "/tmp/tinylens-pc-residual-diagnosis.md": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-diagnosis.md",
+      "sha256": "a8bf7893897d9df7398f8bc0caf9aba4e1f3542588771b3825da6bf9a24ff856",
+      "bytes": 11378
+    },
+    "/tmp/tinylens-pc-residual-probes.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-probes.json",
+      "sha256": "683135ea97616e81957ad19174f5ae2f44dbf67ce29e94d12cf3284a39ee2edc",
+      "bytes": 2962
+    },
+    "/tmp/tinylens-pc-residual-probes.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-probes.npz",
+      "sha256": "37d2916704433c3da2b51dc9e53ceed377512ac7c0a6b129e479c9644f5af210",
+      "bytes": 144471
+    },
+    "/tmp/tinylens-pc-residual-probes.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-probes.py",
+      "sha256": "452fec4de11af800d07bf3b7e82c0ff740b8f680f6f03a81893124489669e6e9",
+      "bytes": 10213
+    },
+    "/tmp/tinylens-pc-residual-refine-replay.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-refine-replay.py",
+      "sha256": "48c20c8d160ed83af9d1839f637d3cac128ec728965fd2cea3956c4f2cff7ad2",
+      "bytes": 4869
+    },
+    "/tmp/tinylens-pc-residual-replay-baseline.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-replay-baseline.json",
+      "sha256": "fe2bffaf63efcfa733c57b3e8fc680c38ffbee1e1de0cf31c5c3f0ad738de8cb",
+      "bytes": 997
+    },
+    "/tmp/tinylens-pc-residual-replay-baseline.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-replay-baseline.npz",
+      "sha256": "6f7e6d8e8b25ccf13ccc30628771c74b364fc56a5ad88dafa35853b0b9482bb2",
+      "bytes": 92434
+    },
+    "/tmp/tinylens-pc-residual-replay-repeat.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-replay-repeat.json",
+      "sha256": "ba4e34a14bea95d01f3aef57b6b3f00d0d9d51067b03bba7d2ee09e874441b69",
+      "bytes": 995
+    },
+    "/tmp/tinylens-pc-residual-replay-repeat.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-replay-repeat.npz",
+      "sha256": "961a85c77517ba50c5051a8f194b7fbdfce8c4b8a9053a09383e77b43c29d9dd",
+      "bytes": 92437
+    },
+    "/tmp/tinylens-pc-residual-replay.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-replay.py",
+      "sha256": "e7d48065aed25ee7b043ab0021082d48e24d964b5744146c93e2e2644ce45206",
+      "bytes": 5475
+    },
+    "/tmp/tinylens-pc-residual-step13-baseline.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-baseline.json",
+      "sha256": "8f583f4ea6ab39ea2fb4a3b41d7347a17a01725bae51eb3d0c54e857f1e295b9",
+      "bytes": 1005
+    },
+    "/tmp/tinylens-pc-residual-step13-baseline.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-baseline.npz",
+      "sha256": "f41db7383d0fd07b968511bf73b7abbf84719fb2ed69858fbef8d9446582bcf1",
+      "bytes": 91773
+    },
+    "/tmp/tinylens-pc-residual-step13-budgeted-green.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-budgeted-green.json",
+      "sha256": "98ea7e404626bb86c78d152ac29952099ffdba7d91ddf75f7fcb011688f459df",
+      "bytes": 1331
+    },
+    "/tmp/tinylens-pc-residual-step13-budgeted-green.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-budgeted-green.npz",
+      "sha256": "411eaa0f56e09f333a160e0721a0bddcf0036a1663b8cd96adaa6273d7405eba",
+      "bytes": 26047
+    },
+    "/tmp/tinylens-pc-residual-step13-dense.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-dense.json",
+      "sha256": "9bd303d7d5c58baa933de0ff91d7388ae04b18402a99c74d61bb38ab6f4b470a",
+      "bytes": 2433
+    },
+    "/tmp/tinylens-pc-residual-step13-dense.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-dense.npz",
+      "sha256": "44566b2429673fc720ee76ea1afa97622c5b63a39a5f8c4e605f99c4a899ade2",
+      "bytes": 26058
+    },
+    "/tmp/tinylens-pc-residual-step13-probes.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-probes.json",
+      "sha256": "d4116ad8356a2ad549a79a32779684e7eb087f579b39a1e0225eee758e5cd47c",
+      "bytes": 2981
+    },
+    "/tmp/tinylens-pc-residual-step13-probes.npz": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-step13-probes.npz",
+      "sha256": "00d154c0ff4661c1406a2962cefa482124f7c37e60f65504db4e295ec52dd911",
+      "bytes": 143877
+    },
+    "/tmp/tinylens-pc-residual-triangular.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-triangular.json",
+      "sha256": "d8d116e7edbf5cfda164475032b0c24e2cf831af7cec31b3c0d135d8513771a6",
+      "bytes": 852
+    },
+    "/tmp/tinylens-pc-residual-triangular.py": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-triangular.py",
+      "sha256": "02a92fec6c0dea51de6040e0e124f7174deb15fe05228952a64c786f1abbb71b",
+      "bytes": 2319
+    },
+    "/tmp/tinylens-pc-residual-diagnosis.manifest.json": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-residual-diagnosis.manifest.json",
+      "sha256": "839044413bfeb0e11ce1f4dcec30ceb4943c885b78f2915aceb5e3ec6ade0d00",
+      "bytes": 6412
+    },
+    "/tmp/tinylens-pc-iterative-science-calibration.md": {
+      "retained_path": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/iterative-scientific/historical-diagnosis/tinylens-pc-iterative-science-calibration.md",
+      "sha256": "06ffa8b0c461b7c4d04ea5d6a80d55e97776f4fb1692ccfffae0d6ae917af42d",
+      "bytes": 8828
+    }
+  }
+}

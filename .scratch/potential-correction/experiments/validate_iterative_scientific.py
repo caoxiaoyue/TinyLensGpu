@@ -16,6 +16,112 @@ from examples.potential_correction.iterative_scientific import run_iterative_sci
 from examples.potential_correction.result_products import write_json
 
 
+def terminal_gradient_audit(result, observation, configuration):
+    """Independent public current-J/Q diagnostic, separate from fit/export code."""
+    import jax
+    import jax.numpy as jnp
+    from TinyLensGpu.ForwardSimulation import (
+        PotentialCorrectionRenderer,
+        SimulatorConfig,
+    )
+    from TinyLensGpu.ObservationModel import IterativePotentialCorrection
+
+    with jax.experimental.enable_x64(result.dtype == "float64"):
+        mock = observation.config
+        renderer = PotentialCorrectionRenderer(
+            observation.macro,
+            SimulatorConfig(
+                mock.dpix,
+                mock.npix,
+                observation.psf_kernel,
+                configuration["inversion_nsub"],
+                observation.mask,
+            ),
+            configuration["source_n"],
+            tuple(configuration["source_bbox"]),
+            potential_spacing=configuration["potential_spacing"],
+            dtype=mock.dtype,
+        )
+        sx, sy = jnp.meshgrid(renderer.source_x_axis, renderer.source_y_axis)
+        problem = IterativePotentialCorrection(
+            renderer,
+            observation.image_data,
+            observation.noise_map,
+            observation.source_truth.brightness(sx, sy).ravel(),
+            lambda_amplitude=configuration["lambda_amplitude"],
+            source_regularization=configuration.get(
+                "source_regularization", "second-order"
+            ),
+        )
+        values = jnp.concatenate((result.source_values, result.potential_values))
+        current = problem.linearize(values)
+        ls, lp = result.strengths.lambda_source, result.strengths.lambda_potential
+        rhs = problem.jacobian_adjoint(
+            (result.data_active - result.nonlinear_image_active)
+            / result.noise_active**2,
+            current,
+        ) - problem.prior_matvec(values, ls, lp)
+        n = len(values)
+
+        @jax.jit
+        def panel_diagonal(indices, linearization):
+            basis = jax.nn.one_hot(indices, n, dtype=values.dtype)
+            panel = jax.vmap(lambda v: problem.jacobian_forward(v, linearization))(
+                basis
+            )
+            prior = jax.vmap(lambda v: problem.prior_matvec(v, ls, lp))(basis)
+            return (
+                jnp.sum((panel / result.noise_active[None, :]) ** 2, axis=1)
+                + prior[jnp.arange(len(indices)), indices]
+            )
+
+        pieces = [
+            panel_diagonal(
+                jnp.arange(start, min(start + 16, n), dtype=jnp.int32), current
+            )
+            for start in range(0, n, 16)
+        ]
+        gradient = jnp.max(jnp.abs(rhs) / jnp.sqrt(jnp.concatenate(pieces)))
+        return float(gradient)
+
+
+def save_diagnostic_terminals(run):
+    """Keep failed numerical endpoints explicitly diagnostic, never result exports."""
+    arrays = {}
+    manifest = {
+        "scope": "FAILED terminal arrays for numerical stopping calibration only; no successful scientific reconstruction",
+        "runs": {},
+    }
+    for key, result in run.results.items():
+        if result.success:
+            continue
+        label = key.replace("/", "_")
+        for field in (
+            "source_values",
+            "source_x_axis",
+            "source_y_axis",
+            "potential_values",
+            "deflection_x",
+            "deflection_y",
+            "convergence",
+            "derivative_valid",
+            "nonlinear_image_active",
+            "nonlinear_model_image",
+            "data_active",
+            "noise_active",
+        ):
+            arrays[f"{label}_{field}"] = np.asarray(getattr(result, field))
+        manifest["runs"][key] = {
+            "success": False,
+            "termination_reason": result.termination_reason,
+            "objective": float(result.objective),
+            "log_evidence": None,
+        }
+    if arrays:
+        np.savez_compressed(run.output / "diagnostic-failed-terminals.npz", **arrays)
+        write_json(run.output / "diagnostic-failed-terminals.json", manifest)
+
+
 def compact_record(run):
     record = {k: v for k, v in run.record.items() if k != "runs"}
     record["block_partition"] = {
@@ -144,10 +250,45 @@ def main():
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--gradient-atol", type=float)
+    parser.add_argument("--solve-atol", type=float)
+    parser.add_argument("--lambda-amplitude", type=float)
+    parser.add_argument("--case", choices=("subhalo", "control"))
+    parser.add_argument("--backend", choices=("dense", "operator", "both"))
+    parser.add_argument("--single-step-reference", type=Path)
+    parser.add_argument("--audit-gradients", action="store_true")
+    parser.add_argument("--no-plots", action="store_true")
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    run = run_iterative_scientific(config, output=args.output)
+    if args.gradient_atol is not None:
+        config.setdefault("iteration_options", {})["gradient_atol"] = args.gradient_atol
+    if args.solve_atol is not None:
+        config["solve_atol"] = args.solve_atol
+    if args.lambda_amplitude is not None:
+        config["lambda_amplitude"] = args.lambda_amplitude
+    if args.no_plots:
+        config["make_plots"] = False
+    if args.case:
+        config["cases"] = [args.case]
+    if args.backend:
+        config["backends"] = (
+            ["dense", "operator"] if args.backend == "both" else [args.backend]
+        )
+    run = run_iterative_scientific(
+        config, output=args.output, single_step_reference=args.single_step_reference
+    )
     record = compact_record(run)
+    save_diagnostic_terminals(run)
+    if args.audit_gradients:
+        from examples.potential_correction.mock import MockConfig, generate_mock_pair
+
+        pair = generate_mock_pair(MockConfig.from_dict(config["mock"]))
+        for key, result in run.results.items():
+            record["runs"][key]["independent_terminal_gradient"] = (
+                terminal_gradient_audit(
+                    result, getattr(pair, key.split("/")[0]), config
+                )
+            )
     write_json(args.summary, record)
     print(
         json.dumps(

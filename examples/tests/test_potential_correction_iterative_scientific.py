@@ -179,3 +179,122 @@ def test_iterative_scientific_nested_search_exports_only_converged_results(tmp_p
         )
         assert not (tmp_path / key / "reconstruction.npz").exists()
         assert not (tmp_path / key / "history.png").exists()
+
+
+def test_algorithm_comparison_keeps_single_step_linear_evidence_and_nonlinear_objective_distinct():
+    from TinyLensGpu.ObservationModel import (
+        SingleStepPotentialCorrection,
+        IterativePotentialCorrection,
+    )
+    from examples.potential_correction.result_products import compare_reconstructions
+
+    observation, prepared = _observation_problem()
+    renderer = prepared.renderer
+    initial = prepared.initial_values[: renderer.n_source]
+    single = SingleStepPotentialCorrection(
+        renderer,
+        observation.image_data,
+        observation.noise_map,
+        observation.source_truth.gradient,
+        lambda_amplitude=1e6,
+        source_regularization="zero-order",
+    ).fit(0.001, 1000.0)
+    iterative = IterativePotentialCorrection(
+        renderer,
+        observation.image_data,
+        observation.noise_map,
+        initial,
+        lambda_amplitude=1e6,
+        source_regularization="zero-order",
+    ).fit(0.001, 1000.0, gradient_atol=1e-4)
+    assert single.success and iterative.success
+    report = compare_reconstructions(single, iterative)
+    assert report["same_strengths"]
+    assert report["evidence_models"] == [
+        "conditional_linear_gaussian",
+        "local_gauss_newton",
+    ]
+    assert report["reference_inference_objective"] == float(single.objective)
+    expected = 0.5 * np.sum(
+        (
+            (np.asarray(single.data_active) - np.asarray(single.nonlinear_image_active))
+            / np.asarray(single.noise_active)
+        )
+        ** 2
+    ) + 0.5 * float(single.regularization_penalty)
+    np.testing.assert_allclose(
+        report["reference_nonlinear_objective"], expected, atol=1e-10, rtol=0
+    )
+    assert (
+        abs(
+            report["reference_nonlinear_objective"]
+            - report["reference_inference_objective"]
+        )
+        > 1e-8
+    )
+    np.testing.assert_allclose(
+        report["candidate_nonlinear_objective"], iterative.objective, atol=1e-10, rtol=0
+    )
+    assert report["raw_fields_aligned"] is False
+
+
+def test_iterative_runner_compares_saved_dense_single_step_without_refitting_it(
+    tmp_path,
+):
+    from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+    from examples.potential_correction.iterative_scientific import (
+        run_iterative_scientific,
+    )
+    from examples.potential_correction.result_products import export_result
+
+    observation, prepared = _observation_problem()
+    single = SingleStepPotentialCorrection(
+        prepared.renderer,
+        observation.image_data,
+        observation.noise_map,
+        observation.source_truth.gradient,
+        lambda_amplitude=1e6,
+        source_regularization="zero-order",
+    ).fit(0.001, 1000.0)
+    export_result(
+        single,
+        observation,
+        tmp_path / "single/subhalo/dense",
+        configuration={"purpose": "matched reference"},
+        make_plots=False,
+    )
+    config = _configuration()
+    config.update(cases=["subhalo"], backends=["dense"], make_plots=False)
+    run = run_iterative_scientific(
+        config, output=tmp_path / "iterative", single_step_reference=tmp_path / "single"
+    )
+    report = run.record["comparisons"]["algorithms"]["subhalo"]
+    assert report["same_strengths"]
+    assert report["evidence_models"] == [
+        "conditional_linear_gaussian",
+        "local_gauss_newton",
+    ]
+    assert report["reference_inference_objective"] == float(single.objective)
+    assert (
+        report["reference_nonlinear_objective"]
+        != report["reference_inference_objective"]
+    )
+    assert (run.output / "comparisons.json").is_file()
+
+
+def test_case_stopping_controls_remain_explicit_in_public_results(tmp_path):
+    from examples.potential_correction.iterative_scientific import (
+        run_iterative_scientific,
+    )
+
+    config = _configuration()
+    config.update(
+        cases=["control"],
+        backends=["dense"],
+        make_plots=False,
+        case_iteration_options={"control": {"gradient_atol": 2e-4}},
+    )
+    run = run_iterative_scientific(config, output=tmp_path)
+    assert run.record["success"]
+    assert run.results["control/dense"].configuration["gradient_atol"] == 2e-4
+    assert run.record["configuration"]["iteration_options"]["gradient_atol"] == 1e-4

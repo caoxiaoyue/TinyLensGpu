@@ -538,6 +538,128 @@ def load_result(output):
             )
 
 
+def compare_reconstructions(reference, candidate):
+    """Compare matched public raw results without conflating evidence models.
+
+    Inference objectives retain their original image definition. A separate
+    nonlinear objective permits a physical single-step/iterative comparison.
+    All arithmetic after device transfer uses host float64 values.
+    """
+    if not (reference.success and candidate.success):
+        return dict(
+            both_successful=False,
+            termination_reasons=[
+                reference.termination_reason,
+                candidate.termination_reason,
+            ],
+        )
+    for field in (
+        "source_x_axis",
+        "source_y_axis",
+        "source_bbox",
+        "data_active",
+        "noise_active",
+        "derivative_valid",
+    ):
+        if not np.array_equal(
+            np.asarray(getattr(reference, field)), np.asarray(getattr(candidate, field))
+        ):
+            raise ValueError(f"Reconstruction comparison requires identical {field}")
+    for field in ("node_indices", "core_indices", "x", "y", "query_x", "query_y"):
+        if not np.array_equal(
+            np.asarray(getattr(reference.potential_grid, field)),
+            np.asarray(getattr(candidate.potential_grid, field)),
+        ):
+            raise ValueError(
+                f"Reconstruction comparison requires identical potential {field}"
+            )
+
+    def nonlinear_objective(result):
+        residual = (
+            np.asarray(result.data_active) - np.asarray(result.nonlinear_image_active)
+        ) / np.asarray(result.noise_active)
+        return 0.5 * float(residual @ residual) + 0.5 * float(
+            result.regularization_penalty
+        )
+
+    left_strengths, right_strengths = asdict(reference.strengths), asdict(
+        candidate.strengths
+    )
+    left_partition = reference.configuration.get("block_indices")
+    right_partition = candidate.configuration.get("block_indices")
+    report = dict(
+        both_successful=True,
+        same_strengths=all(
+            np.isclose(left_strengths[key], right_strengths[key], rtol=1e-12, atol=0)
+            for key in left_strengths
+        ),
+        same_source_regularization=reference.configuration["source_regularization"]
+        == candidate.configuration["source_regularization"],
+        same_static_partition=(
+            None
+            if left_partition is None or right_partition is None
+            else left_partition == right_partition
+        ),
+        evidence_models=[reference.evidence_method, candidate.evidence_method],
+        determinant_methods=[
+            reference.determinant_method,
+            candidate.determinant_method,
+        ],
+        evidence_exact_flags=[reference.evidence_is_exact, candidate.evidence_is_exact],
+        initialization_provenance=[
+            reference.initialization_provenance,
+            candidate.initialization_provenance,
+        ],
+        reference_inference_objective=float(reference.objective),
+        candidate_inference_objective=float(candidate.objective),
+        reference_nonlinear_objective=nonlinear_objective(reference),
+        candidate_nonlinear_objective=nonlinear_objective(candidate),
+        raw_fields_aligned=False,
+        field_differences={},
+    )
+    valid = np.asarray(reference.derivative_valid)
+    for field in (
+        "source_values",
+        "potential_values",
+        "deflection_x",
+        "deflection_y",
+        "convergence",
+    ):
+        left, right = np.asarray(getattr(reference, field)), np.asarray(
+            getattr(candidate, field)
+        )
+        delta = (
+            (right - left)[valid]
+            if field in ("deflection_x", "deflection_y", "convergence")
+            else right - left
+        )
+        report["field_differences"][field] = dict(
+            max_absolute_difference=float(np.max(np.abs(delta))),
+            rms_difference=_rms(delta),
+        )
+    report["nonlinear_image_rms_difference_noise"] = _rms(
+        (
+            np.asarray(candidate.nonlinear_image_active)
+            - np.asarray(reference.nonlinear_image_active)
+        )
+        / np.asarray(reference.noise_active)
+    )
+    report["candidate_minus_reference_log_evidence"] = float(
+        candidate.log_evidence
+    ) - float(reference.log_evidence)
+    report["inference_objective_component"] = -float(candidate.objective) + float(
+        reference.objective
+    )
+    report["determinant_component"] = -0.5 * (
+        (float(candidate.posterior_logdet) - float(reference.posterior_logdet))
+        - (float(candidate.prior_logdet) - float(reference.prior_logdet))
+    )
+    report["noise_component"] = -0.5 * (
+        float(candidate.noise_logdet) - float(reference.noise_logdet)
+    )
+    return report
+
+
 def plot_iteration_history(result, output, *, diagnostic_failure=False):
     """Plot public trial history, with failed runs visibly diagnostic only.
 
@@ -558,6 +680,9 @@ def plot_iteration_history(result, output, *, diagnostic_failure=False):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     x = np.arange(len(rows))
+    before = np.array(
+        [row.get("objective_before", np.nan) for row in rows], dtype=float
+    )
     after = np.array([row.get("objective_after", np.nan) for row in rows], dtype=float)
     trial = np.array([row.get("objective_trial", np.nan) for row in rows], dtype=float)
     accepted = np.array([row.get("accepted", False) for row in rows])
@@ -566,6 +691,7 @@ def plot_iteration_history(result, output, *, diagnostic_failure=False):
     role = "DIAGNOSTIC FAILURE" if not result.success else "Iterative reconstruction"
     fig.suptitle(f"{role} | {result.backend} | {result.termination_reason}")
     objective, damping_ax, gradient_ax, residual_ax = axes.ravel()
+    objective.plot(x, before, ":", color="gray", label="Before trial")
     objective.plot(x, after, color="black", label="Retained objective")
     objective.plot(
         x[accepted], trial[accepted], "o", ms=4, color="#28795a", label="Accepted trial"
