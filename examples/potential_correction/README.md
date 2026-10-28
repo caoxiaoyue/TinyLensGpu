@@ -341,3 +341,48 @@ scientific recovery claim. The amplitude value 100 is an explicit numerical
 setting. For larger models, reuse one explicit source-incidence partition per
 run/candidate as described above; a refreshed Jacobian does not rebuild that
 partition. Block-evidence calibration is specific to geometry and initialization.
+
+## Nested nonlinear strength tuning
+
+The small numerical nodal example runs a complete fixed-strength nonlinear
+reconstruction for every two-dimensional DIRECT candidate:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_iterative.py \
+  --backend operator --output output/potential_correction_iterative_tuning
+```
+
+Use `--backend dense` for complete local determinants. The explicit defaults
+are a 4x4 image, source2 in [-0.5,0.5]^2, 33 potential nodes, float64,
+zero-order source prior, fixed amplitude precision20, source strength bounds
+[0.1,2], and D4 bounds[0.001,1]. The source is truth-derived bilinear node
+intensity; the Gaussian nodal potential and deterministic image perturbation
+define a controlled numerical case. Every candidate resets the source, zero
+correction and initial damping. The fields, geometry, amplitude precision and
+bounded explicit block partition remain fixed through the outer search.
+
+`--log-source-bounds` and `--log-potential-bounds` take natural logarithms;
+`--maxfun`, `--maxiter`, and `--max-iter` configure DIRECT and inner iteration
+budgets. The accepted tiny partition groups all four source nodes with16
+potential nodes, plus a second17-potential block. Its frozen indices came from
+initial response calibration; runtime selection requires no dense Jacobian.
+This layout is validated only for the stated tiny model and bounds. Changing
+the model, geometry or prior requires a new approximation check.
+
+The Python `main(...)` returns the search object and its common public result
+at `.reconstruction`. `search.json` retains scalar candidates, both evidence
+labels, exact termination reasons, bounds, selected strengths and actual
+budget/boundary status. Successful retained fields, nonlinear images, history,
+geometry and supplied nodal truth are handed to compact `nested_result.json`
+and `nested_result.npz` diagnostics without another fit. The example-specific
+numeric format is separate from scientific exports. All-invalid searches
+write `failure.json` and remove stale nested success products.
+
+The recorded default searches retain converged inner fits but exceed the
+approximate100-evaluation budget at115 and favor the upper D4 boundary.
+`has_valid_fit` is separate from `optimizer_success`. Local Gauss–Newton
+evidence is approximate even with dense determinants; operator block
+determinants add a separate approximation. The independent scan, actual
+selected strengths/recovery changes, and a rejected partition remain in the
+[nested validation report](../../docs/validation/potential-correction-iterative-inference.md).
+This case makes no scientific subhalo-recovery, detection or performance claim.

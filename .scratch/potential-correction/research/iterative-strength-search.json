@@ -1,0 +1,868 @@
+{
+  "strength_bounds": [
+    [
+      0.1,
+      2.0
+    ],
+    [
+      0.001,
+      1.0
+    ]
+  ],
+  "log_bounds": [
+    [
+      -2.3025850929940455,
+      0.6931471805599453
+    ],
+    [
+      -6.907755278982137,
+      0.0
+    ]
+  ],
+  "fixed_lambda_amplitude": 20.0,
+  "fit_options": {
+    "max_iter": 240,
+    "block_size": 20,
+    "block_indices": [
+      [
+        0,
+        1,
+        2,
+        3,
+        21,
+        20,
+        19,
+        28,
+        26,
+        27,
+        18,
+        22,
+        13,
+        12,
+        14,
+        29,
+        25,
+        11,
+        15,
+        9
+      ],
+      [
+        33,
+        8,
+        32,
+        31,
+        7,
+        4,
+        5,
+        6,
+        10,
+        16,
+        17,
+        23,
+        24,
+        30,
+        34,
+        35,
+        36
+      ]
+    ],
+    "pcg_rtol": 1e-12
+  },
+  "search_controls": {
+    "maxfun": 100,
+    "maxiter": 100,
+    "len_tol": 0.001
+  },
+  "scan_shape": [
+    5,
+    5
+  ],
+  "scan": [
+    {
+      "lambda_source": 0.1,
+      "lambda_potential": 0.001,
+      "full_log_evidence": 6.891385508828968,
+      "block_log_evidence": 6.7375189637111355,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 6.89138540582546
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 6.737518846827612
+        }
+      }
+    },
+    {
+      "lambda_source": 0.1,
+      "lambda_potential": 0.005623413251903491,
+      "full_log_evidence": 6.934321562294421,
+      "block_log_evidence": 6.78116879158847,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 6.934321461700449
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 6.7811686772536035
+        }
+      }
+    },
+    {
+      "lambda_source": 0.1,
+      "lambda_potential": 0.03162277660168379,
+      "full_log_evidence": 7.1450501254862075,
+      "block_log_evidence": 6.998215349275991,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 7.145050035866227
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 6.998215246652691
+        }
+      }
+    },
+    {
+      "lambda_source": 0.1,
+      "lambda_potential": 0.1778279410038923,
+      "full_log_evidence": 7.880898779377169,
+      "block_log_evidence": 7.791341816142626,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 7.880898718967835
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 7.791341745563287
+        }
+      }
+    },
+    {
+      "lambda_source": 0.1,
+      "lambda_potential": 1.0,
+      "full_log_evidence": 9.35565326366222,
+      "block_log_evidence": 9.53785684565447,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.355653227730109
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.537856804948525
+        }
+      }
+    },
+    {
+      "lambda_source": 0.21147425268811282,
+      "lambda_potential": 0.001,
+      "full_log_evidence": 8.239235815783935,
+      "block_log_evidence": 8.11441269788164,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.239235964456043
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.114412858329842
+        }
+      }
+    },
+    {
+      "lambda_source": 0.21147425268811282,
+      "lambda_potential": 0.005623413251903491,
+      "full_log_evidence": 8.281272328308063,
+      "block_log_evidence": 8.15712120320103,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.281272471136575
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.157121357525142
+        }
+      }
+    },
+    {
+      "lambda_source": 0.21147425268811282,
+      "lambda_potential": 0.03162277660168379,
+      "full_log_evidence": 8.487586516974517,
+      "block_log_evidence": 8.36946095147773,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.487586635271477
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 8.36946108002374
+        }
+      }
+    },
+    {
+      "lambda_source": 0.21147425268811282,
+      "lambda_potential": 0.1778279410038923,
+      "full_log_evidence": 9.208527853556,
+      "block_log_evidence": 9.145538713405074,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.208527685053589
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.145538527712247
+        }
+      }
+    },
+    {
+      "lambda_source": 0.21147425268811282,
+      "lambda_potential": 1.0,
+      "full_log_evidence": 10.650183707952152,
+      "block_log_evidence": 10.851198174238736,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.65018387009119
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.851198349128211
+        }
+      }
+    },
+    {
+      "lambda_source": 0.447213595499958,
+      "lambda_potential": 0.001,
+      "full_log_evidence": 9.41080078696568,
+      "block_log_evidence": 9.313394001422733,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.410801173258683
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.313394349110617
+        }
+      }
+    },
+    {
+      "lambda_source": 0.447213595499958,
+      "lambda_potential": 0.005623413251903491,
+      "full_log_evidence": 9.451925541305158,
+      "block_log_evidence": 9.355140431956407,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.45192593908439
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.355140794329635
+        }
+      }
+    },
+    {
+      "lambda_source": 0.447213595499958,
+      "lambda_potential": 0.03162277660168379,
+      "full_log_evidence": 9.653725440166689,
+      "block_log_evidence": 9.56261498547369,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.653725867245264
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.562615389728577
+        }
+      }
+    },
+    {
+      "lambda_source": 0.447213595499958,
+      "lambda_potential": 0.1778279410038923,
+      "full_log_evidence": 10.35880392160118,
+      "block_log_evidence": 10.320341711751954,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.358804267879144
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.320342050422084
+        }
+      }
+    },
+    {
+      "lambda_source": 0.447213595499958,
+      "lambda_potential": 1.0,
+      "full_log_evidence": 11.763156774957217,
+      "block_log_evidence": 11.979546591624885,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 11.76315658850337
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 11.97954645161127
+        }
+      }
+    },
+    {
+      "lambda_source": 0.9457416090031759,
+      "lambda_potential": 0.001,
+      "full_log_evidence": 10.150539510660025,
+      "block_log_evidence": 10.075172229015777,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.15053962314726
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.075172478148971
+        }
+      }
+    },
+    {
+      "lambda_source": 0.9457416090031759,
+      "lambda_potential": 0.005623413251903491,
+      "full_log_evidence": 10.19111383582689,
+      "block_log_evidence": 10.116378826551546,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.191113938093594
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.116379058494516
+        }
+      }
+    },
+    {
+      "lambda_source": 0.9457416090031759,
+      "lambda_potential": 0.03162277660168379,
+      "full_log_evidence": 10.39019537596758,
+      "block_log_evidence": 10.321048851056446,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.39019527734073
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.321048590851596
+        }
+      }
+    },
+    {
+      "lambda_source": 0.9457416090031759,
+      "lambda_potential": 0.1778279410038923,
+      "full_log_evidence": 11.085713061985878,
+      "block_log_evidence": 11.067448021900159,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 11.085712996581812
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 11.06744785216172
+        }
+      }
+    },
+    {
+      "lambda_source": 0.9457416090031759,
+      "lambda_potential": 1.0,
+      "full_log_evidence": 12.466320777925162,
+      "block_log_evidence": 12.695977564801531,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 12.46632095177113
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 12.695977779112248
+        }
+      }
+    },
+    {
+      "lambda_source": 2.0,
+      "lambda_potential": 0.001,
+      "full_log_evidence": 9.851950530585988,
+      "block_log_evidence": 9.788929447221381,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.851950586779367
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.78892927103206
+        }
+      }
+    },
+    {
+      "lambda_source": 2.0,
+      "lambda_potential": 0.005623413251903491,
+      "full_log_evidence": 9.893710475828918,
+      "block_log_evidence": 9.83164857855451,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.893710534776162
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 9.83164839567553
+        }
+      }
+    },
+    {
+      "lambda_source": 2.0,
+      "lambda_potential": 0.03162277660168379,
+      "full_log_evidence": 10.098784897454323,
+      "block_log_evidence": 10.043534186696597,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.098784841481923
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.043534355196542
+        }
+      }
+    },
+    {
+      "lambda_source": 2.0,
+      "lambda_potential": 0.1778279410038923,
+      "full_log_evidence": 10.817460227431766,
+      "block_log_evidence": 10.81423750653357,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.817460181111535
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 10.814237657243353
+        }
+      }
+    },
+    {
+      "lambda_source": 2.0,
+      "lambda_potential": 1.0,
+      "full_log_evidence": 12.254451988299472,
+      "block_log_evidence": 12.501251464661376,
+      "backends": {
+        "dense": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 12.254452005293011
+        },
+        "operator": {
+          "success": true,
+          "termination_reason": "converged_objective_update",
+          "log_evidence": 12.501251360699747
+        }
+      }
+    }
+  ],
+  "selected": {
+    "dense": {
+      "strengths": {
+        "lambda_source": 1.2442273078847086,
+        "lambda_potential": 0.9984219699310425,
+        "lambda_amplitude": 20.0
+      },
+      "log_evidence": 12.535785603375118,
+      "full_log_evidence": 12.53578556155481,
+      "block_log_evidence": 12.770360005051725,
+      "recovery": {
+        "source_rmse": 0.2041476856481058,
+        "potential_rmse": 0.019774686139791036,
+        "deflection_rmse": 0.09031323837330338,
+        "convergence_rmse": 0.4022032234999642,
+        "image_rmse": 0.002621188985980834,
+        "chi2": 0.02243471575584402
+      },
+      "optimizer_success": false,
+      "optimizer_status": 1,
+      "message": "Number of function evaluations done is larger than maxfun=100",
+      "nfev": 115,
+      "nit": 13,
+      "boundary_sides": [
+        null,
+        "upper"
+      ],
+      "boundary_distances": [
+        0.15843621399176946,
+        0.00022862368541387568
+      ],
+      "termination_reason": "converged_objective_update",
+      "independent_scan_best": 12.466320777925162,
+      "independent_edge_strengths": [
+        1.244909438134168,
+        1.0
+      ],
+      "independent_edge_log_evidence": 12.537245029816042,
+      "independent_edge_evidence_gap": -0.0014594682612312226,
+      "candidate_terminations": {
+        "converged_objective_update": 115
+      }
+    },
+    "operator": {
+      "strengths": {
+        "lambda_source": 1.259661227006847,
+        "lambda_potential": 0.9984219699310425,
+        "lambda_amplitude": 20.0
+      },
+      "log_evidence": 12.770471378313687,
+      "full_log_evidence": 12.535640770115577,
+      "block_log_evidence": 12.770471494502754,
+      "recovery": {
+        "source_rmse": 0.20458224553819837,
+        "potential_rmse": 0.01993296860726059,
+        "deflection_rmse": 0.09089623839480061,
+        "convergence_rmse": 0.4037000821852297,
+        "image_rmse": 0.0026429905086446984,
+        "chi2": 0.022809465563382727
+      },
+      "optimizer_success": false,
+      "optimizer_status": 1,
+      "message": "Number of function evaluations done is larger than maxfun=100",
+      "nfev": 115,
+      "nit": 13,
+      "boundary_sides": [
+        null,
+        "upper"
+      ],
+      "boundary_distances": [
+        0.15432098765432092,
+        0.00022862368541387568
+      ],
+      "termination_reason": "converged_objective_update",
+      "independent_scan_best": 12.695977564801531,
+      "independent_edge_strengths": [
+        1.2574114190929482,
+        1.0
+      ],
+      "independent_edge_log_evidence": 12.772304953738594,
+      "independent_edge_evidence_gap": -0.001833459235839996,
+      "candidate_terminations": {
+        "converged_objective_update": 115
+      }
+    }
+  },
+  "full_evidence_regret_of_operator_selection": 0.0016042597004641834,
+  "dense_minus_operator_selection_full_log_evidence": 0.00014479143923296078,
+  "selected_image_rms_difference": 2.5036174905951087e-05,
+  "maximum_field_error": 4.7502317301884034e-08,
+  "maximum_fixed_state_evidence_formula_error": 5.0171422572020674e-11,
+  "maximum_independent_map_evidence_error": 4.2707857517143566e-07,
+  "minimum_source_cell_margin": 0.10149051684965366,
+  "partition_calibration": {
+    "selected_rule": "all four tiny source nodes plus sixteen potential nodes ranked by initial independent response squared norm; remaining seventeen potential nodes in second block",
+    "runtime_rule": "frozen explicit indices; no runtime dense Jacobian or candidate-dependent repartition",
+    "selected_indices": [
+      [
+        0,
+        1,
+        2,
+        3,
+        21,
+        20,
+        19,
+        28,
+        26,
+        27,
+        18,
+        22,
+        13,
+        12,
+        14,
+        29,
+        25,
+        11,
+        15,
+        9
+      ],
+      [
+        33,
+        8,
+        32,
+        31,
+        7,
+        4,
+        5,
+        6,
+        10,
+        16,
+        17,
+        23,
+        24,
+        30,
+        34,
+        35,
+        36
+      ]
+    ],
+    "selected_block_sizes": [
+      20,
+      17
+    ],
+    "initial_potential_response_squared_norms": [
+      0.0,
+      0.0,
+      0.0,
+      0.0015258789056140504,
+      0.01770019531224402,
+      0.035705566409661424,
+      0.0,
+      1.891174316418273,
+      3.7854003906165063,
+      3.975952148459724,
+      3.695556640589048,
+      1.8911743163901273,
+      0.0,
+      0.0,
+      4.412231445335172,
+      8.827514648391668,
+      8.877441406259932,
+      8.878295898426073,
+      4.412231445321467,
+      0.0,
+      0.0,
+      2.540588378908914,
+      5.084228515615482,
+      4.940795898463258,
+      5.328369140593787,
+      2.540588378922445,
+      0.0,
+      0.001525878906438044,
+      0.01770019531181034,
+      0.035705566406018505,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scope": "this fixed 37-unknown numerical model, initialization and bounds only; no scientific-grid transfer",
+    "rejected_layout": {
+      "indices": [
+        [
+          0,
+          1,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        [
+          2,
+          3,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36
+        ]
+      ],
+      "block_sizes": [
+        19,
+        18
+      ],
+      "strengths": {
+        "lambda_source": 1.6386006786140481,
+        "lambda_potential": 0.9984219699310425,
+        "lambda_amplitude": 20.0
+      },
+      "log_evidence": 8.957141005097242,
+      "independent_full_log_evidence": 12.448473911040466,
+      "independent_block_log_evidence": 8.957141047703228,
+      "full_evidence_regret": 0.08877111877557553,
+      "dense_selected_minus_rejected_full_evidence": 0.08731165051434431,
+      "recovery": {
+        "source_rmse": 0.21335321403580046,
+        "potential_rmse": 0.023734833299896473,
+        "deflection_rmse": 0.10451938289325746,
+        "convergence_rmse": 0.4337249012754915,
+        "image_rmse": 0.003170956880215622,
+        "chi2": 0.03283254705693645
+      },
+      "recovery_ratios_to_dense_selection": {
+        "source_rmse": 1.045092494477564,
+        "potential_rmse": 1.2002634647200163,
+        "deflection_rmse": 1.1572985840817045,
+        "convergence_rmse": 1.0783725140271785
+      },
+      "optimizer_success": false,
+      "optimizer_status": 1,
+      "nfev": 115,
+      "nit": 13,
+      "message": "Number of function evaluations done is larger than maxfun=100",
+      "boundary_sides": [
+        null,
+        "upper"
+      ],
+      "accepted_for_validation": false,
+      "rejection": "potential and deflection recovery errors exceed the unchanged 10% increase guard"
+    }
+  },
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "devices": [
+      "cuda:0"
+    ],
+    "git_revision": "6729301c75d5fa8736fcc80f833ff39f29d76e2b",
+    "git_dirty": true,
+    "source_sha256": {
+      "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615",
+      "tests/test_potential_correction_iterative_inference.py": "195448029ca3072e5f794fc9d18af7f96d0e531177de3bd3086b4ba41107e0d2",
+      "tests/potential_correction_nested_reference.py": "b4749882a6b91f4f74487a8dabf61b1989ee5a1d3dd056267a0ea189c6a8d0b8",
+      "examples/potential_correction/tune_iterative.py": "c10823eb0b5dac11a86bc8d90823f29f1ec7bd47535f599afcafa1fddf5cf7bf",
+      ".scratch/potential-correction/experiments/iterative_strength_search.py": "a5d1617c9d2abd6fc6a0da259a51de89d5cbd7a22241aa198291dfe52973c969"
+    }
+  },
+  "model": {
+    "image_shape": [
+      4,
+      4
+    ],
+    "dpix": 0.1,
+    "nsub": 1,
+    "psf_shape": [
+      1,
+      1
+    ],
+    "n_data": 16,
+    "n_source": 4,
+    "n_potential": 33,
+    "n_joint": 37,
+    "source_n": 2,
+    "source_bbox": [
+      -0.5,
+      0.5,
+      -0.5,
+      0.5
+    ],
+    "source_truth": [
+      0.4,
+      1.1,
+      0.2,
+      1.4
+    ],
+    "source_regularization": "zero-order",
+    "potential_truth": "0.003*exp(-((x-.07)^2+(y+.03)^2)/.02), raw nodal values; no alignment",
+    "data": "nonlinear nodal source/potential render + .002*sin(pixel_index)",
+    "noise_sigma": 0.07,
+    "macro": "fixed zero shear",
+    "dtype": "float64",
+    "initialization": "same supplied source truth nodes and zero potential every fit",
+    "evidence": "local Gauss-Newton, undamped; full versus bounded principal determinants independently labeled",
+    "locality": "all reference solutions and finite-difference probes remain in the single interior source cell; halved-step derivative check enforced",
+    "scope": "controlled numerical nodal validation, not scientific subhalo recovery or detection"
+  },
+  "guards": {
+    "independent_scaled_gradient": 1e-08,
+    "independent_derivative_step_error": 1e-08,
+    "field_atol": 4e-07,
+    "field_rtol": 3e-06,
+    "objective_atol": 2e-12,
+    "same_state_evidence_atol": 3e-08,
+    "independent_map_evidence_atol": 2e-06,
+    "same_strength_backend_atol": 2e-08,
+    "same_strength_backend_rtol": 2e-07,
+    "budget_edge_log_evidence_gap": 0.005,
+    "selected_full_evidence_regret": 0.005,
+    "maximum_recovery_error_ratio_to_dense": 1.1,
+    "selected_image_difference_in_noise_units": 0.1
+  }
+}
