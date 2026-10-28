@@ -24,6 +24,7 @@ from .potential_correction_result import (
     PotentialCorrectionStrengths,
     PotentialSolverInfo,
 )
+from ._potential_correction_common import _dense_response_columns
 
 
 class _DenseSolution(NamedTuple):
@@ -278,9 +279,9 @@ class SingleStepPotentialCorrection:
         """Explicitly materialize the complete coupled image design matrix."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             if self._dense_design is None:
-                self._dense_design = jax.jit(jax.vmap(self.forward))(
-                    jnp.eye(self.n_joint, dtype=self.dtype)
-                ).T
+                self._dense_design = jax.jit(
+                    lambda: _dense_response_columns(self.forward, self.n_joint, self.dtype)
+                )()
             return self._dense_design
 
     def dense_prior(self, lambda_source, lambda_potential):
