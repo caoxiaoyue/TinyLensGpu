@@ -1,0 +1,84 @@
+{
+  "mock_configuration": {
+    "npix": 200,
+    "dpix": 0.02,
+    "nsub": 2,
+    "theta_E": 1.0,
+    "macro_center_x": 0.0,
+    "macro_center_y": 0.0,
+    "gamma1": 0.05,
+    "gamma2": 0.02,
+    "b_sub": 0.01,
+    "subhalo_x": 0.9,
+    "subhalo_y": 0.1,
+    "noise_sigma": 0.01,
+    "seed": 17,
+    "psf_sigma": 0.04,
+    "psf_size": 9,
+    "mask_inner": 0.6,
+    "mask_outer": 1.4,
+    "dtype": "float64",
+    "source": {
+      "center_x": 0.05,
+      "center_y": 0.03,
+      "sigma_x": 0.12,
+      "sigma_y": 0.08,
+      "amplitude": 1.0,
+      "clump_fraction": 0.35,
+      "clump_dx": -0.13,
+      "clump_dy": 0.1,
+      "clump_scale": 0.5
+    }
+  },
+  "source_bbox": [
+    -0.6,
+    0.6,
+    -0.6,
+    0.6
+  ],
+  "potential_spacing": 0.04,
+  "rows": [
+    {
+      "source_n": 41,
+      "case": "subhalo",
+      "n_data": 12552,
+      "n_core": 3420,
+      "n_potential": 3980,
+      "rms_intensity": 0.004797020879434138,
+      "rms_in_noise_units": 0.47970208794341385
+    },
+    {
+      "source_n": 41,
+      "case": "control",
+      "n_data": 12552,
+      "n_core": 3420,
+      "n_potential": 3980,
+      "rms_intensity": 0.004784894503748911,
+      "rms_in_noise_units": 0.4784894503748911
+    },
+    {
+      "source_n": 61,
+      "case": "subhalo",
+      "n_data": 12552,
+      "n_core": 3420,
+      "n_potential": 3980,
+      "rms_intensity": 0.0020852486242807183,
+      "rms_in_noise_units": 0.20852486242807183
+    },
+    {
+      "source_n": 61,
+      "case": "control",
+      "n_data": 12552,
+      "n_core": 3420,
+      "n_potential": 3980,
+      "rms_intensity": 0.002079690596724077,
+      "rms_in_noise_units": 0.20796905967240772
+    }
+  ],
+  "software": {
+    "jax": "0.7.1",
+    "numpy": "2.4.6"
+  },
+  "device": "cuda:0",
+  "interpretation": "Supplied analytic truth sampled onto the fixed source/potential grids. No reconstruction, smoothing, alignment, or evidence evaluation. Differences from the analytic noiseless mock include source bilinear interpolation and potential finite-difference/interpolation error. The matched control helps separate source discretization from the additional potential discretization. These are not recovery errors."
+}

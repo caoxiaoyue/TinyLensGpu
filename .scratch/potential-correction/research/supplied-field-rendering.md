@@ -109,6 +109,23 @@ relative tolerance is 2×10⁻¹³. The independent nonzero rendering check uses
 absolute image tolerance of 2×10⁻¹⁴. Float32 endpoint/output checks use 10⁻⁶.
 These are small numerical systems, not a recovery or performance calibration.
 
+An additional supplied-truth check at the 200-by-200 mock size is retained in
+[supplied-truth-rendering.json](supplied-truth-rendering.json). Reproduce it
+from the repository root in `tinylens_gpu` with:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false PYTHONPATH=. \
+  python .scratch/potential-correction/experiments/supplied_truth_rendering.py
+```
+
+It samples analytic source brightness and potential onto the fixed grids and
+compares the nonlinear rendering to the noiseless analytic mock, with no fit.
+The record includes the complete mock configuration. Source sides 41 and 61
+give approximately 0.48 and 0.21 noise units RMS, respectively, for both mock
+and control. The nearly matched control errors identify source interpolation
+as the dominant contribution in this configuration. This result informs later
+grid calibration; it does not establish reconstruction accuracy.
+
 The coordinator already recorded the 810-test unchanged core baseline and
 ticket 01's 372 source/operator/autodiff regressions. This ticket adds new
 modules and re-exports only; it does not repeat those broad checks.
