@@ -35,8 +35,13 @@ are implemented. The combined focused check passed 31 cases (14 dense plus
 and [dense fit API and verification record](research/dense-single-step.md).
 The dense result provides signed coupled fields, complete conditional Gaussian
 evidence, distinct linear/nonlinear images and explicit failure metadata.
-Strength optimization, operator calibration, iterative fits and scientific
-reconstruction/performance validation remain outstanding downstream stages.
+Dense strength optimization now uses bounded DIRECT with a reusable
+log-strength callable, complete candidate fits, explicit failure/boundary
+metadata, and a small runnable tuning example. Its focused/shared core check
+passed 181 cases and its separate example check passed 13; see the
+[API and independent-scan record](research/dense-strength-optimization.md).
+Operator calibration, iterative fits and scientific reconstruction/performance
+validation remain outstanding downstream stages.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or
