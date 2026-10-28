@@ -5,7 +5,7 @@
 **Blocked by:** 09 — Operator iterative reconstruction at fixed strengths.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -25,4 +25,12 @@
 Reuse the established optimizer and result boundaries. Do not update strengths
 inside LM, reinterpret failed terminal iterates as successful fits, or change
 the search to a path-dependent warm-start procedure.
+
+## Comments
+
+- Claimed by `/root/iterative_exploration` on `codex/pc-10` in
+  `/tmp/tinylens-pc-10`, based exactly on integration
+  `2675c9b3107b47d3d2c7ac2af4ef2dad28dcbc72`. Ticket 09 is resolved and merged.
+  Implementation follows the approved public fit/evidence/result and artifact
+  seams, with independent small nonlinear validation; no scientific-200 work.
 

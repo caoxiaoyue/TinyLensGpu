@@ -22,7 +22,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PotentialCorrectionEvaluation:
-    """A scalar candidate record; full fields are retained only for the best fit."""
+    """Scalar candidate diagnostics, separate from full best-fit fields.
+
+    Local linearization and determinant approximation have distinct labels.
+    ``solver_reason`` describes the last inner linear solve; nonlinear
+    convergence or stalling is described by ``termination_reason``. Candidates
+    rejected before a fit have no algorithm or evidence-method metadata.
+    """
 
     log_strengths: tuple[float, float]
     strengths: PotentialCorrectionStrengths
@@ -32,6 +38,12 @@ class PotentialCorrectionEvaluation:
     failure_reason: str | None
     dtype: str
     backend: str
+    algorithm: str | None = None
+    termination_reason: str | None = None
+    evidence_method: str | None = None
+    determinant_method: str | None = None
+    evidence_is_exact: bool | None = None
+    solver_reason: str | None = None
 
 
 class PotentialCorrectionEvidence:
@@ -99,6 +111,7 @@ class PotentialCorrectionEvidence:
                     "strength_out_of_range",
                     self.dtype.name,
                     self.backend,
+                    termination_reason="strength_out_of_range",
                 )
             )
             return np.inf
@@ -120,6 +133,12 @@ class PotentialCorrectionEvidence:
             result.failure_reason,
             result.dtype,
             result.backend,
+            algorithm=result.algorithm,
+            termination_reason=result.termination_reason,
+            evidence_method=result.evidence_method,
+            determinant_method=result.determinant_method,
+            evidence_is_exact=result.evidence_is_exact,
+            solver_reason=result.solver_info.reason,
         )
         self._evaluations.append(evaluation)
         if evaluation.success and (
