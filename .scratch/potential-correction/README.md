@@ -20,9 +20,10 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–13 are resolved and merged. Ticket 14 is resolved and ready for
-integration; the mandatory final review/fix gate follows that merge. The parent
-spec is not marked complete by this documentation/integration handoff.
+Tickets 01–14 are resolved and merged. The mandatory final review identified
+one spec finding and two nonblocking standards judgments; their fixes and
+verification are recorded below. The parent spec remains open for the
+coordinator's final independent verification and closure.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -40,6 +41,9 @@ retains broad/targeted commands and log/source hashes.
 
 Focused commands, configurations and outcomes are retained in:
 
+- [Mandatory review fixes](../../docs/validation/potential-correction-review.md)
+  retain both frozen axes separately, artifact-cycle regressions, shared
+  operator/consumer invariants and the post-review verification snapshot.
 - [Source preparation](research/source-preparation-verification.md).
 - [Mock generation](../../examples/potential_correction/README.md) and ticket 02.
 - [Supplied-field rendering](research/supplied-field-rendering.md), including

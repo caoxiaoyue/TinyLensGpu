@@ -1,0 +1,378 @@
+{
+  "recorded_at_utc": "2026-10-28T21:17:55.513127+00:00",
+  "scope": "All three frozen review findings fixed in one implementation worktree; parent spec remains open for coordinator verification/closure.",
+  "owner": {
+    "branch": "codex/pc-review-fix",
+    "worktree": "/tmp/tinylens-pc-review-fix"
+  },
+  "review_base": "5bbfdfae4031e92cb107d4bbfca3bf55e7c8e411",
+  "frozen_review_head": "e14ea508f53eec3ebe4c6f57f887aa6716a725fc",
+  "verified_code_and_tests_commit": "7ea87e4e6f999cd9ea8cbd09c16f6e8549aa8111",
+  "implementation_commits": [
+    "e08a237c0fec390fcfa77af0ddae989125ea6261",
+    "7ea87e4e6f999cd9ea8cbd09c16f6e8549aa8111"
+  ],
+  "frozen_axes": {
+    "standards": {
+      "path": ".scratch/potential-correction/research/review/frozen-standards.md",
+      "sha256": "c8de921db7627bd3e884f7dbe61739f9ca682e2e57a37ff6945c2e7ba4211813"
+    },
+    "spec": {
+      "path": ".scratch/potential-correction/research/review/frozen-spec.md",
+      "sha256": "d3fcaf840fae10b49fa0f08bc8c7c19a93be8bd8d7e0a28984b0f25f0a371dd6"
+    },
+    "spec_probes": {
+      "path": ".scratch/potential-correction/research/review/frozen-spec-probes.json",
+      "sha256": "fe8f4c988bf7f4c5dc55cabdcd52e397ccc38b9106b050830c0d320abee90821"
+    }
+  },
+  "frozen_reports_verbatim_verified": true,
+  "environment": {
+    "conda": "tinylens_gpu",
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "jaxlib": "0.7.1",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "driver": "610.57.04",
+    "vram_mib": 16303
+  },
+  "overrides": {
+    "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+    "MPLBACKEND": "Agg",
+    "PYTHONPATH": "/tmp/tinylens-pc-review-fix"
+  },
+  "serial_separate_suite_processes": true,
+  "source_sha256": {
+    "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+    "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+    "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+    "examples/potential_correction/_recovery_diagnostics.py": "aca437e001132ea37641f285683812d63523f3c1bfbba8a3e5ff1642397e3850",
+    "examples/potential_correction/calibrate_single_step.py": "ee294bdf615e23c5923fab550fcc286c086b4e6cd6e1778a5bad3b6ec80f56c6",
+    "examples/potential_correction/result_products.py": "584a6fcbb16419449cb9a7dc39af308f6c3b1fa3450cb8b19ddbedca018ced49",
+    "examples/potential_correction/single_step_operator.py": "25d457fccf83b93c5f0a7def381569afc253a058329d12a3310095bfd9f838d4",
+    "examples/potential_correction/tune_single_step.py": "d619e66ed4b3c683b34d17bf7d5587ddb07be71673a0ae15e1c5c78eb0f58f77"
+  },
+  "verification_tree_note": "Runtime and maintained tests committed at 7ea87e4 before broad checks. Only the documentation/index and this record changed while those checks ran.",
+  "red_green": {
+    "approved_seams": ".scratch/potential-correction/spec.md Testing Decisions 1 and 11; public example fit/result/artifact boundaries.",
+    "red_source": "e14ea508 plus each new public regression, before its minimal exporter fix",
+    "operator_red": {
+      "command": "pytest -q test_potential_correction_operator_example.py::test_fixed_operator_reruns_replace_success_with_failure_and_recover",
+      "cwd": "/tmp/tinylens-pc-review-fix/examples/tests",
+      "exit_code": 1,
+      "seconds": 7.64,
+      "assertion": "stale configuration.json still exists after real pcg_iteration_limit"
+    },
+    "tuning_red": {
+      "command": "pytest -q test_potential_correction_tuning.py::test_tuning_reruns_remove_all_invalid_products_and_recover",
+      "cwd": "/tmp/tinylens-pc-review-fix/examples/tests",
+      "exit_code": 1,
+      "seconds": 7.47,
+      "assertion": "stale reconstruction.npz still exists after all candidates report nonfinite_system"
+    },
+    "first_green": {
+      "command": "pytest -q test_potential_correction_operator_example.py test_potential_correction_tuning.py",
+      "cwd": "/tmp/tinylens-pc-review-fix/examples/tests",
+      "exit_code": 0,
+      "passed": 4,
+      "seconds": 13.94,
+      "log": null,
+      "note": "Exact initial output retained in session; both files also passed in the logged post-review 73-case suite."
+    },
+    "numerical_solves_mocked": false
+  },
+  "checks": [
+    {
+      "name": "operator_checkpoint",
+      "cwd": "/tmp/tinylens-pc-review-fix/tests",
+      "command": "pytest -q test_potential_correction_operator.py test_potential_correction_iterative_operator.py",
+      "exit_code": 0,
+      "passed": 36,
+      "seconds": 51.83,
+      "scope": "Both adapters: full coupled dense comparison, complete prior, controls, failures, current-J refresh/cache and float32/defaults.",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/operator-focused.log",
+      "log_sha256": "37549101ebd52b597f9076639c49602d6f9faef74c5aae6dfe067f63fb8b2e68"
+    },
+    {
+      "name": "consumer_checkpoint",
+      "cwd": "/tmp/tinylens-pc-review-fix/examples/tests",
+      "command": "pytest -q test_potential_correction_calibration.py",
+      "exit_code": 0,
+      "passed": 4,
+      "seconds": 29.75,
+      "scope": "Both layouts, frozen known-value/schema comparisons and restored public-result consumer fixtures.",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/consumer-focused.log",
+      "log_sha256": "5131d4eff26f273e2f1c6b4f495d222bdebc34d287698a82b96a027260232251"
+    },
+    {
+      "name": "post_review_core",
+      "cwd": "/tmp/tinylens-pc-review-fix/tests",
+      "command": "pytest -q test_potential_correction_*.py test_curvature_operator.py test_pixelized_source_precision.py test_regularization.py test_solver_autodiff.py test_operator_autodiff.py test_pixelized_operator.py",
+      "exit_code": 0,
+      "passed": 434,
+      "seconds": 423.81,
+      "scope": "All potential-correction files including both slow scientific64 refinement/budget tests; source priors/precision, curvature, legacy PCG/Schur and solver/operator autodiff. No marker exclusions.",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/core-postreview.log",
+      "log_sha256": "99bd7a93d34c5922044a73ed031ba8b2fbb3bd2d79da3aa0249c627d6ad8e833"
+    },
+    {
+      "name": "post_review_examples",
+      "cwd": "/tmp/tinylens-pc-review-fix/examples/tests",
+      "command": "pytest -q test_potential_correction_*.py test_source_compatibility.py --basetemp=/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/example-tests",
+      "exit_code": 0,
+      "passed": 73,
+      "seconds": 122.19,
+      "scope": "All potential-correction example tests and source compatibility: artifact cycles, calibration, scientific consumers/plots, tuning and failure records.",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/examples-postreview.log",
+      "log_sha256": "c3010e869a60d1147b1e5c2d201733eb502083fc16a7a1c3aeac619a375d4d06"
+    },
+    {
+      "name": "post_review_benchmarks",
+      "cwd": "/tmp/tinylens-pc-review-fix/benchmarks",
+      "command": "pytest -q -s test_potential_correction_memory.py test_potential_correction_preconditioner.py test_potential_correction_workflow.py --basetemp=/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/benchmark-tests",
+      "exit_code": 0,
+      "passed": 5,
+      "seconds": 37.37,
+      "scope": "Serial isolated bounded-memory probes, principal preconditioner application and two representative workflow workers. No full 45-worker or 200-pixel campaign.",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/benchmarks-postreview.log",
+      "log_sha256": "6929928561cf8d02a9a9398dda0f9b4ef9a08cecaf4be65875fb7aee2636f143"
+    }
+  ],
+  "consumers": {
+    "fixture_root": "examples/tests/fixtures/potential_correction_consumers",
+    "captured_source_commit": "e14ea508f53eec3ebe4c6f57f887aa6716a725fc",
+    "original_consumer_sha256": {
+      "examples/potential_correction/calibrate_single_step.py": "eb026e2be1ef366f1830a0443a887af6404dd780f469c69cefbcea7ea1e4aac0",
+      "examples/potential_correction/result_products.py": "aaa5f80d8a9779638886c5579eb7f18652e59a9dd3bd25564b697c5621aea27a",
+      "examples/potential_correction/mock.py": "81b1b95a9a8817bbba17a232da23e3ddba29d426ac7dd3db163d2dfd6615c89f"
+    },
+    "fixture_sha256": {
+      "examples/tests/fixtures/potential_correction_consumers/README.md": "afc05976b6136c36a90d287e9c7c8de4990bcfd58932c557dde28f6375ef090b",
+      "examples/tests/fixtures/potential_correction_consumers/baseline.json": "c2da229fed75a97bfed67cfaba45338622445b1eaacce7e7fa8038f0692e7d5d",
+      "examples/tests/fixtures/potential_correction_consumers/control/reconstruction.npz": "a72eca35bebb9d13b96376d7a94d1d58a1f9f2e34608fcfadb99e140e645364e",
+      "examples/tests/fixtures/potential_correction_consumers/control/result.json": "2a55417e9d0667eeb53c26f3dc6730e5dd3f643af6eed7cd4e7c6c23ec296cfa",
+      "examples/tests/fixtures/potential_correction_consumers/subhalo/reconstruction.npz": "a1f9f4602b37e19aeee71e15b7c1921527387e3c524ef92a7f0b534b2b934b85",
+      "examples/tests/fixtures/potential_correction_consumers/subhalo/result.json": "9106a9c0c0eacfb0a0e927deecab5b99319a60bcfba5b5feb49febfda9809993"
+    },
+    "nominal_b_sub": 0.4,
+    "local_radius_arcsec": 1.058300524425836,
+    "domain_counts": {
+      "all_core": 37,
+      "illuminated_core": 15,
+      "local_core": 18
+    },
+    "note": "Small diagnostic configuration; control actual strength is zero but disk uses nominal configured strength. Saved public results and frozen known metrics anchor parity without a large calibration rerun."
+  },
+  "benchmark_checks": {
+    "memory": [
+      {
+        "device": "cuda:0",
+        "algorithm": "single_step",
+        "termination_reason": "solved",
+        "completed_linear_solves": 0,
+        "n_source": 9216,
+        "n_potential": 9249,
+        "n_joint": 18465,
+        "n_data": 9,
+        "block_size": 8,
+        "block_count": 2309,
+        "largest_live_array_elements": 147776,
+        "peak_bytes_in_use": 13099264,
+        "bytes_in_use": 4932352
+      },
+      {
+        "device": "cuda:0",
+        "algorithm": "iterative",
+        "termination_reason": "iteration_limit",
+        "completed_linear_solves": 9,
+        "n_source": 9216,
+        "n_potential": 9249,
+        "n_joint": 18465,
+        "n_data": 9,
+        "block_size": 8,
+        "block_count": 2309,
+        "largest_live_array_elements": 147776,
+        "peak_bytes_in_use": 14567424,
+        "bytes_in_use": 3673088
+      }
+    ],
+    "preconditioner": {
+      "scope": "Synthetic bounded principal-block application benchmark through public code.\n\nMeasures repeated application after inverse-factor preparation. Blocks are\nwell conditioned; this is not an ill-conditioned accuracy or whole-fit claim.\n",
+      "platform": "gpu",
+      "device": "cuda:0",
+      "blocks": 9,
+      "width": 834,
+      "dtype": "float64",
+      "inverse_preparation_seconds": 0.012034086044877768,
+      "measurements": [
+        {
+          "round": 0,
+          "method": "triangular",
+          "seconds_per_apply": 0.003051738697104156
+        },
+        {
+          "round": 0,
+          "method": "inverse_factor_matvec",
+          "seconds_per_apply": 0.00014235889539122583
+        },
+        {
+          "round": 1,
+          "method": "triangular",
+          "seconds_per_apply": 0.00302806404652074
+        },
+        {
+          "round": 1,
+          "method": "inverse_factor_matvec",
+          "seconds_per_apply": 0.0001371732563711703
+        },
+        {
+          "round": 2,
+          "method": "triangular",
+          "seconds_per_apply": 0.0030225493013858796
+        },
+        {
+          "round": 2,
+          "method": "inverse_factor_matvec",
+          "seconds_per_apply": 0.00013476274907588958
+        }
+      ],
+      "max_abs_difference": 8.881784197001252e-16,
+      "relative_l2_difference": 3.4020618025871853e-16
+    },
+    "workflows": [
+      {
+        "case": "coupled37",
+        "artifact": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/benchmark-tests/test_isolated_workflow_reports0/fit.json",
+        "artifact_sha256": "54395b141100d02dc7372a4a5a6a7ed91b82baba12fc3f1767f338db290300a4",
+        "counts": {
+          "image_shape": [
+            4,
+            4
+          ],
+          "data": 16,
+          "source": 4,
+          "core": 9,
+          "support": 33,
+          "support_only": 24,
+          "joint": 37,
+          "query_subpixels": 16,
+          "mock_nsub": 1,
+          "inversion_nsub": 1
+        },
+        "timing": {
+          "setup_seconds": 2.0346085720229894,
+          "first_fit_compile_inclusive_seconds": 1.7933263478334993,
+          "warm_fit_seconds": [
+            0.008956948993727565,
+            0.007846549153327942
+          ],
+          "cold_workflow_seconds": 3.827943075913936
+        },
+        "success": true,
+        "termination_reason": "solved",
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 32,
+          "residual_norm": 1.3949733378587487e-10,
+          "relative_residual": 4.3555699416000735e-14,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "peak_bytes_in_use": 60928,
+        "prohibited_live_shapes": [
+          [
+            4,
+            4
+          ]
+        ],
+        "precision_defaults": {
+          "before": {
+            "x64": false,
+            "matmul": null
+          },
+          "after": {
+            "x64": false,
+            "matmul": null
+          }
+        },
+        "input_sha256": "0ff731120efae87b0985e03e96616c4ae680261bec96306d62544af77a2abf5c"
+      },
+      {
+        "case": "scientific64_source65",
+        "artifact": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/review-fix/benchmark-tests/test_actual_fixed_image_source0/axis.json",
+        "artifact_sha256": "4b97c0fee93bb016ab8a91c339a91b629927e0bee0133081c9e48d7ebe0020ed",
+        "counts": {
+          "image_shape": [
+            64,
+            64
+          ],
+          "data": 2252,
+          "source": 4225,
+          "core": 416,
+          "support": 592,
+          "support_only": 176,
+          "joint": 4817,
+          "query_subpixels": 9008,
+          "mock_nsub": 2,
+          "inversion_nsub": 2
+        },
+        "timing": {
+          "setup_seconds": 3.093860781053081,
+          "first_fit_compile_inclusive_seconds": 3.716898006852716,
+          "warm_fit_seconds": [],
+          "cold_workflow_seconds": 6.810767063172534
+        },
+        "success": true,
+        "termination_reason": "solved",
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 1227,
+          "residual_norm": 1.703868106573009e-05,
+          "relative_residual": 8.309427771011921e-13,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "peak_bytes_in_use": 228778752,
+        "prohibited_live_shapes": [],
+        "precision_defaults": {
+          "before": {
+            "x64": false,
+            "matmul": null
+          },
+          "after": {
+            "x64": false,
+            "matmul": null
+          }
+        },
+        "input_sha256": "b45f8bd32df7e30a7b18ebc755d540a10070442e5b2ff49acae1b5ca7106e616"
+      }
+    ],
+    "small_shape_alias_note": "coupled37 has four source coefficients and a 4x4 observed image, so its shape-only audit lists (4,4). That worker tests numerical/timing/dtype/default behavior, not the no-square-shape assertion. The physical source65/image64 worker has no prohibited live shapes; both 18465-coefficient probes pass their explicit bounded-allocation checks.",
+    "timing_scope": "New small/synthetic benchmark checks only at verified source 7ea87e4; not a remeasurement of the historical full 45-worker campaign or a whole-workflow speedup claim."
+  },
+  "historical_evidence_unchanged": {
+    "core_pre_compatibility": 957,
+    "core_post_compatibility": 67,
+    "examples": 286,
+    "benchmarks": 14,
+    "record": ".scratch/potential-correction/research/final-integration-verification.json"
+  },
+  "retained_limits": [
+    "Scientific 200-pixel and full 45-worker campaigns were not rerun; their evidence remains attached to the original snapshots/configurations.",
+    "Existing scientific float32 failures/null evidence and the named supported small float32 profile are retained.",
+    "Existing recovery, amplitude sensitivity, low-mode and determinant-approximation limitations are retained.",
+    "No solver/controller default, tolerance, physical model or generic CG/source-lens-light math was changed.",
+    "The parent spec and all 14 implementation ticket states are unchanged; coordinator owns final independent verification and closure."
+  ],
+  "additional_checks": {
+    "black_default": "12 changed Python files pass --check",
+    "git_diff_check": true,
+    "review_and_fixture_local_links": "all targets exist"
+  }
+}

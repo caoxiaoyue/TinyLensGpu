@@ -3,7 +3,8 @@
 Review ownership: `codex/pc-review-fix`, worktree
 `/tmp/tinylens-pc-review-fix`, based on integration commit
 `e14ea508f53eec3ebe4c6f57f887aa6716a725fc`. The implementation agent owns all
-three frozen findings. Status: fixes implemented; broader verification pending.
+three frozen findings. Status: fixes implemented and post-review checks passed;
+coordinator verification pending.
 The 14 implementation tickets remain resolved; the parent spec remains open
 for the coordinator's final review and closure.
 
@@ -77,9 +78,54 @@ support and unchanged image/evidence products.
 
 ## Verification and provenance
 
-New commands, outcomes, source hashes and their scope will be recorded here and
-in a compact research summary. Existing 957-case broad core, 67-case compatibility,
-286-case example and 14-case benchmark evidence remains historical at its
-original source/configuration; it is not a new measurement of these fixes.
+The [compact post-review record](../../.scratch/potential-correction/research/review/post-review-verification.json)
+retains exact commands, working directories, source/log/artifact hashes,
+environment, red/green observations and bounded performance measurements.
+Broad checks ran against committed runtime and tests at
+`7ea87e4e6f999cd9ea8cbd09c16f6e8549aa8111`. Subsequent changes only update this
+record and the feature index; the recorded runtime hashes match the final code.
+
+All commands used `tinylens_gpu`, disabled JAX preallocation and ran the core,
+example and benchmark suites in separate serial processes. Specific tests ran
+from their file directories.
+
+| Post-review scope | Passed | Time |
+| --- | ---: | ---: |
+| All potential-correction core files, including both slow 64-pixel refinement/budget cases; curvature, source precision/prior, legacy pixelized PCG/Schur and solver/operator autodiff | 434 | 423.81 s |
+| All potential-correction example files and source compatibility; artifact cycles, calibration, scientific consumers/plots and tuning | 73 | 122.19 s |
+| Isolated bounded-memory, principal preconditioner application and workflow checks | 5 | 37.37 s |
+
+The core run also checks the native bounded-map path and the legacy-signature
+fallback, complete amplitude/prior normalization, current-J cache behavior,
+precision and process defaults. The example run repeats the real numerical
+artifact failure cycles after the refactor. No numerical solve was mocked and
+no error guard or tolerance was relaxed. Black defaults check all 12 changed
+Python files; `git diff --check` and local review/fixture links pass.
+
+Both large allocation probes use 9,216 source and 9,249 potential coefficients
+(18,465 joint), nine data pixels and blocks of eight. Their largest live array
+has 147,776 elements; allocator peaks are 13,099,264 and 14,567,424 bytes for
+single-step and iterative preparation/execution respectively. The iterative
+probe exercises current steps and retains its expected iteration-limit failure
+with null evidence. The physical 64-pixel/image worker with a 65-by-65 source
+has 2,252 data, 4,225 source and 592 support coefficients, no prohibited live
+square/cross shapes, and a 228,778,752-byte cumulative allocator peak. Its
+operator fit succeeds. The small 37-coefficient timing worker also succeeds;
+its 4-by-4 image coincides with the source-square shape, so that small worker
+does not serve as the no-square-shape check. The synthetic inverse-factor
+application comparison meets its existing numerical and timing assertions.
+
+These are representative post-review checks at the stated snapshot. The
+historical 45-worker performance campaign and 200-pixel scientific campaigns
+were not rerun; their timing, recovery, amplitude-sensitivity, float32 failure
+and determinant-approximation records remain attached to their original
+configurations and source snapshots. Existing 957-case broad core, 67-case
+compatibility, 286-case example and 14-case benchmark evidence remains
+historical. No whole-workflow speedup or new scientific acceptance claim follows
+from these checks.
+
 Large generated output and logs are retained under the integration worktree's
-ignored `.scratch/potential-correction/output/review-fix/`.
+ignored `.scratch/potential-correction/output/review-fix/`. Both frozen reports
+were checked byte-for-byte against their supplied originals. The approved
+specification, all ticket states, generic CG/Schur code and numerical references
+are unchanged; the coordinator owns final independent verification and closure.
