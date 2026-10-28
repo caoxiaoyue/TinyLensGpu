@@ -5,9 +5,10 @@ and its designated [14 tickets](../../.scratch/potential-correction/issues/).
 Research notes and validation reports below are configuration-specific evidence,
 not new requirements. This record maps all 33 implementation decisions, 13
 testing decisions, 50 user stories and 14 delivery tickets. It preserves
-failed probes and numerical/scientific limits. The parent spec remains open
-until the coordinator completes the independent final Standards/Spec review
-against original baseline `5bbfdfa` and any required fixes.
+failed probes and numerical/scientific limits. Independent Standards/Spec
+review against original baseline `5bbfdfa` is complete: all three findings
+were fixed and both axes cleared the merged implementation at `58b4a9b`.
+All 14 tickets and the parent spec are resolved.
 
 Ticket 14 starts at integration `5170da8e5ec6f162ff6b66ab7b75b8a4b6fd2bed`.
 Implementation is `6cdfbe9`; latest integration `ef80f51` (progress README only)
@@ -84,7 +85,7 @@ Evidence keys link exact model/configuration, commands, results and provenance:
 | D30 images | S keeps linear inference and nonlinear diagnostic; I sets linear products None | S/O image/objective tests; matched algorithm-comparison tests |
 | D31 scientific truth | M uses singular PseudoJaffeSubhalo, correct tidal relation, true macro and matched noise/control | Independent truth/zero/center tests; E11/E12 sampling/domain definitions |
 | D32 scientific/performance | Configurable small/200 runners, numerical/figure products and measured RTX 5080 resources | O/P; E11–E13 exact sizes, recovery, sampling, prior and timing/memory limitations |
-| D33 delivery sequence | Tickets 01–13 precede 14; publication and implementation states kept separate | Ticket table and final verification below; parent remains open for review/fix |
+| D33 delivery sequence | Tickets 01–13 precede 14; publication and implementation states kept separate | Ticket table, final verification below and completed independent review |
 
 ## All testing decisions
 
@@ -295,6 +296,25 @@ load/export and remaining scientific commands use the maintained public
 examples and separately verified artifacts; the 200×200 campaigns were not
 rerun as part of this documentation ticket.
 
-All ticket-14 acceptance checks are met. The original approved spec and prior
-failed scientific records are unchanged. The parent spec is deliberately still
-open for the coordinator's mandatory independent review/fix gate.
+All ticket-14 acceptance checks are met. Approved requirements and prior
+failed scientific records are unchanged. The parent spec is resolved after
+the completed independent review and fixes.
+
+## Post-review verification and closure
+
+The [review record](potential-correction-review.md) preserves both original
+axes, all three resolutions and their separate final verifications. One
+implementer fixed stale successful artifacts in the two small single-step
+exporters and consolidated duplicated operator and consumer invariants.
+The merged implementation at `58b4a9b` passed 434 core, 73 example and five
+benchmark cases, including strict refinement budgets, legacy differentiation,
+real artifact failure/recovery cycles and saved consumer parity. Independent
+Spec verification passed another four example and five core cases. Both axes
+reported zero outstanding findings and no new regression.
+
+These post-review scopes supplement the historical broad integration runs
+above. The scientific/performance campaigns remain attached to their recorded
+source snapshots and were not repeated for this closure. Final changes only
+record lifecycle, reviewer receipts and the
+[audited worktree cleanup](../../.scratch/potential-correction/research/implementation-worktree-cleanup.json);
+the reviewed numerical implementation is unchanged.

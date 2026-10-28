@@ -1,0 +1,9 @@
+## Standards — verified after fixes
+
+Inspected `git diff e14ea508...HEAD` at `58b4a9b659ce3ede42dd7afc97abf510a527f767`, independently of the Spec axis. HEAD remained unchanged and the working tree stayed clean. No new documented-standard breach or meaningful baseline smell found.
+
+- **Original finding 1 resolved.** Both operator adapters now consume `_potential_correction_operator_common.py` for partition validation/padding/digests, bounded basis panels, unit-prior blocks, complete prior assembly, equilibrated factorization and PCG controls. Inspection confirms identity padding, all-valid-potential amplitude precision, existing defaults and consistent factor-validity checks. Basis/prior actions remain inside the adapters’ bounded scans. Fixed versus current Jacobian preparation, damping, residual refinement and iteration policy remain in their respective adapters.
+- **Original finding 2 resolved.** Both calibration and scientific consumers now use `_recovery_diagnostics.py` for truth sampling, illumination/local domains, ray margins and field recovery metrics. Inspection confirms the nominal configured subhalo radius is retained for the control, derivatives remain core-only with NaN support entries, signed raw fields remain untouched, and affine alignment remains a named diagnostic. Schema adapters retain the differing calibration/scientific output fields without duplicating the calculations.
+- New consumer fixtures and artifact-cycle regressions are correctly located in `examples/tests/`, consistent with `AGENTS.md` and the testing guide. Saved fixtures identify the original `e14ea508` source/configuration and compare pre-refactor schemas and values; they supplement the source inspection. The small artifact-lifecycle edits introduce no standards regression.
+
+**Counts:** original 0 hard violations / 2 heuristic findings; 2 resolved; outstanding 0 hard / 0 heuristic findings. No additional numerical campaign was run during this recheck.

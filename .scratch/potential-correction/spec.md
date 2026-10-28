@@ -1,7 +1,7 @@
 # Single-band pixelized potential correction
 
 **Status:** ready-for-agent
-**State:** open
+**State:** resolved
 **Design approved:** 2026-10-28
 
 ## Problem Statement
@@ -224,3 +224,27 @@ Use mock truth to initialize the source information in the first examples. Deliv
 - A Gaussian prior and a well-defined discrete solve do not establish that all low-order modes or support-only pixels are measured by the data. Interpret truth comparisons and the first release's scientific claims accordingly.
 - No physical unit convention, uncertainty claim, or exact backend agreement should be inferred solely from a saved scalar evidence. Persist its configuration and approximation provenance.
 - Status ready-for-agent means the approved specification is ready for implementation. State open means implementation and verification remain outstanding. Publishing this document does not claim that code has been added, examples have run, or acceptance tests have passed.
+
+## Implementation closure
+
+Completed on `codex/potential-correction-integration`. All 14 tickets are
+resolved and merged. The approved requirements above are unchanged.
+
+The [coverage and integration record](../../docs/validation/potential-correction-coverage.md)
+traces all design decisions, testing decisions and user stories. Independent
+Standards and Spec reviews of the implementation from `5bbfdfa` found two
+duplication judgments and one stale-artifact bug. One implementer addressed
+all three; both reviewers cleared the merged implementation at `58b4a9b` with
+zero outstanding findings. Their separate reports and post-fix checks are in
+the [review record](../../docs/validation/potential-correction-review.md).
+
+Broad verification passed 957 core, 286 example and 14 benchmark cases, with
+67 targeted post-compatibility cases. Post-review verification passed 434
+core, 73 example and five benchmark cases; independent final Spec checks
+passed another four example and five core cases. These scopes and source
+snapshots remain distinct in the records.
+
+Scientific and precision limitations remain attached to their measured
+configurations. Task-owned worktrees were removed after clean/integration and
+artifact-preservation checks; the integration worktree, local branches and
+retained numerical evidence remain available.

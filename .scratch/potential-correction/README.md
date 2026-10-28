@@ -5,9 +5,9 @@ with separate single-step and iterative algorithms and dense/operator backends.
 The approved requirements and scope are in the [spec](spec.md).
 
 - Spec triage: ready-for-agent.
-- Tickets 01–14 are resolved; final coordinator integration/review remains.
-  Consult individual tickets for lifecycle and verification; the parent spec
-  remains open pending that independent review and any required fixes.
+- Implementation and independent review are complete on
+  `codex/potential-correction-integration`. Tickets 01–14 and the parent spec
+  are resolved; consult their records for verification and measured limits.
 - The design uses the existing square source grid, a local potential support
   constructed around actual interpolation corners, complete fourth-difference
   windows, and a fixed independent amplitude prior.
@@ -20,10 +20,11 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–14 are resolved and merged. The mandatory final review identified
-one spec finding and two nonblocking standards judgments; their fixes and
-verification are recorded below. The parent spec remains open for the
-coordinator's final independent verification and closure.
+Tickets 01–14 are resolved and merged. One implementer fixed the mandatory
+review's one spec finding and two nonblocking standards judgments. Both
+independent axes verified the merged fixes with zero outstanding findings;
+the parent spec is resolved. Temporary implementation worktrees were removed
+after preserving their artifacts and local branches.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000

@@ -1,0 +1,44 @@
+{
+  "fixed_point": "5bbfdfae4031e92cb107d4bbfca3bf55e7c8e411",
+  "original_review_head": "e14ea508f53eec3ebe4c6f57f887aa6716a725fc",
+  "verified_implementation_head": "58b4a9b659ce3ede42dd7afc97abf510a527f767",
+  "standards": {
+    "original_hard_violations": 0,
+    "original_heuristic_findings": 2,
+    "resolved": 2,
+    "outstanding_hard": 0,
+    "outstanding_heuristic": 0
+  },
+  "spec": {
+    "original_p2": 1,
+    "resolved": 1,
+    "outstanding": 0,
+    "new_findings": 0
+  },
+  "independent_final_reports": [
+    {
+      "axis": "standards",
+      "path": ".scratch/potential-correction/research/review/verified-standards.md",
+      "sha256": "0dfdc064efa279bd3eb2849cf120e278b67b37c0dbdc7ef2d29b968196f6e89b"
+    },
+    {
+      "axis": "spec",
+      "path": ".scratch/potential-correction/research/review/verified-spec.md",
+      "sha256": "512b0e5930e8a7c09b22f78730cabf1cfbe3fa6057206ec9b8aadcb8e7971a03"
+    }
+  ],
+  "post_review_checks": {
+    "core_passed": 434,
+    "examples_passed": 73,
+    "benchmarks_passed": 5,
+    "record": ".scratch/potential-correction/research/review/post-review-verification.json"
+  },
+  "independent_spec_recheck": {
+    "example_tests_passed": 4,
+    "example_seconds": 14.45,
+    "core_tests_passed": 5,
+    "core_seconds": 20.14
+  },
+  "cleanup_record": ".scratch/potential-correction/research/implementation-worktree-cleanup.json",
+  "closure_changes_only_lifecycle_documentation_and_preserved_reports": true
+}

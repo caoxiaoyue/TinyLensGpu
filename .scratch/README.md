@@ -12,7 +12,7 @@ This directory holds specs, tickets, research, and reproduction material. Follow
 | Square pixelized source grids | [Spec](square-pixelized-source-grid/spec.md) | Requirements record; completion is not asserted by this index. |
 | Stage posterior transfer | [Spec](stage-posterior-transfer/spec.md) | Requirements record; completion is not asserted by this index. |
 | Pixelized workflow structural refactor | [Overview](pixelized-workflow-refactor/README.md); [spec](pixelized-workflow-refactor/spec.md) | Three agreed P1 changes; the spec defines compatibility, diagnostic availability, test seams, and delivery order. |
-| Potential correction | [Overview and dependency index](potential-correction/README.md); [spec](potential-correction/spec.md); [tickets](potential-correction/issues/) | Single-band source–potential reconstruction in progress on `codex/potential-correction-integration`; source preparation and mock generation are verified. Consult tickets for current lifecycle state. |
+| Potential correction | [Overview and dependency index](potential-correction/README.md); [spec](potential-correction/spec.md); [tickets](potential-correction/issues/) | Implemented and independently reviewed on `codex/potential-correction-integration`; all 14 tickets and the parent are resolved. The linked numerical, scientific and performance records retain their configuration-specific limits. |
 
 ## Research and reproduction records
 

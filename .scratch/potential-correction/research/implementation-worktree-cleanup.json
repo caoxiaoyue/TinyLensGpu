@@ -1,0 +1,156 @@
+{
+  "completed_utc": "2026-10-28T21:22:11.579939+00:00",
+  "verified_integration_head": "58b4a9b659ce3ede42dd7afc97abf510a527f767",
+  "removal_scope": "Only task-owned implementation, baseline and single-review-fix worktrees; local branches retained.",
+  "removed_worktrees": [
+    {
+      "path": "/tmp/tinylens-pc-01",
+      "branch": "refs/heads/codex/pc-01",
+      "integrated_head": "fd61c8050a4c4752d09abcaab856d13186746e3d",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-02",
+      "branch": "refs/heads/codex/pc-02",
+      "integrated_head": "89011e536d62b8d255f8c8b3ef55a3e233bd01ab",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-03",
+      "branch": "refs/heads/codex/pc-03",
+      "integrated_head": "7dae871848735ee29baea8d9a748c7acfac09f93",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-04",
+      "branch": "refs/heads/codex/pc-04",
+      "integrated_head": "570be3bfd561adf203601aa624c8a68771258d28",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-05",
+      "branch": "refs/heads/codex/pc-05",
+      "integrated_head": "799980ce0eaee698b401829eaaf4b9c862bd8eb5",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-06",
+      "branch": "refs/heads/codex/pc-06",
+      "integrated_head": "4742d250837c22a4607f4d71f05c7698cf42dea0",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-06-baseline",
+      "branch": null,
+      "integrated_head": "cdda3e9767ae9a6c6ba93d0bac9c4e572238d4a5",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-07",
+      "branch": "refs/heads/codex/pc-07",
+      "integrated_head": "e99b89ac6109c59dd83b4bd2d54bc0efbd23de39",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-08",
+      "branch": "refs/heads/codex/pc-08",
+      "integrated_head": "67eabde762803926d3ab6bc67978277fd3d62206",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-08-baseline",
+      "branch": null,
+      "integrated_head": "35d03185c20ced8e3725f55175ea39f7c19f149f",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-09",
+      "branch": "refs/heads/codex/pc-09",
+      "integrated_head": "7116205285847fd575f201cf78a3cf408e10524e",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-10",
+      "branch": "refs/heads/codex/pc-10",
+      "integrated_head": "5882fdb59bab98d015193c637857681c8817137d",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-11",
+      "branch": "refs/heads/codex/pc-11",
+      "integrated_head": "1ac7761f91e4dd56248be41fbbfefab528d94d69",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-12",
+      "branch": "refs/heads/codex/pc-12",
+      "integrated_head": "6ab39a47f26b6c5bc24b39a7b3b111a0d9ffe310",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-13",
+      "branch": "refs/heads/codex/pc-13",
+      "integrated_head": "309a68deb20e79e2982515636316db9f14343aa3",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-14",
+      "branch": "refs/heads/codex/pc-14",
+      "integrated_head": "edc44d3085defb3e5118a7b318a83c1b4e61309a",
+      "clean_before_removal": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/tinylens-pc-review-fix",
+      "branch": "refs/heads/codex/pc-review-fix",
+      "integrated_head": "3404c1c6ffd52df75c10ad73510b5b4691e1f2a3",
+      "clean_before_removal": true,
+      "removed": true
+    }
+  ],
+  "preserved_ignored_artifacts": [
+    {
+      "original": "/tmp/tinylens-pc-05/output/ticket05-dense-tuning/reconstruction.npz",
+      "preserved": ".scratch/potential-correction/output/historical-ticket05-dense-tuning/reconstruction.npz",
+      "sha256": "c4e995bb0323daa24d7b6418403871b677a02aae768618085b561f1a722e0f5e",
+      "bytes": 5236
+    },
+    {
+      "original": "/tmp/tinylens-pc-05/output/ticket05-dense-tuning/tuning.json",
+      "preserved": ".scratch/potential-correction/output/historical-ticket05-dense-tuning/tuning.json",
+      "sha256": "d1d5ab305865e5ea9b408dd357d4169b97dfc15e887c176cec5f50ff0e898642",
+      "bytes": 43884
+    }
+  ],
+  "protected_remaining_worktrees": [
+    "/home/xycao/workspace/tinylens_dev/TinyLensGpu",
+    "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction",
+    "/tmp/tinylens-pwr-01",
+    "/tmp/tinylens-pwr-02",
+    "/tmp/tinylens-pwr-03",
+    "/tmp/tinylens-pwr-04",
+    "/tmp/tinylens-pwr-05",
+    "/tmp/tinylens-pwr-06",
+    "/tmp/tinylens-pwr-07",
+    "/tmp/tinylens-pwr-08",
+    "/tmp/tinylens-pwr-09",
+    "/tmp/tinylens-pwr-10"
+  ],
+  "root_generated_scientific_performance_and_test_evidence_preserved": true,
+  "no_main_merge_push_or_pull_request": true
+}
