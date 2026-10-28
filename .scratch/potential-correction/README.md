@@ -18,10 +18,9 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–09 and 11 are resolved. Tickets 01–08 and 11 are merged; operator
-iteration (09) is ready for integration. Nested strength selection, the
-iterative scientific example, precision/performance validation and final
-integration remain outstanding.
+Tickets 01–09 and 11 are resolved and merged. Nested strength selection (10)
+is in progress. The iterative scientific example, precision/performance
+validation and final integration remain outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
