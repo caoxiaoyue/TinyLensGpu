@@ -4,6 +4,7 @@ from dataclasses import asdict
 import json
 
 import numpy as np
+import pytest
 
 
 def small_configuration():
@@ -51,6 +52,7 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
     tmp_path,
 ):
     from examples.potential_correction.single_step_scientific import run_scientific
+    from examples.potential_correction.result_products import load_result
 
     config = small_configuration()
     run = run_scientific(config, output=tmp_path)
@@ -63,7 +65,7 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
         record["supplied_truth"]["control"][
             "analytic_source_discrete_potential_vs_inversion_truth_rms_noise"
         ]
-        == 0
+        < 1e-12
     )
     for key, result in run.results.items():
         output = tmp_path / key
@@ -114,6 +116,18 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
         assert (output / "images.png").is_file()
         assert (output / "fields.png").is_file()
         assert not (output / "failure.json").exists()
+        restored = load_result(output)
+        np.testing.assert_array_equal(
+            restored.potential_values, result.potential_values
+        )
+        np.testing.assert_array_equal(restored.convergence, result.convergence)
+        np.testing.assert_array_equal(
+            restored.linear_model_image, result.linear_model_image
+        )
+        assert restored.initialization_provenance == result.initialization_provenance
+        assert restored.configuration == result.configuration
+        assert restored.solver_info == result.solver_info
+        assert float(restored.log_evidence) == float(result.log_evidence)
     with np.load(tmp_path / "subhalo/dense/reconstruction.npz") as sub, np.load(
         tmp_path / "control/dense/reconstruction.npz"
     ) as control:
@@ -124,6 +138,7 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
 
 def test_failed_tuning_replaces_previous_success_with_diagnostic_records_only(tmp_path):
     from examples.potential_correction.single_step_scientific import run_scientific
+    from examples.potential_correction.result_products import load_result
 
     config = small_configuration()
     config.update(backends=["operator"], make_plots=False)
@@ -151,3 +166,45 @@ def test_failed_tuning_replaces_previous_success_with_diagnostic_records_only(tm
         assert not (destination / "reconstruction.npz").exists()
         assert not (destination / "result.json").exists()
         assert not (destination / "images.png").exists()
+        with pytest.raises(ValueError, match="failure"):
+            load_result(destination)
+
+
+def test_scientific_cli_tuning_retains_budget_status_and_explicit_bounds(tmp_path):
+    from examples.potential_correction.single_step_scientific import main
+
+    config = small_configuration()
+    config.update(
+        mode="fixed",
+        direct_maxfun=8,
+        log_bounds=np.log([[0.001, 0.01], [10.0, 1000.0]]).tolist(),
+    )
+    configuration_path = tmp_path / "input.json"
+    configuration_path.write_text(json.dumps(config))
+    run = main(
+        [
+            "--config",
+            str(configuration_path),
+            "--mode",
+            "tune",
+            "--backend",
+            "operator",
+            "--no-plots",
+            "--output",
+            str(tmp_path / "run"),
+        ]
+    )
+    assert run.record["success"] is True
+    assert set(run.results) == {"subhalo/operator", "control/operator"}
+    for key, result in run.results.items():
+        record = json.loads((run.output / key / "result.json").read_text())
+        search = record["search"]
+        assert search["has_valid_fit"] is True
+        assert search["optimizer_success"] is False
+        assert search["nfev"] >= 8
+        assert search["log_bounds"] == config["log_bounds"]
+        assert search["evaluations"]
+        assert record["configuration"]["source_bbox"] == list(result.source_bbox)
+        assert record["evidence_is_exact"] is False
+        assert record["evidence_image"] == "linear_model_image"
+        assert not (run.output / key / "images.png").exists()

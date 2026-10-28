@@ -266,9 +266,13 @@ def run_scientific(configuration, *, output):
                         failure = {
                             "success": False,
                             "status": "failed",
+                            "algorithm": "single_step",
+                            "backend": backend,
+                            "dtype": mock.dtype,
                             "stage": "strength_search",
                             "search": search_record,
                             "configuration": config,
+                            "initialization_provenance": problem.initialization_provenance,
                             "failure_reason": "no_successful_candidate",
                         }
                         export_failure(failure, output / key)

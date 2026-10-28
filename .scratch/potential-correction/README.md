@@ -79,8 +79,19 @@ explicit limitations; block evidence is approximate. See the
 and [compact retained products](research/single-step-calibration/summary.json).
 Cached bounded inverse lower factors accelerate the same principal
 preconditioner, with focused numerical, legacy Schur/autodiff and allocation
-regressions passing. Iterative fits, full-size scientific outputs and workflow
-performance validation remain outstanding downstream stages.
+regressions passing. Iterative fits and workflow performance validation remain
+outstanding downstream stages.
+
+Ticket 11 adds the documented 200x200 fixed-strength single-step experiment
+with both backends and matched control. The explicit b=0.04 scenario retains
+the calibration field of view at 0.012 arcsec/pixel, with a resampled physical
+PSF. Actual counts, numerical products, source/potential/deflection/convergence
+plots, two renderings, raw/optional affine diagnostics, and independent
+amplitude sensitivity are retained. See the [scientific validation report](../../docs/validation/potential-correction-single-step-scientific.md)
+and [compact summary](research/single-step-scientific/summary.json).
+Peak localization is useful, while peak suppression, global low modes, prior
+dependence and linearization mismatch remain explicit limitations. The
+shared result exporter/loader does not reconstruct a numerical solver.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or

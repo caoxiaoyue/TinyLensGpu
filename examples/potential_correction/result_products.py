@@ -420,6 +420,99 @@ def export_result(
     return metadata
 
 
+def load_result(output):
+    """Restore a successful public result from safe NPZ/JSON, without fitting.
+
+    Saved geometry and fields are restored directly. Failure records cannot
+    be loaded through this success boundary. Observation/truth context stays
+    explicit when replotting or computing a new diagnostic.
+    """
+    from TinyLensGpu.ObservationModel import (
+        PotentialCorrectionResult,
+        PotentialCorrectionStrengths,
+        PotentialSolverInfo,
+    )
+    from TinyLensGpu.utils.lensing.potential import PotentialGrid
+
+    output = Path(output)
+    if (output / "failure.json").exists():
+        raise ValueError("Cannot load a failure record as a successful reconstruction")
+    metadata = json.loads((output / "result.json").read_text())
+    if not metadata["success"]:
+        raise ValueError("Cannot load a failure record as a successful reconstruction")
+    with np.load(output / "reconstruction.npz", allow_pickle=False) as saved:
+        with jax.experimental.enable_x64(metadata["dtype"] == "float64"):
+            arrays = {
+                name: jnp.asarray(saved[name]) if name in saved else None
+                for name in RESULT_ARRAYS
+            }
+            geometry = {
+                name: jnp.asarray(saved[f"potential_{name}"])
+                for name in (
+                    "node_indices",
+                    "x",
+                    "y",
+                    "core_indices",
+                    "derivative_indices",
+                    "interpolation_indices",
+                    "interpolation_weights",
+                    "query_x",
+                    "query_y",
+                )
+            }
+            grid = PotentialGrid(
+                spacing=metadata["potential_geometry"]["spacing"],
+                origin=tuple(metadata["potential_geometry"]["origin"]),
+                derivative_valid=arrays["derivative_valid"],
+                **geometry,
+            )
+            configuration = dict(metadata["result_configuration"])
+            configuration["image_shape"] = tuple(configuration["image_shape"])
+            if "block_sizes" in configuration:
+                configuration["block_sizes"] = tuple(configuration["block_sizes"])
+            if "block_indices" in configuration:
+                configuration["block_indices"] = tuple(
+                    tuple(block) for block in configuration["block_indices"]
+                )
+            scalar_names = (
+                "log_evidence",
+                "chi2",
+                "regularization_penalty",
+                "objective",
+                "prior_logdet",
+                "posterior_logdet",
+                "noise_logdet",
+            )
+            scalars = {
+                name: jnp.asarray(metadata[name], dtype=metadata["dtype"])
+                for name in scalar_names
+            }
+            names = (
+                "dtype",
+                "backend",
+                "algorithm",
+                "status",
+                "success",
+                "failure_reason",
+                "termination_reason",
+                "evidence_method",
+                "determinant_method",
+                "evidence_is_exact",
+                "initialization_provenance",
+            )
+            return PotentialCorrectionResult(
+                **arrays,
+                **scalars,
+                **{name: metadata[name] for name in names},
+                source_bbox=tuple(metadata["source_bbox"]),
+                potential_grid=grid,
+                strengths=PotentialCorrectionStrengths(**metadata["strengths"]),
+                solver_info=PotentialSolverInfo(**metadata["solver_info"]),
+                configuration=configuration,
+                history=tuple(metadata["history"]),
+            )
+
+
 def plot_result_products(result, observation, output, *, truth=None):
     """Plot raw public products, masking undefined domains rather than filling them."""
     if not result.success:
@@ -443,13 +536,17 @@ def plot_result_products(result, observation, output, *, truth=None):
         fig.savefig(output / f"{name}.pdf")
         plt.close(fig)
 
-    def image(ax, values, title, extent, *, diverging=False, limit=None):
+    def image(
+        ax, values, title, extent, *, diverging=False, limit=None, intensity_limits=None
+    ):
         values = np.asarray(values)
         if diverging:
             vmax = limit or max(float(np.nanmax(np.abs(values))), 1e-12)
             options = {"vmin": -vmax, "vmax": vmax, "cmap": "RdBu_r"}
         else:
             options = {"cmap": "magma"}
+            if intensity_limits is not None:
+                options.update(vmin=intensity_limits[0], vmax=intensity_limits[1])
         im = ax.imshow(
             values, origin="lower", extent=extent, interpolation="none", **options
         )
@@ -462,6 +559,19 @@ def plot_result_products(result, observation, output, *, truth=None):
         observation.config.npix * observation.config.dpix / 2,
     ) * 2
     mask = np.asarray(observation.mask)
+    comparison_images = [
+        observation.image_data,
+        result.nonlinear_model_image,
+        (
+            result.linear_model_image
+            if result.linear_model_image is not None
+            else observation.model_image
+        ),
+    ]
+    image_limits = (
+        min(float(np.min(np.asarray(values)[~mask])) for values in comparison_images),
+        max(float(np.max(np.asarray(values)[~mask])) for values in comparison_images),
+    )
     fig, axes = plt.subplots(2, 3, figsize=(12, 8), layout="constrained")
     fig.suptitle(
         label
@@ -477,6 +587,7 @@ def plot_result_products(result, observation, output, *, truth=None):
         np.where(mask, np.nan, observation.image_data),
         "Observed image",
         native_extent,
+        intensity_limits=image_limits,
     )
     if result.linear_model_image is not None:
         image(
@@ -484,6 +595,7 @@ def plot_result_products(result, observation, output, *, truth=None):
             np.where(mask, np.nan, result.linear_model_image),
             "Fitted linear prediction",
             native_extent,
+            intensity_limits=image_limits,
         )
         image(
             axes[1, 0],
@@ -514,6 +626,7 @@ def plot_result_products(result, observation, output, *, truth=None):
             np.where(mask, np.nan, observation.model_image),
             "Noiseless analytic truth",
             native_extent,
+            intensity_limits=image_limits,
         )
         image(
             axes[1, 0],
@@ -536,6 +649,7 @@ def plot_result_products(result, observation, output, *, truth=None):
         np.where(mask, np.nan, result.nonlinear_model_image),
         "Nonlinear re-render",
         native_extent,
+        intensity_limits=image_limits,
     )
     image(
         axes[1, 1],
@@ -550,13 +664,23 @@ def plot_result_products(result, observation, output, *, truth=None):
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), layout="constrained")
     fig.suptitle(label + "; signed source coefficients, no clipping")
     shape = (len(result.source_y_axis), len(result.source_x_axis))
-    source_dx = float(result.source_x_axis[1] - result.source_x_axis[0])
-    source_dy = float(result.source_y_axis[1] - result.source_y_axis[0])
+    source_dx = float(np.diff(np.asarray(result.source_x_axis))[0])
+    source_dy = float(np.diff(np.asarray(result.source_y_axis))[0])
     source_extent = (
         float(result.source_x_axis[0]) - source_dx / 2,
         float(result.source_x_axis[-1]) + source_dx / 2,
         float(result.source_y_axis[0]) - source_dy / 2,
         float(result.source_y_axis[-1]) + source_dy / 2,
+    )
+    source_limits = (
+        min(
+            float(np.min(truth["truth_source_values"])),
+            float(np.min(result.source_values)),
+        ),
+        max(
+            float(np.max(truth["truth_source_values"])),
+            float(np.max(result.source_values)),
+        ),
     )
     for ax, value, title in zip(
         axes,
@@ -573,6 +697,7 @@ def plot_result_products(result, observation, output, *, truth=None):
             title,
             source_extent,
             diverging=title == "Recovered - truth",
+            intensity_limits=source_limits,
         )
     save(fig, "source")
 
@@ -593,7 +718,10 @@ def plot_result_products(result, observation, output, *, truth=None):
         return data
 
     fig, axes = plt.subplots(4, 3, figsize=(12, 15), layout="constrained")
-    fig.suptitle(label + "; raw fields; white pixels have no derivative support")
+    fig.suptitle(
+        label
+        + "\npsi on U; deflection and convergence on core C; cross = injected position"
+    )
     for row, field, truth_field, unit in (
         (0, "potential_values", "truth_potential_values", "psi (arcsec^2)"),
         (1, "deflection_x", "truth_discrete_deflection_x", "alpha_x (arcsec)"),

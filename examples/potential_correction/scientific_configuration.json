@@ -75,5 +75,5 @@
       "lambda_potential": 100000000000.0
     }
   },
-  "calibration_provenance": "Initial strengths scaled from the separate64x64 calibration; adopted200 settings require actual validation, not automatic transfer."
+  "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized."
 }
