@@ -5,7 +5,7 @@
 **Blocked by:** 02 — Generate Pseudo-Jaffe mocks and truth; 05 — Optimize dense single-step regularization strengths; 06 — Operator single-step reconstruction and block evidence.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,3 +27,19 @@ blocked by it to preserve the spec's delivery order, not because dense LM
 mathematically requires operator evidence. Full-size plots and persistence
 are delivered by ticket 11, which can proceed alongside ticket 08.
 
+## Comments
+
+- 2026-10-28: Claimed by `/root/ticket07` on `codex/pc-07` in
+  `/tmp/tinylens-pc-07`, based on integration commit `fb5b057` (tickets 01–06).
+  Public numerical/optimizer results and runnable calibration artifacts are
+  the already approved TDD seams. Scientific acceptance remains conditional
+  on the measured recovery and determinant-approximation comparison.
+
+
+- Preliminary verification: the new example artifact seam first failed for a
+  missing driver, then passed for four tiny physical sensitivity runs; the
+  explicit incidence-layout test subsequently failed for absent layout support
+  and passed after adding the sparse builder. The tiny grids validate assembly
+  and records only. Public operator/DIRECT plus existing operator tests passed
+  32 cases. Full physical calibration and prior sensitivity remain running;
+  this ticket is not resolved by those structural checks.
