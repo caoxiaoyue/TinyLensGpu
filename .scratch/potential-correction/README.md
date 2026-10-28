@@ -18,16 +18,27 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01 and 02 are resolved and merged. Source preparation passed 62
-regularization, 23 precision/cache, and 372 source/operator/autodiff checks;
-see [the verification record](research/source-preparation-verification.md).
-The mock generator passed 12 example and 6 existing profile checks and ran its
-default 200-by-200 float64 configuration; see ticket 02 and the
-[mock documentation](../../examples/potential_correction/README.md).
-The integration checkout also passed all 268 current example tests in a
-separate process. The original core baseline passed 810 tests (3 slow tests
-deselected) before shared-code changes. These are stage checks, not final
-whole-spec verification.
+Tickets 01–06 are resolved and merged. Ticket 07 is the current calibration
+gate; iterative implementation and final scientific/performance verification
+remain outstanding. Numerical solve agreement does not establish that the
+operator's approximate evidence selects suitable strengths.
+
+Focused commands, configurations and outcomes are retained in:
+
+- [Source preparation](research/source-preparation-verification.md).
+- [Mock generation](../../examples/potential_correction/README.md) and ticket 02.
+- [Supplied-field rendering](research/supplied-field-rendering.md), including
+  the independent 200-by-200 supplied-truth discretization check.
+- [Dense single-step reconstruction](research/dense-single-step.md).
+- [Dense strength optimization](research/dense-strength-optimization.md).
+- [Operator single-step reconstruction](research/operator-single-step.md),
+  including allocation evidence and the reproduced baseline float32
+  finite-difference variability.
+
+The original core baseline passed 810 tests (3 slow tests deselected) before
+shared-code changes. An early integration checkout passed all 268 example
+tests separately. Subsequent focused checks are recorded per ticket; these
+earlier broad runs are not final whole-spec verification.
 
 Supplied-field rendering and dense fixed-strength single-step reconstruction
 are implemented. The combined focused check passed 31 cases (14 dense plus
