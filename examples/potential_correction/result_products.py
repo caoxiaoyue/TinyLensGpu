@@ -387,7 +387,7 @@ def export_result(
             "discrete_derivatives": "centered physical differences of nodal analytic psi; derivative_valid core only",
             "analytic_derivatives": "point samples, no pixel averaging; kappa NaN for R<1e-8 arcsec; zero strength identically zero",
             "illuminated_core": "observation annulus and macro-source brightness >=5% of core maximum",
-            "local_core": "matched disk around injected position; radius max(2*sqrt(mock b_sub*theta_E),2*h)",
+            "local_core": "matched disk around specified subhalo position (nominal for control); radius max(2*sqrt(mock b_sub*theta_E),2*h)",
             "raw_fields": "signed, unclipped and unaligned; support-only derivatives undefined/NaN",
         },
         "search": search,
@@ -990,7 +990,12 @@ def plot_result_products(result, observation, output, *, truth=None):
     fig, axes = plt.subplots(4, 3, figsize=(12, 15), layout="constrained")
     fig.suptitle(
         label
-        + "\npsi on U; deflection and convergence on core C; cross = injected position"
+        + "\npsi on U; deflection and convergence on core C; cross = "
+        + (
+            "injected position"
+            if observation.has_subhalo
+            else "nominal subhalo position"
+        )
     )
     for row, field, truth_field, unit in (
         (0, "potential_values", "truth_potential_values", "psi (arcsec^2)"),
