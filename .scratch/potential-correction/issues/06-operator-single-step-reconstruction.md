@@ -5,7 +5,7 @@
 **Blocked by:** 04 — Dense single-step reconstruction at fixed strengths.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,4 +27,11 @@ Finite, correctly labeled approximate evidence is necessary but not the final
 scientific acceptance of the approximation. Ticket 07 evaluates its effect on
 selected strengths and recovery. Do not add an unapproved dense Schur or
 stochastic determinant method to bypass that validation.
+
+## Comments
+
+- 2026-10-28: Claimed by ticket06 agent on branch `codex/pc-06` in
+  `/tmp/tinylens-pc-06`, based on integration `cdda3e9`. Implements the
+  fixed-strength operator backend only; tuning and calibration remain in
+  tickets 05 and 07.
 

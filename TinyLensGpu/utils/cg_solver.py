@@ -34,6 +34,19 @@ class MaskedPreconditioner(NamedTuple):
     mask: Array
 
 
+class PrincipalBlockPreconditioner(NamedTuple):
+    """Bounded padded principal blocks on disjoint global coordinates.
+
+    Invalid slots have identity Cholesky rows and contribute zero to the
+    physical vector. Scatter-add prevents their safe padding indices from
+    overwriting a real coordinate.
+    """
+
+    chols: Array
+    indices: Array
+    valid: Array
+
+
 def _chol_solve(chol: Array, rhs: Array) -> Array:
     """Solve ``chol @ chol.T @ x = rhs`` for a lower Cholesky factor."""
     work = jsl.solve_triangular(chol, rhs, lower=True)
@@ -75,6 +88,11 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
             + (1.0 - mask) * rhs
         )
 
+    if isinstance(preconditioner, PrincipalBlockPreconditioner):
+        chols, indices, valid = preconditioner
+        solved = jax.vmap(_chol_solve)(chols, rhs[indices] * valid)
+        return jnp.zeros_like(rhs).at[indices].add(solved * valid)
+
     if isinstance(preconditioner, BlockSchurPreconditioner):
         source_chols, source_masks, cross, schur_chol = preconditioner
         n_source = cross.shape[0]
@@ -100,6 +118,12 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
 
 def preconditioner_diagonal(preconditioner, size: int) -> Array:
     """Recover the diagonal of the SPD matrix represented by a preconditioner."""
+    if isinstance(preconditioner, PrincipalBlockPreconditioner):
+        chols, indices, valid = preconditioner
+        return jnp.zeros(size, dtype=chols.dtype).at[indices].add(
+            jnp.sum(chols**2, axis=2) * valid
+        )
+
     if isinstance(preconditioner, BlockSchurPreconditioner):
         source_chols, source_masks, cross, schur_chol = preconditioner
         if isinstance(source_chols, (list, tuple)):
@@ -154,7 +178,7 @@ class PCGInfo(NamedTuple):
     """Convergence diagnostics returned by :func:`pcg_solve`."""
     n_iter: Array
     residual_norm: Array
-    converged: Array   # True if residual_norm < tol
+    converged: Array   # True if residual_norm <= tol
     failed: Array      # True iff solver aborted (e.g. non-positive curvature)
 
 
@@ -208,7 +232,7 @@ def pcg_solve(
     init_state = PCGState(
         x=x, r=r, z=z, p=p, rz_old=rz_old,
         k=jnp.array(0, dtype=jnp.int32),
-        converged=jnp.linalg.norm(r) < tol,
+        converged=jnp.linalg.norm(r) <= tol,
         failed=jnp.array(False, dtype=bool),
     )
 
@@ -237,7 +261,7 @@ def pcg_solve(
         p_new = z_new + beta * state.p
 
         r_norm = jnp.linalg.norm(r_new)
-        converged = r_norm < tol
+        converged = r_norm <= tol
         failed = (
             broken
             | (~jnp.isfinite(r_norm))
@@ -330,4 +354,5 @@ __all__ = [
     "pcg_solve_with_implicit_grad", "MaskedPreconditioner",
     "pcg_solve", "PCGInfo", "PCGState", "BlockSchurPreconditioner",
     "solve_source_blocks", "apply_preconditioner", "preconditioner_diagonal",
+    "PrincipalBlockPreconditioner",
 ]

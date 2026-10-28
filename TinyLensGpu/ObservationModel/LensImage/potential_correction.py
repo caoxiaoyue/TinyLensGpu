@@ -119,7 +119,8 @@ class SingleStepPotentialCorrection:
         Creating a new problem with these rays reevaluates the gradient and
         source mapping while reusing fixed renderer geometry.
     solve_rtol : float, optional
-        Maximum relative residual of the actual coupled dense system.
+        Maximum relative residual of the actual coupled system for either
+        backend, recomputed after the linear solve.
 
     ``fit(lambda_source, lambda_potential)`` and the equivalent callable
     return :class:`PotentialCorrectionResult`. Invalid configuration raises
@@ -211,6 +212,7 @@ class SingleStepPotentialCorrection:
         self._dense_source_prior = None
         self._dense_potential_roughness = None
         self._linear_image_kernel = jax.jit(self.forward_image)
+        self._operator_backends = {}
 
     def _joint(self, joint_values):
         values = jnp.asarray(joint_values, dtype=self.dtype)
@@ -302,13 +304,42 @@ class SingleStepPotentialCorrection:
                 * jnp.eye(self.n_potential, dtype=self.dtype)
             )
 
-    def fit(self, lambda_source, lambda_potential, *, backend="dense"):
-        """Solve one complete fixed-strength single-step candidate."""
-        if backend != "dense":
-            raise ValueError("backend must be 'dense'")
+    def fit(
+        self, lambda_source, lambda_potential, *, backend="dense",
+        block_size=64, block_indices=None, pcg_max_iter=400,
+        pcg_rtol=None, pcg_atol=0.0,
+    ):
+        """Solve one complete fixed-strength single-step candidate.
+
+        ``backend="dense"`` forms the reference system and complete Cholesky
+        determinants. ``backend="operator"`` uses fully coupled matrix-free
+        PCG and explicitly approximate principal-block determinants.
+
+        Operator controls are ``block_size`` (maximum coefficients per block),
+        optional ``block_indices`` (a complete, disjoint joint partition),
+        ``pcg_max_iter``, ``pcg_rtol`` and ``pcg_atol``. Default blocks separate
+        the fields in existing node order, splitting each field at least once.
+        Explicit blocks may mix fields, but cannot contain a complete joint or
+        potential field. All potential support coefficients belong to blocks.
+        The default PCG rtol is min(solve_rtol/10, 1e-10) for float64 or
+        min(solve_rtol/10, 1e-5) for float32; the independent final acceptance
+        uses ``solve_rtol``. Controls and the exact partition are returned in
+        result configuration. Geometry/block preparation and compiled kernels
+        are reused for changed strengths with fixed controls and topology.
+        """
+        if backend not in ("dense", "operator"):
+            raise ValueError("backend must be 'dense' or 'operator'")
         lambda_source = _positive(lambda_source, "lambda_source")
         lambda_potential = _positive(lambda_potential, "lambda_potential")
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            if backend == "operator":
+                from .potential_correction_operator import fit_operator
+
+                return fit_operator(
+                    self, lambda_source, lambda_potential, block_size=block_size,
+                    block_indices=block_indices, pcg_max_iter=pcg_max_iter,
+                    pcg_rtol=pcg_rtol, pcg_atol=pcg_atol,
+                )
             solved = _solve_dense(
                 self.dense_mapping(),
                 self.dense_prior(lambda_source, lambda_potential),
@@ -366,6 +397,7 @@ class SingleStepPotentialCorrection:
         determinant_method,
         evidence_is_exact,
         failure_reason=None,
+        solver_configuration=None,
     ):
         """Assemble the common single-step result for a numerical backend.
 
@@ -495,5 +527,6 @@ class SingleStepPotentialCorrection:
                     "n_core": self.renderer.potential_grid.n_core,
                     "solve_rtol": self.solve_rtol,
                     "dtype": self.dtype.name,
+                    **dict(solver_configuration or {}),
                 },
             )

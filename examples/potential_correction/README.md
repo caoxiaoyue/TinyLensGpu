@@ -84,3 +84,37 @@ otherwise JAX itself may downcast subsequent operations. These mock products
 establish reproducible inputs and analytic truth, with no claim of recovery,
 formal detection significance, mass precision, or exact correspondence to the
 reference repository's simulation.
+
+## Fixed-strength operator reconstruction
+
+The small runnable slice uses a 12×12 observation, a 5×5 source, the analytic
+mock-truth source gradient at fixed macro rays, and explicit fixed strengths:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/single_step_operator.py \
+  --output output/potential_correction_operator
+```
+
+Add `--control` for the matched no-subhalo observation. `--source-n`,
+`--block-size`, the three `--lambda-*` strengths, and `--pcg-max-iter` configure
+the fit. This deliberately small assembly example has no tuning or scientific
+recovery acceptance; its amplitude value of 100 is explicit and has not been
+established as a scientifically weak prior.
+
+`reconstruction.npz` saves the public source/potential fields, coordinates,
+valid derivative maps, prior-window coverage, both linear and nonlinear model
+images, and residuals. `configuration.json` records the observation, strengths,
+initialization, exact block partition, dtype, actual coupled-system residual,
+PCG controls and evidence approximation. Numerical failures write a diagnostic
+`failure.json` and terminate before publishing reconstruction arrays.
+
+The reusable library interface is
+`problem.fit(lambda_source, lambda_potential, backend="operator", block_size=64)`.
+It retains the complete source–potential coupling in matrix-free PCG. Bounded
+principal blocks approximate its preconditioner and the two determinants;
+each prior block contains the independent amplitude prior on every potential
+support coefficient. Optional `block_indices` specifies a complete disjoint
+joint partition, including mixed source/potential blocks. Results identify
+`determinant_method="principal_block_cholesky"` and
+`evidence_is_exact=False`. Use `backend="dense"` for the complete numerical
+reference. Calibration of strength selection and recovery belongs to ticket 07.
