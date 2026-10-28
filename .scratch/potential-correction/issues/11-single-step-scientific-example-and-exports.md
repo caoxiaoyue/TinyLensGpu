@@ -5,7 +5,7 @@
 **Blocked by:** 07 — Operator tuning and single-step backend calibration.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,3 +27,7 @@ This slice may proceed alongside dense iterative development. Establish
 reusable result-based example persistence and plotting where it is genuinely
 shared, while keeping the explicit single-step workflow visible.
 
+
+## Comments
+
+- 2026-10-29: Claimed on `codex/pc-11` in `/tmp/tinylens-pc-11`, based on integration `35d0318`; ticket 07 is resolved. Public result/artifact/example seams were approved in the spec.
