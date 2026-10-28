@@ -1,0 +1,73 @@
+{
+  "model": "3x3 zero-shear, 2x2 zero-order source, constant gradient (1.2,-0.8)",
+  "python": "3.11.14",
+  "jax": "0.7.1",
+  "scipy": "1.17.1",
+  "devices": [
+    "NVIDIA GeForce RTX 5080"
+  ],
+  "configuration": {
+    "optimizer": "scipy.optimize.direct",
+    "coordinate_system": "natural_log_strengths",
+    "strength_order": [
+      "lambda_source",
+      "lambda_potential"
+    ],
+    "backend": "dense",
+    "dtype": "float64",
+    "lambda_amplitude": 0.4,
+    "fit_options": {},
+    "boundary_rtol": 0.01,
+    "maxfun": 180,
+    "maxiter": 100,
+    "eps": 0.0001,
+    "locally_biased": true,
+    "vol_tol": 1e-12,
+    "len_tol": 0.001
+  },
+  "log_bounds": [
+    [
+      -2.995732273553991,
+      3.4011973816621555
+    ],
+    [
+      -6.907755278982137,
+      3.4011973816621555
+    ]
+  ],
+  "grid_scan_size": 961,
+  "grid_scan_log_strengths": [
+    -0.8634223884819421,
+    3.4011973816621555
+  ],
+  "grid_scan_objective": 11.030011085504283,
+  "direct_log_strengths": [
+    -0.8941346707772182,
+    3.394126769412056
+  ],
+  "direct_strengths": {
+    "lambda_source": 0.40896133176233385,
+    "lambda_potential": 29.78862977155536,
+    "lambda_amplitude": 0.4
+  },
+  "direct_objective": 11.03025782614915,
+  "independent_objective_at_direct": 11.030257826149752,
+  "objective_error": -6.021849685566849e-13,
+  "direct_minus_grid": 0.0002467406448669607,
+  "nfev": 195,
+  "optimizer_success": false,
+  "optimizer_status": 1,
+  "optimizer_message": "Number of function evaluations done is larger than maxfun=180",
+  "boundary_sides": [
+    null,
+    "upper"
+  ],
+  "boundary_distances": [
+    0.32853223593964337,
+    0.0006858710562414919
+  ],
+  "evidence_method": "conditional_linear_gaussian",
+  "determinant_method": "full_cholesky",
+  "evidence_is_exact": true,
+  "scope": "numerical optimizer check; amplitude prior and bounds uncalibrated"
+}
