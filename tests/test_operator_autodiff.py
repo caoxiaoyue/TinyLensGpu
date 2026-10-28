@@ -59,6 +59,11 @@ def _build_model(solver, joint=False, adaptive=False):
             threshold_arcsec=1.0, min_log_like=-10.0,
         ),
     )
+    if solver == "pcg":
+        # Float32 finite differences at 1e-3 amplify forward-solve error.
+        # Tighten both the forward and implicit-adjoint solves in this
+        # verification fixture, without changing model defaults or assertions.
+        model.pcg_rtol = 1e-8
     # Use caskade's public vector interface, not mutation of parameters in a
     # traced Python closure. Its dynamic parameter ordering is authoritative.
     steps = [

@@ -40,6 +40,13 @@ log-strength callable, complete candidate fits, explicit failure/boundary
 metadata, and a small runnable tuning example. Its focused/shared core check
 passed 181 cases and its separate example check passed 13; see the
 [API and independent-scan record](research/dense-strength-optimization.md).
+The fixed-strength operator backend now solves the full coupled system with
+PCG, bounded principal-block preconditioning and explicitly approximate H/Q
+determinants. Its post-merge core check passed 31 operator/inference cases,
+the separate example check passed 14, and the allocation benchmark passed;
+see the [operator API and verification record](research/operator-single-step.md).
+That record also preserves an existing float32 source–lens-light Jacobian
+fixture limitation and its unchanged-baseline repeat evidence.
 Operator calibration, iterative fits and scientific reconstruction/performance
 validation remain outstanding downstream stages.
 
