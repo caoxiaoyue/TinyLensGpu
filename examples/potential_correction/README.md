@@ -386,3 +386,76 @@ determinants add a separate approximation. The independent scan, actual
 selected strengths/recovery changes, and a rejected partition remain in the
 [nested validation report](../../docs/validation/potential-correction-iterative-inference.md).
 This case makes no scientific subhalo-recovery, detection or performance claim.
+
+## Iterative scientific reconstruction and comparison
+
+`iterative_scientific.py` uses the same analytic 200x200 physical mock,
+fixed macro, noise, PSF, source box and potential geometry as the scientific
+single-step configuration above. Every fit/candidate samples truth brightness
+at the source **nodes** and starts with zero potential. All subsequent source
+derivatives come from the current bilinear source at corrected rays.
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterative_scientific.py \
+  --config examples/potential_correction/iterative_scientific_configuration.json \
+  --backend both --output output/potential_correction_iterative_scientific \
+  --single-step-reference output/potential_correction_scientific
+```
+
+The optional reference directory is a saved `single_step_scientific.py` run;
+comparison loads its public results without refitting. Dense single-step versus
+dense iterative is the primary algorithm comparison. Each algorithm's
+operator-minus-dense comparison reports determinant contributions separately.
+The default scientific partition reuses the exact recorded single-step indices
+after checking a geometry hash, so its change cannot be mistaken for an
+algorithm effect. `partition_source="initial_nodal"` prepares a partition from
+the initial pixelized-source gradient for another configured geometry; that
+choice is fixed throughout the fit/search and recorded explicitly.
+
+Use `--mode tune` for DIRECT around **complete** inner reconstructions, with
+the configured natural-log bounds and budget. Candidates reset source,
+potential and damping, hold all three strengths fixed internally, and expose
+evidence only after nonlinear success. Search termination/boundary/budget
+metadata remain separate from inner convergence. The retained 200 scientific
+results use fixed strengths. The bounded nested assembly is exercised in
+small example tests; no converged 200-pixel outer search is claimed.
+
+JSON configures mock/inversion integration separately, both geometries,
+independent amplitude precision, fixed strengths or search bounds, static
+partition, linear-solve controls, and `iteration_options`.
+`case_iteration_options` explicitly overrides the common controller options
+for a case; operator PCG options remain separate. The recorded float64
+scientific controls use subhalo/control `gradient_atol=5e-4/3e-5`,
+`gradient_rtol=1e-8`, `solve_atol=5e-5`, and `solve_rtol=1e-8`.
+These example settings were measured against strict failed endpoints,
+successful stopping controls, and stricter independently converged operator
+control fields. They do not alter library defaults or automatically validate
+another configuration.
+
+The common NPZ/JSON contract contains final nonlinear image/residuals, raw
+signed fields, geometry/validity, truth maps, strengths and initialization.
+Iterative linear products are `None` and omitted from NPZ. Evidence is labeled
+`local_gauss_newton`; its full versus principal-block determinant method is
+recorded independently, and even the dense nonlinear evidence is approximate.
+`comparisons.json` preserves the single-step linear inference objective and
+reports a separate nonlinear objective for its recovered fields.
+
+`history.png/.pdf` shows before/trial/retained objectives, accepted/rejected
+trials, damping, pre-step gradients, the separately refreshed final gradient,
+and inner true residuals with their thresholds. The initial PCG recursive
+residual curve is labeled separately. Failure writes metadata and diagnostic
+`failure-history` figures when plots are enabled, while removing previous
+successful reconstruction arrays/figures. Failed candidates never supply
+successful scientific evidence. For operator steps, a single separately
+accumulated residual correction may use the **remaining total PCG budget**;
+actual full-system certification remains mandatory and phase diagnostics are
+saved. The legacy recursive residual is the initial phase on the original RHS.
+
+The [scientific validation report](../../docs/validation/potential-correction-iterative-scientific.md)
+records actual 200 both-backend fits, matched single-step comparisons, raw
+versus optional affine diagnostics, the measured 10000-to-30000 amplitude-prior
+sensitivity, and the failed lower 3000 probes. Localized convergence recovery
+is useful with substantial peak suppression. Potential/deflection low modes
+remain strongly prior-sensitive, and lower-side convergence is unverified.
+The prior choice is specific to this model. The results do not establish a
+globally weak prior or broad robustness, detection, mass intervals or performance.

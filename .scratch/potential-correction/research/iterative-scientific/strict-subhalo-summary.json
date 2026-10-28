@@ -1,0 +1,219 @@
+{
+  "configuration": {
+    "mock": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 10000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense"
+    ],
+    "make_plots": true,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Matched single-step physical geometry and fixed smoothing. Nonlinear controls and amplitude-prior sensitivity are separate iterative validations; see docs/validation/potential-correction-iterative-scientific.md.",
+    "partition_source": "single_step",
+    "iteration_options": {
+      "gradient_atol": 3e-05,
+      "max_iter": 80
+    },
+    "solve_atol": 2e-05,
+    "source_regularization": "second-order",
+    "cases": [
+      "subhalo"
+    ]
+  },
+  "success": false,
+  "block_partition": {
+    "source": "single_step",
+    "geometry_sha256": "43ad7dd8de786725954778a61567d38d9238fb8f9148919db49ee0059897f9be",
+    "reference": "Exact ticket11 scientific200 source-incidence partition; fixed numerical choice, current iterative Jacobian always uses recovered nodal source",
+    "file_sha256": "203e0ccc7bfde571c44cd5bf0e02c07ef4b903f182c513e55b40ada9c4f32486",
+    "actual_sizes": [
+      788,
+      840,
+      24,
+      820,
+      812,
+      24,
+      24,
+      24,
+      1
+    ],
+    "cap": 1024
+  },
+  "sizes": {
+    "data": 22016,
+    "source": 2401,
+    "potential_core": 724,
+    "potential_support": 956,
+    "query_subpixels": 88064,
+    "image_shape": [
+      200,
+      200
+    ]
+  },
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "devices": [
+      "NVIDIA GeForce RTX 5080"
+    ],
+    "git_commit": "4322be3e80bb9b30cb47594355ca5e4a75cc1b09",
+    "git_dirty": true,
+    "implementation_sha256": {
+      "examples/potential_correction/iterative_scientific.py": "ded69af566f4f919e629ae08a6cb078e76d5d3e2e543fa7c55964ee8e70fc7ee",
+      "examples/potential_correction/result_products.py": "007c40f37a22a9fcea389b911df41c03f83266fe770c47a00b5f547548dab417",
+      "examples/potential_correction/mock.py": "81b1b95a9a8817bbba17a232da23e3ddba29d426ac7dd3db163d2dfd6615c89f",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "196f5603bd26bb0394a812055e084410a3dbdf7c4e742c19cdc7a5c3ce2da827",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "0ccc30dc77bcf14dc7462c9d4f747fbdcb9d010c5c5a41c5e163fbd0e2ed7ff9",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+      "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "dbfa357ba6c93ed54d9840ad1603c375f3839c54774b51848b8d0780358002c6",
+      "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+      "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+      "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+    }
+  },
+  "initialization": "truth brightness at fixed source NODES; zero potential; each fit resets; current nodal gradients thereafter",
+  "scope": "fixed true macro nonlinear reconstruction; no detection significance, mass intervals or timing claim",
+  "runs": {
+    "subhalo/dense": {
+      "success": false,
+      "failure_reason": "stalled",
+      "termination_reason": "stalled",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 2.0350921526973702e-14,
+        "relative_residual": 6.991509733211701e-16,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "configuration": {
+        "source_n": 49,
+        "source_regularization": "second-order",
+        "potential_spacing": 0.075,
+        "potential_regularization": "complete_pixel_unit_fourth_differences",
+        "potential_amplitude_prior": "independent_all_unknowns",
+        "nsub": 2,
+        "image_shape": [
+          200,
+          200
+        ],
+        "n_data": 22016,
+        "n_source": 2401,
+        "n_potential": 956,
+        "n_core": 724,
+        "solve_rtol": 1e-08,
+        "dtype": "float64",
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "gradient_atol": 3e-05,
+        "gradient_rtol": 1e-08,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001,
+        "damping_metric": "physical_curvature_diagonal",
+        "solve_atol": 2e-05,
+        "accepted_iterations": 49,
+        "final_damping": 82.05333683373762,
+        "initial_scaled_gradient": 97.60704720821303,
+        "final_scaled_gradient": null
+      },
+      "search": null,
+      "objective": 11734.826513768061,
+      "chi2": 22096.977613091036,
+      "regularization_penalty": 1372.6754144450863,
+      "prior_logdet": 44644.97200197436,
+      "posterior_logdet": null,
+      "maximum_true_residual_norm": 2.1140569435954635e-08,
+      "maximum_true_relative_residual": 7.990607094322852e-13,
+      "independent_terminal_gradient": 0.0006442904702209782
+    }
+  },
+  "backend_comparison": {}
+}

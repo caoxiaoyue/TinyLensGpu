@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 import numpy as np
 
-from TinyLensGpu.utils.cg_solver import PrincipalBlockPreconditioner, pcg_solve
+from TinyLensGpu.utils.cg_solver import PCGInfo, PrincipalBlockPreconditioner, pcg_solve
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from .potential_correction_operator import _partition, _positive_integer
 from .potential_correction_result import PotentialSolverInfo
@@ -76,6 +76,8 @@ class _OperatorIterationBackend:
                 repr(blocks).encode("ascii")
             ).hexdigest(),
             solve_residual="recomputed_full_coupled_damped_system",
+            pcg_refinement_policy="one_separate_residual_correction_within_total_budget",
+            pcg_recursive_residual_scope="initial_solve_original_rhs",
         )
 
         def block_basis(index, mask):
@@ -199,25 +201,117 @@ class _OperatorIterationBackend:
                     spec=None,
                     size=problem.n_joint,
                 )
-                delta, info = pcg_solve(
+                preconditioner = PrincipalBlockPreconditioner(
+                    chols, indices, valid, inverses
+                )
+                delta, initial_info = pcg_solve(
                     operator,
                     rhs,
-                    PrincipalBlockPreconditioner(chols, indices, valid, inverses),
+                    preconditioner,
                     max_iter=max_iter,
                     rtol=rtol,
                     atol=atol,
                 )
                 # Recursive PCG convergence alone cannot certify this step.
-                norm = jnp.linalg.norm(operator.matvec(delta) - rhs)
-                relative = norm / jnp.maximum(
-                    jnp.linalg.norm(rhs), jnp.finfo(problem.dtype).tiny
+                residual = rhs - operator.matvec(delta)
+                initial_norm = jnp.linalg.norm(residual)
+                rhs_norm = jnp.linalg.norm(rhs)
+                threshold = problem.solve_atol + problem.solve_rtol * rhs_norm
+                initial_finite = jnp.all(jnp.isfinite(delta)) & jnp.isfinite(
+                    initial_norm
                 )
+                remaining = max_iter - initial_info.n_iter
+                attempt = (
+                    positive
+                    & initial_finite
+                    & initial_info.converged
+                    & ~initial_info.failed
+                    & (initial_norm > threshold)
+                    & (remaining > 0)
+                )
+
+                def correct(_):
+                    # Accumulate a small correction separately. Restarting PCG
+                    # on the large delta loses more of this stiff-system residual.
+                    # The public wrapper makes max_iter static for other
+                    # callers. This adapter is already jitted: tracing the
+                    # identical body here permits a dynamic remaining budget.
+                    correction, correction_info = pcg_solve.__wrapped__(
+                        operator,
+                        residual,
+                        preconditioner,
+                        max_iter=remaining,
+                        rtol=rtol,
+                        atol=atol,
+                    )
+                    candidate = delta + correction
+                    candidate_norm = jnp.linalg.norm(rhs - operator.matvec(candidate))
+                    candidate_finite = jnp.all(jnp.isfinite(candidate)) & jnp.isfinite(
+                        candidate_norm
+                    )
+                    improved = candidate_finite & (candidate_norm < initial_norm)
+                    return (
+                        jnp.where(improved, candidate, delta),
+                        jnp.where(improved, candidate_norm, initial_norm),
+                        correction_info,
+                        candidate_finite,
+                        improved,
+                        candidate_norm,
+                    )
+
+                def unchanged(_):
+                    return (
+                        delta,
+                        initial_norm,
+                        PCGInfo(
+                            jnp.asarray(0, dtype=initial_info.n_iter.dtype),
+                            jnp.asarray(0, dtype=rhs.dtype),
+                            jnp.asarray(True),
+                            jnp.asarray(False),
+                        ),
+                        initial_finite,
+                        jnp.asarray(False),
+                        initial_norm,
+                    )
+
+                (
+                    delta,
+                    norm,
+                    correction_info,
+                    correction_finite,
+                    improved,
+                    candidate_norm,
+                ) = jax.lax.cond(
+                    attempt,
+                    correct,
+                    unchanged,
+                    operand=None,
+                )
+                info = PCGInfo(
+                    initial_info.n_iter + correction_info.n_iter,
+                    initial_info.residual_norm,
+                    initial_info.converged & correction_info.converged,
+                    initial_info.failed | correction_info.failed,
+                )
+                relative = norm / jnp.maximum(rhs_norm, jnp.finfo(problem.dtype).tiny)
                 finite = (
-                    jnp.all(jnp.isfinite(delta))
+                    initial_finite
+                    & correction_finite
+                    & jnp.all(jnp.isfinite(delta))
                     & jnp.isfinite(norm)
                     & jnp.isfinite(relative)
                 )
-                return delta, info, norm, relative, positive, finite
+                diagnostics = (
+                    initial_info,
+                    initial_norm,
+                    correction_info,
+                    attempt,
+                    improved,
+                    candidate_norm,
+                    rhs_norm,
+                    threshold,
+                )
+                return delta, info, norm, relative, positive, finite, diagnostics
 
         self._solve = solve
 
@@ -261,7 +355,7 @@ class _OperatorIterationBackend:
         self.logdets = logdets
 
     def solve(self, system, rhs, damping):
-        delta, info, norm, relative, positive, finite = self._solve(
+        delta, info, norm, relative, positive, finite, diagnostics = self._solve(
             system, rhs, damping, max_iter=self.max_iter, rtol=self.rtol, atol=self.atol
         )
         reason = None
@@ -278,6 +372,38 @@ class _OperatorIterationBackend:
         ):
             reason = "linear_residual_exceeds_tolerance"
         self.configuration["pcg_recursive_residual_norm"] = float(info.residual_norm)
+        (
+            initial,
+            initial_norm,
+            correction,
+            attempted,
+            improved,
+            candidate_norm,
+            rhs_norm,
+            threshold,
+        ) = diagnostics
+        phases = [
+            dict(
+                phase="initial",
+                iterations=int(initial.n_iter),
+                recursive_converged=bool(initial.converged),
+                recursive_failed=bool(initial.failed),
+                recursive_residual_norm=float(initial.residual_norm),
+                true_residual_norm=float(initial_norm),
+            )
+        ]
+        if bool(attempted):
+            phases.append(
+                dict(
+                    phase="residual_correction",
+                    iterations=int(correction.n_iter),
+                    recursive_converged=bool(correction.converged),
+                    recursive_failed=bool(correction.failed),
+                    recursive_residual_norm=float(correction.residual_norm),
+                    candidate_true_residual_norm=float(candidate_norm),
+                    accepted=bool(improved),
+                )
+            )
         return delta, PotentialSolverInfo(
             "pcg",
             reason is None,
@@ -286,6 +412,14 @@ class _OperatorIterationBackend:
             float(norm),
             float(relative),
             reason,
+            dict(
+                iteration_budget=self.max_iter,
+                phases=phases,
+                refinement_attempted=bool(attempted),
+                refinement_accepted=bool(improved),
+                original_rhs_norm=float(rhs_norm),
+                true_residual_threshold=float(threshold),
+            ),
         )
 
 

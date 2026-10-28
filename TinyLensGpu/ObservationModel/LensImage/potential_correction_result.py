@@ -23,6 +23,8 @@ class PotentialSolverInfo:
     """Status of the actual inner linear system, including LM step damping.
 
     Nonlinear convergence is recorded separately in the reconstruction result.
+    ``iterations`` includes every attempted numerical phase. Optional phase
+    diagnostics separate recursive PCG residuals from the final true residual.
     """
 
     method: str
@@ -32,6 +34,7 @@ class PotentialSolverInfo:
     residual_norm: float
     relative_residual: float
     reason: str | None = None
+    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

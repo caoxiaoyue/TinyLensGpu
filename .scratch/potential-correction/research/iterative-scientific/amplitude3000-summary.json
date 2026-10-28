@@ -1,0 +1,298 @@
+{
+  "configuration": {
+    "mock": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 3000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense"
+    ],
+    "make_plots": false,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Matched ticket11 physical geometry and fixed smoothing. Explicit example-only stopping controls calibrated against strict failed endpoints, successful thresholds, and stricter control operator fit; public solver defaults unchanged. See docs/validation/potential-correction-iterative-scientific.md.",
+    "partition_source": "single_step",
+    "iteration_options": {
+      "gradient_atol": 0.0005,
+      "max_iter": 80
+    },
+    "solve_atol": 5e-05,
+    "source_regularization": "second-order",
+    "case_iteration_options": {
+      "control": {
+        "gradient_atol": 3e-05
+      }
+    }
+  },
+  "success": false,
+  "block_partition": {
+    "source": "single_step",
+    "geometry_sha256": "43ad7dd8de786725954778a61567d38d9238fb8f9148919db49ee0059897f9be",
+    "reference": "Exact ticket11 scientific200 source-incidence partition; fixed numerical choice, current iterative Jacobian always uses recovered nodal source",
+    "file_sha256": "203e0ccc7bfde571c44cd5bf0e02c07ef4b903f182c513e55b40ada9c4f32486",
+    "actual_sizes": [
+      788,
+      840,
+      24,
+      820,
+      812,
+      24,
+      24,
+      24,
+      1
+    ],
+    "cap": 1024
+  },
+  "sizes": {
+    "data": 22016,
+    "source": 2401,
+    "potential_core": 724,
+    "potential_support": 956,
+    "query_subpixels": 88064,
+    "image_shape": [
+      200,
+      200
+    ]
+  },
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "devices": [
+      "NVIDIA GeForce RTX 5080"
+    ],
+    "git_commit": "764e4b1487ea5bb6cf4459fc8fc07d44226c95ac",
+    "git_dirty": false,
+    "implementation_sha256": {
+      "examples/potential_correction/iterative_scientific.py": "34ab356a8ec04da2e13dee785cf93ca2a4d98a682c4d36c487261a004175c536",
+      "examples/potential_correction/result_products.py": "de9a9ab5e4f2be4fbae325169f1d106e519c4e2101242a9110fd6e0c994a84f9",
+      "examples/potential_correction/mock.py": "81b1b95a9a8817bbba17a232da23e3ddba29d426ac7dd3db163d2dfd6615c89f",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "196f5603bd26bb0394a812055e084410a3dbdf7c4e742c19cdc7a5c3ce2da827",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "0ccc30dc77bcf14dc7462c9d4f747fbdcb9d010c5c5a41c5e163fbd0e2ed7ff9",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+      "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "dbfa357ba6c93ed54d9840ad1603c375f3839c54774b51848b8d0780358002c6",
+      "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+      "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+      "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+    }
+  },
+  "initialization": "truth brightness at fixed source NODES; zero potential; each fit resets; current nodal gradients thereafter",
+  "scope": "fixed true macro nonlinear reconstruction; no detection significance, mass intervals or timing claim",
+  "comparisons": {
+    "algorithms": {},
+    "iterative_backends": {},
+    "single_step_backends": {},
+    "operator_algorithm_comparisons": {},
+    "primary_algorithm_comparison": "dense single-step versus dense iterative, at recorded strengths",
+    "interpretation": "raw fields; distinguish inference objectives/local linearization from determinant approximations; no detection statistic",
+    "single_step_reference": null
+  },
+  "runs": {
+    "subhalo/dense": {
+      "success": false,
+      "failure_reason": "stalled",
+      "termination_reason": "stalled",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 3000.0
+      },
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 5.571465363124319e-14,
+        "relative_residual": 1.3571262334601612e-15,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "configuration": {
+        "source_n": 49,
+        "source_regularization": "second-order",
+        "potential_spacing": 0.075,
+        "potential_regularization": "complete_pixel_unit_fourth_differences",
+        "potential_amplitude_prior": "independent_all_unknowns",
+        "nsub": 2,
+        "image_shape": [
+          200,
+          200
+        ],
+        "n_data": 22016,
+        "n_source": 2401,
+        "n_potential": 956,
+        "n_core": 724,
+        "solve_rtol": 1e-08,
+        "dtype": "float64",
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "gradient_atol": 0.0005,
+        "gradient_rtol": 1e-08,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001,
+        "damping_metric": "physical_curvature_diagonal",
+        "solve_atol": 5e-05,
+        "accepted_iterations": 59,
+        "final_damping": 136.7555613895626,
+        "initial_scaled_gradient": 97.60704720821299,
+        "final_scaled_gradient": null
+      },
+      "search": null,
+      "objective": 11720.037987118469,
+      "chi2": 22092.8348046662,
+      "regularization_penalty": 1347.2411695707394,
+      "prior_logdet": 44604.24238354763,
+      "posterior_logdet": null,
+      "maximum_true_residual_norm": 2.4048798707805272e-08,
+      "maximum_true_relative_residual": 1.3297610821787437e-12
+    },
+    "control/dense": {
+      "success": false,
+      "failure_reason": "linear_solve_failed",
+      "termination_reason": "linear_solve_failed",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 3000.0
+      },
+      "log_evidence": null,
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "solver_info": {
+        "method": "cholesky",
+        "converged": false,
+        "failed": true,
+        "iterations": 1,
+        "residual_norm": 5.539342505675508e-05,
+        "relative_residual": 1.5679382203369808e-07,
+        "reason": "linear_residual_exceeds_tolerance",
+        "diagnostics": {}
+      },
+      "configuration": {
+        "source_n": 49,
+        "source_regularization": "second-order",
+        "potential_spacing": 0.075,
+        "potential_regularization": "complete_pixel_unit_fourth_differences",
+        "potential_amplitude_prior": "independent_all_unknowns",
+        "nsub": 2,
+        "image_shape": [
+          200,
+          200
+        ],
+        "n_data": 22016,
+        "n_source": 2401,
+        "n_potential": 956,
+        "n_core": 724,
+        "solve_rtol": 1e-08,
+        "dtype": "float64",
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "gradient_atol": 3e-05,
+        "gradient_rtol": 1e-08,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001,
+        "damping_metric": "physical_curvature_diagonal",
+        "solve_atol": 5e-05,
+        "accepted_iterations": 13,
+        "final_damping": 6.272254743863068e-10,
+        "initial_scaled_gradient": 5.541313773948718,
+        "final_scaled_gradient": null
+      },
+      "search": null,
+      "objective": 11404.18329345988,
+      "chi2": 21832.907126283168,
+      "regularization_penalty": 975.4594606365946,
+      "prior_logdet": 52789.85404148814,
+      "posterior_logdet": null,
+      "maximum_true_residual_norm": 5.539342505675508e-05,
+      "maximum_true_relative_residual": 1.6178135344945513e-07
+    }
+  },
+  "backend_comparison": {}
+}
