@@ -169,3 +169,9 @@ JAX primitive order; an explicit `make_jaxpr` comparison with untouched
 Environment: Python 3.11.14, JAX 0.7.1, NumPy 2.4.6, SciPy 1.17.1,
 CUDA device 0 on the available RTX 5080. No broad benchmark or new
 autodifferentiation support is claimed.
+
+After merging integration `329cdb8` (ticket 11 included) without conflicts,
+`pytest -q test_potential_correction_scientific.py
+ test_potential_correction_iterative_example.py` from `examples/tests/`
+passed all four cases in 25.80s. These are small compatibility cases, not a
+production 200×200 scientific run.

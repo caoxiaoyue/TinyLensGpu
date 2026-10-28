@@ -84,3 +84,9 @@ are ticket 09 and nested hyperparameter search is ticket 10.
   Unresolved bilinear kinks may honestly stall or reach rejection/damping
   limits; they receive no evidence. Operator iteration, outer search and full
   scientific plotting/export remain in later tickets.
+- Final integration check: merged integration `329cdb8` (including ticket 11)
+  in `d0be226`, without conflicts. From `examples/tests/`, in the same
+  documented environment: `pytest -q test_potential_correction_scientific.py
+  test_potential_correction_iterative_example.py`: four passed in 25.80s.
+  This verifies the merged scientific result/export consumers and the small
+  dense iteration together; no production 200×200 run was performed here.
