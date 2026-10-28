@@ -18,8 +18,8 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–07 and 11 are resolved and merged. Dense iterative reconstruction
-(08) is in progress. The remaining iterative workflows, their scientific
+Tickets 01–08 and 11 are resolved and merged. Operator iterative reconstruction
+(09) is in progress. Nested strength selection, the iterative scientific
 example, precision/performance validation and final integration are outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
@@ -45,6 +45,9 @@ Focused commands, configurations and outcomes are retained in:
 - [Scientific single-step validation](../../docs/validation/potential-correction-single-step-scientific.md)
   for the explicitly configured 200-by-200 runs, their saved public results,
   figures, matched controls and amplitude-prior probes.
+- [Dense nonlinear iteration](../../docs/validation/potential-correction-dense-iteration.md)
+  for current bilinear derivatives, accumulated-field priors, objective-based
+  LM acceptance, failure histories and undamped local-Gauss–Newton evidence.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
