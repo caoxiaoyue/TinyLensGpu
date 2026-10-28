@@ -5,7 +5,7 @@
 **Blocked by:** 04 — Dense single-step reconstruction at fixed strengths.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -26,3 +26,7 @@ Use the dense evidence reference. The operator adapter and cross-backend
 calibration are ticket 07; this ticket does not select the final scientific
 demo's weak-prior value or search limits without the agreed sensitivity record.
 
+
+## Comments
+
+- Claimed by ticket05 agent on branch `codex/pc-05`, worktree `/tmp/tinylens-pc-05`, based on integration commit `cdda3e9767ae9a6c6ba93d0bac9c4e572238d4a5`. Public fit/evidence and inference-callable seams are approved by the parent spec; implementation follows TDD vertical slices.

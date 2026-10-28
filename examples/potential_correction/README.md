@@ -84,3 +84,41 @@ otherwise JAX itself may downcast subsequent operations. These mock products
 establish reproducible inputs and analytic truth, with no claim of recovery,
 formal detection significance, mass precision, or exact correspondence to the
 reference repository's simulation.
+
+## Dense strength tuning
+
+`tune_single_step.py` runs a small dense single-step reconstruction with the
+fixed true macro and frozen analytic mock gradient. Supply the independent
+amplitude strength and both natural-log search bounds explicitly:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_single_step.py \
+  --lambda-amplitude 0.4 --log-source-bounds -2 2 \
+  --log-potential-bounds -4 2 --maxfun 80 \
+  --output output/potential_correction_tuning
+```
+
+The example uses a 12x12 Pseudo-Jaffe image at 0.25 arcsec/pixel, nsub=1,
+3x3 PSF, and 5x5 source in `[-0.6,0.6]^2`. `--source-n`,
+`--potential-spacing`, `--dtype`, and DIRECT controls configure the run.
+`tuning.json` saves bounds, controls, selected strengths, all scalar candidate
+statuses/reasons, initialization and evidence provenance. A successful best
+fit also saves public fields and both renderings in `reconstruction.npz`.
+The Python `run_tuning(...)` function returns the search object, including
+`result.strengths` and `result.reconstruction`.
+
+`has_valid_fit` and `optimizer_success` are separate: reaching an approximate
+evaluation budget can leave a useful successful reconstruction while DIRECT
+reports incomplete optimization. Boundary flags identify a selected strength
+within `--boundary-rtol` (default 0.01) of a configured natural-log interval
+edge. This command's prior and bounds are numerical example inputs;
+scientific weak-prior selection and recovery require the later sensitivity
+and backend-calibration checks.
+
+For a prepared `SingleStepPotentialCorrection` problem, use
+`TinyLensGpu.Inference.optimize_potential_correction(problem, log_bounds=...)`.
+`PotentialCorrectionEvidence(problem)` is the reusable negative-evidence
+callable over `[log_lambda_source, log_lambda_potential]`. Every candidate
+performs a complete fit with fixed initialization; failed numerical candidates
+return positive infinity and retain their reasons. See the
+[API and verification record](../../.scratch/potential-correction/research/dense-strength-optimization.md).
