@@ -45,7 +45,9 @@ def test_fixed_operator_reruns_replace_success_with_failure_and_recover(tmp_path
     assert failure["success"] is False
     assert failure["failure_reason"] == "pcg_iteration_limit"
     assert failure["configuration"]["pcg_max_iter"] == 1
-    assert failure["initialization_provenance"]["source"] == "analytic mock truth gradient"
+    assert (
+        failure["initialization_provenance"]["source"] == "analytic mock truth gradient"
+    )
     assert not (tmp_path / "configuration.json").exists()
     assert not (tmp_path / "reconstruction.npz").exists()
 

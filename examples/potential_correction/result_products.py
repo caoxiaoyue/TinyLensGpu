@@ -12,6 +12,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from examples.potential_correction._recovery_diagnostics import (
+    _ray_domain,
+    _recovery_metrics,
+    _rms,
+    _sample_truth,
+    _truth_arrays,
+)
+
 RESULT_ARRAYS = (
     "source_values",
     "source_x_axis",
@@ -93,26 +101,13 @@ def export_failure(record, output):
     write_json(output / "failure.json", record)
 
 
-def _rms(values):
-    values = np.asarray(values)
-    return float(np.sqrt(np.mean(values**2))) if values.size else None
-
-
 def _ray_margins(grid, observation, bbox, potential=None, *, analytic_truth=False):
-    bx, by = observation.macro.deflection(grid.query_x, grid.query_y)
-    if analytic_truth:
-        ax, ay = observation.subhalo_truth.deflection(grid.query_x, grid.query_y)
-        bx, by = bx - ax, by - ay
-    elif potential is not None:
-        ax, ay = grid.deflection(potential)
-        bx, by = bx - ax, by - ay
-    x, y = np.asarray(bx), np.asarray(by)
-    xmin, xmax, ymin, ymax = bbox
-    margin = np.minimum.reduce((x - xmin, xmax - x, y - ymin, ymax - y))
-    brightness = np.asarray(observation.source_truth.brightness(bx, by))
+    margin, brightness = _ray_domain(
+        grid, observation, bbox, potential, analytic_truth=analytic_truth
+    )
     outside = margin < 0
     return {
-        "query_count": len(x),
+        "query_count": len(margin),
         "outside_count": int(outside.sum()),
         "minimum_signed_margin_arcsec": float(margin.min()),
         "outside_analytic_brightness_fraction": (
@@ -130,150 +125,41 @@ def truth_products(result, observation):
     nodal psi. Analytic point samples are retained separately. Support-only
     derivatives are NaN, including when the analytic field is defined there.
     """
-    grid = result.potential_grid
-    with jax.experimental.enable_x64(result.dtype == "float64"):
-        sx, sy = jnp.meshgrid(result.source_x_axis, result.source_y_axis)
-        source = observation.source_truth.brightness(sx, sy).ravel()
-        potential = observation.subhalo_truth.potential(grid.x, grid.y)
-        dax, day, kappa = grid.derivatives(potential)
-        aax, aay = observation.subhalo_truth.deflection(grid.x, grid.y)
-        analytic_kappa = observation.subhalo_truth.convergence(grid.x, grid.y)
-        core = np.asarray(grid.core_indices)
-        bx, by = observation.macro.deflection(grid.x[core], grid.y[core])
-        illumination = np.asarray(observation.source_truth.brightness(bx, by))
-    valid = np.asarray(result.derivative_valid)
-
-    def full():
-        return np.full(grid.n_unknown, np.nan, dtype=result.dtype)
-
-    arrays = {
-        "truth_source_values": np.asarray(source),
-        "truth_potential_values": np.asarray(potential),
-        "truth_discrete_deflection_x": full(),
-        "truth_discrete_deflection_y": full(),
-        "truth_discrete_convergence": full(),
-        "truth_analytic_deflection_x": np.where(valid, np.asarray(aax), np.nan),
-        "truth_analytic_deflection_y": np.where(valid, np.asarray(aay), np.nan),
-        "truth_analytic_convergence": np.where(
-            valid, np.asarray(analytic_kappa), np.nan
-        ),
-    }
-    for name, values in (
-        ("deflection_x", dax),
-        ("deflection_y", day),
-        ("convergence", kappa),
-    ):
-        arrays[f"truth_discrete_{name}"][core] = np.asarray(values)
-    radius = np.hypot(np.asarray(grid.x)[core], np.asarray(grid.y)[core])
-    illuminated = (illumination >= 0.05 * illumination.max()) & (
-        (radius >= observation.config.mask_inner)
-        & (radius <= observation.config.mask_outer)
+    truth = _sample_truth(
+        result.source_x_axis,
+        result.source_y_axis,
+        result.potential_grid,
+        observation,
+        result.dtype,
     )
-    local_radius = max(
-        2 * np.sqrt(observation.config.b_sub * observation.config.theta_E),
-        2 * grid.spacing,
+    return (
+        _truth_arrays(truth, result.potential_grid, result.dtype),
+        truth["local_radius"],
     )
-    local = (
-        np.hypot(
-            np.asarray(grid.x)[core] - observation.config.subhalo_x,
-            np.asarray(grid.y)[core] - observation.config.subhalo_y,
-        )
-        <= local_radius
-    )
-    for name, selection in (("illuminated_core", illuminated), ("local_core", local)):
-        arrays[name] = np.zeros(grid.n_unknown, dtype=bool)
-        arrays[name][core] = selection
-    return arrays, local_radius
 
 
 def summarize_result(result, observation, *, affine_diagnostics=False):
     """Return raw recovery, localization and residual summaries on named domains."""
     if not result.success:
         raise ValueError("A failed reconstruction has no scientific recovery summary")
-    truth, local_radius = truth_products(result, observation)
-    valid = np.asarray(result.derivative_valid)
-    s, p = np.asarray(result.source_values), np.asarray(result.potential_values)
-    source = truth["truth_source_values"]
     grid = result.potential_grid
-    kappa = np.asarray(result.convergence)
-    peak_index = np.flatnonzero(valid)[np.argmax(kappa[valid])]
-    peak_xy = [
-        float(np.asarray(grid.x)[peak_index]),
-        float(np.asarray(grid.y)[peak_index]),
-    ]
-    convergence = {}
-    for name, domain in (
-        ("all_core", valid),
-        ("illuminated_core", truth["illuminated_core"]),
-        ("local_core", truth["local_core"]),
-    ):
-        analytic_valid = domain & np.isfinite(truth["truth_analytic_convergence"])
-        convergence[name] = {
-            "count": int(domain.sum()),
-            "rmse_discrete_truth": _rms(
-                (kappa - truth["truth_discrete_convergence"])[domain]
+    samples = _sample_truth(
+        result.source_x_axis, result.source_y_axis, grid, observation, result.dtype
+    )
+    truth = _truth_arrays(samples, grid, result.dtype)
+    summary, aligned = _recovery_metrics(
+        result, samples, observation, affine_diagnostics=affine_diagnostics
+    )
+    summary.update(
+        {
+            "nonlinear_residual_rms_noise": _rms(
+                np.asarray(result.nonlinear_normalized_residual)[
+                    ~np.asarray(observation.mask)
+                ]
             ),
-            "truth_discrete_rms": _rms(truth["truth_discrete_convergence"][domain]),
-            "rmse_analytic_point_truth": _rms(
-                (kappa - truth["truth_analytic_convergence"])[analytic_valid]
-            ),
-            "analytic_valid_count": int(analytic_valid.sum()),
-            "recovered_rms": _rms(kappa[domain]),
-            "recovered_mean": float(kappa[domain].mean()) if domain.any() else None,
-            "truth_discrete_mean": (
-                float(truth["truth_discrete_convergence"][domain].mean())
-                if domain.any()
-                else None
-            ),
-            "recovered_max": float(kappa[domain].max()) if domain.any() else None,
-            "truth_discrete_max": (
-                float(truth["truth_discrete_convergence"][domain].max())
-                if domain.any()
-                else None
-            ),
+            "source_box": {},
         }
-    summary = {
-        "source_relative_l2": float(
-            np.linalg.norm(s - source) / np.linalg.norm(source)
-        ),
-        "source_rmse": _rms(s - source),
-        "source_negative_node_fraction": float(np.mean(s < 0)),
-        "source_negative_to_positive_sum": (
-            float(-s[s < 0].sum() / s[s > 0].sum()) if (s > 0).any() else None
-        ),
-        "potential_rmse_raw_center_zero_truth": _rms(
-            p - truth["truth_potential_values"]
-        ),
-        "potential_rmse_mean_centered_truth": _rms(
-            p
-            - (truth["truth_potential_values"] - truth["truth_potential_values"].mean())
-        ),
-        "potential_rms": _rms(p),
-        "potential_mean": float(p.mean()),
-        "deflection_vector_rmse_discrete_truth": _rms(
-            np.hypot(
-                np.asarray(result.deflection_x)[valid]
-                - truth["truth_discrete_deflection_x"][valid],
-                np.asarray(result.deflection_y)[valid]
-                - truth["truth_discrete_deflection_y"][valid],
-            )
-        ),
-        "convergence": convergence,
-        "convergence_peak_xy_arcsec": peak_xy,
-        "peak_distance_to_injected_position_arcsec": float(
-            np.hypot(
-                peak_xy[0] - observation.config.subhalo_x,
-                peak_xy[1] - observation.config.subhalo_y,
-            )
-        ),
-        "local_radius_arcsec": local_radius,
-        "nonlinear_residual_rms_noise": _rms(
-            np.asarray(result.nonlinear_normalized_residual)[
-                ~np.asarray(observation.mask)
-            ]
-        ),
-        "source_box": {},
-    }
+    )
     if result.linear_image_active is not None:
         summary.update(
             linear_residual_rms_noise=_rms(
@@ -300,18 +186,8 @@ def summarize_result(result, observation, *, affine_diagnostics=False):
             ),
         }
     if affine_diagnostics:
-        affine = np.column_stack(
-            (np.ones(len(p)), np.asarray(grid.x), np.asarray(grid.y))
-        )
-        coefficients = np.linalg.lstsq(
-            affine, p - truth["truth_potential_values"], rcond=None
-        )[0]
-        aligned = p - affine @ coefficients
-        summary["affine_diagnostic_only"] = {
-            "fitted_difference_constant_x_y": coefficients.tolist(),
-            "potential_rmse": _rms(aligned - truth["truth_potential_values"]),
-            "applied_to_raw_fields_or_images_or_evidence": False,
-        }
+        # This schema historically exports only the aligned potential metric.
+        summary["affine_diagnostic_only"].pop("deflection_vector_rmse")
         truth["diagnostic_affine_potential_values"] = aligned
     return summary, truth
 

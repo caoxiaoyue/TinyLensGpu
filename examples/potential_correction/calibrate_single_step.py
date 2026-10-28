@@ -29,6 +29,12 @@ from TinyLensGpu.Inference import (
 )
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
+from examples.potential_correction._recovery_diagnostics import (
+    _ray_domain,
+    _recovery_metrics,
+    _rms,
+    _sample_truth,
+)
 
 
 @dataclass(frozen=True)
@@ -162,11 +168,6 @@ def source_incidence_blocks(
     return result
 
 
-def _rms(values):
-    values = np.asarray(values)
-    return None if not values.size else float(np.sqrt(np.mean(values**2)))
-
-
 def _json_safe(value):
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
@@ -182,56 +183,20 @@ def _json_safe(value):
 
 
 def _truth(renderer, observation):
-    grid = renderer.potential_grid
-    sx, sy = jnp.meshgrid(renderer.source_x_axis, renderer.source_y_axis)
-    source = observation.source_truth.brightness(sx, sy).ravel()
-    potential = observation.subhalo_truth.potential(grid.x, grid.y)
-    ax, ay, kappa = grid.derivatives(potential)
-    core = np.asarray(grid.core_indices)
-    cx, cy = grid.x[core], grid.y[core]
-    bx, by = observation.macro.deflection(cx, cy)
-    illumination = np.asarray(observation.source_truth.brightness(bx, by))
-    radius = np.hypot(np.asarray(cx), np.asarray(cy))
-    illuminated = (illumination >= 0.05 * illumination.max()) & (
-        (radius >= observation.config.mask_inner)
-        & (radius <= observation.config.mask_outer)
-    )
-    roi_radius = max(
-        2 * np.sqrt(observation.config.b_sub * observation.config.theta_E),
-        2 * grid.spacing,
-    )
-    local = (
-        np.hypot(
-            np.asarray(cx) - observation.config.subhalo_x,
-            np.asarray(cy) - observation.config.subhalo_y,
-        )
-        <= roi_radius
-    )
-    return dict(
-        source=np.asarray(source),
-        potential=np.asarray(potential),
-        alpha_x=np.asarray(ax),
-        alpha_y=np.asarray(ay),
-        kappa=np.asarray(kappa),
-        analytic_kappa=np.asarray(observation.subhalo_truth.convergence(cx, cy)),
-        illuminated_core=illuminated,
-        local_core=local,
-        local_radius=roi_radius,
+    return _sample_truth(
+        renderer.source_x_axis,
+        renderer.source_y_axis,
+        renderer.potential_grid,
+        observation,
+        renderer.dtype.name,
     )
 
 
 def _source_box_margins(grid, observation, bbox, potential=None):
-    bx, by = observation.macro.deflection(grid.query_x, grid.query_y)
-    if potential is not None:
-        ax, ay = grid.deflection(potential)
-        bx, by = bx - ax, by - ay
-    x, y = np.asarray(bx), np.asarray(by)
-    xmin, xmax, ymin, ymax = bbox
-    margins = np.minimum.reduce((x - xmin, xmax - x, y - ymin, ymax - y))
+    margins, brightness = _ray_domain(grid, observation, bbox, potential)
     outside = margins < 0
-    brightness = np.asarray(observation.source_truth.brightness(bx, by))
     return dict(
-        query_count=len(x),
+        query_count=len(margins),
         minimum_signed_margin=float(margins.min()),
         margin_percentiles=np.percentile(margins, [1, 5, 50]).tolist(),
         outside_count=int(outside.sum()),
@@ -262,41 +227,30 @@ def _fit_record(result, truth, observation):
     )
     if not result.success:
         return record
-    s, p = np.asarray(result.source_values), np.asarray(result.potential_values)
+    metrics, _ = _recovery_metrics(result, truth, observation, affine_diagnostics=True)
+    p = np.asarray(result.potential_values)
     grid = result.potential_grid
-    core = np.asarray(grid.core_indices)
-    kappa = np.asarray(result.convergence)[core]
-    ax, ay = (
-        np.asarray(result.deflection_x)[core],
-        np.asarray(result.deflection_y)[core],
+    # Calibration retains its existing compact schema. Scientific exports also
+    # include signed-source and per-domain mean diagnostics from the same math.
+    fields = (
+        "source_relative_l2",
+        "source_rmse",
+        "potential_rmse_raw_center_zero_truth",
+        "potential_rmse_mean_centered_truth",
+        "potential_rms",
+        "potential_mean",
+        "deflection_vector_rmse_discrete_truth",
+        "affine_diagnostic_only",
     )
-    raw_truth = truth["potential"]
-    affine = np.column_stack((np.ones(len(p)), np.asarray(grid.x), np.asarray(grid.y)))
-    coefficients = np.linalg.lstsq(affine, p - raw_truth, rcond=None)[0]
-    peak = int(np.argmax(kappa))
-    peak_xy = [
-        float(np.asarray(grid.x)[core[peak]]),
-        float(np.asarray(grid.y)[core[peak]]),
-    ]
-    convergence = {}
-    for name, mask in dict(
-        all_core=np.ones(len(core), dtype=bool),
-        illuminated_core=truth["illuminated_core"],
-        local_core=truth["local_core"],
-    ).items():
-        finite = mask & np.isfinite(truth["analytic_kappa"])
-        convergence[name] = dict(
-            count=int(mask.sum()),
-            rmse_discrete_truth=_rms((kappa - truth["kappa"])[mask]),
-            truth_discrete_rms=_rms(truth["kappa"][mask]),
-            rmse_analytic_point_truth=_rms((kappa - truth["analytic_kappa"])[finite]),
-            analytic_valid_count=int(finite.sum()),
-            recovered_rms=_rms(kappa[mask]),
-            recovered_max=float(kappa[mask].max()) if mask.any() else None,
-            truth_discrete_max=(
-                float(truth["kappa"][mask].max()) if mask.any() else None
-            ),
-        )
+    record.update({name: metrics[name] for name in fields})
+    convergence = {
+        name: {
+            key: value
+            for key, value in domain.items()
+            if key not in ("recovered_mean", "truth_discrete_mean")
+        }
+        for name, domain in metrics["convergence"].items()
+    }
     record.update(
         log_evidence=float(result.log_evidence),
         prior_logdet=float(result.prior_logdet),
@@ -305,39 +259,12 @@ def _fit_record(result, truth, observation):
         regularization_penalty=float(result.regularization_penalty),
         objective=float(result.objective),
         amplitude_penalty=float(result.strengths.lambda_amplitude * (p @ p)),
-        source_relative_l2=float(
-            np.linalg.norm(s - truth["source"]) / np.linalg.norm(truth["source"])
-        ),
-        source_rmse=_rms(s - truth["source"]),
-        potential_rmse_raw_center_zero_truth=_rms(p - raw_truth),
-        potential_rmse_mean_centered_truth=_rms(p - (raw_truth - raw_truth.mean())),
-        potential_rms=_rms(p),
-        potential_mean=float(p.mean()),
-        deflection_vector_rmse_discrete_truth=_rms(
-            np.hypot(ax - truth["alpha_x"], ay - truth["alpha_y"])
-        ),
-        affine_diagnostic_only=dict(
-            fitted_difference_constant_x_y=coefficients.tolist(),
-            potential_rmse=_rms(p - affine @ coefficients - raw_truth),
-            deflection_vector_rmse=_rms(
-                np.hypot(
-                    ax - coefficients[1] - truth["alpha_x"],
-                    ay - coefficients[2] - truth["alpha_y"],
-                )
-            ),
-            applied_to_raw_fields_or_images_or_evidence=False,
-        ),
         convergence=convergence,
-        convergence_peak_xy=peak_xy,
+        convergence_peak_xy=metrics["convergence_peak_xy_arcsec"],
         corrected_ray_source_box=_source_box_margins(
             grid, observation, result.source_bbox, result.potential_values
         ),
-        peak_distance_to_subhalo=float(
-            np.hypot(
-                peak_xy[0] - observation.config.subhalo_x,
-                peak_xy[1] - observation.config.subhalo_y,
-            )
-        ),
+        peak_distance_to_subhalo=metrics["peak_distance_to_injected_position_arcsec"],
         linear_residual_rms_noise=float(
             np.sqrt(float(result.chi2) / len(result.data_active))
         ),
