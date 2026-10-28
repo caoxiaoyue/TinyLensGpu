@@ -415,6 +415,19 @@ retain the case's masking, crop, color, labels and overlays.
 
 ---
 
+### Source–potential reconstruction
+
+Use `PotentialCorrectionRenderer` with the separate
+`SingleStepPotentialCorrection` or `IterativePotentialCorrection` entry point
+for one lens-light-subtracted band with a fixed macro and source geometry.
+These signed coupled fits select `backend="dense"` or `"operator"` and use
+direct positive source/D4 strengths. Their public result distinguishes
+conditional, local-Gauss–Newton and principal-block evidence, and reports
+numerical/nonlinear failures explicitly. The dedicated
+[potential-correction guide](potential-correction.md) covers imports, complete
+small use, truth-derived initialization, support/priors, natural-log DIRECT
+searches, scientific exports/reload and measured precision/resource limits.
+
 ## 5. Testing & Quality
 
 From the repository root, activate the environment and select a suite:
@@ -505,6 +518,7 @@ truthiness. There is no switch that reinstalls the patch.
 - **examples/tests/**: Automated example and pipeline regressions.
 - **benchmarks/**: Explicit timing and scaling benchmarks.
 - **Point-source guide**: `docs/guides/point-source-model.md`
+- **Potential-correction guide**: `docs/guides/potential-correction.md`
 
 Contributions should update the relevant guide when behavior or workflows change.
 

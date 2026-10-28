@@ -1,5 +1,7 @@
 """Shared numerical preparation for source–potential reconstruction."""
 
+from inspect import signature
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,11 +18,25 @@ def _dense_response_columns(action, size, dtype):
     basis vector inside the map avoids an additional complete identity array.
     The returned dense design is intentional for the reference backend.
     """
-    return jax.lax.map(
-        lambda index: action(jax.nn.one_hot(index, size, dtype=dtype)),
-        jnp.arange(size, dtype=jnp.int32),
-        batch_size=16,
-    ).T
+
+    def column(index):
+        return action(jax.nn.one_hot(index, size, dtype=dtype))
+
+    indices = jnp.arange(size, dtype=jnp.int32)
+    if "batch_size" in signature(jax.lax.map).parameters:
+        return jax.lax.map(column, indices, batch_size=16).T
+
+    # JAX 0.4.20 exposes map(f, xs). Map whole bounded panels there, with
+    # a separate remainder, preserving the modern path's order and memory bound.
+    full_columns = (size // 16) * 16
+    parts = []
+    if full_columns:
+        panels = jax.lax.map(jax.vmap(column), indices[:full_columns].reshape((-1, 16)))
+        parts.append(panels.reshape((full_columns,) + panels.shape[2:]))
+    if full_columns < size:
+        parts.append(jax.vmap(column)(indices[full_columns:]))
+    columns = parts[0] if len(parts) == 1 else jnp.concatenate(parts, axis=0)
+    return columns.T
 
 
 def _positive(value, name):
