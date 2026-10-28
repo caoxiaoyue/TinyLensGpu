@@ -9,7 +9,7 @@ The approved requirements and scope are in the [spec](spec.md).
   Consult individual tickets for their current lifecycle and verification.
 - The design uses the existing square source grid, a local potential support
   constructed around actual interpolation corners, complete fourth-difference
-  windows, and a fixed independent weak amplitude prior.
+  windows, and a fixed independent amplitude prior.
 - Planned validation uses Pseudo-Jaffe and no-subhalo mocks, fixed true macro
   parameters, and truth-derived source initialization. Numerical comparisons
   precede scientific examples and performance measurements.
@@ -18,9 +18,9 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–11 are resolved and merged. Iterative scientific outputs (12) are
-in progress. Precision/performance validation and final integration remain
-outstanding.
+Tickets 01–12 are resolved. Tickets 01–11 are merged; iterative scientific
+outputs (12) are ready for integration. Precision/performance validation (13)
+and final integration (14) remain outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -94,8 +94,9 @@ and [compact retained products](research/single-step-calibration/summary.json).
 Cached bounded inverse lower factors accelerate the same principal
 preconditioner, with focused numerical, legacy Schur/autodiff and allocation
 regressions passing. Both iterative backends and bounded nested strength
-selection are now implemented with focused numerical checks. Iterative
-scientific and workflow performance validation remain downstream stages.
+selection are now implemented with focused numerical checks. Scientific
+iterative outputs are validated below; workflow precision and performance
+remain downstream stages.
 
 Ticket 11 adds the documented 200x200 fixed-strength single-step experiment
 with both backends and matched control. The explicit b=0.04 scenario retains
@@ -107,6 +108,24 @@ and [compact summary](research/single-step-scientific/summary.json).
 Peak localization is useful, while peak suppression, global low modes, prior
 dependence and linearization mismatch remain explicit limitations. The
 shared result exporter/loader does not reconstruct a numerical solver.
+
+Ticket 12 adds both-backend nonlinear scientific reconstruction with fixed
+strengths and complete nested-search assembly, truth-node/zero-potential resets,
+current nodal derivatives, saved public results and actual objective/damping
+histories. All four matched 200x200 adopted-model fits genuinely converge;
+dense/operator fields agree numerically while their local/block evidence
+offsets remain explicit. A narrow residual correction preserves the total PCG
+budget and true physical certificate, with failed budgets/endpoints retained.
+The [iterative scientific report](../../docs/validation/potential-correction-iterative-scientific.md)
+and [compact records](research/iterative-scientific/) preserve stopping-control
+calibration, exact single-step partition reuse, algorithm comparisons, raw
+versus optional affine diagnostics, and the measured amplitude-prior
+sensitivity. Localized kappa is useful with substantial peak suppression;
+psi/alpha low modes remain strongly prior-sensitive, and lower-prior numerical
+convergence is unverified. No globally weak prior or broad robustness is
+established. Failed probes keep null evidence and diagnostic status. Production
+scientific results use fixed smoothing; small tests verify the complete nested
+workflow without claiming a converged 200-pixel outer search.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or
