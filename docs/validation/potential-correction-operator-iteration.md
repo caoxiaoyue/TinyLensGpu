@@ -6,6 +6,9 @@ algorithm cases and bounded allocation. It does not calibrate nonlinear
 block-evidence strength selection, scientific recovery, the amplitude prior,
 or a production image size; those remain subsequent stages.
 
+Implementation commit: `7c642bd`. Integration `f26cc49` was merged as `1597ca9`
+without conflicts; it changed only the feature README's progress record.
+
 ## Numerical contract
 
 ```python
@@ -213,6 +216,12 @@ pytest -q test_pixelized_operator.py \
 Result: **23 passed, 173 deselected in 34.95s**. No CG internals or existing
 Schur code were changed. The environment is Python 3.11.14, JAX 0.7.1,
 NumPy 2.4.6 on the available NVIDIA GeForce RTX 5080.
+
+The standalone command also completed successfully: six accepted updates,
+objective 2.4989361108943 -> 0.0460958021481, chi2=0.000139474156,
+local block log evidence=160.23787048, final gradient=1.00e-9. The last PCG
+step used 141 iterations and true relative residual 3.06e-12. Public default
+controls and failure semantics were unchanged throughout this work.
 
 The final separate example compatibility command from `examples/tests/`,
 `pytest -q test_potential_correction_iterative_example.py

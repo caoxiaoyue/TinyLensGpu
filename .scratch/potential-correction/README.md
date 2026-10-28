@@ -18,9 +18,10 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–08 and 11 are resolved and merged. Operator iterative reconstruction
-(09) is in progress. Nested strength selection, the iterative scientific
-example, precision/performance validation and final integration are outstanding.
+Tickets 01–09 and 11 are resolved. Tickets 01–08 and 11 are merged; operator
+iteration (09) is ready for integration. Nested strength selection, the
+iterative scientific example, precision/performance validation and final
+integration remain outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -48,6 +49,10 @@ Focused commands, configurations and outcomes are retained in:
 - [Dense nonlinear iteration](../../docs/validation/potential-correction-dense-iteration.md)
   for current bilinear derivatives, accumulated-field priors, objective-based
   LM acceptance, failure histories and undamped local-Gauss–Newton evidence.
+- [Operator nonlinear iteration](../../docs/validation/potential-correction-operator-iteration.md)
+  for current coupled actions, the shared control policy, fixed partition,
+  damped-step/undamped-evidence separation, dense/float32 comparisons,
+  failure propagation, JIT reuse and bounded observable allocation.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
