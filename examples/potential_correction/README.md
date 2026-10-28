@@ -1,5 +1,11 @@
 # Potential-correction examples
 
+Start with the [complete user guide](../../docs/guides/potential-correction.md)
+for public APIs, algorithm/initialization differences, geometry and priors,
+status/evidence interpretation, exports, scientific reproduction and precision
+limits. The [coverage record](../../docs/validation/potential-correction-coverage.md)
+connects the approved requirements to implementation and verification.
+
 `generate_mock.py` creates single-band, lens-light-subtracted Pseudo-Jaffe
 subhalo observations and a matched no-subhalo control. It does not fit a
 correction. Use the `tinylens_gpu` environment; PyAuto packages are unnecessary.

@@ -1,0 +1,116 @@
+{
+  "scope": "Ticket14 broad integration, public older-JAX API compatibility and documentation verification; parent spec remains open for independent review/fix",
+  "original_review_base": "5bbfdfa",
+  "implementation_start": "5170da8e5ec6f162ff6b66ab7b75b8a4b6fd2bed",
+  "environment": {
+    "conda": "tinylens_gpu",
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "jaxlib": "0.7.1",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "driver": "610.57.04",
+    "vram_mib": 16303
+  },
+  "environment_overrides": {
+    "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+    "MPLBACKEND": "Agg",
+    "PYTHONPATH": "/tmp/tinylens-pc-14"
+  },
+  "checks": [
+    {
+      "name": "full_core",
+      "command": "pytest -q",
+      "cwd": "/tmp/tinylens-pc-14",
+      "scope": "Full 957-case collection before legacy-map compatibility test/edit; includes all slow tests, no deselection. Numerical baseline 5170da8; kept distinct from post-edit checks.",
+      "exit_code": 0,
+      "passed": 957,
+      "seconds": 567.5,
+      "summary": "======================= 957 passed in 567.50s (0:09:27) ========================",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/final-integration/pc14-core.log",
+      "log_sha256": "af970e5ff23f97d3756cd8f950588efd8e652d5b50052bf5f2bb8944c32ee12a"
+    },
+    {
+      "name": "post_compatibility_core",
+      "command": "pytest -q test_potential_correction_jax_compatibility.py test_potential_correction_dense.py test_potential_correction_rendering.py test_potential_correction_iterative.py test_potential_correction_precision.py",
+      "cwd": "/tmp/tinylens-pc-14/tests",
+      "scope": "Final bounded fallback/native path; four new public legacy-signature cases plus existing dense/render/iteration/dtype checks.",
+      "exit_code": 0,
+      "passed": 67,
+      "seconds": 60.95,
+      "summary": "======================== 67 passed in 60.95s (0:01:00) =========================",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/final-integration/pc14-post-compatibility-core.log",
+      "log_sha256": "05b413819a0da713fa603255968e1548254cade32a1eb284f158b0450b608340"
+    },
+    {
+      "name": "full_examples",
+      "command": "pytest -q examples/tests",
+      "cwd": "/tmp/tinylens-pc-14",
+      "scope": "Full separate example/pipeline/plot/export/source-compatibility suite after compatibility change.",
+      "exit_code": 0,
+      "passed": 286,
+      "seconds": 248.88,
+      "summary": "======================= 286 passed in 248.88s (0:04:08) ========================",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/final-integration/pc14-examples.log",
+      "log_sha256": "2d5baf35875ab34b8d84918d63bf600db084a97640907bb0dbb058a13dfc39e9"
+    },
+    {
+      "name": "full_benchmarks",
+      "command": "pytest -q -s benchmarks",
+      "cwd": "/tmp/tinylens-pc-14",
+      "scope": "Full separate serial benchmark suite; no concurrent GPU timing workers. No45-worker science campaign rerun.",
+      "exit_code": 0,
+      "passed": 14,
+      "seconds": 44.2,
+      "summary": "============================= 14 passed in 44.20s ==============================",
+      "log": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/final-integration/pc14-benchmarks.log",
+      "log_sha256": "b2d16169b5acf7102aa89c5c362a2005bc4f13847961b4cd986db629465920d2"
+    }
+  ],
+  "source_sha256": {
+    "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+    "tests/test_potential_correction_jax_compatibility.py": "37817f6690ead3e322a667b7c36dc8d7e1783f46c42323a0f55fbdc9805a9ef0"
+  },
+  "full_core_pre_compatibility_common_sha256": "dbfa357ba6c93ed54d9840ad1603c375f3839c54774b51848b8d0780358002c6",
+  "compatibility": {
+    "declared_minimum": "jax[cuda12]>=0.4.20; unchanged",
+    "primary_source": "https://raw.githubusercontent.com/jax-ml/jax/jax-v0.4.20/jax/_src/lax/control_flow/loops.py",
+    "source_signature": "map(f, xs), without batch_size keyword",
+    "cpu_environment": {
+      "JAX_PLATFORMS": "cpu",
+      "jax": "0.7.1"
+    },
+    "red_command": "pytest -q test_potential_correction_jax_compatibility.py -k 'float64 and single_step'",
+    "red_result": "1 failed, 3 deselected in 3.31s: public SingleStepPotentialCorrection.fit raised TypeError: unexpected keyword argument batch_size",
+    "green_command": "pytest -q test_potential_correction_jax_compatibility.py",
+    "green_result": "4 passed in 6.44s on CPU; the same 4 passed in the post-edit 67-case GPU command",
+    "seam": "Public single-step/iterative dense fits, both requested dtypes, 37 fitted coefficients with two 16-column panels and a 5-column remainder; thin external API adapter delegates old map(f, xs) to installed native map.",
+    "fix": "Feature-detect map signature; preserve the modern native batch_size=16 path; legacy map over bounded 16-column vmapped panels and separate remainder; no full identity or dependency-floor change.",
+    "limitation": "Not an actual JAX 0.4.20 CUDA environment run; verifies this precise public API boundary. Unrelated historical chunked-likelihood code unchanged."
+  },
+  "documentation": {
+    "guide": "docs/guides/potential-correction.md",
+    "coverage": "docs/validation/potential-correction-coverage.md",
+    "implementation_decisions": 33,
+    "testing_decisions": 13,
+    "user_stories": 50,
+    "tickets": 14,
+    "local_links": "all new guide/coverage local targets exist",
+    "python_blocks_compile": 3,
+    "minimal_example": "First complete Python block executed on CPU; both public fits succeeded; scoped x64 inputs",
+    "format": "Black/Ruff defaults on both changed Python files; git diff --check pass"
+  },
+  "preserved_limits": [
+    "Parent spec remains open for coordinator Standards/Spec review and fixes.",
+    "Prior 45-worker and 200-pixel scientific evidence retains its recorded source/config hashes; those campaigns were not rerun.",
+    "small32/coupled37 is the supported float32 profile; all eight scientific float32 fits fail with null evidence.",
+    "Amplitude sensitivity is 10000 to 30000 only; the 3000 failure and raw-field sensitivity are retained.",
+    "No blanket speed/memory, detection-significance or mass-interval claim."
+  ],
+  "verification_tree_dirty": true,
+  "verification_tree_note": "Verification was performed before committing ticket14 documentation and the narrow compatibility change; exact numerical source hashes identify the post-edit checks.",
+  "implementation_commit": "6cdfbe9",
+  "integration_merge": "14b2fcf",
+  "latest_integration_ancestor": "ef80f5199491fc7c36eae0a048d6285e0649bbe3"
+}

@@ -17,6 +17,7 @@ TinyLensGpu supports a range of modeling approaches, from classical parametric f
 | **Multi-band fitting** | `MultiBandImageProbModel`, `BandImageData` | `lens_src_multiband/`, `lens_src_multiband_galfitm/` | Simultaneous `g/r/i` image fitting with shared physical parameters and band-specific data/PSFs/alignment |
 | **GALFITM-style wavelength evolution** | `MultiBandImageProbModel`, Chebyshev utilities | `lens_src_multiband_galfitm/` | Multi-band fitting where Sérsic radius and index evolve with wavelength via Chebyshev polynomials |
 | **Pixelated source modeling** | `PixelizedSourceModel`, `PixelizedImageProbModel` | `pix_src/` | Grid-based source reconstruction (e.g. 40×40) with Bayesian evidence and finite-difference regularization (zero-, first-, second-order) via dense or matrix-free operator backends |
+| **Source–potential reconstruction** | `PotentialCorrectionRenderer`, `SingleStepPotentialCorrection`, `IterativePotentialCorrection` | `potential_correction/` | Fixed-macro, signed pixelized source/potential fits with dense or coupled operator backends, explicit priors, evidence-method labels and bounded strength selection; [usage and limits](docs/guides/potential-correction.md) |
 | **Shapelet source modeling** | `ShapeletBasisFunction`, `build_shapelet_set()` | `shapelet_src/` | Refregier (2003) shapelet basis reconstruction with analytically solved linear amplitudes; supports source-only or joint with lens light |
 
 ## Programmatic API
@@ -62,7 +63,9 @@ pip install -e ".[dev]"
 
 ## Quickstart
 
-Every demo under `examples/*` follows the same recipe:
+Parametric demos under `examples/*` follow this recipe. Pixelized inversions and
+[source–potential reconstruction](docs/guides/potential-correction.md) provide
+their own direct fitting entry points.
 
 1. **Load data** – `load_lens_data` wraps FITS image/noise/PSF loading and basic masking.
 2. **Define components** – Instantiate `ParamU` parameters inside mass/light models (e.g., `SIE`, `Shear`, `SersicEllipse`, `GaussianEllipse`).
@@ -200,6 +203,23 @@ python sim_data.py && python single_step_inversion_sersic_shapelet.py
 python sim_data.py && python single_step_inversion_mge_shapelet.py
 ```
 
+### Source–potential reconstruction
+
+From the repository root, run the small nonlinear and nested examples:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterate_fixed_strength.py --backend operator
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_iterative.py --backend operator --output output/pc_nested
+```
+
+The [potential-correction guide](docs/guides/potential-correction.md) explains
+both algorithms, backend/evidence choices, scientific reproduction, saved
+results and precision limits. Float64 is recommended for the delivered stiff
+scientific configuration; the named small float32 profile has separate
+validated controls. Scientific recovery, approximation and measured GPU
+resource limits are explicit, without detection-significance or mass-interval
+claims.
+
 ## Testing
 
 The default pytest suite covers the TinyLensGpu library, including integration
@@ -227,7 +247,8 @@ placement, fixtures, and example path conventions.
 
 - **[User guide](docs/guides/guide.md)** – Installation, quickstart, tests, and troubleshooting.
 - **[Point-source modeling guide](docs/guides/point-source-model.md)** – Position-only likelihood setup and solver configuration.
-- **examples/** – Runnable examples; each subdirectory contains a `run_model.py` or `single_step_inversion.py` entry point.
+- **[Potential-correction guide](docs/guides/potential-correction.md)** – Single-step/iterative source–potential fits, tuning, results, scientific and precision limits.
+- **examples/** – Runnable modeling, inversion and potential-correction scripts; consult each workflow's entry points.
 
 ## Citation
 
