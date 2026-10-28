@@ -18,9 +18,9 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–12 are resolved. Tickets 01–11 are merged; iterative scientific
-outputs (12) are ready for integration. Precision/performance validation (13)
-and final integration (14) remain outstanding.
+Tickets 01–13 are resolved. Tickets 01–12 are merged; precision/performance
+validation (13) is ready for integration. Final integration (14) remains
+outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -57,6 +57,11 @@ Focused commands, configurations and outcomes are retained in:
   for independent nonlinear references, actual DIRECT selections, cold-start
   reproducibility, bounded partition calibration, rejected layouts, recovery
   effects, budget/boundary status and explicit scalar candidate diagnostics.
+- [Precision and measured GPU workflows](../../docs/validation/potential-correction-precision-performance.md)
+  and [compact records](research/precision-performance/) distinguish the named
+  supported small float32 configuration from failed stiff scientific float32
+  fits, preserve the original numerical guards, and record isolated
+  compilation-inclusive/warm timing, memory and actual resolution scaling.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
