@@ -55,6 +55,41 @@ def central_jacobian(function, values, step=1e-5):
     )
 
 
+def source_cell_margin(problem, values):
+    """Independent corrected-ray distance to this source2 cell's boundaries."""
+    grid = problem.renderer.potential_grid
+    lookup = {tuple(node): i for i, node in enumerate(np.asarray(grid.node_indices))}
+    potential = values[4:]
+    margins = []
+    xmin, xmax, ymin, ymax = map(float, problem.renderer.source_bbox)
+    for x, y in zip(
+        np.asarray(problem.renderer.query_x), np.asarray(problem.renderer.query_y)
+    ):
+        u, v = (x - grid.origin[0]) / grid.spacing, (y - grid.origin[1]) / grid.spacing
+        i, j = int(np.floor(u)), int(np.floor(v))
+        a, b = u - i, v - j
+        ax = ay = 0.0
+        for cx, cy, weight in (
+            (i, j, (1 - a) * (1 - b)),
+            (i + 1, j, a * (1 - b)),
+            (i, j + 1, (1 - a) * b),
+            (i + 1, j + 1, a * b),
+        ):
+            ax += (
+                weight
+                * (potential[lookup[(cx + 1, cy)]] - potential[lookup[(cx - 1, cy)]])
+                / (2 * grid.spacing)
+            )
+            ay += (
+                weight
+                * (potential[lookup[(cx, cy + 1)]] - potential[lookup[(cx, cy - 1)]])
+                / (2 * grid.spacing)
+            )
+        bx, by = x - ax, y - ay
+        margins.append(min(bx - xmin, xmax - bx, by - ymin, ymax - by))
+    return float(min(margins))
+
+
 def evaluate_reference(problem, ls, lp, values, blocks=None):
     forward, residual, prior = numerical_model(problem, ls, lp)
     image = forward(values)
@@ -84,6 +119,7 @@ def evaluate_reference(problem, ls, lp, values, blocks=None):
         derivative_step_error=np.max(
             np.abs(jacobian - central_jacobian(forward, values, step=5e-6))
         ),
+        minimum_source_cell_margin=source_cell_margin(problem, values),
     )
 
 

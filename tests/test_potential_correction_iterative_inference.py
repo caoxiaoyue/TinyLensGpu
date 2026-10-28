@@ -288,16 +288,22 @@ def _run_nested_comparison():
     axes = [np.geomspace(*interval, 5) for interval in STRENGTH_BOUNDS]
     scan = []
     max_field_error = max_formula_error = max_map_evidence_error = 0.0
+    minimum_source_margin = np.inf
 
     def certified_reference(ls, lp):
+        nonlocal minimum_source_margin
         reference = independent_fit(problem, ls, lp)
         assert reference["least_squares_success"]
         assert reference["scaled_gradient"] < 1e-8
         assert reference["derivative_step_error"] < 1e-8
+        assert reference["minimum_source_cell_margin"] > 1e-3
+        minimum_source_margin = min(
+            minimum_source_margin, reference["minimum_source_cell_margin"]
+        )
         return reference
 
     def check_fit(result, ls, lp, reference):
-        nonlocal max_field_error, max_formula_error, max_map_evidence_error
+        nonlocal max_field_error, max_formula_error, max_map_evidence_error, minimum_source_margin
         assert result.success, result.termination_reason
         fitted = np.r_[result.source_values, result.potential_values]
         np.testing.assert_allclose(fitted, reference["values"], atol=4e-7, rtol=3e-6)
@@ -305,6 +311,10 @@ def _run_nested_comparison():
             max_field_error, float(np.max(np.abs(fitted - reference["values"])))
         )
         actual = evaluate_reference(problem, ls, lp, fitted)
+        assert actual["minimum_source_cell_margin"] > 1e-3
+        minimum_source_margin = min(
+            minimum_source_margin, actual["minimum_source_cell_margin"]
+        )
         np.testing.assert_allclose(result.objective, actual["objective"], atol=2e-12)
         np.testing.assert_allclose(
             result.regularization_penalty, actual["penalty"], atol=2e-12
@@ -490,6 +500,7 @@ def _run_nested_comparison():
         maximum_field_error=max_field_error,
         maximum_fixed_state_evidence_formula_error=max_formula_error,
         maximum_independent_map_evidence_error=max_map_evidence_error,
+        minimum_source_cell_margin=minimum_source_margin,
     )
 
 
