@@ -135,3 +135,26 @@ altered amplitude strength. Invalid strengths/backend remain validation errors.
 These are small numerical checks. There is no dense/operator calibration,
 amplitude-prior sensitivity conclusion, 200x200 reconstruction, optimizer,
 scientific recovery assessment or GPU timing/memory claim at this stage.
+
+## Preliminary physical-mock check after integration
+
+The coordinator additionally ran nine dense candidates on a 48-by-48,
+float64 Pseudo-Jaffe mock with nsub=2, dpix=0.05 arcsec, a 41-by-41 source
+over [-0.5,0.5] squared, and potential spacing 0.1 arcsec. The amplitude
+precision was independently fixed at 1000. Source strengths were
+{1e-6,1e-4,1e-2}; fourth-difference strengths were {1e4,1e6,1e8}.
+The [complete configuration and scalar results](dense-preflight.json) and
+[script](../experiments/dense_preflight.py) retain this preliminary check.
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false PYTHONPATH=. \
+  python .scratch/potential-correction/experiments/dense_preflight.py
+```
+
+All nine candidates solved, with relative system residuals below 1e-13. At
+source strength 1e-2 and fourth-difference strength 1e4, normalized residual
+RMS was 1.03 for the linear fit and 2.24 for the nonlinear re-render. This
+illustrates a consequential linearization discrepancy that a finite evidence
+would not expose. The largest evidence on this coarse grid occurs at its
+upper potential-strength boundary. This check establishes neither an optimum
+nor scientific recovery and does not replace tickets 07 or 11.
