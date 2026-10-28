@@ -1,0 +1,79 @@
+{
+  "mock": {
+    "npix": 200,
+    "dpix": 0.012,
+    "nsub": 2,
+    "theta_E": 0.8,
+    "macro_center_x": 0.0,
+    "macro_center_y": 0.0,
+    "gamma1": 0.05,
+    "gamma2": 0.02,
+    "b_sub": 0.04,
+    "subhalo_x": 0.75,
+    "subhalo_y": 0.1,
+    "noise_sigma": 0.01,
+    "seed": 17,
+    "psf_sigma": 0.05,
+    "psf_size": 27,
+    "mask_inner": 0.45,
+    "mask_outer": 1.1,
+    "dtype": "float64",
+    "source": {
+      "center_x": 0.05,
+      "center_y": 0.03,
+      "sigma_x": 0.16,
+      "sigma_y": 0.12,
+      "amplitude": 1.0,
+      "clump_fraction": 0.35,
+      "clump_dx": -0.13,
+      "clump_dy": 0.1,
+      "clump_scale": 0.7
+    }
+  },
+  "source_n": 49,
+  "source_bbox": [
+    -0.4,
+    0.4,
+    -0.4,
+    0.4
+  ],
+  "potential_spacing": 0.075,
+  "log_bounds": [
+    [
+      -11.512925464970229,
+      -4.605170185988091
+    ],
+    [
+      11.512925464970229,
+      27.631021115928547
+    ]
+  ],
+  "block_size": 1024,
+  "source_tile": 24,
+  "pcg_max_iter": 20000,
+  "pcg_rtol": 1e-12,
+  "solve_rtol": 1e-08,
+  "direct_maxfun": 200,
+  "direct_len_tol": 0.001,
+  "boundary_rtol": 0.01,
+  "inversion_nsub": 2,
+  "lambda_amplitude": 10000.0,
+  "mode": "fixed",
+  "backends": [
+    "dense",
+    "operator"
+  ],
+  "make_plots": true,
+  "affine_diagnostics": true,
+  "fixed_strengths": {
+    "subhalo": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 16000000.0
+    },
+    "control": {
+      "lambda_source": 0.0006,
+      "lambda_potential": 100000000000.0
+    }
+  },
+  "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized."
+}

@@ -220,3 +220,91 @@ separate. The chosen block evidence reproduces a similar localized correction,
 while its absolute evidence differs from the complete calculation. This
 calibration does not establish precise mass recovery or transfer automatically
 to the 200x200 scientific example.
+
+## Scientific single-step pair
+
+`single_step_scientific.py` runs both the Pseudo-Jaffe observation and its
+matched no-subhalo control, with the fixed true macro and frozen analytic
+truth gradient. It supports complete dense evidence and the calibrated sparse
+source-incidence block approximation:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/single_step_scientific.py \
+  --config examples/potential_correction/scientific_configuration.json \
+  --backend both --output output/potential_correction_scientific
+```
+
+The explicit scientific configuration uses a 200x200 image at 0.012
+arcsec/pixel, retaining the small calibration's 2.4-arcsec field of view. It
+adopts a deliberately recorded physical scenario with `b_sub=0.04`,
+`theta_E=0.8`, and subhalo center `(0.75,0.1)`; the mock generator's original
+200x200/`b_sub=0.01` defaults remain available. Source widths `(0.16,0.12)`
+and clump scale 0.7 are smooth enough for the fixed 49x49 source in
+`[-0.4,0.4]^2`. Potential spacing is 0.075 arcsec. The Gaussian PSF has physical
+sigma 0.05 arcsec and 27 samples across its approximately three-sigma radius.
+This changes its finite truncation relative to the 64x64 calibration's 5x5
+kernel; validation numbers must be attributed to the actual configuration.
+
+JSON configures every mock parameter, `inversion_nsub`, source geometry,
+potential spacing, independent `lambda_amplitude`, source/D4 strengths,
+backend selection, PCG controls, output plots, and optional affine diagnostics.
+Mock and inversion integration are stored separately. CLI overrides include
+`--npix`, `--dpix`, `--mock-nsub`, `--inversion-nsub`, `--source-n`,
+`--potential-spacing`, `--dtype`, `--mode`, `--backend`, and `--no-plots`.
+Neither source nor potential geometry changes during a fit or search.
+
+Use `--mode tune` for bounded DIRECT in the configured natural-log
+`log_bounds`; `direct_maxfun`, `direct_maxiter`, `direct_len_tol`, and
+`boundary_rtol` control that search. Every candidate starts from the same
+frozen gradient and zero potential. Fixed mode uses `fixed_strengths` keyed
+by `subhalo` and `control`, optionally with additional `dense` and `operator`
+keys for independently selected strengths. A successful fit and successful
+optimizer termination remain separate metadata. A budget-limited best fit
+is labeled accordingly, and all-invalid searches retain failure reasons.
+
+`run.json` saves the complete input, actual data/source/core/support/query
+counts, full block partition, software/revision and implementation hashes,
+search records, and recovery summaries. Each `subhalo|control/dense|operator`
+directory contains:
+
+- `reconstruction.npz`: raw signed source/potential fields, source axes/box,
+  all potential node/core/derivative/interpolation/query geometry, derivative
+  validity and regularization-window coverage, both images and their residuals,
+  observation/noise/PSF/mask, and sampled analytic and discrete truth maps.
+- `result.json`: solver status and actual residual, all three strengths,
+  conditional evidence and determinant methods, initialization provenance,
+  units, integration settings, truth conventions, and scientific summaries.
+- `images.png/.pdf`: explicitly separate linear prediction and nonlinear
+  re-render, both noise-normalized residuals and their image difference.
+- `source.png/.pdf` and `fields.png/.pdf`: source, potential, both deflection
+  components and convergence, with raw truth comparisons and differences.
+
+Support-only derivative values stay undefined/NaN and are blank in plots.
+Convergence errors are reported on all valid core nodes, a predeclared
+illuminated subset and a matched disk around the injected position. Analytic
+convergence remains a point sample with the singular-center convention;
+discrete truth applies the reconstruction's centered differences to analytic
+nodal potential. Localization is a convergence-peak location, without a
+statistical detection interpretation. `supplied_truth` separately records
+source interpolation, potential discretization, integration differences and
+the analytic-source Taylor remainder. These are separate from the fitted
+linear/nonlinear mismatch, which also reflects a fitted source gradient that
+differs from the frozen analytic gradient.
+
+Raw fitted fields never undergo gauge alignment or clipping. Optional
+`diagnostic_affine_potential_values` and `affine_diagnostic_only` metrics remove
+a least-squares constant+x+y difference only for a separately named diagnostic;
+they do not replace fields, images or evidence. Failure writes `failure.json`
+and removes this exporter's previous success arrays/figures from that run's
+directory. Plotting and persistence accept only the public
+`PotentialCorrectionResult` plus observation/truth context through
+`result_products.export_result`; no numerical solve is reconstructed.
+`result_products.load_result(output)` restores the saved public result from
+NPZ/JSON for later diagnostics or replotting with explicit observation/truth
+context. Failed records cannot be loaded as a successful result.
+
+Scientific float64 validation and its remaining peak/low-mode limitations are
+recorded in `docs/validation/potential-correction-single-step-scientific.md`.
+This workflow makes no detection-significance, mass-interval, or unmeasured
+performance claim. Float32 is configurable; scientific precision/performance
+comparisons are a separate validation task.
