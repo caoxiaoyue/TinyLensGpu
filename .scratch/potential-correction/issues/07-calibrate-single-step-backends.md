@@ -43,3 +43,17 @@ are delivered by ticket 11, which can proceed alongside ticket 08.
   and records only. Public operator/DIRECT plus existing operator tests passed
   32 cases. Full physical calibration and prior sensitivity remain running;
   this ticket is not resolved by those structural checks.
+- The initial full physical searches did not complete a single run before
+  interruption; their configurations/logs and unfinished status are retained
+  in `research/interrupted-calibration-searches.json`. They are not acceptance
+  evidence. The coordinator measured repeated triangular-vector application
+  as the bottleneck and explicitly authorized cached bounded inverse lower
+  factors for the same principal preconditioner.
+- That optional operator-contract test failed before implementation and then
+  passed in both dtypes. Focused curvature/operator/inference:39 passed;
+  dense/rendering/shared solver/autodiff:62 passed; selected existing
+  PCG/Schur regressions:23 passed. Separate benchmark checks passed the
+  production application speed comparison and bounded allocation regression.
+  Twelve real physical extreme-strength dense/operator comparisons all passed;
+  see `research/inverse-factor-fixed-strengths.json`. Full calibration must
+  still be rerun with this verified numerical implementation.

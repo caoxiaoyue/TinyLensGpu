@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import numpy as np
 
 from TinyLensGpu.utils.cg_solver import (
@@ -266,13 +267,20 @@ class _SingleStepOperator:
 
         _, prior_logdet, prior_ok = factor(prior)
         chols, posterior_logdet, posterior_ok = factor(posterior)
+        inverse_chols = jax.vmap(
+            lambda chol: jsl.solve_triangular(
+                chol, jnp.eye(width, dtype=chols.dtype), lower=True
+            )
+        )(chols)
         return (
-            PrincipalBlockPreconditioner(chols, self.indices, self.valid),
+            PrincipalBlockPreconditioner(
+                chols, self.indices, self.valid, inverse_chols
+            ),
             prior_logdet,
             posterior_logdet,
             jnp.all(jnp.isfinite(prior)) & jnp.all(jnp.isfinite(posterior)),
             prior_ok,
-            posterior_ok,
+            posterior_ok & jnp.all(jnp.isfinite(inverse_chols)),
         )
 
     def fit(self, lambda_source, lambda_potential, *, max_iter, rtol, atol):
@@ -322,6 +330,7 @@ class _SingleStepOperator:
             failure_reason=reason,
             solver_configuration={
                 "preconditioner": "principal_block_cholesky",
+                "preconditioner_application": "inverse_lower_factor_matvec",
                 "block_layout": self.layout,
                 "block_size": self.block_size,
                 "block_sizes": tuple(map(len, self.blocks)),

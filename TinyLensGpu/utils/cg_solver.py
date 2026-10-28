@@ -39,12 +39,15 @@ class PrincipalBlockPreconditioner(NamedTuple):
 
     Invalid slots have identity Cholesky rows and contribute zero to the
     physical vector. Scatter-add prevents their safe padding indices from
-    overwriting a real coordinate.
+    overwriting a real coordinate. Optional inverse lower factors speed repeated
+    applications; original Cholesky factors still define the diagonal. The
+    three-argument constructor retains the triangular-solve application.
     """
 
     chols: Array
     indices: Array
     valid: Array
+    inverse_chols: Array | None = None
 
 
 def _chol_solve(chol: Array, rhs: Array) -> Array:
@@ -89,8 +92,16 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
         )
 
     if isinstance(preconditioner, PrincipalBlockPreconditioner):
-        chols, indices, valid = preconditioner
-        solved = jax.vmap(_chol_solve)(chols, rhs[indices] * valid)
+        chols, indices, valid, inverses = preconditioner
+        blocks = rhs[indices] * valid
+        if inverses is None:
+            solved = jax.vmap(_chol_solve)(chols, blocks)
+        else:
+            # Inverse *lower factors* are prepared once, not a full system
+            # inverse. Repeated small triangular vector solves are costly on
+            # GPU; these bounded matvecs apply the same SPD preconditioner.
+            work = jnp.einsum("bij,bj->bi", inverses, blocks, precision="highest")
+            solved = jnp.einsum("bji,bj->bi", inverses, work, precision="highest")
         return jnp.zeros_like(rhs).at[indices].add(solved * valid)
 
     if isinstance(preconditioner, BlockSchurPreconditioner):
@@ -119,7 +130,11 @@ def apply_preconditioner(preconditioner, rhs: Array) -> Array:
 def preconditioner_diagonal(preconditioner, size: int) -> Array:
     """Recover the diagonal of the SPD matrix represented by a preconditioner."""
     if isinstance(preconditioner, PrincipalBlockPreconditioner):
-        chols, indices, valid = preconditioner
+        chols, indices, valid = (
+            preconditioner.chols,
+            preconditioner.indices,
+            preconditioner.valid,
+        )
         return jnp.zeros(size, dtype=chols.dtype).at[indices].add(
             jnp.sum(chols**2, axis=2) * valid
         )
