@@ -366,3 +366,67 @@ def test_direct_preserves_log_coordinates_and_fit_dtype(dtype):
         )
         assert result.evaluations[0].strengths.lambda_source == np.exp(bounds[0].mean())
         assert jax.config.x64_enabled == before
+
+
+def test_operator_direct_uses_block_evidence_and_rejects_unconverged_inner_fits():
+    from TinyLensGpu.Inference import optimize_potential_correction
+    from tests.test_potential_correction_dense import _independent_design_and_prior
+
+    problem, _ = _problem()
+    bounds = np.log([[0.05, 30.0], [0.001, 30.0]])
+    options = {"block_size": 8, "pcg_rtol": 1e-12, "pcg_max_iter": 400}
+    search = optimize_potential_correction(
+        problem,
+        log_bounds=bounds,
+        backend="operator",
+        fit_options=options,
+        maxfun=100,
+        len_tol=1e-3,
+    )
+    assert search.has_valid_fit
+    fit = search.reconstruction
+    assert fit.success
+    assert not fit.evidence_is_exact
+    assert fit.determinant_method == "principal_block_cholesky"
+    design, prior = _independent_design_and_prior(
+        problem.renderer,
+        fit.strengths.lambda_source,
+        fit.strengths.lambda_potential,
+        0.4,
+    )
+    data, noise = np.asarray(problem.data_active), np.asarray(problem.noise_active)
+    curvature = design.T @ (design / noise[:, None] ** 2) + prior
+    expected = np.linalg.solve(curvature, design.T @ (data / noise**2))
+    blocks = fit.configuration["block_indices"]
+    logdet_ratio = sum(
+        np.linalg.slogdet(curvature[np.ix_(block, block)])[1]
+        - np.linalg.slogdet(prior[np.ix_(block, block)])[1]
+        for block in blocks
+    )
+    residual = (data - design @ expected) / noise
+    negative_evidence = 0.5 * (
+        residual @ residual
+        + expected @ prior @ expected
+        + logdet_ratio
+        + 2 * np.log(noise).sum()
+        + len(data) * np.log(2 * np.pi)
+    )
+    np.testing.assert_allclose(search.objective, negative_evidence, atol=2e-10)
+    np.testing.assert_allclose(
+        np.r_[fit.source_values, fit.potential_values], expected, atol=2e-10
+    )
+    assert all(item.strengths.lambda_amplitude == 0.4 for item in search.evaluations)
+    failed = optimize_potential_correction(
+        problem,
+        log_bounds=bounds,
+        backend="operator",
+        fit_options={**options, "pcg_max_iter": 1},
+        maxfun=8,
+    )
+    assert not failed.has_valid_fit
+    assert failed.reconstruction is None
+    assert np.isinf(failed.objective)
+    assert all(
+        not item.success and item.failure_reason == "pcg_iteration_limit"
+        for item in failed.evaluations
+    )

@@ -1,0 +1,40 @@
+{
+  "blocks": 9,
+  "width": 834,
+  "dtype": "float64",
+  "max_abs_difference": 7.771561172376096e-16,
+  "relative_l2_difference": 3.3797902744855695e-16,
+  "measurements": [
+    {
+      "round": 0,
+      "method": "triangular",
+      "seconds_per_apply": 0.0030246332520619036
+    },
+    {
+      "round": 0,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.0001861575001385063
+    },
+    {
+      "round": 1,
+      "method": "triangular",
+      "seconds_per_apply": 0.0030335403454955666
+    },
+    {
+      "round": 1,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.00018664489616639912
+    },
+    {
+      "round": 2,
+      "method": "triangular",
+      "seconds_per_apply": 0.0030245560978073628
+    },
+    {
+      "round": 2,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.00018299859948456287
+    }
+  ],
+  "scope": "Reproduction of the coordinator benchmark with calibration workers stopped; a separate tiny constructor-red test initialized JAX concurrently. Synthetic well-conditioned blocks; excludes inverse preparation. This is not whole-fit timing or ill-conditioned accuracy validation."
+}

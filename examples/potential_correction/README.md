@@ -1,4 +1,4 @@
-# Potential-correction mock inputs
+# Potential-correction examples
 
 `generate_mock.py` creates single-band, lens-light-subtracted Pseudo-Jaffe
 subhalo observations and a matched no-subhalo control. It does not fit a
@@ -156,3 +156,67 @@ callable over `[log_lambda_source, log_lambda_potential]`. Every candidate
 performs a complete fit with fixed initialization; failed numerical candidates
 return positive infinity and retain their reasons. See the
 [API and verification record](../../.scratch/potential-correction/research/dense-strength-optimization.md).
+
+## Small backend calibration
+
+The calibration driver scans fixed strengths and independently runs bounded
+DIRECT with both backends on matched Pseudo-Jaffe/control images:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/calibrate_single_step.py \
+  --config examples/potential_correction/calibration_configuration.json \
+  --output output/potential_correction_calibration
+```
+
+The explicit input fixes a 64x64 image, 49x49 source in `[-0.4,0.4]^2`,
+0.075-arcsec potential spacing, nsub=2, and the analytic truth source gradient.
+It varies the independently fixed amplitude precision between complete runs.
+Scan strengths are physical positive numbers; DIRECT bounds are natural logs.
+The driver saves `calibration.json`, `inputs.npz`, and `reconstructions.npz`.
+Scalar records distinguish complete determinants from principal-block
+approximations, compare fixed-strength solves, retain candidate failures and
+DIRECT budget/boundary status, and repeat candidates in reversed order.
+Raw signed fields, valid derivative masks and both renderings are unchanged.
+The separately named affine diagnostics change no fitted image or evidence.
+The record also separates source interpolation, potential discretization,
+analytic-source Taylor remainder, and the fitted conditional/nonlinear image
+discrepancy. Actual macro, truth-corrected and fitted ray margins identify
+source-box truncation. The small test configurations exercise the workflow;
+their coarse grids do not establish scientific recovery.
+
+The example-level partition helper is reusable with explicit initial arrays:
+
+```python
+from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+
+mapping = renderer.source_mapping()
+# Evaluate the chosen initial-source derivative once, at mapping.beta_x/y.
+# For iterative reconstruction use the initial pixelized source's derivative.
+blocks = source_incidence_blocks(
+    renderer, mapping, initial_gradient_x, initial_gradient_y,
+    source_tile=24, block_size=1024,
+)
+fit_options = {"block_size": 1024, "block_indices": blocks,
+               "pcg_max_iter": 20000, "pcg_rtol": 1e-12}
+```
+
+The helper assigns potential nodes to fixed source tiles using sparse query
+and derivative-stencil incidence, attaches support-only nodes spatially,
+interleaves fields, and splits at the declared cap. It constructs no dense
+source-by-potential matrix and retains no truth callable. Keep this partition
+fixed during a run; refreshing an iterative Jacobian does not require retaining
+the truth gradient. Saved records contain its method, actual block sizes and
+complete indices. A source grid, mask, integration, initialization or potential
+spacing change requires rebuilding the partition and checking its approximation.
+
+The completed [64x64 calibration record](../../docs/validation/potential-correction-single-step-calibration.md)
+adopts independently fixed `lambda_amplitude=10000`, source-strength bounds
+`[1e-5,1e-3]`, D4 bounds `[1e5,1e11]`, and the declared incidence partition
+for that exact configuration. All six subhalo/control sensitivity runs are
+retained, including raw fields, low-mode/affine diagnostics, peak suppression,
+control artifacts and the dense upper-bound flag. DIRECT reaches its configured
+budget; successful inner fits and incomplete optimizer termination remain
+separate. The chosen block evidence reproduces a similar localized correction,
+while its absolute evidence differs from the complete calculation. This
+calibration does not establish precise mass recovery or transfer automatically
+to the 200x200 scientific example.

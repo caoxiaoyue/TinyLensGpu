@@ -1,0 +1,43 @@
+{
+  "scope": "Synthetic bounded principal-block application benchmark through public code.\n\nMeasures repeated application after inverse-factor preparation. Blocks are\nwell conditioned; this is not an ill-conditioned accuracy or whole-fit claim.\n",
+  "platform": "gpu",
+  "device": "cuda:0",
+  "blocks": 9,
+  "width": 834,
+  "dtype": "float64",
+  "inverse_preparation_seconds": 0.01190293300896883,
+  "measurements": [
+    {
+      "round": 0,
+      "method": "triangular",
+      "seconds_per_apply": 0.0030418715032283217
+    },
+    {
+      "round": 0,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.000138152448926121
+    },
+    {
+      "round": 1,
+      "method": "triangular",
+      "seconds_per_apply": 0.0030359904980286957
+    },
+    {
+      "round": 1,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.00014049530145712196
+    },
+    {
+      "round": 2,
+      "method": "triangular",
+      "seconds_per_apply": 0.00303754240158014
+    },
+    {
+      "round": 2,
+      "method": "inverse_factor_matvec",
+      "seconds_per_apply": 0.00014045030111446976
+    }
+  ],
+  "max_abs_difference": 8.881784197001252e-16,
+  "relative_l2_difference": 3.4020618025871853e-16
+}
