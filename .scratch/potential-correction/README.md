@@ -18,9 +18,8 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–10 and 11 are resolved. Tickets 01–09 and 11 are merged; nested
-strength selection (10) is ready for integration. Iterative scientific
-outputs (12), precision/performance validation and final integration remain
+Tickets 01–11 are resolved and merged. Iterative scientific outputs (12) are
+in progress. Precision/performance validation and final integration remain
 outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
