@@ -85,6 +85,8 @@ def main(argv=None):
     }
     args.output.mkdir(parents=True, exist_ok=True)
     if not result.success:
+        for filename in ("configuration.json", "reconstruction.npz"):
+            (args.output / filename).unlink(missing_ok=True)
         (args.output / "failure.json").write_text(json.dumps(metadata, indent=2) + "\n")
         raise RuntimeError(f"Operator reconstruction failed: {result.failure_reason}")
     arrays = {
@@ -118,6 +120,7 @@ def main(argv=None):
     (args.output / "configuration.json").write_text(
         json.dumps(metadata, indent=2) + "\n"
     )
+    (args.output / "failure.json").unlink(missing_ok=True)
     print(
         f"Saved fixed-strength operator fit to {args.output.resolve()}; "
         f"PCG iterations={result.solver_info.iterations}, "

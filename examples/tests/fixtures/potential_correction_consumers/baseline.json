@@ -1,0 +1,726 @@
+{
+  "source_commit": "e14ea508f53eec3ebe4c6f57f887aa6716a725fc",
+  "source_sha256": {
+    "examples/potential_correction/calibrate_single_step.py": "eb026e2be1ef366f1830a0443a887af6404dd780f469c69cefbcea7ea1e4aac0",
+    "examples/potential_correction/result_products.py": "aaa5f80d8a9779638886c5579eb7f18652e59a9dd3bd25564b697c5621aea27a",
+    "examples/potential_correction/mock.py": "81b1b95a9a8817bbba17a232da23e3ddba29d426ac7dd3db163d2dfd6615c89f"
+  },
+  "configuration": {
+    "mock": {
+      "npix": 12,
+      "dpix": 0.2,
+      "nsub": 1,
+      "theta_E": 0.7,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.4,
+      "subhalo_x": 0.65,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.03,
+      "seed": 17,
+      "psf_sigma": 0.04,
+      "psf_size": 3,
+      "mask_inner": 0.4,
+      "mask_outer": 1.0,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.12,
+        "sigma_y": 0.08,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.8
+      }
+    },
+    "source_n": 9,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.4,
+    "lambda_amplitudes": [
+      100.0,
+      1000.0
+    ],
+    "source_strengths": [
+      0.001,
+      0.01
+    ],
+    "potential_strengths": [
+      10.0,
+      1000.0
+    ],
+    "log_bounds": [
+      [
+        -6.907755278982137,
+        -4.605170185988091
+      ],
+      [
+        2.302585092994046,
+        6.907755278982137
+      ]
+    ],
+    "block_size": 16,
+    "block_layout": "morton",
+    "source_tile": 4,
+    "pcg_max_iter": 2000,
+    "pcg_rtol": 1e-11,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 8,
+    "direct_len_tol": 0.01,
+    "boundary_rtol": 0.1
+  },
+  "calibration": {
+    "subhalo_amplitude100": {
+      "schema": [
+        "affine_diagnostic_only",
+        "amplitude_penalty",
+        "boundary_distances",
+        "boundary_sides",
+        "chi2",
+        "configuration",
+        "convergence",
+        "convergence_peak_xy",
+        "corrected_ray_source_box",
+        "deflection_vector_rmse_discrete_truth",
+        "determinant_method",
+        "dtype",
+        "evaluations",
+        "evidence_is_exact",
+        "evidence_method",
+        "failure_reason",
+        "fitted_linearization_rms_noise",
+        "has_valid_fit",
+        "initialization_provenance",
+        "linear_residual_rms_noise",
+        "log_evidence",
+        "log_strengths",
+        "nfev",
+        "nonlinear_residual_rms_noise",
+        "objective",
+        "optimizer_message",
+        "optimizer_status",
+        "optimizer_success",
+        "peak_distance_to_subhalo",
+        "posterior_logdet",
+        "potential_mean",
+        "potential_rms",
+        "potential_rmse_mean_centered_truth",
+        "potential_rmse_raw_center_zero_truth",
+        "prior_logdet",
+        "regularization_penalty",
+        "solver_info",
+        "source_relative_l2",
+        "source_rmse",
+        "strengths",
+        "success"
+      ],
+      "metrics": {
+        "source_relative_l2": 1.4277392045535782,
+        "source_rmse": 0.31610991855743387,
+        "potential_rmse_raw_center_zero_truth": 0.3213872833240583,
+        "potential_rmse_mean_centered_truth": 0.10176644910408,
+        "potential_rms": 0.07288263834444472,
+        "potential_mean": -1.7792694615327547e-16,
+        "deflection_vector_rmse_discrete_truth": 0.2183593422003811,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -0.30484975925718766,
+            0.054541668517374596,
+            -0.016563890307600443
+          ],
+          "potential_rmse": 0.08339559072635806,
+          "deflection_vector_rmse": 0.20864345146911206,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "convergence": {
+          "all_core": {
+            "count": 37,
+            "rmse_discrete_truth": 0.590458665408218,
+            "truth_discrete_rms": 0.19532756486785677,
+            "rmse_analytic_point_truth": 0.5692987905970878,
+            "analytic_valid_count": 37,
+            "recovered_rms": 0.515680300453446,
+            "recovered_max": 0.9037627009677073,
+            "truth_discrete_max": 0.8653771656885901
+          },
+          "illuminated_core": {
+            "count": 15,
+            "rmse_discrete_truth": 0.6187716147996911,
+            "truth_discrete_rms": 0.2655079642994636,
+            "rmse_analytic_point_truth": 0.587875687794485,
+            "analytic_valid_count": 15,
+            "recovered_rms": 0.47378482519371345,
+            "recovered_max": 0.767373164784068,
+            "truth_discrete_max": 0.8653771656885901
+          },
+          "local_core": {
+            "count": 18,
+            "rmse_discrete_truth": 0.6956193869098529,
+            "truth_discrete_rms": 0.27979733118257344,
+            "rmse_analytic_point_truth": 0.6582043257271123,
+            "analytic_valid_count": 18,
+            "recovered_rms": 0.5577664413950335,
+            "recovered_max": 0.9037627009677073,
+            "truth_discrete_max": 0.8653771656885901
+          }
+        },
+        "convergence_peak_xy": [
+          0.0,
+          0.0
+        ],
+        "peak_distance_to_subhalo": 0.6576473218982953,
+        "corrected_ray_source_box": {
+          "query_count": 68,
+          "minimum_signed_margin": 0.0001565958065077866,
+          "margin_percentiles": [
+            0.0017298902296260922,
+            0.07159075461081281,
+            0.24998092483623463
+          ],
+          "outside_count": 0,
+          "outside_fraction": 0.0,
+          "outside_analytic_brightness_fraction": 0.0,
+          "outside_analytic_brightness_max": 0.0
+        },
+        "linear_residual_rms_noise": 2.6513874363766914,
+        "nonlinear_residual_rms_noise": 11.197170264341153,
+        "fitted_linearization_rms_noise": 10.699924313739304
+      }
+    },
+    "subhalo_amplitude1000": {
+      "schema": [
+        "affine_diagnostic_only",
+        "amplitude_penalty",
+        "boundary_distances",
+        "boundary_sides",
+        "chi2",
+        "configuration",
+        "convergence",
+        "convergence_peak_xy",
+        "corrected_ray_source_box",
+        "deflection_vector_rmse_discrete_truth",
+        "determinant_method",
+        "dtype",
+        "evaluations",
+        "evidence_is_exact",
+        "evidence_method",
+        "failure_reason",
+        "fitted_linearization_rms_noise",
+        "has_valid_fit",
+        "initialization_provenance",
+        "linear_residual_rms_noise",
+        "log_evidence",
+        "log_strengths",
+        "nfev",
+        "nonlinear_residual_rms_noise",
+        "objective",
+        "optimizer_message",
+        "optimizer_status",
+        "optimizer_success",
+        "peak_distance_to_subhalo",
+        "posterior_logdet",
+        "potential_mean",
+        "potential_rms",
+        "potential_rmse_mean_centered_truth",
+        "potential_rmse_raw_center_zero_truth",
+        "prior_logdet",
+        "regularization_penalty",
+        "solver_info",
+        "source_relative_l2",
+        "source_rmse",
+        "strengths",
+        "success"
+      ],
+      "metrics": {
+        "source_relative_l2": 1.577658345806885,
+        "source_rmse": 0.34930290462984565,
+        "potential_rmse_raw_center_zero_truth": 0.3163939980245629,
+        "potential_rmse_mean_centered_truth": 0.08468639953854398,
+        "potential_rms": 0.03440924024708518,
+        "potential_mean": -1.5388978243291166e-16,
+        "deflection_vector_rmse_discrete_truth": 0.18268260799119485,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -0.3048497592571876,
+            0.04891232459212231,
+            0.003111269253519638
+          ],
+          "potential_rmse": 0.06824221474820236,
+          "deflection_vector_rmse": 0.17504485219051946,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "convergence": {
+          "all_core": {
+            "count": 37,
+            "rmse_discrete_truth": 0.46921206247730574,
+            "truth_discrete_rms": 0.19532756486785677,
+            "rmse_analytic_point_truth": 0.44379905481360626,
+            "analytic_valid_count": 37,
+            "recovered_rms": 0.3813683727561891,
+            "recovered_max": 0.7533363029125469,
+            "truth_discrete_max": 0.8653771656885901
+          },
+          "illuminated_core": {
+            "count": 15,
+            "rmse_discrete_truth": 0.5175544045025181,
+            "truth_discrete_rms": 0.2655079642994636,
+            "rmse_analytic_point_truth": 0.4787940719770234,
+            "analytic_valid_count": 15,
+            "recovered_rms": 0.34977118362413184,
+            "recovered_max": 0.5813821923261286,
+            "truth_discrete_max": 0.8653771656885901
+          },
+          "local_core": {
+            "count": 18,
+            "rmse_discrete_truth": 0.5567228058061955,
+            "truth_discrete_rms": 0.27979733118257344,
+            "rmse_analytic_point_truth": 0.5121372997327855,
+            "analytic_valid_count": 18,
+            "recovered_rms": 0.3948602822988592,
+            "recovered_max": 0.7533363029125469,
+            "truth_discrete_max": 0.8653771656885901
+          }
+        },
+        "convergence_peak_xy": [
+          0.0,
+          0.0
+        ],
+        "peak_distance_to_subhalo": 0.6576473218982953,
+        "corrected_ray_source_box": {
+          "query_count": 68,
+          "minimum_signed_margin": 0.010397956499867855,
+          "margin_percentiles": [
+            0.024512556569793936,
+            0.09141972229297246,
+            0.2497811957082401
+          ],
+          "outside_count": 0,
+          "outside_fraction": 0.0,
+          "outside_analytic_brightness_fraction": 0.0,
+          "outside_analytic_brightness_max": 0.0
+        },
+        "linear_residual_rms_noise": 2.8967638588245923,
+        "nonlinear_residual_rms_noise": 10.692791499148486,
+        "fitted_linearization_rms_noise": 10.274026218379136
+      }
+    },
+    "control_amplitude100": {
+      "schema": [
+        "affine_diagnostic_only",
+        "amplitude_penalty",
+        "boundary_distances",
+        "boundary_sides",
+        "chi2",
+        "configuration",
+        "convergence",
+        "convergence_peak_xy",
+        "corrected_ray_source_box",
+        "deflection_vector_rmse_discrete_truth",
+        "determinant_method",
+        "dtype",
+        "evaluations",
+        "evidence_is_exact",
+        "evidence_method",
+        "failure_reason",
+        "fitted_linearization_rms_noise",
+        "has_valid_fit",
+        "initialization_provenance",
+        "linear_residual_rms_noise",
+        "log_evidence",
+        "log_strengths",
+        "nfev",
+        "nonlinear_residual_rms_noise",
+        "objective",
+        "optimizer_message",
+        "optimizer_status",
+        "optimizer_success",
+        "peak_distance_to_subhalo",
+        "posterior_logdet",
+        "potential_mean",
+        "potential_rms",
+        "potential_rmse_mean_centered_truth",
+        "potential_rmse_raw_center_zero_truth",
+        "prior_logdet",
+        "regularization_penalty",
+        "solver_info",
+        "source_relative_l2",
+        "source_rmse",
+        "strengths",
+        "success"
+      ],
+      "metrics": {
+        "source_relative_l2": 0.34804600751910547,
+        "source_rmse": 0.07705944807021353,
+        "potential_rmse_raw_center_zero_truth": 0.020118768323351712,
+        "potential_rmse_mean_centered_truth": 0.020118768323351712,
+        "potential_rms": 0.020118768323351712,
+        "potential_mean": -2.027955992434516e-15,
+        "deflection_vector_rmse_discrete_truth": 0.033739045338012204,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -2.030011960998637e-15,
+            -0.00511903886788162,
+            0.00269073544114019
+          ],
+          "potential_rmse": 0.01922891614262904,
+          "deflection_vector_rmse": 0.03286249948665581,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "convergence": {
+          "all_core": {
+            "count": 37,
+            "rmse_discrete_truth": 0.05764101900284815,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.05764101900284815,
+            "analytic_valid_count": 37,
+            "recovered_rms": 0.05764101900284815,
+            "recovered_max": 0.11792036121714823,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 15,
+            "rmse_discrete_truth": 0.05388235726731204,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.05388235726731204,
+            "analytic_valid_count": 15,
+            "recovered_rms": 0.05388235726731204,
+            "recovered_max": 0.0394860445276629,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 18,
+            "rmse_discrete_truth": 0.03855145817220407,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.03855145817220407,
+            "analytic_valid_count": 18,
+            "recovered_rms": 0.03855145817220407,
+            "recovered_max": 0.06904596436787958,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy": [
+          -1.2000000000000002,
+          -0.4
+        ],
+        "peak_distance_to_subhalo": 1.91637678967368,
+        "corrected_ray_source_box": {
+          "query_count": 68,
+          "minimum_signed_margin": 0.084532698851144,
+          "margin_percentiles": [
+            0.08731330328293709,
+            0.1142873140000719,
+            0.2399466527574753
+          ],
+          "outside_count": 0,
+          "outside_fraction": 0.0,
+          "outside_analytic_brightness_fraction": 0.0,
+          "outside_analytic_brightness_max": 0.0
+        },
+        "linear_residual_rms_noise": 0.7708175421860507,
+        "nonlinear_residual_rms_noise": 0.9720662991153234,
+        "fitted_linearization_rms_noise": 0.5327474718731189
+      }
+    },
+    "control_amplitude1000": {
+      "schema": [
+        "affine_diagnostic_only",
+        "amplitude_penalty",
+        "boundary_distances",
+        "boundary_sides",
+        "chi2",
+        "configuration",
+        "convergence",
+        "convergence_peak_xy",
+        "corrected_ray_source_box",
+        "deflection_vector_rmse_discrete_truth",
+        "determinant_method",
+        "dtype",
+        "evaluations",
+        "evidence_is_exact",
+        "evidence_method",
+        "failure_reason",
+        "fitted_linearization_rms_noise",
+        "has_valid_fit",
+        "initialization_provenance",
+        "linear_residual_rms_noise",
+        "log_evidence",
+        "log_strengths",
+        "nfev",
+        "nonlinear_residual_rms_noise",
+        "objective",
+        "optimizer_message",
+        "optimizer_status",
+        "optimizer_success",
+        "peak_distance_to_subhalo",
+        "posterior_logdet",
+        "potential_mean",
+        "potential_rms",
+        "potential_rmse_mean_centered_truth",
+        "potential_rmse_raw_center_zero_truth",
+        "prior_logdet",
+        "regularization_penalty",
+        "solver_info",
+        "source_relative_l2",
+        "source_rmse",
+        "strengths",
+        "success"
+      ],
+      "metrics": {
+        "source_relative_l2": 0.3259298625075946,
+        "source_rmse": 0.07216280253712469,
+        "potential_rmse_raw_center_zero_truth": 0.0074674994297232915,
+        "potential_rmse_mean_centered_truth": 0.0074674994297232915,
+        "potential_rms": 0.0074674994297232915,
+        "potential_mean": -2.401593142781931e-16,
+        "deflection_vector_rmse_discrete_truth": 0.021964538435457065,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            -2.4029383565885333e-16,
+            -0.0008715986698628307,
+            0.0007552077565067486
+          ],
+          "potential_rmse": 0.007373678091395957,
+          "deflection_vector_rmse": 0.021800715109486092,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "convergence": {
+          "all_core": {
+            "count": 37,
+            "rmse_discrete_truth": 0.04631917642739275,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.04631917642739275,
+            "analytic_valid_count": 37,
+            "recovered_rms": 0.04631917642739275,
+            "recovered_max": 0.0955965826875235,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 15,
+            "rmse_discrete_truth": 0.046882411480599656,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.046882411480599656,
+            "analytic_valid_count": 15,
+            "recovered_rms": 0.046882411480599656,
+            "recovered_max": 0.04185222018126925,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 18,
+            "rmse_discrete_truth": 0.0336439265186837,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0336439265186837,
+            "analytic_valid_count": 18,
+            "recovered_rms": 0.0336439265186837,
+            "recovered_max": 0.05768705618998119,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy": [
+          -1.2000000000000002,
+          -0.4
+        ],
+        "peak_distance_to_subhalo": 1.91637678967368,
+        "corrected_ray_source_box": {
+          "query_count": 68,
+          "minimum_signed_margin": 0.0964382047325229,
+          "margin_percentiles": [
+            0.09746903291663339,
+            0.11991074404812327,
+            0.2409155145106096
+          ],
+          "outside_count": 0,
+          "outside_fraction": 0.0,
+          "outside_analytic_brightness_fraction": 0.0,
+          "outside_analytic_brightness_max": 0.0
+        },
+        "linear_residual_rms_noise": 0.8098757098015442,
+        "nonlinear_residual_rms_noise": 0.9568869331177714,
+        "fitted_linearization_rms_noise": 0.4665060551438265
+      }
+    }
+  },
+  "scientific": {
+    "subhalo": {
+      "source_relative_l2": 1.577658345806885,
+      "source_rmse": 0.34930290462984565,
+      "source_negative_node_fraction": 0.2222222222222222,
+      "source_negative_to_positive_sum": 0.14942267421001174,
+      "potential_rmse_raw_center_zero_truth": 0.3163939980245629,
+      "potential_rmse_mean_centered_truth": 0.08468639953854398,
+      "potential_rms": 0.03440924024708518,
+      "potential_mean": -1.5388978243291166e-16,
+      "deflection_vector_rmse_discrete_truth": 0.18268260799119485,
+      "convergence": {
+        "all_core": {
+          "count": 37,
+          "rmse_discrete_truth": 0.46921206247730574,
+          "truth_discrete_rms": 0.19532756486785677,
+          "rmse_analytic_point_truth": 0.44379905481360626,
+          "analytic_valid_count": 37,
+          "recovered_rms": 0.3813683727561891,
+          "recovered_mean": -0.023612220645642543,
+          "truth_discrete_mean": 0.08724748878365436,
+          "recovered_max": 0.7533363029125469,
+          "truth_discrete_max": 0.8653771656885901
+        },
+        "illuminated_core": {
+          "count": 15,
+          "rmse_discrete_truth": 0.5175544045025181,
+          "truth_discrete_rms": 0.2655079642994636,
+          "rmse_analytic_point_truth": 0.4787940719770234,
+          "analytic_valid_count": 15,
+          "recovered_rms": 0.34977118362413184,
+          "recovered_mean": 0.035153919733649376,
+          "truth_discrete_mean": 0.1362188303052765,
+          "recovered_max": 0.5813821923261286,
+          "truth_discrete_max": 0.8653771656885901
+        },
+        "local_core": {
+          "count": 18,
+          "rmse_discrete_truth": 0.5567228058061955,
+          "truth_discrete_rms": 0.27979733118257344,
+          "rmse_analytic_point_truth": 0.5121372997327855,
+          "analytic_valid_count": 18,
+          "recovered_rms": 0.3948602822988592,
+          "recovered_mean": -0.0018948780961541135,
+          "truth_discrete_mean": 0.168669757630476,
+          "recovered_max": 0.7533363029125469,
+          "truth_discrete_max": 0.8653771656885901
+        }
+      },
+      "convergence_peak_xy_arcsec": [
+        0.0,
+        0.0
+      ],
+      "peak_distance_to_injected_position_arcsec": 0.6576473218982953,
+      "local_radius_arcsec": 1.058300524425836,
+      "nonlinear_residual_rms_noise": 10.692791499148486,
+      "source_box": {
+        "macro_rays": {
+          "query_count": 68,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.11307830863535956,
+          "outside_analytic_brightness_fraction": 0.0
+        },
+        "analytic_truth_corrected_rays": {
+          "query_count": 68,
+          "outside_count": 1,
+          "minimum_signed_margin_arcsec": -0.011108418172301682,
+          "outside_analytic_brightness_fraction": 2.6608496012696455e-05
+        },
+        "fitted_corrected_rays": {
+          "query_count": 68,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.010397956499867855,
+          "outside_analytic_brightness_fraction": 0.0
+        }
+      },
+      "linear_residual_rms_noise": 2.8967638588245923,
+      "fitted_linearization_rms_noise": 10.274026218379136,
+      "affine_diagnostic_only": {
+        "fitted_difference_constant_x_y": [
+          -0.3048497592571876,
+          0.04891232459212231,
+          0.003111269253519638
+        ],
+        "potential_rmse": 0.06824221474820236,
+        "applied_to_raw_fields_or_images_or_evidence": false
+      }
+    },
+    "control": {
+      "source_relative_l2": 0.3259298625075946,
+      "source_rmse": 0.07216280253712469,
+      "source_negative_node_fraction": 0.5925925925925926,
+      "source_negative_to_positive_sum": 0.3769512123896191,
+      "potential_rmse_raw_center_zero_truth": 0.0074674994297232915,
+      "potential_rmse_mean_centered_truth": 0.0074674994297232915,
+      "potential_rms": 0.0074674994297232915,
+      "potential_mean": -2.401593142781931e-16,
+      "deflection_vector_rmse_discrete_truth": 0.021964538435457065,
+      "convergence": {
+        "all_core": {
+          "count": 37,
+          "rmse_discrete_truth": 0.04631917642739275,
+          "truth_discrete_rms": 0.0,
+          "rmse_analytic_point_truth": 0.04631917642739275,
+          "analytic_valid_count": 37,
+          "recovered_rms": 0.04631917642739275,
+          "recovered_mean": -0.007792725305687932,
+          "truth_discrete_mean": 0.0,
+          "recovered_max": 0.0955965826875235,
+          "truth_discrete_max": 0.0
+        },
+        "illuminated_core": {
+          "count": 15,
+          "rmse_discrete_truth": 0.046882411480599656,
+          "truth_discrete_rms": 0.0,
+          "rmse_analytic_point_truth": 0.046882411480599656,
+          "analytic_valid_count": 15,
+          "recovered_rms": 0.046882411480599656,
+          "recovered_mean": -0.015713870231206867,
+          "truth_discrete_mean": 0.0,
+          "recovered_max": 0.04185222018126925,
+          "truth_discrete_max": 0.0
+        },
+        "local_core": {
+          "count": 18,
+          "rmse_discrete_truth": 0.0336439265186837,
+          "truth_discrete_rms": 0.0,
+          "rmse_analytic_point_truth": 0.0336439265186837,
+          "analytic_valid_count": 18,
+          "recovered_rms": 0.0336439265186837,
+          "recovered_mean": -0.002989023390302845,
+          "truth_discrete_mean": 0.0,
+          "recovered_max": 0.05768705618998119,
+          "truth_discrete_max": 0.0
+        }
+      },
+      "convergence_peak_xy_arcsec": [
+        -1.2000000000000002,
+        -0.4
+      ],
+      "peak_distance_to_injected_position_arcsec": 1.91637678967368,
+      "local_radius_arcsec": 1.058300524425836,
+      "nonlinear_residual_rms_noise": 0.9568869331177714,
+      "source_box": {
+        "macro_rays": {
+          "query_count": 68,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.11307830863535956,
+          "outside_analytic_brightness_fraction": 0.0
+        },
+        "analytic_truth_corrected_rays": {
+          "query_count": 68,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.11307830863535956,
+          "outside_analytic_brightness_fraction": 0.0
+        },
+        "fitted_corrected_rays": {
+          "query_count": 68,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.0964382047325229,
+          "outside_analytic_brightness_fraction": 0.0
+        }
+      },
+      "linear_residual_rms_noise": 0.8098757098015442,
+      "fitted_linearization_rms_noise": 0.4665060551438265,
+      "affine_diagnostic_only": {
+        "fitted_difference_constant_x_y": [
+          -2.4029383565885333e-16,
+          -0.0008715986698628307,
+          0.0007552077565067486
+        ],
+        "potential_rmse": 0.007373678091395957,
+        "applied_to_raw_fields_or_images_or_evidence": false
+      }
+    }
+  }
+}

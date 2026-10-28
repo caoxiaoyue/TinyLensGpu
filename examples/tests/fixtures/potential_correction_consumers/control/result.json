@@ -1,0 +1,249 @@
+{
+  "success": true,
+  "status": "success",
+  "failure_reason": null,
+  "termination_reason": "solved",
+  "algorithm": "single_step",
+  "backend": "dense",
+  "dtype": "float64",
+  "evidence_method": "conditional_linear_gaussian",
+  "determinant_method": "full_cholesky",
+  "evidence_is_exact": true,
+  "evidence_image": "linear_model_image",
+  "log_evidence": 52.183122178333186,
+  "chi2": 44.601109242205744,
+  "regularization_penalty": 79.02127960478015,
+  "objective": 61.81119442349295,
+  "prior_logdet": 1056.425183061238,
+  "posterior_logdet": 1180.3527833772678,
+  "noise_logdet": -476.8918740355175,
+  "strengths": {
+    "lambda_source": 0.0011364636663857258,
+    "lambda_potential": 464.15888336127773,
+    "lambda_amplitude": 1000.0
+  },
+  "solver_info": {
+    "method": "cholesky",
+    "converged": true,
+    "failed": false,
+    "iterations": 1,
+    "residual_norm": 1.4419167443844083e-11,
+    "relative_residual": 4.045451896977577e-16,
+    "reason": null,
+    "diagnostics": {}
+  },
+  "initialization_provenance": {
+    "gradient_coordinates": "fixed_macro_image_subpixel_rays",
+    "gradient_provider": "SourceTruth.gradient",
+    "potential_linearization": "zero_potential",
+    "source": "analytic mock truth gradient; fixed macro rays"
+  },
+  "configuration": {
+    "case": "control",
+    "mock": {
+      "npix": 12,
+      "dpix": 0.2,
+      "nsub": 1,
+      "theta_E": 0.7,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.4,
+      "subhalo_x": 0.65,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.03,
+      "seed": 17,
+      "psf_sigma": 0.04,
+      "psf_size": 3,
+      "mask_inner": 0.4,
+      "mask_outer": 1.0,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.12,
+        "sigma_y": 0.08,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.8
+      }
+    }
+  },
+  "result_configuration": {
+    "source_n": 9,
+    "source_regularization": "second-order",
+    "potential_spacing": 0.4,
+    "potential_regularization": "complete_pixel_unit_fourth_differences",
+    "potential_amplitude_prior": "independent_all_unknowns",
+    "nsub": 1,
+    "image_shape": [
+      12,
+      12
+    ],
+    "n_data": 68,
+    "n_source": 81,
+    "n_potential": 81,
+    "n_core": 37,
+    "solve_rtol": 1e-08,
+    "dtype": "float64"
+  },
+  "mock_configuration": {
+    "npix": 12,
+    "dpix": 0.2,
+    "nsub": 1,
+    "theta_E": 0.7,
+    "macro_center_x": 0.0,
+    "macro_center_y": 0.0,
+    "gamma1": 0.05,
+    "gamma2": 0.02,
+    "b_sub": 0.4,
+    "subhalo_x": 0.65,
+    "subhalo_y": 0.1,
+    "noise_sigma": 0.03,
+    "seed": 17,
+    "psf_sigma": 0.04,
+    "psf_size": 3,
+    "mask_inner": 0.4,
+    "mask_outer": 1.0,
+    "dtype": "float64",
+    "source": {
+      "center_x": 0.05,
+      "center_y": 0.03,
+      "sigma_x": 0.12,
+      "sigma_y": 0.08,
+      "amplitude": 1.0,
+      "clump_fraction": 0.35,
+      "clump_dx": -0.13,
+      "clump_dy": 0.1,
+      "clump_scale": 0.8
+    }
+  },
+  "observation": "control",
+  "integration": {
+    "mock_nsub": 1,
+    "inversion_nsub": 1
+  },
+  "source_bbox": [
+    -0.4,
+    0.4,
+    -0.4,
+    0.4
+  ],
+  "potential_geometry": {
+    "spacing": 0.4,
+    "origin": [
+      0.0,
+      0.0
+    ],
+    "unknown_count": 81,
+    "core_count": 37,
+    "support_only_count": 44
+  },
+  "units": {
+    "coordinates": "arcsec",
+    "potential": "arcsec^2",
+    "deflection": "arcsec",
+    "convergence": "dimensionless"
+  },
+  "truth_conventions": {
+    "potential": "analytic nodal singular PseudoJaffeSubhalo; psi(center)=0",
+    "discrete_derivatives": "centered physical differences of nodal analytic psi; derivative_valid core only",
+    "analytic_derivatives": "point samples, no pixel averaging; kappa NaN for R<1e-8 arcsec; zero strength identically zero",
+    "illuminated_core": "observation annulus and macro-source brightness >=5% of core maximum",
+    "local_core": "matched disk around specified subhalo position (nominal for control); radius max(2*sqrt(mock b_sub*theta_E),2*h)",
+    "raw_fields": "signed, unclipped and unaligned; support-only derivatives undefined/NaN"
+  },
+  "search": null,
+  "history": [],
+  "scope": "fixed true macro reconstruction; no detection significance or mass confidence intervals",
+  "summary": {
+    "source_relative_l2": 0.3259298625075946,
+    "source_rmse": 0.07216280253712469,
+    "source_negative_node_fraction": 0.5925925925925926,
+    "source_negative_to_positive_sum": 0.3769512123896191,
+    "potential_rmse_raw_center_zero_truth": 0.0074674994297232915,
+    "potential_rmse_mean_centered_truth": 0.0074674994297232915,
+    "potential_rms": 0.0074674994297232915,
+    "potential_mean": -2.401593142781931e-16,
+    "deflection_vector_rmse_discrete_truth": 0.021964538435457065,
+    "convergence": {
+      "all_core": {
+        "count": 37,
+        "rmse_discrete_truth": 0.04631917642739275,
+        "truth_discrete_rms": 0.0,
+        "rmse_analytic_point_truth": 0.04631917642739275,
+        "analytic_valid_count": 37,
+        "recovered_rms": 0.04631917642739275,
+        "recovered_mean": -0.007792725305687932,
+        "truth_discrete_mean": 0.0,
+        "recovered_max": 0.0955965826875235,
+        "truth_discrete_max": 0.0
+      },
+      "illuminated_core": {
+        "count": 15,
+        "rmse_discrete_truth": 0.046882411480599656,
+        "truth_discrete_rms": 0.0,
+        "rmse_analytic_point_truth": 0.046882411480599656,
+        "analytic_valid_count": 15,
+        "recovered_rms": 0.046882411480599656,
+        "recovered_mean": -0.015713870231206867,
+        "truth_discrete_mean": 0.0,
+        "recovered_max": 0.04185222018126925,
+        "truth_discrete_max": 0.0
+      },
+      "local_core": {
+        "count": 18,
+        "rmse_discrete_truth": 0.0336439265186837,
+        "truth_discrete_rms": 0.0,
+        "rmse_analytic_point_truth": 0.0336439265186837,
+        "analytic_valid_count": 18,
+        "recovered_rms": 0.0336439265186837,
+        "recovered_mean": -0.002989023390302845,
+        "truth_discrete_mean": 0.0,
+        "recovered_max": 0.05768705618998119,
+        "truth_discrete_max": 0.0
+      }
+    },
+    "convergence_peak_xy_arcsec": [
+      -1.2000000000000002,
+      -0.4
+    ],
+    "peak_distance_to_injected_position_arcsec": 1.91637678967368,
+    "local_radius_arcsec": 1.058300524425836,
+    "nonlinear_residual_rms_noise": 0.9568869331177714,
+    "source_box": {
+      "macro_rays": {
+        "query_count": 68,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.11307830863535956,
+        "outside_analytic_brightness_fraction": 0.0
+      },
+      "analytic_truth_corrected_rays": {
+        "query_count": 68,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.11307830863535956,
+        "outside_analytic_brightness_fraction": 0.0
+      },
+      "fitted_corrected_rays": {
+        "query_count": 68,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.0964382047325229,
+        "outside_analytic_brightness_fraction": 0.0
+      }
+    },
+    "linear_residual_rms_noise": 0.8098757098015442,
+    "fitted_linearization_rms_noise": 0.4665060551438265,
+    "affine_diagnostic_only": {
+      "fitted_difference_constant_x_y": [
+        -2.4029383565885333e-16,
+        -0.0008715986698628307,
+        0.0007552077565067486
+      ],
+      "potential_rmse": 0.007373678091395957,
+      "applied_to_raw_fields_or_images_or_evidence": false
+    }
+  }
+}

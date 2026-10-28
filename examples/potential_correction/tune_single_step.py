@@ -118,6 +118,8 @@ def run_tuning(
                 linear_model_image=np.asarray(reconstruction.linear_model_image),
                 nonlinear_model_image=np.asarray(reconstruction.nonlinear_model_image),
             )
+        else:
+            (output / "reconstruction.npz").unlink(missing_ok=True)
         (output / "tuning.json").write_text(
             json.dumps(metadata, indent=2, allow_nan=False) + "\n"
         )

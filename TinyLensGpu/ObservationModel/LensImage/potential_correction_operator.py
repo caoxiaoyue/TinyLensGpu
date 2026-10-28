@@ -6,14 +6,12 @@ The fitted vector always solves the complete coupled conditional model.
 
 from __future__ import annotations
 
-import hashlib
 from functools import partial
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
-import numpy as np
 
 from TinyLensGpu.utils.cg_solver import (
     PCGInfo,
@@ -22,6 +20,15 @@ from TinyLensGpu.utils.cg_solver import (
 )
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 
+from ._potential_correction_operator_common import (
+    _assemble_prior_blocks,
+    _block_basis,
+    _factor_blocks,
+    _padded_partition,
+    _partition,
+    _pcg_controls,
+    _unit_prior_blocks,
+)
 from .potential_correction_result import PotentialSolverInfo
 
 
@@ -37,67 +44,6 @@ class _OperatorSolution(NamedTuple):
     prior_positive: jax.Array
     posterior_positive: jax.Array
     finite_solution: jax.Array
-
-
-def _positive_integer(value, name):
-    try:
-        integer = int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{name} must be a positive integer") from exc
-    if isinstance(value, bool) or integer != value or integer < 1:
-        raise ValueError(f"{name} must be a positive integer")
-    return integer
-
-
-def _partition(problem, block_size, block_indices):
-    block_size = _positive_integer(block_size, "block_size")
-    if block_indices is None:
-        blocks = []
-        for start, size in (
-            (0, problem.n_source),
-            (problem.n_source, problem.n_potential),
-        ):
-            # Even a small field is split: preparation never probes a full
-            # source/potential/joint basis in one panel.
-            width = min(block_size, max(1, (size + 1) // 2))
-            blocks.extend(
-                tuple(range(offset, min(offset + width, start + size)))
-                for offset in range(start, start + size, width)
-            )
-        layout = "field_separated_contiguous_v1"
-    else:
-        blocks = []
-        try:
-            for block in block_indices:
-                values = np.asarray(block)
-                if (
-                    values.ndim != 1
-                    or values.size == 0
-                    or not np.issubdtype(values.dtype, np.integer)
-                ):
-                    raise ValueError
-                blocks.append(tuple(int(value) for value in values))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "block_indices must contain nonempty integer index blocks"
-            ) from exc
-        layout = "explicit_joint_partition_v1"
-    flat = [index for block in blocks for index in block]
-    if sorted(flat) != list(range(problem.n_joint)):
-        raise ValueError(
-            "block_indices must cover every joint coefficient exactly once"
-        )
-    if any(len(block) > block_size for block in blocks):
-        raise ValueError("Each block must contain at most block_size coefficients")
-    if any(
-        len(block) == problem.n_joint
-        or sum(index >= problem.n_source for index in block) == problem.n_potential
-        for block in blocks
-    ):
-        raise ValueError(
-            "Blocks must not contain the complete joint or potential field"
-        )
-    return tuple(blocks), layout, block_size
 
 
 class _SingleStepOperator:
@@ -116,15 +62,7 @@ class _SingleStepOperator:
         self.blocks = blocks
         self.layout = layout
         self.block_size = block_size
-        width = max(map(len, blocks))
-        indices = np.zeros((len(blocks), width), dtype=np.int32)
-        valid = np.zeros_like(indices, dtype=bool)
-        for row, block in enumerate(blocks):
-            indices[row, : len(block)] = block
-            valid[row, : len(block)] = True
-        self.indices = jnp.asarray(indices)
-        self.valid = jnp.asarray(valid)
-        self.partition_digest = hashlib.sha256(repr(blocks).encode("ascii")).hexdigest()
+        self.indices, self.valid, self.partition_digest = _padded_partition(blocks)
 
         @jax.jit
         def prepare():
@@ -132,31 +70,11 @@ class _SingleStepOperator:
                 indices, valid = inputs
                 # Only this bounded block is batched. scan releases the image
                 # panel before advancing; no full identity is ever allocated.
-                basis = jax.nn.one_hot(indices, problem.n_joint, dtype=problem.dtype)
-                basis = basis * valid[:, None]
+                basis = _block_basis(problem, indices, valid)
                 panel = jax.vmap(problem.forward)(basis) / problem.noise_active[None, :]
-
-                def unit_prior(values):
-                    return jnp.concatenate(
-                        (
-                            problem.source_regularizer.matvec_free(
-                                values[: problem.n_source],
-                                *problem.renderer.source_bbox,
-                            ),
-                            problem.potential_regularizer.matvec(
-                                values[problem.n_source :],
-                                1,
-                                0,
-                            ),
-                        )
-                    )
-
-                principal = jax.vmap(unit_prior)(basis)[:, indices]
-                outer_valid = valid[:, None] & valid[None, :]
-                principal = principal * outer_valid
-                source = indices < problem.n_source
-                source_block = principal * (source[:, None] & source[None, :])
-                potential_block = principal * (~source[:, None] & ~source[None, :])
+                source_block, potential_block = _unit_prior_blocks(
+                    problem, basis, indices, valid
+                )
                 with jax.default_matmul_precision("highest"):
                     data_block = panel @ panel.T
                 return None, (data_block, source_block, potential_block)
@@ -242,31 +160,18 @@ class _SingleStepOperator:
     def _principal_determinants(self, lambda_source, lambda_potential):
         data, source, potential = self.components
         width = self.indices.shape[1]
-        identity = jnp.eye(width, dtype=self.problem.dtype)[None, :, :]
-        amplitude = (self.indices >= self.problem.n_source) & self.valid
-        prior = (
-            lambda_source * source
-            + lambda_potential * potential
-            + self.problem.lambda_amplitude * amplitude[:, :, None] * identity
-            + (~self.valid)[:, :, None] * identity
+        prior = _assemble_prior_blocks(
+            self.problem,
+            source,
+            potential,
+            self.indices,
+            self.valid,
+            lambda_source,
+            lambda_potential,
         )
         posterior = data + prior
-
-        def factor(matrices):
-            # Equilibration changes neither the represented matrix nor its
-            # determinant. No physical prior or hidden jitter is added.
-            scale = jnp.sqrt(jnp.diagonal(matrices, axis1=1, axis2=2))
-            normalized = matrices / (scale[:, :, None] * scale[:, None, :])
-            chols = jnp.linalg.cholesky(normalized) * scale[:, :, None]
-            diagonal = jnp.diagonal(chols, axis1=1, axis2=2)
-            return (
-                chols,
-                2 * jnp.sum(jnp.log(diagonal)),
-                jnp.all(jnp.isfinite(chols)) & jnp.all(diagonal > 0),
-            )
-
-        _, prior_logdet, prior_ok = factor(prior)
-        chols, posterior_logdet, posterior_ok = factor(posterior)
+        _, prior_logdet, prior_ok = _factor_blocks(prior)
+        chols, posterior_logdet, posterior_ok = _factor_blocks(posterior)
         inverse_chols = jax.vmap(
             lambda chol: jsl.solve_triangular(
                 chol, jnp.eye(width, dtype=chols.dtype), lower=True
@@ -359,15 +264,9 @@ def fit_operator(
 ):
     """Validate operator controls and reuse one prepared numerical topology."""
     blocks, layout, block_size = _partition(problem, block_size, block_indices)
-    pcg_max_iter = _positive_integer(pcg_max_iter, "pcg_max_iter")
-    if pcg_rtol is None:
-        pcg_rtol = min(
-            problem.solve_rtol * 0.1, 1e-10 if problem.dtype == jnp.float64 else 1e-5
-        )
-    if not np.isfinite(pcg_rtol) or pcg_rtol <= 0:
-        raise ValueError("pcg_rtol must be finite and positive")
-    if not np.isfinite(pcg_atol) or pcg_atol < 0:
-        raise ValueError("pcg_atol must be finite and nonnegative")
+    pcg_max_iter, pcg_rtol, pcg_atol = _pcg_controls(
+        problem, pcg_max_iter, pcg_rtol, pcg_atol
+    )
     key = (blocks, layout, block_size)
     if key not in problem._operator_backends:
         problem._operator_backends[key] = _SingleStepOperator(

@@ -11,11 +11,18 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
-import numpy as np
 
 from TinyLensGpu.utils.cg_solver import PCGInfo, PrincipalBlockPreconditioner, pcg_solve
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
-from .potential_correction_operator import _partition, _positive_integer
+from ._potential_correction_operator_common import (
+    _assemble_prior_blocks,
+    _block_basis,
+    _factor_blocks,
+    _padded_partition,
+    _partition,
+    _pcg_controls,
+    _unit_prior_blocks,
+)
 from .potential_correction_result import PotentialSolverInfo
 
 
@@ -32,37 +39,14 @@ class _OperatorSystem(NamedTuple):
     finite: jax.Array
 
 
-def _factor_blocks(matrices):
-    """Equilibrated bounded Cholesky factors without a prior/jitter change."""
-    scale = jnp.sqrt(jnp.diagonal(matrices, axis1=1, axis2=2))
-    normalized = matrices / (scale[:, :, None] * scale[:, None, :])
-    chols = jnp.linalg.cholesky(normalized) * scale[:, :, None]
-    diagonal = jnp.diagonal(chols, axis1=1, axis2=2)
-    logdet = 2 * jnp.sum(jnp.log(diagonal))
-    positive = (
-        jnp.all(jnp.isfinite(matrices))
-        & jnp.all(jnp.isfinite(chols))
-        & jnp.all(diagonal > 0)
-        & jnp.isfinite(logdet)
-    )
-    return chols, logdet, positive
-
-
 class _OperatorIterationBackend:
     name = "operator"
     determinant_method = "principal_block_cholesky"
 
     def __init__(self, problem, blocks, layout, block_size):
-        import hashlib
-
         self.problem = problem
-        width = max(map(len, blocks))
-        indices = np.zeros((len(blocks), width), dtype=np.int32)
-        valid = np.zeros_like(indices, dtype=bool)
-        for row, block in enumerate(blocks):
-            indices[row, : len(block)] = block
-            valid[row, : len(block)] = True
-        indices, valid = jnp.asarray(indices), jnp.asarray(valid)
+        indices, valid, digest = _padded_partition(blocks)
+        width = indices.shape[1]
         identity = jnp.eye(width, dtype=problem.dtype)[None, :, :]
         self.configuration = dict(
             preconditioner="principal_block_cholesky",
@@ -72,45 +56,19 @@ class _OperatorIterationBackend:
             block_sizes=tuple(map(len, blocks)),
             block_indices=blocks,
             block_count=len(blocks),
-            block_partition_sha256=hashlib.sha256(
-                repr(blocks).encode("ascii")
-            ).hexdigest(),
+            block_partition_sha256=digest,
             solve_residual="recomputed_full_coupled_damped_system",
             pcg_refinement_policy="one_separate_residual_correction_within_total_budget",
             pcg_recursive_residual_scope="initial_solve_original_rhs",
         )
-
-        def block_basis(index, mask):
-            # This is a bounded panel, never a complete field/joint identity.
-            return (
-                jax.nn.one_hot(index, problem.n_joint, dtype=problem.dtype)
-                * mask[:, None]
-            )
 
         @jax.jit
         def unit_priors():
             def one_block(_, inputs):
                 index, mask = inputs
 
-                def unit_prior(values):
-                    return jnp.concatenate(
-                        (
-                            problem.source_regularizer.matvec_free(
-                                values[: problem.n_source],
-                                *problem.renderer.source_bbox
-                            ),
-                            problem.potential_regularizer.matvec(
-                                values[problem.n_source :], 1, 0
-                            ),
-                        )
-                    )
-
-                principal = jax.vmap(unit_prior)(block_basis(index, mask))[:, index]
-                principal = principal * (mask[:, None] & mask[None, :])
-                source = index < problem.n_source
-                return None, (
-                    principal * (source[:, None] & source[None, :]),
-                    principal * (~source[:, None] & ~source[None, :]),
+                return None, _unit_prior_blocks(
+                    problem, _block_basis(problem, index, mask), index, mask
                 )
 
             return jax.lax.scan(one_block, None, (indices, valid))[1]
@@ -120,14 +78,8 @@ class _OperatorIterationBackend:
         @jax.jit
         def initialize(strengths):
             ls, lp = strengths
-            amplitude = (indices >= problem.n_source) & valid
-            prior = (
-                ls * source_blocks
-                + lp * potential_blocks
-                + jnp.asarray(problem.lambda_amplitude, dtype=problem.dtype)
-                * amplitude[:, :, None]
-                * identity
-                + (~valid)[:, :, None] * identity
+            prior = _assemble_prior_blocks(
+                problem, source_blocks, potential_blocks, indices, valid, ls, lp
             )
             _, logdet, positive = _factor_blocks(prior)
             return _PriorBlocks(strengths, prior), logdet, positive
@@ -145,7 +97,7 @@ class _OperatorIterationBackend:
                             lambda vector: problem.jacobian_forward(
                                 vector, linearization
                             )
-                        )(block_basis(index, mask))
+                        )(_block_basis(problem, index, mask))
                         / problem.noise_active[None, :]
                     )
                     return None, panel @ panel.T
@@ -428,15 +380,9 @@ def iteration_operator_backend(
 ):
     """Reuse one geometry/partition with dynamic current points and strengths."""
     blocks, layout, block_size = _partition(problem, block_size, block_indices)
-    max_iter = _positive_integer(pcg_max_iter, "pcg_max_iter")
-    if pcg_rtol is None:
-        pcg_rtol = min(
-            problem.solve_rtol * 0.1, 1e-10 if problem.dtype == jnp.float64 else 1e-5
-        )
-    if not np.isfinite(pcg_rtol) or pcg_rtol <= 0:
-        raise ValueError("pcg_rtol must be finite and positive")
-    if not np.isfinite(pcg_atol) or pcg_atol < 0:
-        raise ValueError("pcg_atol must be finite and nonnegative")
+    max_iter, pcg_rtol, pcg_atol = _pcg_controls(
+        problem, pcg_max_iter, pcg_rtol, pcg_atol
+    )
     key = (blocks, layout, block_size)
     if key not in problem._operator_backends:
         problem._operator_backends[key] = _OperatorIterationBackend(
