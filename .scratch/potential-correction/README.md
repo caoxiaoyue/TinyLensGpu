@@ -18,10 +18,9 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–07 are resolved and merged. Dense iterative reconstruction (08)
-and the scientific single-step example (11) are in progress in separate
-worktrees. Final iterative, scientific, precision and performance verification
-remain outstanding.
+Tickets 01–07 and 11 are resolved and merged. Dense iterative reconstruction
+(08) is in progress. The remaining iterative workflows, their scientific
+example, precision/performance validation and final integration are outstanding.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -43,6 +42,9 @@ Focused commands, configurations and outcomes are retained in:
   finite-difference variability.
 - [Single-step calibration summary](research/single-step-calibration/summary.json)
   and the linked complete inputs, selected fields and candidate records.
+- [Scientific single-step validation](../../docs/validation/potential-correction-single-step-scientific.md)
+  for the explicitly configured 200-by-200 runs, their saved public results,
+  figures, matched controls and amplitude-prior probes.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
