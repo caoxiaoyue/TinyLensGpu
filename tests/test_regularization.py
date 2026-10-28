@@ -752,3 +752,58 @@ class TestAdaptiveRegIntegration:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["zero-order", "first-order", "second-order"])
+def test_operator_regularization_preparation_has_linear_storage(regularization_type):
+    """Preparing a source prior must not allocate dense source-sized operators."""
+    n = 48
+    existing = {id(array) for array in jax.live_arrays()}
+    builder = FiniteDifferenceRegularization(n, regularization_type)
+    reg_data = builder.make_reg_data(-1.0, 1.0, -1.0, 1.0)
+    jax.block_until_ready(reg_data)
+    allocated = sum(
+        array.nbytes for array in jax.live_arrays() if id(array) not in existing
+    )
+    # Even an O(Ns) topology with several arrays fits comfortably here. A
+    # single Ns-by-Ns float32 array would require more than 20 MiB.
+    assert allocated < 128 * n * n
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type", ["zero-order", "first-order", "second-order"])
+def test_explicit_double_precision_survives_source_prior_preparation(regularization_type):
+    """Explicit x64 bounds retain their spacing precision in compact priors."""
+    with jax.experimental.disable_x64():
+        builder = FiniteDifferenceRegularization(4, regularization_type)
+        builder.matrix(-1.0, 1.0, -1.0, 1.0)
+    with jax.experimental.enable_x64():
+        bbox = tuple(jnp.asarray(v, dtype=jnp.float64) for v in (
+            -0.123456789123, 1.234567891234, -0.123456789123, 1.234567891234
+        ))
+        reg_data = builder.make_reg_data(*bbox)
+        diagonal = builder.diag_R(*bbox)
+        block = builder.block_diag_R(0, 4, 0, 4, *bbox)
+        exponent = {"zero-order": 0, "first-order": 2, "second-order": 4}[regularization_type]
+        expected_scale = (3.0 / (1.234567891234 + 0.123456789123)) ** exponent
+        assert reg_data.scale_factor.dtype == jnp.float64
+        np.testing.assert_allclose(reg_data.scale_factor, expected_scale, rtol=1e-14)
+        assert diagonal.dtype == block.dtype == jnp.float64
+        matrix = builder.matrix(*bbox)
+        assert matrix.dtype == jnp.float64
+        np.testing.assert_allclose(block, matrix, rtol=1e-13, atol=1e-13)
+        np.testing.assert_allclose(diagonal, np.diag(matrix), rtol=1e-13, atol=1e-13)
+        assert builder.logdet_free(*bbox, block_size=4).dtype == jnp.float64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regularization_type, exponent", [("first-order", 2), ("second-order", 4)])
+def test_first_dense_request_is_jittable_and_differentiable(regularization_type, exponent):
+    """Lazy constants remain valid across subsequent traces and gradients."""
+    builder = FiniteDifferenceRegularization(3, regularization_type)
+    penalty = jax.jit(lambda width: jnp.trace(builder.matrix(0.0, width, 0.0, width)))
+    first = penalty(jnp.asarray(2.0))
+    second = penalty(jnp.asarray(4.0))
+    np.testing.assert_allclose(second, first / 2**exponent, rtol=1e-6)
+    np.testing.assert_allclose(jax.grad(penalty)(jnp.asarray(2.0)), -exponent * first / 2.0, rtol=1e-6)
