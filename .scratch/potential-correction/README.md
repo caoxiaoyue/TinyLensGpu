@@ -5,21 +5,24 @@ with separate single-step and iterative algorithms and dense/operator backends.
 The approved requirements and scope are in the [spec](spec.md).
 
 - Spec triage: ready-for-agent.
-- Implementation is in progress on `codex/potential-correction-integration`.
-  Consult individual tickets for their current lifecycle and verification.
+- Tickets 01–14 are resolved; final coordinator integration/review remains.
+  Consult individual tickets for lifecycle and verification; the parent spec
+  remains open pending that independent review and any required fixes.
 - The design uses the existing square source grid, a local potential support
   constructed around actual interpolation corners, complete fourth-difference
   windows, and a fixed independent amplitude prior.
-- Planned validation uses Pseudo-Jaffe and no-subhalo mocks, fixed true macro
-  parameters, and truth-derived source initialization. Numerical comparisons
-  precede scientific examples and performance measurements.
+- Validation uses Pseudo-Jaffe and no-subhalo mocks, fixed true macro
+  parameters, and truth-derived initialization. Model-specific numerical,
+  scientific and performance records preserve their actual configurations
+  and limitations.
 
 ## Implementation tickets
 
 ### Implementation progress
 
-Tickets 01–13 are resolved and merged. Final integration (14) is in progress;
-the mandatory final review follows that integration.
+Tickets 01–13 are resolved and merged. Ticket 14 is resolved and ready for
+integration; the mandatory final review/fix gate follows that merge. The parent
+spec is not marked complete by this documentation/integration handoff.
 
 The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
 records six matched subhalo/control runs and adopts amplitude precision 10000
@@ -27,6 +30,13 @@ for its explicitly configured physical model. It supports localized recovery,
 with peak suppression, low-mode sensitivity, boundary optima and approximation
 limits retained. Those results do not automatically validate different image,
 source, potential or physical configurations.
+
+The [user guide](../../docs/guides/potential-correction.md) covers both public
+algorithms, initialization, geometry, priors, tuning, results and measured
+limits. The [complete coverage/integration record](../../docs/validation/potential-correction-coverage.md)
+maps every approved decision, test decision, user story and ticket; its
+[compact verification summary](research/final-integration-verification.json)
+retains broad/targeted commands and log/source hashes.
 
 Focused commands, configurations and outcomes are retained in:
 

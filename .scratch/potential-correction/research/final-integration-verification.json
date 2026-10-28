@@ -109,5 +109,8 @@
     "No blanket speed/memory, detection-significance or mass-interval claim."
   ],
   "verification_tree_dirty": true,
-  "verification_tree_note": "Verification was performed before committing ticket14 documentation and the narrow compatibility change; exact numerical source hashes identify the post-edit checks."
+  "verification_tree_note": "Verification was performed before committing ticket14 documentation and the narrow compatibility change; exact numerical source hashes identify the post-edit checks.",
+  "implementation_commit": "6cdfbe9",
+  "integration_merge": "14b2fcf",
+  "latest_integration_ancestor": "ef80f5199491fc7c36eae0a048d6285e0649bbe3"
 }

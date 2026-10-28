@@ -10,6 +10,8 @@ until the coordinator completes the independent final Standards/Spec review
 against original baseline `5bbfdfa` and any required fixes.
 
 Ticket 14 starts at integration `5170da8e5ec6f162ff6b66ab7b75b8a4b6fd2bed`.
+Implementation is `6cdfbe9`; latest integration `ef80f51` (progress README only)
+was merged without conflicts as `14b2fcf`.
 The [user guide](../guides/potential-correction.md), root README, main guide,
 example README and codebase map provide the public discovery path. Current
 final verification is recorded below; earlier per-ticket commands are historical
@@ -250,7 +252,7 @@ on the available RTX 5080 in `tinylens_gpu`, with
 `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `MPLBACKEND=Agg` and
 `PYTHONPATH=/tmp/tinylens-pc-14`. Full logs are retained in the root checkout's
 ignored `.scratch/potential-correction/output/final-integration/`; compact
-versioned commands/outcomes/hashes will be linked here after completion.
+versioned commands/outcomes/hashes are linked below.
 
 The JAX minimum declared by setup/requirements is preserved. JAX 0.4.20's
 [official map source](https://raw.githubusercontent.com/jax-ml/jax/jax-v0.4.20/jax/_src/lax/control_flow/loops.py)
@@ -292,3 +294,7 @@ executed successfully on CPU under the documented scoped x64 context. The
 load/export and remaining scientific commands use the maintained public
 examples and separately verified artifacts; the 200×200 campaigns were not
 rerun as part of this documentation ticket.
+
+All ticket-14 acceptance checks are met. The original approved spec and prior
+failed scientific records are unchanged. The parent spec is deliberately still
+open for the coordinator's mandatory independent review/fix gate.
