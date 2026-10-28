@@ -29,6 +29,15 @@ separate process. The original core baseline passed 810 tests (3 slow tests
 deselected) before shared-code changes. These are stage checks, not final
 whole-spec verification.
 
+Supplied-field rendering and dense fixed-strength single-step reconstruction
+are implemented. The combined focused check passed 31 cases (14 dense plus
+17 rendering); see the [renderer record](research/supplied-field-rendering.md)
+and [dense fit API and verification record](research/dense-single-step.md).
+The dense result provides signed coupled fields, complete conditional Gaussian
+evidence, distinct linear/nonlinear images and explicit failure metadata.
+Strength optimization, operator calibration, iterative fits and scientific
+reconstruction/performance validation remain outstanding downstream stages.
+
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or
 implemented during publication. Each ticket owns its current lifecycle state
