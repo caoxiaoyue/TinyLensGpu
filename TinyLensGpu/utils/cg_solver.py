@@ -200,7 +200,7 @@ def pcg_solve(
         Matrix-free curvature. Solvers depend only on its ``matvec`` interface
         and do not inspect source-only or joint operator data.
     b : Array, shape ``(N,)``
-    preconditioner : Array or tuple[Array | list[Array], Array | list[Array]]
+    preconditioner : Array, tuple, or PrincipalBlockPreconditioner
         Either a dense Cholesky lower factor ``P_chol_lower`` of shape
         ``(N, N)`` (legacy), or a block-diagonal tuple
         ``(block_chols, block_masks)`` where ``block_chols[i]`` is the
@@ -208,6 +208,8 @@ def pcg_solve(
         the global flat source indices belonging to that block.  If all
         blocks share a size, these may be stacked arrays with shapes
         ``(n_blocks, b, b)`` and ``(n_blocks, b)``.
+        ``PrincipalBlockPreconditioner`` additionally supports padded bounded
+        blocks with an explicit validity mask and safe scatter-add.
     x0, max_iter, rtol, atol : optional
 
     Returns
