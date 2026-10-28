@@ -196,7 +196,7 @@ class PixelizedImageProbModel(ck.Module):
                 "(xmin, xmax, ymin, ymax)."
             )
         xmin_b, xmax_b, ymin_b, ymax_b = (
-            jnp.asarray(v, dtype=jnp.float32) for v in fixed_source_bbox
+            jnp.asarray(v, dtype=jnp.result_type(v, jnp.float32)) for v in fixed_source_bbox
         )
         bbox = (xmin_b, xmax_b, ymin_b, ymax_b)
         bbox_np = np.asarray([float(np.asarray(v)) for v in bbox], dtype=np.float64)
@@ -302,13 +302,9 @@ class PixelizedImageProbModel(ck.Module):
         if source_bbox is fixed:
             return True
         try:
-            offered = np.array(
-                [np.float32(np.asarray(value)) for value in source_bbox],
-                dtype=np.float32,
-            )
-            stored = np.array(
-                [np.float32(np.asarray(value)) for value in fixed],
-                dtype=np.float32,
+            stored = np.asarray([np.asarray(value) for value in fixed])
+            offered = np.asarray(
+                [np.asarray(value) for value in source_bbox], dtype=stored.dtype,
             )
         except (TypeError, ValueError):
             return False

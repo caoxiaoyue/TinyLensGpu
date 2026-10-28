@@ -1,9 +1,9 @@
 """Dense regularization matrix builders for pixelized source inversion.
 
 This module provides traditional finite-difference penalties for
-source-plane linear inversion.  The finite-difference operators are
-precomputed on index space and scaled by the physical source-grid spacing
-when a matrix is requested.
+source-plane linear inversion.  Dense finite-difference operators are
+materialized lazily on index space and scaled by the physical source-grid
+spacing only when a dense matrix is requested.
 
 For matrix-free (operator) backends, the class also exposes
 :meth:`matvec_free`, :meth:`logdet_free`, :meth:`to_dense_free`, and
@@ -199,12 +199,21 @@ class FiniteDifferenceRegularization:
         self._identity = None
         self._dx_operator = self._dy_operator = None
         self._lx_operator = self._ly_operator = None
-        if self.regularization_type == "zero-order":
-            self._identity = jnp.eye(self.n_pixels)
-        if self.regularization_type == "first-order":
-            self._dx_operator, self._dy_operator = self._build_first_difference_operators()
-        elif self.regularization_type == "second-order":
-            self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
+
+    def _prepare_dense_operators(self) -> None:
+        """Materialize index-space constants only for an explicit dense request.
+
+        Compile-time evaluation also keeps a first dense request inside JIT
+        safe: cached constants must never capture tracers from that trace.
+        Operator preparation and matrix-free actions do not call this method.
+        """
+        with jax.ensure_compile_time_eval():
+            if self.regularization_type == "zero-order" and self._identity is None:
+                self._identity = jnp.eye(self.n_pixels)
+            elif self.regularization_type == "first-order" and self._dx_operator is None:
+                self._dx_operator, self._dy_operator = self._build_first_difference_operators()
+            elif self.regularization_type == "second-order" and self._lx_operator is None:
+                self._lx_operator, self._ly_operator = self._build_curvature_difference_operators()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -429,10 +438,12 @@ class FiniteDifferenceRegularization:
         return 0.5 * (R + R.T)
 
     def matrix(self, xmin, xmax, ymin, ymax, *, scale: "jax.Array | None" = None) -> "jax.Array":
-        """Return the finite-difference precision matrix for the source grid."""
+        """Return the precision matrix, lazily preparing dense differences."""
+        self._prepare_dense_operators()
         scale = self._check_scale(scale)
         if self.regularization_type == "zero-order":
-            mat = self._identity
+            dtype = jnp.result_type(self._identity, xmin, xmax, ymin, ymax)
+            mat = self._identity.astype(dtype)
             if scale is not None:
                 mat = mat * scale[:, None]
             return mat
@@ -1180,7 +1191,7 @@ class FiniteDifferenceRegularization:
         """
         scale = self._check_scale(scale)
         if self.regularization_type == "zero-order":
-            logdet_r = jnp.array(0.0, dtype=jnp.float32)
+            logdet_r = jnp.zeros((), dtype=self._get_scale(xmin, xmax, ymin, ymax).dtype)
             if scale is not None:
                 logdet_r = logdet_r + jnp.sum(jnp.log(scale))
             return logdet_r
@@ -1211,14 +1222,17 @@ class FiniteDifferenceRegularization:
         - first-order : ``1/dx^2`` (= 1/dy^2 for square grid/bbox)
         - second-order: ``1/dx^4`` (= 1/dy^4 for square grid/bbox)
         """
+        # Python bounds keep the historical float32 compact representation;
+        # explicitly typed bounds opt into their requested precision.
+        dtype = jnp.result_type(xmin, xmax, ymin, ymax, jnp.float32)
         inv_dx = (self.n - 1) / (xmax - xmin)
 
         if self.regularization_type == "zero-order":
-            return jnp.array(1.0, dtype=jnp.float32)
+            return jnp.array(1.0, dtype=dtype)
         if self.regularization_type == "first-order":
-            return jnp.array(inv_dx ** 2, dtype=jnp.float32)
+            return jnp.array(inv_dx ** 2, dtype=dtype)
         if self.regularization_type == "second-order":
-            return jnp.array(inv_dx ** 4, dtype=jnp.float32)
+            return jnp.array(inv_dx ** 4, dtype=dtype)
         raise RuntimeError(f"Unhandled type: {self.regularization_type!r}")
 
     def block_diag_R(
@@ -1261,7 +1275,7 @@ class FiniteDifferenceRegularization:
         scale_2d = self._scale_to_2d(scale)
 
         if self.regularization_type == "zero-order":
-            block_scale = scale_2d[y_start:y_end, x_start:x_end].ravel() if scale_2d is not None else jnp.ones((y_end - y_start) * (x_end - x_start), dtype=jnp.float32)
+            block_scale = scale_2d[y_start:y_end, x_start:x_end].ravel() if scale_2d is not None else jnp.ones((y_end - y_start) * (x_end - x_start), dtype=scale_factor.dtype)
             return jnp.diag(block_scale)
         if self.regularization_type == "first-order":
             return self._weighted_first_order_block(
@@ -1295,7 +1309,7 @@ class FiniteDifferenceRegularization:
                     (block_size, block_size),
                 ).ravel()
                 if scale_2d is not None
-                else jnp.ones(block_size * block_size, dtype=jnp.float32)
+                else jnp.ones(block_size * block_size, dtype=scale_factor.dtype)
             )
             return jnp.diag(block_scale)
         if self.regularization_type == "first-order":
@@ -1323,7 +1337,7 @@ class FiniteDifferenceRegularization:
         if self.regularization_type == "zero-order":
             if scale is not None:
                 return scale
-            return jnp.ones(self.n_pixels, dtype=jnp.float32)
+            return jnp.ones(self.n_pixels, dtype=self._get_scale(xmin, xmax, ymin, ymax).dtype)
 
         scale_factor = self._get_scale(xmin, xmax, ymin, ymax)
         scale_2d = self._scale_to_2d(scale)

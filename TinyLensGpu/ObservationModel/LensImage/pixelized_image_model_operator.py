@@ -288,7 +288,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 "fixed_source_bbox must be a 4-tuple "
                 "(xmin, xmax, ymin, ymax)."
             )
-        bbox = tuple(jnp.asarray(v, dtype=jnp.float32) for v in fixed_source_bbox)
+        bbox = tuple(jnp.asarray(v, dtype=jnp.result_type(v, jnp.float32)) for v in fixed_source_bbox)
         bbox_np = np.asarray([float(np.asarray(v)) for v in bbox], dtype=np.float64)
         if not np.all(np.isfinite(bbox_np)):
             raise ValueError("fixed_source_bbox values must be finite.")
