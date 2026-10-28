@@ -18,10 +18,16 @@ The approved requirements and scope are in the [spec](spec.md).
 
 ### Implementation progress
 
-Tickets 01–06 are resolved and merged. Ticket 07 is the current calibration
-gate; iterative implementation and final scientific/performance verification
-remain outstanding. Numerical solve agreement does not establish that the
-operator's approximate evidence selects suitable strengths.
+Tickets 01–07 and 11 are resolved and merged. Dense iterative reconstruction
+(08) is in progress. The remaining iterative workflows, their scientific
+example, precision/performance validation and final integration are outstanding.
+
+The [small-case calibration](../../docs/validation/potential-correction-single-step-calibration.md)
+records six matched subhalo/control runs and adopts amplitude precision 10000
+for its explicitly configured physical model. It supports localized recovery,
+with peak suppression, low-mode sensitivity, boundary optima and approximation
+limits retained. Those results do not automatically validate different image,
+source, potential or physical configurations.
 
 Focused commands, configurations and outcomes are retained in:
 
@@ -34,6 +40,11 @@ Focused commands, configurations and outcomes are retained in:
 - [Operator single-step reconstruction](research/operator-single-step.md),
   including allocation evidence and the reproduced baseline float32
   finite-difference variability.
+- [Single-step calibration summary](research/single-step-calibration/summary.json)
+  and the linked complete inputs, selected fields and candidate records.
+- [Scientific single-step validation](../../docs/validation/potential-correction-single-step-scientific.md)
+  for the explicitly configured 200-by-200 runs, their saved public results,
+  figures, matched controls and amplitude-prior probes.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example
@@ -70,8 +81,19 @@ explicit limitations; block evidence is approximate. See the
 and [compact retained products](research/single-step-calibration/summary.json).
 Cached bounded inverse lower factors accelerate the same principal
 preconditioner, with focused numerical, legacy Schur/autodiff and allocation
-regressions passing. Iterative fits, full-size scientific outputs and workflow
-performance validation remain outstanding downstream stages.
+regressions passing. Iterative fits and workflow performance validation remain
+outstanding downstream stages.
+
+Ticket 11 adds the documented 200x200 fixed-strength single-step experiment
+with both backends and matched control. The explicit b=0.04 scenario retains
+the calibration field of view at 0.012 arcsec/pixel, with a resampled physical
+PSF. Actual counts, numerical products, source/potential/deflection/convergence
+plots, two renderings, raw/optional affine diagnostics, and independent
+amplitude sensitivity are retained. See the [scientific validation report](../../docs/validation/potential-correction-single-step-scientific.md)
+and [compact summary](research/single-step-scientific/summary.json).
+Peak localization is useful, while peak suppression, global low modes, prior
+dependence and linearization mismatch remain explicit limitations. The
+shared result exporter/loader does not reconstruct a numerical solver.
 
 The user approved the following 14 tickets and their direct blocking edges.
 All tickets were published as ready-for-agent / open; none was claimed or
