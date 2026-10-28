@@ -5,7 +5,7 @@
 **Blocked by:** 10 — Optimize strengths around complete iterative reconstructions; 11 — Single-step scientific examples, diagnostics, and exports.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -26,3 +26,7 @@ Do not add macro-mismatch stress tests, posterior sampling, uncertainty maps,
 or formal detection claims. This completes the runnable scientific workflows
 that the precision/performance ticket will measure.
 
+
+## Comments
+
+- 2026-10-29: Claimed on `codex/pc-12` in `/tmp/tinylens-pc-12`, based on integration `af96b07961fa8c27d64bf2b3b576211fe82af61b`; blockers 10 and 11 are resolved. This owner implements the narrow diagnosed iterative-operator residual correction and the scientific workflow, using the already approved public result/operator/export seams.
