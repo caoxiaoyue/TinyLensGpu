@@ -121,8 +121,10 @@ def truth_products(result, observation):
         bx, by = observation.macro.deflection(grid.x[core], grid.y[core])
         illumination = np.asarray(observation.source_truth.brightness(bx, by))
     valid = np.asarray(result.derivative_valid)
+
     def full():
         return np.full(grid.n_unknown, np.nan, dtype=result.dtype)
+
     arrays = {
         "truth_source_values": np.asarray(source),
         "truth_potential_values": np.asarray(potential),
@@ -548,6 +550,14 @@ def plot_result_products(result, observation, output, *, truth=None):
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), layout="constrained")
     fig.suptitle(label + "; signed source coefficients, no clipping")
     shape = (len(result.source_y_axis), len(result.source_x_axis))
+    source_dx = float(result.source_x_axis[1] - result.source_x_axis[0])
+    source_dy = float(result.source_y_axis[1] - result.source_y_axis[0])
+    source_extent = (
+        float(result.source_x_axis[0]) - source_dx / 2,
+        float(result.source_x_axis[-1]) + source_dx / 2,
+        float(result.source_y_axis[0]) - source_dy / 2,
+        float(result.source_y_axis[-1]) + source_dy / 2,
+    )
     for ax, value, title in zip(
         axes,
         (
@@ -561,7 +571,7 @@ def plot_result_products(result, observation, output, *, truth=None):
             ax,
             value.reshape(shape),
             title,
-            result.source_bbox,
+            source_extent,
             diverging=title == "Recovered - truth",
         )
     save(fig, "source")
