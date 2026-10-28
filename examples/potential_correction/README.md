@@ -4,6 +4,11 @@
 subhalo observations and a matched no-subhalo control. It does not fit a
 correction. Use the `tinylens_gpu` environment; PyAuto packages are unnecessary.
 
+For the small fixed-strength nonlinear algorithm demonstration, run
+`iterate_fixed_strength.py --backend dense` or `--backend operator`; see the
+[dense validation](../../docs/validation/potential-correction-dense-iteration.md)
+and [operator validation](../../docs/validation/potential-correction-operator-iteration.md).
+
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/generate_mock.py \
@@ -308,3 +313,31 @@ recorded in `docs/validation/potential-correction-single-step-scientific.md`.
 This workflow makes no detection-significance, mass-interval, or unmeasured
 performance claim. Float32 is configurable; scientific precision/performance
 comparisons are a separate validation task.
+
+## Fixed-strength nonlinear reconstruction
+
+The small nodal example starts from truth-derived source nodes and zero
+potential, then updates the source and potential together using current
+bilinear mappings and gradients:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterate_fixed_strength.py \
+  --backend operator --block-size 16 --pcg-max-iter 800 --pcg-rtol 1e-12
+```
+
+Use `--backend dense` for the complete reference. Both backends share actual
+nonlinear-objective acceptance, damping, stopping and failure handling. The
+operator retains all cross-field terms in PCG; bounded principal blocks
+approximate only preconditioning and determinants. `--pcg-atol` controls its
+recursive stopping threshold; the library separately certifies the true
+coupled damped-system residual using constructor `solve_rtol`/`solve_atol`.
+
+The Python `main(...)` returns the common public result, including scalar
+accepted/rejected history, final nonlinear images, valid-domain diagnostics,
+and separate local-Gauss–Newton and determinant-method labels. The command
+prints a scalar summary and raises on numerical failure. It is a representable
+12×12 nodal algorithm demonstration, without a regularization search or a
+scientific recovery claim. The amplitude value 100 is an explicit numerical
+setting. For larger models, reuse one explicit source-incidence partition per
+run/candidate as described above; a refreshed Jacobian does not rebuild that
+partition. Block-evidence calibration is specific to geometry and initialization.

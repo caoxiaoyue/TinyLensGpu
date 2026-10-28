@@ -1,4 +1,4 @@
-"""Fixed-strength nonlinear source–potential reconstruction with dense LM steps.
+"""Fixed-strength nonlinear source–potential reconstruction with coupled LM steps.
 
 Python controls accepted points, damping and termination. Numerical points are
 immutable JAX PyTrees; every current mapping and source derivative is explicit
@@ -101,13 +101,13 @@ def _step_measures(system, rhs, values, delta, damping):
 class _DenseIterationBackend:
     """Dense numerical adapter; the shared controller owns every LM policy.
 
-    A future operator adapter needs the same prepare/solve/logdets operations
-    and physical metric/step measures, using current bounded principal blocks.
-    It must not implement another controller or replace the coupled curvature.
+    The operator adapter implements the same operations and physical step
+    measures with current bounded principal blocks. Both share one controller.
     """
 
     name = "dense"
     determinant_method = "full_cholesky"
+    configuration = {}
 
     def __init__(self, problem):
         self.problem = problem
@@ -238,6 +238,7 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
         }
         self._evaluate_kernel = jax.jit(self._evaluate)
         self._dense_backend = None
+        self._operator_backends = {}
 
     def linearize(self, joint_values):
         """Refresh corrected rays and spatial gradients from the supplied fields."""
@@ -335,6 +336,11 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
         stall_max_iter=4,
         damping_fraction_max=0.5,
         acceptance_ratio=1e-4,
+        block_size=64,
+        block_indices=None,
+        pcg_max_iter=400,
+        pcg_rtol=None,
+        pcg_atol=0.0,
     ):
         """Minimize the actual nonlinear objective with recorded LM controls.
 
@@ -344,7 +350,11 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
         step must not be dominated by damping. Rejected/tiny high-damping steps
         never establish convergence; unresolved bilinear kinks return stalling.
         Final evidence uses refreshed H without damping and is a local Gaussian
-        approximation. Only the dense backend is supplied in this stage.
+        approximation. The operator backend retains exact coupled actions;
+        bounded principal blocks approximate preconditioning and determinants.
+        ``block_size``/``block_indices`` fix its partition; PCG controls govern
+        recursive convergence. The independent ``solve_atol``/``solve_rtol``
+        constructor controls certify the recomputed damped-system residual.
 
         ``max_iter`` bounds current-point iterations. ``max_rejections`` allows
         that many additional damping retries after the first trial at a point;
@@ -352,8 +362,8 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
         diagnostics are returned in configuration/history. A stalled result
         does not assert that a nonsmooth point is nonoptimal.
         """
-        if backend != "dense":
-            raise ValueError("backend must be 'dense' for iterative reconstruction")
+        if backend not in ("dense", "operator"):
+            raise ValueError("backend must be 'dense' or 'operator'")
         ls = _positive(lambda_source, "lambda_source")
         lp = _positive(lambda_potential, "lambda_potential")
         max_iter = _integer(max_iter, "max_iter", minimum=0)
@@ -413,9 +423,23 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
             solve_atol=self.solve_atol,
         )
         with jax.experimental.enable_x64(double):
-            if self._dense_backend is None:
-                self._dense_backend = _DenseIterationBackend(self)
-            numerical = self._dense_backend
+            if backend == "dense":
+                if self._dense_backend is None:
+                    self._dense_backend = _DenseIterationBackend(self)
+                numerical = self._dense_backend
+            else:
+                from .potential_correction_iterative_operator import (
+                    iteration_operator_backend,
+                )
+
+                numerical = iteration_operator_backend(
+                    self,
+                    block_size=block_size,
+                    block_indices=block_indices,
+                    pcg_max_iter=pcg_max_iter,
+                    pcg_rtol=pcg_rtol,
+                    pcg_atol=pcg_atol,
+                )
             strengths = jnp.asarray([ls, lp], dtype=self.dtype)
             point = self._evaluate_kernel(self.initial_values, *strengths)
             prior, prior_logdet, prior_ok = numerical.initialize(strengths)
@@ -595,11 +619,18 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
                         break
             success = reason.startswith("converged_")
             log_evidence = None
+            final_gradient = None
             posterior_logdet = jnp.asarray(jnp.nan, dtype=self.dtype)
             if success:
                 # Refresh at the accepted FINAL fields; no step damping enters this system.
                 point = self._evaluate_kernel(point.values, *strengths)
                 system = numerical.prepare(point.linearization, prior)
+                if bool(point.finite & system.finite):
+                    final_gradient = float(
+                        jnp.max(
+                            jnp.abs(point.negative_gradient) / jnp.sqrt(system.metric)
+                        )
+                    )
                 posterior_logdet, posterior_ok = numerical.logdets(system)
                 evidence = -0.5 * (
                     point.chi2
@@ -636,8 +667,11 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
                 configuration={
                     **self._configuration(),
                     **controls,
+                    **numerical.configuration,
                     "accepted_iterations": accepted_count,
                     "final_damping": mu,
+                    "initial_scaled_gradient": initial_gradient,
+                    "final_scaled_gradient": final_gradient,
                 },
                 history=tuple(history),
             )

@@ -1,4 +1,4 @@
-"""Small dense nonlinear reconstruction from truth-derived source nodes.
+"""Small dense/operator nonlinear reconstruction from truth-derived source nodes.
 
 Run from the repository root with XLA_PYTHON_CLIENT_PREALLOCATE=false:
     python examples/potential_correction/iterate_fixed_strength.py
@@ -36,6 +36,11 @@ def main(argv=None):
     parser.add_argument("--lambda-source", type=float, default=1e-4)
     parser.add_argument("--lambda-potential", type=float, default=100.0)
     parser.add_argument("--lambda-amplitude", type=float, default=100.0)
+    parser.add_argument("--backend", choices=("dense", "operator"), default="dense")
+    parser.add_argument("--block-size", type=int, default=16)
+    parser.add_argument("--pcg-max-iter", type=int, default=800)
+    parser.add_argument("--pcg-rtol", type=float)
+    parser.add_argument("--pcg-atol", type=float, default=0.0)
     args = parser.parse_args(argv)
     with jax.experimental.enable_x64():
         coordinates = (np.arange(12) - 5.5) * 0.12
@@ -78,7 +83,14 @@ def main(argv=None):
             },
         )
         result = problem.fit(
-            args.lambda_source, args.lambda_potential, max_iter=args.max_iter
+            args.lambda_source,
+            args.lambda_potential,
+            max_iter=args.max_iter,
+            backend=args.backend,
+            block_size=args.block_size,
+            pcg_max_iter=args.pcg_max_iter,
+            pcg_rtol=args.pcg_rtol,
+            pcg_atol=args.pcg_atol,
         )
     summary = dict(
         success=result.success,
@@ -96,6 +108,8 @@ def main(argv=None):
         ),
         evidence_method=result.evidence_method,
         determinant_method=result.determinant_method,
+        solver_info=asdict(result.solver_info),
+        final_scaled_gradient=result.configuration["final_scaled_gradient"],
         n_data=renderer.n_active,
         n_source=renderer.n_source,
         n_potential=renderer.potential_grid.n_unknown,

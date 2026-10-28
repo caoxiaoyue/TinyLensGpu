@@ -325,8 +325,11 @@ def test_fit_resets_initialization_and_final_evidence_is_independent_of_step_dam
         ),
     ],
 )
-def test_nonconvergence_and_damping_tiny_steps_never_produce_success(options, reason):
-    result = _coupled_problem().fit(0.3, 0.02, **options)
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_nonconvergence_and_damping_tiny_steps_never_produce_success(
+    options, reason, backend
+):
+    result = _coupled_problem().fit(0.3, 0.02, backend=backend, **options)
     assert not result.success and result.status == "failed"
     assert result.termination_reason == result.failure_reason == reason
     assert result.log_evidence is None
@@ -337,7 +340,8 @@ def test_nonconvergence_and_damping_tiny_steps_never_produce_success(options, re
         assert not any(item["accepted"] for item in result.history)
 
 
-def test_kink_minimum_with_nonzero_branch_gradient_reports_honest_rejection():
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_kink_minimum_with_nonzero_branch_gradient_reports_honest_rejection(backend):
     from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 
     renderer = _renderer(npix=1, bbox=(-1.0, 1.0, -1.0, 1.0))
@@ -351,7 +355,7 @@ def test_kink_minimum_with_nonzero_branch_gradient_reports_honest_rejection():
         lambda_amplitude=1.0,
         source_regularization="zero-order",
     )
-    result = problem.fit(1.0, 0.1, max_rejections=2)
+    result = problem.fit(1.0, 0.1, backend=backend, max_rejections=2)
     assert not result.success and result.termination_reason == "rejection_limit"
     assert result.log_evidence is None
     np.testing.assert_allclose(result.objective, 1.0, atol=2e-14)
@@ -373,7 +377,10 @@ def test_valid_overflow_and_unsuccessful_dense_solve_have_distinct_failure_recor
 
 
 @pytest.mark.parametrize("dtype", ["float64", "float32"])
-def test_explicit_iteration_precision_preserves_defaults_and_signed_fields(dtype):
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_explicit_iteration_precision_preserves_defaults_and_signed_fields(
+    dtype, backend
+):
     from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 
     previous = jax.config.x64_enabled
@@ -387,7 +394,7 @@ def test_explicit_iteration_precision_preserves_defaults_and_signed_fields(dtype
         lambda_amplitude=1e8,
         source_regularization="zero-order",
     )
-    result = problem.fit(3.0, 0.4, initial_damping=1.0)
+    result = problem.fit(3.0, 0.4, backend=backend, initial_damping=1.0)
     assert result.success, result.termination_reason
     assert jax.config.x64_enabled == previous
     assert jax.config.jax_default_matmul_precision == previous_matmul
@@ -408,7 +415,7 @@ def test_explicit_iteration_precision_preserves_defaults_and_signed_fields(dtype
 @pytest.mark.parametrize(
     "options",
     [
-        {"backend": "operator"},
+        {"backend": "unsupported"},
         {"max_iter": -1},
         {"max_rejections": True},
         {"damping_min": 1.0},
@@ -422,7 +429,8 @@ def test_invalid_iteration_configuration_raises_instead_of_failed_fit(options):
         _coupled_problem().fit(0.3, 0.02, **options)
 
 
-def test_nonfinite_trial_is_rejected_without_replacing_last_finite_fields():
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_nonfinite_trial_is_rejected_without_replacing_last_finite_fields(backend):
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
         SimulatorConfig,
@@ -451,7 +459,7 @@ def test_nonfinite_trial_is_rejected_without_replacing_last_finite_fields():
             source_regularization="zero-order",
             solve_atol=1e-10,
         )
-        result = problem.fit(1e-320, 0.1, max_rejections=1)
+        result = problem.fit(1e-320, 0.1, backend=backend, max_rejections=1)
     assert not result.success and result.log_evidence is None
     assert result.termination_reason == "nonfinite_candidate_limit"
     assert result.solver_info.converged

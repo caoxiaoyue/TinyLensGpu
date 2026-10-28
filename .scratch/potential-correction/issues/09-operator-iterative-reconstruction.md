@@ -5,7 +5,7 @@
 **Blocked by:** 08 — Dense iterative reconstruction at fixed strengths.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Parent:** [Approved potential-correction spec](../spec.md).
 
@@ -27,3 +27,7 @@ dependency through ticket 08's stage gate. Do not add redundant direct blocking
 edges or introduce a second iteration controller. Nested optimization remains
 ticket 10.
 
+
+## Comments
+
+- 2026-10-29: Claimed by delegated ticket-09 agent on `codex/pc-09` in `/tmp/tinylens-pc-09`, based on integration `f00868e` (ticket 08 resolved). This branch owns only fixed-strength operator iteration; approved public-result/operator/allocation seams from the parent spec apply.
