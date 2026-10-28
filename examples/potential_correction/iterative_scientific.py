@@ -1,0 +1,358 @@
+"""Matched nonlinear source–potential reconstructions from truth-derived nodes.
+
+The macro and both geometries remain fixed. Every fit starts from the same
+source-node intensities and zero potential; all later gradients are current
+pixelized-source derivatives. Exports consume only the public fit result.
+"""
+
+import argparse
+from dataclasses import dataclass
+import hashlib
+import json
+from pathlib import Path
+import platform
+import subprocess
+
+if __package__ in (None, ""):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
+from TinyLensGpu.Inference import optimize_potential_correction
+from TinyLensGpu.ObservationModel import IterativePotentialCorrection
+from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+from examples.potential_correction.mock import MockConfig, generate_mock_pair
+from examples.potential_correction.result_products import (
+    export_failure,
+    export_result,
+    optimization_record,
+    write_json,
+)
+
+
+@dataclass(frozen=True)
+class IterativeScientificRun:
+    results: dict
+    record: dict
+    output: Path
+
+
+def geometry_fingerprint(renderer):
+    """Fingerprint public fixed source/potential/query geometry for a partition."""
+    digest = hashlib.sha256()
+    grid = renderer.potential_grid
+    for values in (
+        renderer.source_x_axis,
+        renderer.source_y_axis,
+        grid.node_indices,
+        grid.core_indices,
+        grid.x,
+        grid.y,
+        grid.query_x,
+        grid.query_y,
+    ):
+        array = np.asarray(values)
+        digest.update(str((array.shape, array.dtype.str)).encode())
+        digest.update(np.ascontiguousarray(array).tobytes())
+    return digest.hexdigest()
+
+
+def _partition(renderer, initial_source, config):
+    source = config.get("partition_source", "initial_nodal")
+    fingerprint = geometry_fingerprint(renderer)
+    if source == "single_step":
+        path = Path(
+            config.get(
+                "partition_file", Path(__file__).with_name("scientific_partition.json")
+            )
+        )
+        record = json.loads(path.read_text())
+        if record["geometry_sha256"] != fingerprint:
+            raise ValueError(
+                "Recorded single-step partition geometry differs; configure an explicit matching partition or partition_source=initial_nodal"
+            )
+        blocks = record["indices"]
+        provenance = {
+            "source": "single_step",
+            "geometry_sha256": fingerprint,
+            "reference": record["reference"],
+            "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    elif source == "initial_nodal":
+        mapping = renderer.source_mapping()
+        gx, gy = renderer.source_spatial_gradient(initial_source, mapping)
+        blocks = [
+            b.tolist()
+            for b in source_incidence_blocks(
+                renderer,
+                mapping,
+                gx,
+                gy,
+                source_tile=config["source_tile"],
+                block_size=config["block_size"],
+            )
+        ]
+        provenance = {
+            "source": "initial_nodal",
+            "geometry_sha256": fingerprint,
+            "gradient": "analytic derivative of initial pixelized source; no truth-gradient callable",
+        }
+    else:
+        raise ValueError("partition_source must be single_step or initial_nodal")
+    provenance.update(
+        indices=blocks, actual_sizes=[len(b) for b in blocks], cap=config["block_size"]
+    )
+    return blocks, provenance
+
+
+def run_iterative_scientific(configuration, *, output):
+    """Fit fixed strengths or optimize around complete reset-per-candidate runs."""
+    config = dict(configuration)
+    mode = config.get("mode", "fixed")
+    if mode not in ("fixed", "tune"):
+        raise ValueError("mode must be fixed or tune")
+    backends = config.get("backends", ["dense", "operator"])
+    if (
+        not backends
+        or len(set(backends)) != len(backends)
+        or any(b not in ("dense", "operator") for b in backends)
+    ):
+        raise ValueError("backends must be a nonempty unique dense/operator selection")
+    mock = MockConfig.from_dict(config["mock"])
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    write_json(output / "configuration.json", config)
+    pair = generate_mock_pair(mock)
+    with jax.experimental.enable_x64(mock.dtype == "float64"):
+        sim = SimulatorConfig(
+            mock.dpix,
+            mock.npix,
+            pair.control.psf_kernel,
+            config["inversion_nsub"],
+            pair.control.mask,
+        )
+        renderer = PotentialCorrectionRenderer(
+            pair.control.macro,
+            sim,
+            config["source_n"],
+            tuple(config["source_bbox"]),
+            potential_spacing=config["potential_spacing"],
+            dtype=mock.dtype,
+        )
+        sx, sy = jnp.meshgrid(renderer.source_x_axis, renderer.source_y_axis)
+        initial_source = pair.control.source_truth.brightness(sx, sy).ravel()
+        blocks, partition = _partition(renderer, initial_source, config)
+        options = {
+            "block_size": config["block_size"],
+            "block_indices": blocks,
+            "pcg_max_iter": config["pcg_max_iter"],
+            "pcg_rtol": config["pcg_rtol"],
+            "pcg_atol": config.get("pcg_atol", 0.0),
+        }
+        root = Path(__file__).resolve().parents[2]
+        files = [
+            Path(__file__),
+            Path(__file__).with_name("result_products.py"),
+            Path(__file__).with_name("mock.py"),
+        ]
+        files.extend(
+            root.glob(
+                "TinyLensGpu/ObservationModel/LensImage/*potential_correction*.py"
+            )
+        )
+        files.extend(
+            root / path
+            for path in (
+                "TinyLensGpu/utils/cg_solver.py",
+                "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py",
+                "TinyLensGpu/Inference/potential_correction.py",
+            )
+        )
+        record = {
+            "configuration": config,
+            "success": True,
+            "runs": {},
+            "block_partition": partition,
+            "sizes": {
+                "data": renderer.n_active,
+                "source": renderer.n_source,
+                "potential_core": renderer.potential_grid.n_core,
+                "potential_support": renderer.potential_grid.n_unknown,
+                "query_subpixels": len(renderer.query_x),
+                "image_shape": renderer.image_shape,
+            },
+            "software": {
+                "python": platform.python_version(),
+                "jax": jax.__version__,
+                "numpy": np.__version__,
+                "devices": [d.device_kind for d in jax.devices()],
+                "git_commit": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+                "git_dirty": bool(
+                    subprocess.run(
+                        ["git", "status", "--porcelain"],
+                        cwd=root,
+                        capture_output=True,
+                        text=True,
+                    ).stdout
+                ),
+                "implementation_sha256": {
+                    str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in files
+                },
+            },
+            "initialization": "truth brightness at fixed source NODES; zero potential; each fit resets; current nodal gradients thereafter",
+            "scope": "fixed true macro nonlinear reconstruction; no detection significance, mass intervals or timing claim",
+        }
+        results = {}
+        for case in ("subhalo", "control"):
+            observation = getattr(pair, case)
+            problem = IterativePotentialCorrection(
+                renderer,
+                observation.image_data,
+                observation.noise_map,
+                initial_source,
+                lambda_amplitude=config["lambda_amplitude"],
+                solve_rtol=config["solve_rtol"],
+                solve_atol=config.get("solve_atol", 0.0),
+                source_regularization=config.get(
+                    "source_regularization", "second-order"
+                ),
+                initialization_provenance={
+                    "source": "analytic mock truth brightness sampled at fixed source nodes",
+                    "source_geometry": "fixed explicit box; no expansion",
+                },
+            )
+            for backend in backends:
+                key = f"{case}/{backend}"
+                fit_options = {
+                    **config.get("iteration_options", {}),
+                    **(options if backend == "operator" else {}),
+                }
+                search_metadata = None
+                if mode == "tune":
+                    search = optimize_potential_correction(
+                        problem,
+                        backend=backend,
+                        fit_options=fit_options,
+                        log_bounds=config["log_bounds"],
+                        maxfun=config.get("direct_maxfun", 200),
+                        maxiter=config.get("direct_maxiter", 1000),
+                        len_tol=config.get("direct_len_tol", 1e-3),
+                        boundary_rtol=config.get("boundary_rtol", 0.01),
+                    )
+                    search_metadata = optimization_record(search)
+                    result = search.reconstruction
+                    if result is None:
+                        failure = dict(
+                            success=False,
+                            status="failed",
+                            algorithm="iterative",
+                            backend=backend,
+                            dtype=mock.dtype,
+                            failure_reason="no_successful_inner_reconstruction",
+                            configuration=config,
+                            search=search_metadata,
+                            initialization_provenance=problem.initialization_provenance,
+                        )
+                        export_failure(failure, output / key)
+                        record["runs"][key] = failure
+                        record["success"] = False
+                        write_json(output / "run.json", record)
+                        continue
+                else:
+                    strengths = config["fixed_strengths"][case]
+                    strengths = strengths.get(backend, strengths)
+                    result = problem.fit(
+                        strengths["lambda_source"],
+                        strengths["lambda_potential"],
+                        backend=backend,
+                        **fit_options,
+                    )
+                results[key] = result
+                metadata = export_result(
+                    result,
+                    observation,
+                    output / key,
+                    configuration=config,
+                    search=search_metadata,
+                    make_plots=config.get("make_plots", True),
+                    affine_diagnostics=config.get("affine_diagnostics", False),
+                )
+                record["runs"][key] = {
+                    k: metadata[k]
+                    for k in (
+                        "success",
+                        "failure_reason",
+                        "termination_reason",
+                        "strengths",
+                        "log_evidence",
+                        "evidence_method",
+                        "determinant_method",
+                        "solver_info",
+                    )
+                }
+                record["runs"][key]["configuration"] = result.configuration
+                record["runs"][key]["search"] = search_metadata
+                if result.success:
+                    record["runs"][key]["summary"] = metadata["summary"]
+                record["success"] &= result.success
+                write_json(output / "run.json", record)
+    return IterativeScientificRun(results, record, output)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).with_name("iterative_scientific_configuration.json"),
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("output/potential_correction_iterative_scientific"),
+    )
+    parser.add_argument("--backend", choices=("dense", "operator", "both"))
+    parser.add_argument("--mode", choices=("fixed", "tune"))
+    parser.add_argument("--partition-source", choices=("single_step", "initial_nodal"))
+    parser.add_argument("--no-plots", action="store_true")
+    args = parser.parse_args(argv)
+    config = json.loads(args.config.read_text())
+    if args.backend:
+        config["backends"] = (
+            ["dense", "operator"] if args.backend == "both" else [args.backend]
+        )
+    if args.partition_source:
+        config["partition_source"] = args.partition_source
+    if args.mode:
+        config["mode"] = args.mode
+    if args.no_plots:
+        config["make_plots"] = False
+    run = run_iterative_scientific(config, output=args.output)
+    print(
+        json.dumps(
+            {
+                "success": run.record["success"],
+                "output": str(args.output.resolve()),
+                "sizes": run.record["sizes"],
+            },
+            indent=2,
+        )
+    )
+    if not run.record["success"]:
+        raise SystemExit(1)
+    return run
+
+
+if __name__ == "__main__":
+    main()

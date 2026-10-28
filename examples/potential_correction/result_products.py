@@ -59,6 +59,25 @@ def write_json(path, record):
     )
 
 
+def optimization_record(search):
+    """Persist public search status separately from its retained inner fit."""
+    return dict(
+        has_valid_fit=search.has_valid_fit,
+        optimizer_success=search.optimizer_success,
+        optimizer_status=search.optimizer_status,
+        message=search.message,
+        nfev=search.nfev,
+        nit=search.nit,
+        log_bounds=search.log_bounds,
+        selected_log_strengths=search.log_strengths,
+        strengths=None if search.strengths is None else asdict(search.strengths),
+        boundary_sides=search.boundary_sides,
+        boundary_distances=search.boundary_distances,
+        configuration=search.configuration,
+        evaluations=[asdict(row) for row in search.evaluations],
+    )
+
+
 def export_failure(record, output):
     """Replace this exporter's known success artifacts with a diagnostic failure."""
     output = Path(output)
@@ -66,6 +85,8 @@ def export_failure(record, output):
     for filename in (
         "result.json",
         "reconstruction.npz",
+        "failure-history.png",
+        "failure-history.pdf",
         *(f"{name}.{ext}" for name in PLOT_NAMES for ext in ("png", "pdf")),
     ):
         (output / filename).unlink(missing_ok=True)
@@ -375,6 +396,8 @@ def export_result(
     }
     if not result.success:
         export_failure(metadata, output)
+        if make_plots and result.history:
+            plot_iteration_history(result, output, diagnostic_failure=True)
         return metadata
     summary, truth = summarize_result(
         result, observation, affine_diagnostics=affine_diagnostics
@@ -415,6 +438,8 @@ def export_result(
     np.savez_compressed(output / "reconstruction.npz", **arrays)
     write_json(output / "result.json", metadata)
     (output / "failure.json").unlink(missing_ok=True)
+    for suffix in ("png", "pdf"):
+        (output / f"failure-history.{suffix}").unlink(missing_ok=True)
     if make_plots:
         plot_result_products(result, observation, output, truth=truth)
     return metadata
@@ -513,6 +538,121 @@ def load_result(output):
             )
 
 
+def plot_iteration_history(result, output, *, diagnostic_failure=False):
+    """Plot public trial history, with failed runs visibly diagnostic only.
+
+    The retained objective includes rejected attempts without accepting them.
+    History gradients describe pre-step points; the refreshed final gradient
+    is a separate marker when the result supplies it.
+    """
+    if not result.success and not diagnostic_failure:
+        raise ValueError("A failed history requires explicit diagnostic_failure=True")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    rows = list(result.history)
+    if not rows:
+        return
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    x = np.arange(len(rows))
+    after = np.array([row.get("objective_after", np.nan) for row in rows], dtype=float)
+    trial = np.array([row.get("objective_trial", np.nan) for row in rows], dtype=float)
+    accepted = np.array([row.get("accepted", False) for row in rows])
+    rejected = (~accepted) & (x > 0)
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7), layout="constrained")
+    role = "DIAGNOSTIC FAILURE" if not result.success else "Iterative reconstruction"
+    fig.suptitle(f"{role} | {result.backend} | {result.termination_reason}")
+    objective, damping_ax, gradient_ax, residual_ax = axes.ravel()
+    objective.plot(x, after, color="black", label="Retained objective")
+    objective.plot(
+        x[accepted], trial[accepted], "o", ms=4, color="#28795a", label="Accepted trial"
+    )
+    objective.plot(
+        x[rejected], trial[rejected], "x", ms=5, color="#b54c43", label="Rejected trial"
+    )
+    objective.set(ylabel="Nonlinear regularized objective")
+    if np.isfinite(after).all() and np.all(after > 0):
+        objective.set_yscale("log")
+    objective.legend(fontsize=8)
+    damping_ax.semilogy(x, [row["damping"] for row in rows], "o-", ms=3)
+    damping_ax.set(ylabel="Damping used for trial")
+    gradient_x = [
+        i for i, row in enumerate(rows) if row.get("scaled_gradient") is not None
+    ]
+    gradient_ax.semilogy(
+        gradient_x,
+        [rows[i]["scaled_gradient"] for i in gradient_x],
+        ".-",
+        label="Pre-step gradient",
+    )
+    initial = result.configuration.get("initial_scaled_gradient")
+    if initial is not None:
+        threshold = (
+            result.configuration["gradient_atol"]
+            + result.configuration["gradient_rtol"] * initial
+        )
+        gradient_ax.axhline(
+            threshold, color="gray", ls="--", label="Gradient stop threshold"
+        )
+    final = result.configuration.get("final_scaled_gradient")
+    if final is not None:
+        gradient_ax.plot(
+            len(rows), final, "*", ms=10, color="black", label="Final current gradient"
+        )
+    gradient_ax.set(ylabel="Physical scaled gradient")
+    if gradient_x or final is not None:
+        gradient_ax.legend(fontsize=8)
+    inner = [
+        (i, row["solver_info"]) for i, row in enumerate(rows) if "solver_info" in row
+    ]
+    if inner:
+        residual_ax.semilogy(
+            [i for i, _ in inner],
+            [info["residual_norm"] for _, info in inner],
+            ".-",
+            label="True full-system residual",
+        )
+        thresholds = []
+        recursive = []
+        for _, info in inner:
+            diagnostic = info.get("diagnostics", {})
+            threshold = diagnostic.get("true_residual_threshold")
+            if threshold is None and info["relative_residual"] > 0:
+                rhs_norm = info["residual_norm"] / info["relative_residual"]
+                threshold = (
+                    result.configuration.get("solve_atol", 0)
+                    + result.configuration["solve_rtol"] * rhs_norm
+                )
+            thresholds.append(threshold if threshold is not None else np.nan)
+            phases = diagnostic.get("phases", [])
+            recursive.append(phases[0]["recursive_residual_norm"] if phases else np.nan)
+        residual_ax.semilogy(
+            [i for i, _ in inner],
+            thresholds,
+            "--",
+            color="gray",
+            label="True residual threshold",
+        )
+        if np.isfinite(recursive).any():
+            residual_ax.semilogy(
+                [i for i, _ in inner],
+                recursive,
+                ":",
+                label="Initial PCG recursive residual",
+            )
+        residual_ax.legend(fontsize=8)
+    residual_ax.set(ylabel="Inner linear residual norm")
+    for ax in axes.ravel():
+        ax.set_xlabel("Trial record (including retries)")
+    name = "failure-history" if not result.success else "history"
+    fig.savefig(output / f"{name}.png", dpi=150)
+    fig.savefig(output / f"{name}.pdf")
+    plt.close(fig)
+
+
 def plot_result_products(result, observation, output, *, truth=None):
     """Plot raw public products, masking undefined domains rather than filling them."""
     if not result.success:
@@ -579,7 +719,7 @@ def plot_result_products(result, observation, output, *, truth=None):
         + (
             "linear prediction"
             if result.algorithm == "single_step"
-            else "local nonlinear curvature"
+            else "local Gauss–Newton curvature"
         )
     )
     image(
@@ -647,7 +787,11 @@ def plot_result_products(result, observation, output, *, truth=None):
     image(
         axes[0, 2],
         np.where(mask, np.nan, result.nonlinear_model_image),
-        "Nonlinear re-render",
+        (
+            "Nonlinear re-render"
+            if result.algorithm == "single_step"
+            else "Final nonlinear image"
+        ),
         native_extent,
         intensity_limits=image_limits,
     )
@@ -755,17 +899,4 @@ def plot_result_products(result, observation, output, *, truth=None):
                 )
     save(fig, "fields")
     if result.history:
-        history = [
-            row
-            for row in result.history
-            if isinstance(row, dict) and "objective" in row
-        ]
-        if history:
-            fig, ax = plt.subplots(figsize=(6, 4), layout="constrained")
-            ax.plot(range(len(history)), [row["objective"] for row in history], "o-")
-            ax.set(
-                xlabel="Recorded iteration",
-                ylabel="Nonlinear regularized objective",
-                title=label,
-            )
-            save(fig, "history")
+        plot_iteration_history(result, output)
