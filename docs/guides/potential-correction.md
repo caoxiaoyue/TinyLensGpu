@@ -298,6 +298,15 @@ results do not establish a universally weak amplitude prior. Read the
 and [single-step report](../validation/potential-correction-single-step-scientific.md)
 for actual configurations, raw/affine errors and failed probes.
 
+A later [peak-bias study](../validation/potential-correction-peak-recovery.md)
+uses a shared finite evidence-selection rule and stricter common controls.
+For the reference mock it raises nonlinear peak recovery from 48.08% to
+85.30% while preserving the original small control. The subhalo background
+variation and whole-core error increase, so this is an optional study workflow
+with a measured trade-off; it does not replace the fixed-strength defaults.
+The report includes its declared noise-seed validation policy and reproduction
+commands.
+
 Float32 is validated for the named **coupled37 / small32** profile: source2,
 4×4 observations, 33 potential nodes, zero-order source prior and strengths
 (0.3,0.02,20). Explicit controls are solve_rtol=1e-5, iterative solve_atol=1e-6,

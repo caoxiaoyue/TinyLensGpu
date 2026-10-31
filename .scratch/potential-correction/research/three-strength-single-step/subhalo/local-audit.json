@@ -1,0 +1,80 @@
+{
+  "center_log10_strengths": [
+    -4.107643504209393,
+    5.829213601809588,
+    4.487406657873107
+  ],
+  "repeat_log_evidence_error": 0.0,
+  "finite_difference_coordinates": "log10 strengths",
+  "curvatures": [
+    {
+      "step_dex": 0.01,
+      "negative_log_evidence_gradient": [
+        0.007735309191048145,
+        0.0020103630959056318,
+        0.001976393104996532
+      ],
+      "negative_log_evidence_hessian": [
+        [
+          394.4584744749591,
+          -2.1517871573450975,
+          5.3980913435225375
+        ],
+        [
+          -2.1517871573450975,
+          171.81182018248364,
+          23.081463914422784
+        ],
+        [
+          5.3980913435225375,
+          23.081463914422784,
+          76.69145590625703
+        ]
+      ],
+      "hessian_eigenvalues": [
+        71.28442424214349,
+        177.11317327214022,
+        394.56415304941606
+      ]
+    },
+    {
+      "step_dex": 0.02,
+      "negative_log_evidence_gradient": [
+        0.0360705209459411,
+        0.008603674723417498,
+        0.009471458542975597
+      ],
+      "negative_log_evidence_hessian": [
+        [
+          394.4880860581179,
+          -2.1457348884723615,
+          5.402786191552877
+        ],
+        [
+          -2.1457348884723615,
+          171.81505525513785,
+          23.08400003130373
+        ],
+        [
+          5.402786191552877,
+          23.08400003130373,
+          76.69843707844848
+        ]
+      ],
+      "hessian_eigenvalues": [
+        71.29000231623664,
+        177.11776195352493,
+        394.5938141219427
+      ]
+    }
+  ],
+  "constant_potential_gauge": {
+    "unit_norm_mode": true,
+    "max_absolute_image_response": 4.440892098500626e-16,
+    "fourth_difference_norm": 0.0,
+    "expected_prior_precision": "lambda_amplitude; exact normalized evidence cancels this unobserved scalar mode"
+  },
+  "evaluations": 37,
+  "failed_evaluations": 0,
+  "interpretation": "Local maximum diagnostic, not a global certificate or hyperparameter posterior interval"
+}

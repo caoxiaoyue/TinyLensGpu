@@ -1,0 +1,3140 @@
+{
+  "scope": "Configuration-specific peak-bias investigation; no detection significance or calibrated mass precision",
+  "validation_policy": {
+    "development_seed": 17,
+    "held_out_noise_seeds": [
+      18,
+      19
+    ],
+    "algorithm": "iterative",
+    "backend": "dense",
+    "source_n": 49,
+    "potential_spacing": 0.075,
+    "lambda_source": 0.0006,
+    "lambda_amplitude": 10000.0,
+    "lambda_potential_candidates": [
+      400000.0,
+      800000.0,
+      1600000.0,
+      100000000000.0
+    ],
+    "data": "original analytic mock plus original sigma=0.01 noise",
+    "initialization": "same truth-derived source nodes and zero potential for every candidate",
+    "numerical_controls": {
+      "max_iter": 120,
+      "gradient_atol": 3e-05,
+      "gradient_rtol": 1e-08,
+      "solve_atol": 5e-05,
+      "solve_rtol": 1e-08
+    },
+    "selection": "Independently choose maximum finite full-dense local-Gauss-Newton evidence among converged fits on the identical candidate set; no truth or control-amplitude metric enters selection",
+    "evaluation": {
+      "min_recovery_at_true_peak_node": 0.6,
+      "max_control_core_kappa_rms": 0.0011,
+      "max_control_absolute_kappa": 0.0031,
+      "note": "These are diagnostic comparison thresholds, not calibrated false-positive probabilities. Background error and local aperture integrals must also be reported."
+    },
+    "limits": "Finite development-chosen grid; source strength fixed; invalid candidates excluded with failures retained; upper-edge control choice is not an established continuous optimum; no nonlinear evidence or mass-uncertainty calibration. Policy recorded before fitting held-out seeds."
+  },
+  "validation_policy_sha256": "a714f0772eba9d63e3f6300fbe0bb5b7d90330c8482ea13af826e57290278ecf",
+  "baseline": {
+    "single_step": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.29014128345197604,
+        "kappa_max_abs": 0.29014128345197604,
+        "kappa_rms": 0.03300751508072589,
+        "local_kappa_rmse": 0.06088982104087897,
+        "background_kappa_rms": 0.02110162397670587,
+        "nonlinear_residual_rms_noise": 1.029664322625754,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.4594949599436378,
+        "global_peak_ratio": 0.4594949599436378,
+        "suppression_at_truth_peak_percent": 54.05050400563623,
+        "product": ".scratch/potential-correction/output/single-step-scientific/reference/subhalo/dense",
+        "metadata_sha256": "d6a4ebcf0c3afe209a6c3d9b485d005752291fad81e60ed13e5f525a05b26a14",
+        "arrays_sha256": "e6752750406ab90ac9d1ee400145a655b3e8b46a0fd129bc23c659b128acd233",
+        "algorithm": "single_step",
+        "backend": "dense",
+        "log_evidence": 68989.98446057123,
+        "source_relative_l2": 0.07190181797094757,
+        "final_scaled_gradient": null,
+        "gradient_atol": null,
+        "all_core_kappa_rmse": 0.0276357147097331,
+        "background_kappa_rmse": 0.021181196340220344,
+        "image_data_sha256": "91b6dd680f80209cca603991c835eb8fe8d1e8b897fc3816a03e9286384efcb4",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.0029143792391883357,
+            "ratio": 0.5239535193610816
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.01032198478873355,
+            "ratio": 0.8852093815843577
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.012963430918785171,
+            "ratio": 0.9079971664744004
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.013770125701699162,
+            "ratio": 0.8547491147441698
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.013419511630690772,
+            "ratio": 0.7852495274572914
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.001276485687454584,
+        "kappa_max_abs": 0.001276485687454584,
+        "kappa_rms": 0.0004301681336749943,
+        "local_kappa_rmse": 0.0002360193984900044,
+        "background_kappa_rms": 0.0004459689417911136,
+        "nonlinear_residual_rms_noise": 0.9958070801412737,
+        "product": ".scratch/potential-correction/output/single-step-scientific/reference/control/dense",
+        "metadata_sha256": "cf7bd9c195c20ae259972cd6c42273005d4c4547eb3810cc5e9b9b5864d47dde",
+        "arrays_sha256": "4ea86b57f036a92b079efcdf8b79f4d52e947080e1a9274603d80cf2c0b5eafa",
+        "algorithm": "single_step",
+        "backend": "dense",
+        "log_evidence": 69486.83242649138,
+        "source_relative_l2": 0.05165626576895207,
+        "final_scaled_gradient": null,
+        "gradient_atol": null,
+        "all_core_kappa_rmse": 0.0004301681336749943,
+        "background_kappa_rmse": 0.0004459689417911136,
+        "image_data_sha256": "011f6428dd6aeb19cbd13e73014a5d5e69eaa39a756e75cedcb59876f28c9768"
+      }
+    },
+    "iterative": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.3035857586703883,
+        "kappa_max_abs": 0.3035857586703883,
+        "kappa_rms": 0.033875086895743804,
+        "local_kappa_rmse": 0.05827795212093913,
+        "background_kappa_rms": 0.02073164830686439,
+        "nonlinear_residual_rms_noise": 1.0018373767633624,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.4807868923720338,
+        "global_peak_ratio": 0.4807868923720338,
+        "suppression_at_truth_peak_percent": 51.92131076279662,
+        "product": ".scratch/potential-correction/output/iterative-scientific/validated-reference/subhalo/dense",
+        "metadata_sha256": "fe2f9808f71a56c90798b5dc87955ba539cf2a9c8e9a2afebf0f1ab4465b4061",
+        "arrays_sha256": "36e6370a1756a1ae780366824631a7f9e9969d4bae7fd2b2a5825ba7400fb9d6",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69037.25724906089,
+        "source_relative_l2": 0.07029231452406913,
+        "final_scaled_gradient": 0.000429000448682525,
+        "gradient_atol": 0.0005,
+        "all_core_kappa_rmse": 0.026779033247944336,
+        "background_kappa_rmse": 0.020744921447268715,
+        "image_data_sha256": "91b6dd680f80209cca603991c835eb8fe8d1e8b897fc3816a03e9286384efcb4",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.0030651093080566604,
+            "ratio": 0.5510521031675912
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.011445088219744937,
+            "ratio": 0.9815262929119165
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.01539614694793539,
+            "ratio": 1.0783918154792684
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.01752655945088116,
+            "ratio": 1.0879211635158261
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.017461174643280283,
+            "ratio": 1.02174948797144
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.0015064603408860892,
+        "kappa_max_abs": 0.0015064603408860892,
+        "kappa_rms": 0.0005329348138261449,
+        "local_kappa_rmse": 0.0005714133472604825,
+        "background_kappa_rms": 0.0005286504144412226,
+        "nonlinear_residual_rms_noise": 0.9958284545391962,
+        "product": ".scratch/potential-correction/output/iterative-scientific/validated-reference/control/dense",
+        "metadata_sha256": "672abced7e14bf5c006d8f771454ae7dbc5af510da13305b07674ba519a9ed43",
+        "arrays_sha256": "8923ae1a20743ce039dfa9aca4af572b25484e4afab7023eac9ec43f36ef0bfd",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69487.83779926028,
+        "source_relative_l2": 0.05171012706844212,
+        "final_scaled_gradient": 2.5647942836976668e-05,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0005329348138261449,
+        "background_kappa_rmse": 0.0005286504144412226,
+        "image_data_sha256": "011f6428dd6aeb19cbd13e73014a5d5e69eaa39a756e75cedcb59876f28c9768"
+      }
+    }
+  },
+  "selected": {
+    "single_step": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 6e-05,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.5183551183092044,
+        "kappa_max_abs": 0.5183551183092044,
+        "kappa_rms": 0.048713951363883345,
+        "local_kappa_rmse": 0.05774822718974508,
+        "background_kappa_rms": 0.03601506268271278,
+        "nonlinear_residual_rms_noise": 1.0209142003934517,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.8209158017441912,
+        "global_peak_ratio": 0.8209158017441912,
+        "suppression_at_truth_peak_percent": 17.90841982558088,
+        "product": ".scratch/potential-correction/output/peak-recovery/selected-single-step-final/subhalo/dense",
+        "metadata_sha256": "d45a65c8f194f570912040d35014c75d7446ff9cd8ef26f35475198571f0858d",
+        "arrays_sha256": "857f9313b990a6f2966f7c514823836c5aca816a63507777c9ab7a3b28435ccc",
+        "algorithm": "single_step",
+        "backend": "dense",
+        "log_evidence": 69513.96643498787,
+        "source_relative_l2": 0.07921018345723621,
+        "final_scaled_gradient": null,
+        "gradient_atol": null,
+        "all_core_kappa_rmse": 0.038812967272174405,
+        "background_kappa_rmse": 0.03620421124075883,
+        "image_data_sha256": "91b6dd680f80209cca603991c835eb8fe8d1e8b897fc3816a03e9286384efcb4",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.004879678082953047,
+            "ratio": 0.8772792746164502
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.011963868130475988,
+            "ratio": 1.0260166553137164
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.01260237340626991,
+            "ratio": 0.8827076269727023
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.013737403785349225,
+            "ratio": 0.8527179764932394
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.012647058758592854,
+            "ratio": 0.7400490559728686
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 6e-05,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.001958538139729934,
+        "kappa_max_abs": 0.001958538139729934,
+        "kappa_rms": 0.0007023216495806784,
+        "local_kappa_rmse": 0.0006182568809715843,
+        "background_kappa_rms": 0.0007107305717712316,
+        "nonlinear_residual_rms_noise": 0.9929164936410282,
+        "product": ".scratch/potential-correction/output/peak-recovery/selected-single-step-final/control/dense",
+        "metadata_sha256": "3788acea603c42446a1f810f46219abac6a5e1c03f9b9e7ba928fd9d0c28d5cc",
+        "arrays_sha256": "7a188df8594ce9ad4e2125d2f314f147f0e8a5d9467c7eccb195b8a98ba14890",
+        "algorithm": "single_step",
+        "backend": "dense",
+        "log_evidence": 69770.55217039345,
+        "source_relative_l2": 0.05788306189899224,
+        "final_scaled_gradient": null,
+        "gradient_atol": null,
+        "all_core_kappa_rmse": 0.0007023216495806784,
+        "background_kappa_rmse": 0.0007107305717712316,
+        "image_data_sha256": "011f6428dd6aeb19cbd13e73014a5d5e69eaa39a756e75cedcb59876f28c9768"
+      },
+      "gate": {
+        "peak_recovery_above_60_percent": true,
+        "control_rms_below_0.0011": true,
+        "control_max_abs_below_0.0031": true
+      },
+      "selection": {
+        "rule": "Choose maximum finite log evidence among converged fits independently for each observation; identical candidate set and fitting controls; no truth metrics used",
+        "source_sha256": "f7928ddd2b838fdebd86b6ddd06c1b33ac5057dc09c3f8aaa550398fd6bdabfc",
+        "attempted_per_case": {
+          "subhalo": 23,
+          "control": 23
+        },
+        "failed_per_case": {
+          "subhalo": 0,
+          "control": 0
+        }
+      }
+    },
+    "iterative": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.5385830899162561,
+        "kappa_max_abs": 0.5385830899162561,
+        "kappa_rms": 0.05984974455403616,
+        "local_kappa_rmse": 0.05363665386885632,
+        "background_kappa_rms": 0.050316928058589734,
+        "nonlinear_residual_rms_noise": 0.9939952705504306,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.8529507155377042,
+        "global_peak_ratio": 0.8529507155377042,
+        "suppression_at_truth_peak_percent": 14.704928446229582,
+        "product": ".scratch/potential-correction/output/peak-recovery/selected-iterative-final/subhalo/dense",
+        "metadata_sha256": "1a67407670012c7aa0904c36be1e756e8789c2a4cd6e264eccc7416928b08850",
+        "arrays_sha256": "555bb5a08b9a33509862ffb07966c08b330d1f21d7b9ab5d15e136c9103d1e68",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69276.49666112376,
+        "source_relative_l2": 0.09829479586179975,
+        "final_scaled_gradient": 2.0270241092835587e-05,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0507990939887979,
+        "background_kappa_rmse": 0.05048593183981861,
+        "image_data_sha256": "91b6dd680f80209cca603991c835eb8fe8d1e8b897fc3816a03e9286384efcb4",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.005145189239234637,
+            "ratio": 0.9250134551557383
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.014185574933538265,
+            "ratio": 1.216549362487161
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.015072683149110228,
+            "ratio": 1.0557354512320005
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.016104076028333414,
+            "ratio": 0.9996237526932865
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.016553197021005127,
+            "ratio": 0.9686187170123286
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.0015064603408883634,
+        "kappa_max_abs": 0.0015064603408883634,
+        "kappa_rms": 0.0005329348138281219,
+        "local_kappa_rmse": 0.000571413347265174,
+        "background_kappa_rms": 0.0005286504144428861,
+        "nonlinear_residual_rms_noise": 0.9958284545391969,
+        "product": ".scratch/potential-correction/output/peak-recovery/selected-iterative-final/control/dense",
+        "metadata_sha256": "4ade8a54b912a8abdb887250ca9e0fd0f063114f243a715c0f5c626e6e23717a",
+        "arrays_sha256": "f933b6b2f72a2de7459b2b75ca546be7b428e6a9fe1863b13b89727d5f6447ee",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69487.83779925153,
+        "source_relative_l2": 0.05171012706843293,
+        "final_scaled_gradient": 2.5647948220550568e-05,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0005329348138281219,
+        "background_kappa_rmse": 0.0005286504144428861,
+        "image_data_sha256": "011f6428dd6aeb19cbd13e73014a5d5e69eaa39a756e75cedcb59876f28c9768"
+      },
+      "gate": {
+        "peak_recovery_above_60_percent": true,
+        "control_rms_below_0.0011": true,
+        "control_max_abs_below_0.0031": true
+      },
+      "selection": {
+        "rule": "Choose maximum finite log evidence among converged fits independently for each observation; identical candidate set and fitting controls; no truth metrics used",
+        "source_sha256": "f7928ddd2b838fdebd86b6ddd06c1b33ac5057dc09c3f8aaa550398fd6bdabfc",
+        "attempted_per_case": {
+          "subhalo": 4,
+          "control": 4
+        },
+        "failed_per_case": {
+          "subhalo": 3,
+          "control": 2
+        }
+      }
+    }
+  },
+  "heldout": {
+    "18": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.5471557564870555,
+        "kappa_max_abs": 0.5471557564870555,
+        "kappa_rms": 0.06244348135461827,
+        "local_kappa_rmse": 0.05241646318079965,
+        "background_kappa_rms": 0.05315217851039956,
+        "nonlinear_residual_rms_noise": 0.993766425241639,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.8665271946781213,
+        "global_peak_ratio": 0.8665271946781213,
+        "suppression_at_truth_peak_percent": 13.347280532187867,
+        "product": ".scratch/potential-correction/output/peak-recovery/heldout-selected-18/subhalo/dense",
+        "metadata_sha256": "b7b60dbcfe9b7c7e157777afa35e3d2fed84e51945d04f640dfcfb450f98a0e6",
+        "arrays_sha256": "a5fc434fc0ba82e626c3ea3eb800456f4f6eb07756a987e8c3da91e3ef4ff3e1",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69283.8108671233,
+        "source_relative_l2": 0.09738977386833475,
+        "final_scaled_gradient": 2.2123216922673473e-05,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0532848559502132,
+        "background_kappa_rmse": 0.053376966187060525,
+        "image_data_sha256": "ee7ab89139ec718c415c35d9a51fd4d5288d6ef54f6ab874630aeb7f522e9e07",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.005245740131981289,
+            "ratio": 0.9430907161453478
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.014884584538295232,
+            "ratio": 1.2764961530137107
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.016349836526830815,
+            "ratio": 1.1451910633603504
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.017889898554967004,
+            "ratio": 1.1104746088726098
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.018107289725996293,
+            "ratio": 1.0595572396503778
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.0021175285224303104,
+        "kappa_max_abs": 0.0030125008241194246,
+        "kappa_rms": 0.0007741932544006536,
+        "local_kappa_rmse": 0.0004940369311007196,
+        "background_kappa_rms": 0.0007983761874994444,
+        "nonlinear_residual_rms_noise": 0.9951219780366091,
+        "product": ".scratch/potential-correction/output/peak-recovery/heldout-selected-18/control/dense",
+        "metadata_sha256": "02d92831f3adbb2c9afdc63b2961aace8a48f36367a419c169156989ae60825f",
+        "arrays_sha256": "59e8609b4e71ee7bf82eb152f3f5ac6dca46000f2a99449fd3ef4cb8995681a2",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69509.71810661948,
+        "source_relative_l2": 0.041833084094444174,
+        "final_scaled_gradient": 3.868267994695294e-06,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0007741932544006536,
+        "background_kappa_rmse": 0.0007983761874994444,
+        "image_data_sha256": "282ba0dff685c5b77c36bfaf857299a5d067d47d48f64558ca76f22f8deb11e2"
+      },
+      "gate": {
+        "peak_recovery_above_60_percent": true,
+        "control_rms_below_0.0011": true,
+        "control_max_abs_below_0.0031": true
+      },
+      "selection": {
+        "rule": "Choose maximum finite log evidence among converged fits independently for each observation; identical candidate set and fitting controls; no truth metrics used",
+        "source_sha256": "f7928ddd2b838fdebd86b6ddd06c1b33ac5057dc09c3f8aaa550398fd6bdabfc",
+        "attempted_per_case": {
+          "subhalo": 4,
+          "control": 4
+        },
+        "failed_per_case": {
+          "subhalo": 2,
+          "control": 3
+        }
+      }
+    },
+    "19": {
+      "subhalo": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.6128170581196428,
+        "kappa_max_abs": 0.6128170581196428,
+        "kappa_rms": 0.07099828508615026,
+        "local_kappa_rmse": 0.05830046904921164,
+        "background_kappa_rms": 0.06291133970801524,
+        "nonlinear_residual_rms_noise": 0.9944642528332607,
+        "truth_kappa_peak": 0.6314351815470731,
+        "recovery_at_truth_peak": 0.970514592833085,
+        "global_peak_ratio": 0.970514592833085,
+        "suppression_at_truth_peak_percent": 2.9485407166914945,
+        "product": ".scratch/potential-correction/output/peak-recovery/heldout-selected-19/subhalo/dense",
+        "metadata_sha256": "599799c1df0021e0bb996d556beca3bbfd7041ce2984d4f777d402fd0c0ad158",
+        "arrays_sha256": "5060f82f6f0da5c8dd543e367edccf767f84084feafd8b8039ceb4efcaf671f7",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69248.40924825428,
+        "source_relative_l2": 0.10366471342064325,
+        "final_scaled_gradient": 1.3816732643299548e-05,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.06267280629756362,
+        "background_kappa_rmse": 0.06312285314887948,
+        "image_data_sha256": "52dc5c22edc270fffcbac8a89d6e4c15a13b38e637b60eaf4b5c296e3cf12797",
+        "integrated_kappa_apertures": {
+          "0.075": {
+            "nodes": 2,
+            "truth_arcsec2": 0.00556228583547293,
+            "recovered_arcsec2": 0.005577744275191712,
+            "ratio": 1.0027791523442031
+          },
+          "0.15": {
+            "nodes": 12,
+            "truth_arcsec2": 0.011660500897831817,
+            "recovered_arcsec2": 0.014377983955342608,
+            "ratio": 1.2330502850024296
+          },
+          "0.225": {
+            "nodes": 26,
+            "truth_arcsec2": 0.014276950851201422,
+            "recovered_arcsec2": 0.015034157249105121,
+            "ratio": 1.0530369828820962
+          },
+          "0.3": {
+            "nodes": 48,
+            "truth_arcsec2": 0.016110137424150035,
+            "recovered_arcsec2": 0.016363627618957446,
+            "ratio": 1.015734825106297
+          },
+          "0.35777087639996635": {
+            "nodes": 70,
+            "truth_arcsec2": 0.017089487050242946,
+            "recovered_arcsec2": 0.016156742699137902,
+            "ratio": 0.9454199913453937
+          }
+        }
+      },
+      "control": {
+        "success": true,
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "kappa_peak": 0.0025768703244674,
+        "kappa_max_abs": 0.0025768703244674,
+        "kappa_rms": 0.0009842364229691327,
+        "local_kappa_rmse": 0.0012364676556473452,
+        "background_kappa_rms": 0.0009532934935096687,
+        "nonlinear_residual_rms_noise": 0.9969903071788104,
+        "product": ".scratch/potential-correction/output/peak-recovery/heldout-selected-19/control/dense",
+        "metadata_sha256": "3c2d1457c07580fc399f83ac38356cd4a7e6e4852b31f03da71ddde4343e8988",
+        "arrays_sha256": "73f7a35ce3f05a77dab867149e1168da85e9a16f40c728c895068fd9cdef40c6",
+        "algorithm": "iterative",
+        "backend": "dense",
+        "log_evidence": 69462.96474773932,
+        "source_relative_l2": 0.048404395385680636,
+        "final_scaled_gradient": 5.118106348999777e-06,
+        "gradient_atol": 3e-05,
+        "all_core_kappa_rmse": 0.0009842364229691327,
+        "background_kappa_rmse": 0.0009532934935096687,
+        "image_data_sha256": "ab46cf57b6afd7041a04d0b6f44eef011d4c04cc0fd1fe72ca91f0752bbd66fd"
+      },
+      "gate": {
+        "peak_recovery_above_60_percent": true,
+        "control_rms_below_0.0011": true,
+        "control_max_abs_below_0.0031": true
+      },
+      "selection": {
+        "rule": "Choose maximum finite log evidence among converged fits independently for each observation; identical candidate set and fitting controls; no truth metrics used",
+        "source_sha256": "f7928ddd2b838fdebd86b6ddd06c1b33ac5057dc09c3f8aaa550398fd6bdabfc",
+        "attempted_per_case": {
+          "subhalo": 4,
+          "control": 4
+        },
+        "failed_per_case": {
+          "subhalo": 1,
+          "control": 2
+        }
+      }
+    }
+  },
+  "ablations": {
+    "heldout-seed-18": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          800000.0,
+          1600000.0,
+          100000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 18,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11293.08485251552,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.614343959005504,
+          "kappa_max_abs": 0.614343959005504,
+          "kappa_rms": 0.07306842731635949,
+          "kappa_local_rmse": 0.055406419241169194,
+          "kappa_background_rms": 0.0652121799383353,
+          "residual_rms_noise": 0.9927222802268001,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.9729327363424792
+        },
+        {
+          "key": "ls-0.0006_lp-800000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11343.199049988483,
+          "log_evidence": 69283.8108671233,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5471557564870555,
+          "kappa_max_abs": 0.5471557564870555,
+          "kappa_rms": 0.06244348135461827,
+          "kappa_local_rmse": 0.05241646318079965,
+          "kappa_background_rms": 0.05315217851039956,
+          "residual_rms_noise": 0.993766425241639,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8665271946781213
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11403.898879074637,
+          "log_evidence": 69264.83928246066,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.4842432519074168,
+          "kappa_max_abs": 0.4842432519074168,
+          "kappa_rms": 0.05328327543263352,
+          "kappa_local_rmse": 0.05286386813188686,
+          "kappa_background_rms": 0.042325608731919095,
+          "residual_rms_noise": 0.9949912556922668,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7668930494512155
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 16701.604609157883,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.06147772467421599,
+          "kappa_max_abs": 0.06147772467421599,
+          "kappa_rms": 0.018522041980542827,
+          "kappa_local_rmse": 0.08710137618909056,
+          "kappa_background_rms": 0.013485656572325077,
+          "residual_rms_noise": 1.1508369013459288,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08092269681817041
+        },
+        {
+          "key": "ls-0.0006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11229.599030515234,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.2125146871459128,
+          "kappa_max_abs": 0.3297258321505403,
+          "kappa_rms": 0.06246614831727601,
+          "kappa_local_rmse": 0.03410204171156518,
+          "kappa_background_rms": 0.06477030463342581,
+          "residual_rms_noise": 0.9917457675510728
+        },
+        {
+          "key": "ls-0.0006_lp-800000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11250.601723151001,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.17614257183340576,
+          "kappa_max_abs": 0.2608131880084195,
+          "kappa_rms": 0.05047046340289248,
+          "kappa_local_rmse": 0.02685442013939377,
+          "kappa_background_rms": 0.052371009527016156,
+          "residual_rms_noise": 0.9922341750125442
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11270.611539972102,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.14394466906059045,
+          "kappa_max_abs": 0.2014526324744797,
+          "kappa_rms": 0.04037711354243077,
+          "kappa_local_rmse": 0.0227324474828572,
+          "kappa_background_rms": 0.04182700443065743,
+          "residual_rms_noise": 0.9926626905922132
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11382.534277604438,
+          "log_evidence": 69509.71810661948,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0021175285224303104,
+          "kappa_max_abs": 0.0030125008241194246,
+          "kappa_rms": 0.0007741932544006536,
+          "kappa_local_rmse": 0.0004940369311007196,
+          "kappa_background_rms": 0.0007983761874994444,
+          "residual_rms_noise": 0.9951219780366091
+        }
+      ]
+    },
+    "heldout-seed-19": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          800000.0,
+          1600000.0,
+          100000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 19,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11331.49820395224,
+          "log_evidence": 69248.40924825428,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.6128170581196428,
+          "kappa_max_abs": 0.6128170581196428,
+          "kappa_rms": 0.07099828508615026,
+          "kappa_local_rmse": 0.05830046904921164,
+          "kappa_background_rms": 0.06291133970801524,
+          "residual_rms_noise": 0.9944642528332607,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.970514592833085
+        },
+        {
+          "key": "ls-0.0006_lp-800000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11380.28459214525,
+          "log_evidence": 69247.2136883307,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.545435239709093,
+          "kappa_max_abs": 0.545435239709093,
+          "kappa_rms": 0.060771857735461864,
+          "kappa_local_rmse": 0.05571164090989489,
+          "kappa_background_rms": 0.05122090782760477,
+          "residual_rms_noise": 0.9953690297035324,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8638024228753417
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11440.538853925578,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.4821716186669995,
+          "kappa_max_abs": 0.4821716186669995,
+          "kappa_rms": 0.05225114105356554,
+          "kappa_local_rmse": 0.05581077358422892,
+          "kappa_background_rms": 0.04119678423635229,
+          "residual_rms_noise": 0.9964942098149138,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7636122166738247
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 16675.943415188023,
+          "log_evidence": 64217.34383049802,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0621809015171251,
+          "kappa_max_abs": 0.0621809015171251,
+          "kappa_rms": 0.018845515955074995,
+          "kappa_local_rmse": 0.08706768105905655,
+          "kappa_background_rms": 0.013788842541949054,
+          "residual_rms_noise": 1.1485209270506853,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08197599235966631
+        },
+        {
+          "key": "ls-0.0006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11266.85326707435,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.22905037081965657,
+          "kappa_max_abs": 0.2916364997028671,
+          "kappa_rms": 0.06186669171231907,
+          "kappa_local_rmse": 0.035628596660105046,
+          "kappa_background_rms": 0.06404130927968321,
+          "residual_rms_noise": 0.9934230401954186
+        },
+        {
+          "key": "ls-0.0006_lp-800000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11287.37185214862,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.18146393200428063,
+          "kappa_max_abs": 0.24516188075029238,
+          "kappa_rms": 0.0502078859744995,
+          "kappa_local_rmse": 0.02793042430449965,
+          "kappa_background_rms": 0.05203025806366871,
+          "residual_rms_noise": 0.993838353818536
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11307.401054535201,
+          "log_evidence": 69361.20131110135,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.13510135721987557,
+          "kappa_max_abs": 0.20126712871637742,
+          "kappa_rms": 0.04064352059082183,
+          "kappa_local_rmse": 0.0236574669671385,
+          "kappa_background_rms": 0.04205710462922318,
+          "residual_rms_noise": 0.9942317803837901
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11429.35251763495,
+          "log_evidence": 69462.96474773932,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0025768703244674,
+          "kappa_max_abs": 0.0025768703244674,
+          "kappa_rms": 0.0009842364229691327,
+          "kappa_local_rmse": 0.0012364676556473452,
+          "kappa_background_rms": 0.0009532934935096687,
+          "residual_rms_noise": 0.9969903071788104
+        }
+      ]
+    },
+    "iterative-control-strict": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          800000.0,
+          1600000.0,
+          100000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "control"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11245.512445957325,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.21017952418977323,
+          "kappa_max_abs": 0.29607224012357936,
+          "kappa_rms": 0.06318694565653889,
+          "kappa_local_rmse": 0.03946853264844946,
+          "kappa_background_rms": 0.06521654916701392,
+          "residual_rms_noise": 0.9923190645603194
+        },
+        {
+          "key": "ls-0.0006_lp-800000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11266.339985587234,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.1656066506277923,
+          "kappa_max_abs": 0.23226666340732116,
+          "kappa_rms": 0.050715740684169466,
+          "kappa_local_rmse": 0.03183939841951884,
+          "kappa_background_rms": 0.052334320038654236,
+          "residual_rms_noise": 0.9927845507165359
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11285.95930245101,
+          "log_evidence": 69382.33811736619,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.13705969574208018,
+          "kappa_max_abs": 0.17896806118633907,
+          "kappa_rms": 0.040603909673969436,
+          "kappa_local_rmse": 0.02710211455564044,
+          "kappa_background_rms": 0.04179141764700048,
+          "residual_rms_noise": 0.9932029323329361
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11404.44365565745,
+          "log_evidence": 69487.83779925153,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0015064603408883634,
+          "kappa_max_abs": 0.0015064603408883634,
+          "kappa_rms": 0.0005329348138281219,
+          "kappa_local_rmse": 0.000571413347265174,
+          "kappa_background_rms": 0.0005286504144428861,
+          "residual_rms_noise": 0.9958284545391969
+        }
+      ]
+    },
+    "iterative-d4-probes": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          1600000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 80,
+        "gradient_atol": 0.0005
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11301.169733103006,
+          "log_evidence": 69278.62719957599,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.6022641393776695,
+          "kappa_max_abs": 0.6022641393776695,
+          "kappa_rms": 0.07105746978553819,
+          "kappa_local_rmse": 0.05689322072769862,
+          "kappa_background_rms": 0.06310213345592926,
+          "residual_rms_noise": 0.9930121964925659,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.9538020005506632
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11412.020295975744,
+          "log_evidence": 69257.47291152916,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.4765009963736466,
+          "kappa_max_abs": 0.4765009963736466,
+          "kappa_rms": 0.05095930721123966,
+          "kappa_local_rmse": 0.053761467705971136,
+          "kappa_background_rms": 0.03979863268587246,
+          "residual_rms_noise": 0.9952056798211106,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.75463168714511
+        },
+        {
+          "key": "ls-0.0006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11245.512520930395,
+          "log_evidence": 69332.86969176002,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.21001570025183752,
+          "kappa_max_abs": 0.29610276512959327,
+          "kappa_rms": 0.06314492152056082,
+          "kappa_local_rmse": 0.039443285570477556,
+          "kappa_background_rms": 0.0651731102509408,
+          "residual_rms_noise": 0.9923190627525447
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11285.959589534174,
+          "log_evidence": 69382.33224798416,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.13663475872352057,
+          "kappa_max_abs": 0.17910200711200186,
+          "kappa_rms": 0.0405318949803491,
+          "kappa_local_rmse": 0.027058894505667275,
+          "kappa_background_rms": 0.0417169602591544,
+          "residual_rms_noise": 0.9932027168317301
+        }
+      ]
+    },
+    "iterative-d4-scan": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          100000.0,
+          200000.0,
+          800000.0,
+          16000000.0,
+          100000000000.0,
+          1000000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 80,
+        "gradient_atol": 0.0005
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-100000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11226.233533195522,
+          "log_evidence": 69238.40335131124,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.7245427010088408,
+          "kappa_max_abs": 0.7245427010088408,
+          "kappa_rms": 0.0989795379486452,
+          "kappa_local_rmse": 0.08049152948842332,
+          "kappa_background_rms": 0.09308803192274302,
+          "residual_rms_noise": 0.9915127946659931,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 1.1474538039417534
+        },
+        {
+          "key": "ls-0.0006_lp-200000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 200000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11260.210501766322,
+          "log_evidence": 69265.4389347602,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.6641279409125175,
+          "kappa_max_abs": 0.6641279409125175,
+          "kappa_rms": 0.08428827344980708,
+          "kappa_local_rmse": 0.06522234401388316,
+          "kappa_background_rms": 0.07765416624679956,
+          "residual_rms_noise": 0.9922082088246394,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 1.0517753212377938
+        },
+        {
+          "key": "ls-0.0006_lp-800000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11351.09787795394,
+          "log_evidence": 69276.49620282976,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.538599519405787,
+          "kappa_max_abs": 0.538599519405787,
+          "kappa_rms": 0.059843414379550035,
+          "kappa_local_rmse": 0.05363708953332584,
+          "kappa_background_rms": 0.050308889257517364,
+          "residual_rms_noise": 0.9939951518581099,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8529767348188766
+        },
+        {
+          "key": "ls-0.0006_lp-16000000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11734.82651378574,
+          "log_evidence": 69037.25724906089,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.3035857586703895,
+          "kappa_max_abs": 0.3035857586703895,
+          "kappa_rms": 0.033875086895743825,
+          "kappa_local_rmse": 0.05827795212093905,
+          "kappa_background_rms": 0.020731648306864397,
+          "residual_rms_noise": 1.0018373767633624,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.48078689237203576
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 16576.5042919425,
+          "log_evidence": 64316.83149186714,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06265075492495485,
+          "kappa_max_abs": 0.06265075492495485,
+          "kappa_rms": 0.019021149688693652,
+          "kappa_local_rmse": 0.08704296566674141,
+          "kappa_background_rms": 0.013936574703056521,
+          "residual_rms_noise": 1.1456305036589545,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08274729753487686
+        },
+        {
+          "key": "ls-0.0006_lp-1e+12/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1000000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "linear_solve_failed",
+          "objective": 17724.86715812545,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.04011444813238742,
+          "kappa_max_abs": 0.04011444813238742,
+          "kappa_rms": 0.015278536023369522,
+          "kappa_local_rmse": 0.09004469035398964,
+          "kappa_background_rms": 0.013022890955119269,
+          "residual_rms_noise": 1.1886713310764518,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.0475826354313634
+        },
+        {
+          "key": "ls-0.0006_lp-100000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11203.050012442214,
+          "log_evidence": 69259.80205746484,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.3348122450555232,
+          "kappa_max_abs": 0.4448718082673732,
+          "kappa_rms": 0.09441890386571404,
+          "kappa_local_rmse": 0.07035918093168773,
+          "kappa_background_rms": 0.09663987728747563,
+          "residual_rms_noise": 0.991315317094881
+        },
+        {
+          "key": "ls-0.0006_lp-200000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 200000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11224.191613558938,
+          "log_evidence": 69299.87316053701,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.2702466627680462,
+          "kappa_max_abs": 0.3677304510724224,
+          "kappa_rms": 0.07796648569920342,
+          "kappa_local_rmse": 0.05128754671315756,
+          "kappa_background_rms": 0.08029858940062834,
+          "residual_rms_noise": 0.9918260689075555
+        },
+        {
+          "key": "ls-0.0006_lp-800000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11266.34000177388,
+          "log_evidence": 69360.0076581554,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.16556858607118347,
+          "kappa_max_abs": 0.2322896547812006,
+          "kappa_rms": 0.05069899126626547,
+          "kappa_local_rmse": 0.031836205385155567,
+          "kappa_background_rms": 0.05231655920175764,
+          "residual_rms_noise": 0.9927845282104721
+        },
+        {
+          "key": "ls-0.0006_lp-16000000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11340.391297007804,
+          "log_evidence": 69430.56149412207,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06365934166196424,
+          "kappa_max_abs": 0.07428996734019779,
+          "kappa_rms": 0.019409717074544683,
+          "kappa_local_rmse": 0.01734385414250966,
+          "kappa_background_rms": 0.019617949688586482,
+          "residual_rms_noise": 0.9942340939624041
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11411.616285275733,
+          "log_evidence": 69480.66483624294,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.00015043309368264145,
+          "kappa_max_abs": 0.00021468007668305568,
+          "kappa_rms": 5.19055985143937e-05,
+          "kappa_local_rmse": 5.4163665138695935e-05,
+          "kappa_background_rms": 5.16580620379442e-05,
+          "residual_rms_noise": 0.9961088590719653
+        },
+        {
+          "key": "ls-0.0006_lp-1e+12/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1000000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11412.58205994027,
+          "log_evidence": 69482.6988985,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 1.57548095230926e-05,
+          "kappa_max_abs": 2.3275267878757154e-05,
+          "kappa_rms": 5.706226883530759e-06,
+          "kappa_local_rmse": 5.806047747663259e-06,
+          "kappa_background_rms": 5.695439044779727e-06,
+          "residual_rms_noise": 0.9961593734692255
+        }
+      ]
+    },
+    "iterative-d4-strict": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          800000.0,
+          1600000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11301.169654273093,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.6022455185207147,
+          "kappa_max_abs": 0.6022455185207147,
+          "kappa_rms": 0.07108888850913285,
+          "kappa_local_rmse": 0.05688546399511775,
+          "kappa_background_rms": 0.06314355490625129,
+          "residual_rms_noise": 0.9930126537813037,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.9537725108144258
+        },
+        {
+          "key": "ls-0.0006_lp-800000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 11351.097856447517,
+          "log_evidence": 69276.49666112376,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5385830899162561,
+          "kappa_max_abs": 0.5385830899162561,
+          "kappa_rms": 0.05984974455403616,
+          "kappa_local_rmse": 0.05363665386885632,
+          "kappa_background_rms": 0.050316928058589734,
+          "residual_rms_noise": 0.9939952705504306,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8529507155377042
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 11412.020275712097,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.4765327760580677,
+          "kappa_max_abs": 0.4765327760580677,
+          "kappa_rms": 0.05096310995099655,
+          "kappa_local_rmse": 0.05376186349136706,
+          "kappa_background_rms": 0.03980178933699258,
+          "residual_rms_noise": 0.9952056020523284,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7546820164351936
+        }
+      ]
+    },
+    "iterative-source-strict": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          400000.0,
+          800000.0,
+          1600000.0,
+          100000000000.0,
+          1000000000000.0
+        ],
+        "sources": [
+          6e-05
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-6e-05_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 10924.570339662208,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.5408688616499917,
+          "kappa_max_abs": 0.5408688616499917,
+          "kappa_rms": 0.051744053269925705,
+          "kappa_local_rmse": 0.06494516992807367,
+          "kappa_background_rms": 0.03852563543727475,
+          "residual_rms_noise": 0.9911094982924232,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8565706781253687
+        },
+        {
+          "key": "ls-6e-05_lp-800000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 10953.969240053886,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.4718109511234695,
+          "kappa_max_abs": 0.4718109511234695,
+          "kappa_rms": 0.04645374562787512,
+          "kappa_local_rmse": 0.06110728806830343,
+          "kappa_background_rms": 0.033802398955827866,
+          "residual_rms_noise": 0.9917746585795365,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7472040914278646
+        },
+        {
+          "key": "ls-6e-05_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 10990.60619092393,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.41180396339109787,
+          "kappa_max_abs": 0.41180396339109787,
+          "kappa_rms": 0.04262389556262247,
+          "kappa_local_rmse": 0.06020711177564821,
+          "kappa_background_rms": 0.030480453925153528,
+          "residual_rms_noise": 0.9925652703870911,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.6521713953000544
+        },
+        {
+          "key": "ls-6e-05_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 14074.8368087071,
+          "log_evidence": 66620.88684331467,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.042813907471001465,
+          "kappa_max_abs": 0.042813907471001465,
+          "kappa_rms": 0.01682489585605248,
+          "kappa_local_rmse": 0.08844330041974108,
+          "kappa_background_rms": 0.013965020281078927,
+          "residual_rms_noise": 1.0838348547179977,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.06047935873992321
+        },
+        {
+          "key": "ls-6e-05_lp-1e+12/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1000000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_objective_update",
+          "objective": 14545.23854598973,
+          "log_evidence": 66152.5773909174,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.03644931909560038,
+          "kappa_max_abs": 0.03644931909560038,
+          "kappa_rms": 0.015900662068534004,
+          "kappa_local_rmse": 0.09048377362449761,
+          "kappa_background_rms": 0.014116228370765998,
+          "residual_rms_noise": 1.104571899862018,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.04479256453510753
+        },
+        {
+          "key": "ls-6e-05_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 10874.53233901561,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.08436925801964365,
+          "kappa_max_abs": 0.09237922935727623,
+          "kappa_rms": 0.024655796795546407,
+          "kappa_local_rmse": 0.026602412531174107,
+          "kappa_background_rms": 0.02443825884069357,
+          "residual_rms_noise": 0.9905646817572601
+        },
+        {
+          "key": "ls-6e-05_lp-800000/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 800000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 10881.975335677183,
+          "log_evidence": 69601.57076553708,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.05857082851203933,
+          "kappa_max_abs": 0.05857082851203933,
+          "kappa_rms": 0.01966019788425169,
+          "kappa_local_rmse": 0.02236651600351206,
+          "kappa_background_rms": 0.019348116845852952,
+          "residual_rms_noise": 0.9908949580188462
+        },
+        {
+          "key": "ls-6e-05_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 10888.519379788511,
+          "log_evidence": 69629.72812783299,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.053560129674116344,
+          "kappa_max_abs": 0.053560129674116344,
+          "kappa_rms": 0.01608070674781699,
+          "kappa_local_rmse": 0.018463664224905002,
+          "kappa_background_rms": 0.01580437785331354,
+          "residual_rms_noise": 0.9911919232946336
+        },
+        {
+          "key": "ls-6e-05_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 10925.403374609334,
+          "log_evidence": 69770.44042129297,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0018860098957733337,
+          "kappa_max_abs": 0.0018860098957733337,
+          "kappa_rms": 0.0006855252050351566,
+          "kappa_local_rmse": 0.0005690073006197558,
+          "kappa_background_rms": 0.0006968432408405427,
+          "residual_rms_noise": 0.9929146544835281
+        },
+        {
+          "key": "ls-6e-05_lp-1e+12/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1000000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "converged_gradient",
+          "objective": 10926.441946733014,
+          "log_evidence": 69771.64522494332,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.001002634050948787,
+          "kappa_max_abs": 0.001002634050948787,
+          "kappa_rms": 0.0004609734041999712,
+          "kappa_local_rmse": 6.831399815874504e-05,
+          "kappa_background_rms": 0.000484501027898664,
+          "residual_rms_noise": 0.9929972119764855
+        }
+      ]
+    },
+    "iterative-strong-strict": {
+      "arguments": {
+        "algorithm": "iterative",
+        "potentials": [
+          100000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo"
+        ],
+        "max_iter": 120,
+        "gradient_atol": 3e-05
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": false,
+          "termination": "stalled",
+          "objective": 16576.504283567177,
+          "log_evidence": null,
+          "diagnostic_endpoint": true,
+          "kappa_peak": 0.06265079266945436,
+          "kappa_max_abs": 0.06265079266945436,
+          "kappa_rms": 0.01902114962390106,
+          "kappa_local_rmse": 0.0870429402838303,
+          "kappa_background_rms": 0.013936574861969662,
+          "residual_rms_noise": 1.1456303401893841,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08274748809190384
+        }
+      ]
+    },
+    "linear-d4-scan": {
+      "arguments": {
+        "algorithm": "single-step",
+        "potentials": [
+          100000.0,
+          400000.0,
+          1600000.0,
+          6400000.0,
+          16000000.0,
+          64000000.0,
+          256000000.0,
+          100000000000.0
+        ],
+        "sources": [
+          0.0006
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 80,
+        "gradient_atol": 0.0005
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-0.0006_lp-100000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11226.843662308493,
+          "log_evidence": 69230.49314100307,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.6631521395926697,
+          "kappa_max_abs": 0.6631521395926697,
+          "kappa_rms": 0.10092753267145485,
+          "kappa_local_rmse": 0.07900995793448386,
+          "kappa_background_rms": 0.09609817551580142,
+          "residual_rms_noise": 1.0742324597533832,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 1.0502299507098847
+        },
+        {
+          "key": "ls-0.0006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11305.404983692695,
+          "log_evidence": 69270.2002660298,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5564662437089172,
+          "kappa_max_abs": 0.5564662437089172,
+          "kappa_rms": 0.07065093247056854,
+          "kappa_local_rmse": 0.06041502283007331,
+          "kappa_background_rms": 0.06318702021316518,
+          "residual_rms_noise": 1.0474881878308258,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8812721558300326
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11421.173554471241,
+          "log_evidence": 69245.96429440464,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.44560243500012997,
+          "kappa_max_abs": 0.44560243500012997,
+          "kappa_rms": 0.050089210045013974,
+          "kappa_local_rmse": 0.05706234023863255,
+          "kappa_background_rms": 0.039756475098134715,
+          "residual_rms_noise": 1.03129329653269,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7056978261939156
+        },
+        {
+          "key": "ls-0.0006_lp-6400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 6400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11602.075700343947,
+          "log_evidence": 69133.70365895894,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.3466819708333994,
+          "kappa_max_abs": 0.3466819708333994,
+          "kappa_rms": 0.038507133535069196,
+          "kappa_local_rmse": 0.05930146970564424,
+          "kappa_background_rms": 0.026780347224462056,
+          "residual_rms_noise": 1.0267843320864254,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.5490380975985489
+        },
+        {
+          "key": "ls-0.0006_lp-16000000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11780.803416228508,
+          "log_evidence": 68989.98446057104,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.29014128345200346,
+          "kappa_max_abs": 0.29014128345200346,
+          "kappa_rms": 0.033007515080714776,
+          "kappa_local_rmse": 0.06088982104087153,
+          "kappa_background_rms": 0.021101623976680615,
+          "residual_rms_noise": 1.02966432262577,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.4594949599436812
+        },
+        {
+          "key": "ls-0.0006_lp-64000000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 64000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12176.964762740057,
+          "log_evidence": 68634.42292824801,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.2177768722889936,
+          "kappa_max_abs": 0.2177768722889936,
+          "kappa_rms": 0.027563803471569448,
+          "kappa_local_rmse": 0.0641902225847167,
+          "kappa_background_rms": 0.016721000611377053,
+          "residual_rms_noise": 1.042387858662067,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.34489188859483666
+        },
+        {
+          "key": "ls-0.0006_lp-2.56e+08/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 256000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12755.981283930914,
+          "log_evidence": 68084.57665860906,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.16356974310731626,
+          "kappa_max_abs": 0.16356974310731626,
+          "kappa_rms": 0.024798130936394807,
+          "kappa_local_rmse": 0.06927143180301747,
+          "kappa_background_rms": 0.015793700379592247,
+          "residual_rms_noise": 1.0659888249229745,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.25478681786165364
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 16775.076771559758,
+          "log_evidence": 64117.250198230206,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06417265320876524,
+          "kappa_max_abs": 0.06417265320876524,
+          "kappa_rms": 0.01825128612953613,
+          "kappa_local_rmse": 0.08738995309399418,
+          "kappa_background_rms": 0.013058808887490678,
+          "residual_rms_noise": 1.1925836768663949,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08063705257062266
+        },
+        {
+          "key": "ls-0.0006_lp-100000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11204.359105936566,
+          "log_evidence": 69252.97769737491,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.33314463059529437,
+          "kappa_max_abs": 0.5874797012196824,
+          "kappa_rms": 0.09476787436969317,
+          "kappa_local_rmse": 0.0627258582206845,
+          "kappa_background_rms": 0.09757605422977234,
+          "residual_rms_noise": 1.0225821385767724
+        },
+        {
+          "key": "ls-0.0006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11250.62759218065,
+          "log_evidence": 69324.97765754188,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.20802893792227342,
+          "kappa_max_abs": 0.37801196137638315,
+          "kappa_rms": 0.06129237651040484,
+          "kappa_local_rmse": 0.039849781291098944,
+          "kappa_background_rms": 0.06315761759738757,
+          "residual_rms_noise": 1.0092190085345834
+        },
+        {
+          "key": "ls-0.0006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11294.413025931924,
+          "log_evidence": 69372.72482294403,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.10637948403407861,
+          "kappa_max_abs": 0.20942930558101655,
+          "kappa_rms": 0.038759754056538254,
+          "kappa_local_rmse": 0.028118917504218122,
+          "kappa_background_rms": 0.03973019619928952,
+          "residual_rms_noise": 1.0015025387496848
+        },
+        {
+          "key": "ls-0.0006_lp-6400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 6400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11329.497786966595,
+          "log_evidence": 69406.28157233639,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.07326301250753339,
+          "kappa_max_abs": 0.10283731914281101,
+          "kappa_rms": 0.02662741589064362,
+          "kappa_local_rmse": 0.021604856332877318,
+          "kappa_background_rms": 0.027109926563558692,
+          "residual_rms_noise": 0.9967234572572979
+        },
+        {
+          "key": "ls-0.0006_lp-16000000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11348.93311826281,
+          "log_evidence": 69421.85475853701,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06162030886003466,
+          "kappa_max_abs": 0.07847800220907505,
+          "kappa_rms": 0.01987438715543073,
+          "kappa_local_rmse": 0.016706912379810052,
+          "kappa_background_rms": 0.020183985962677974,
+          "residual_rms_noise": 0.9951606595890449
+        },
+        {
+          "key": "ls-0.0006_lp-64000000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 64000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11371.994772358476,
+          "log_evidence": 69439.39291862996,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.03904162560255271,
+          "kappa_max_abs": 0.0423529413647786,
+          "kappa_rms": 0.011029926301634624,
+          "kappa_local_rmse": 0.00956193602295112,
+          "kappa_background_rms": 0.011175632287828448,
+          "residual_rms_noise": 0.9947901933678012
+        },
+        {
+          "key": "ls-0.0006_lp-2.56e+08/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 256000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11386.936721580425,
+          "log_evidence": 69453.6212209597,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.019994383980992788,
+          "kappa_max_abs": 0.019994383980992788,
+          "kappa_rms": 0.005407704891495004,
+          "kappa_local_rmse": 0.004912676393664819,
+          "kappa_background_rms": 0.0054580302780690435,
+          "residual_rms_noise": 0.9951014264985024
+        },
+        {
+          "key": "ls-0.0006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11405.49454328616,
+          "log_evidence": 69486.83242647769,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.00127648568581342,
+          "kappa_max_abs": 0.00127648568581342,
+          "kappa_rms": 0.00043016813334975965,
+          "kappa_local_rmse": 0.000236019395156363,
+          "kappa_background_rms": 0.00044596894163265936,
+          "residual_rms_noise": 0.995807080141224
+        }
+      ]
+    },
+    "linear-source-scan": {
+      "arguments": {
+        "algorithm": "single-step",
+        "potentials": [
+          400000.0,
+          1600000.0,
+          100000000000.0
+        ],
+        "sources": [
+          6e-05,
+          0.0002,
+          0.002,
+          0.006,
+          0.02
+        ],
+        "amplitude": 10000.0,
+        "source_n": 49,
+        "spacing": 0.075,
+        "data": "analytic",
+        "noise_factor": 1.0,
+        "seed": 17,
+        "cases": [
+          "subhalo",
+          "control"
+        ],
+        "max_iter": 80,
+        "gradient_atol": 0.0005
+      },
+      "source_sha256": {
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+        "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+        "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+        "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb",
+        ".scratch/potential-correction/experiments/probe_peak_recovery.py": "024e1c0a7de1b7227f0804a26dfe527a2c4b07b6edb64e50bbac2b665eb9d8e8"
+      },
+      "truth_penalties": {
+        "subhalo": {
+          "d4_norm2": 0.00016098483955072232,
+          "amplitude_norm2_center_zero": 0.2279094771919853,
+          "amplitude_norm2_mean_zero": 0.01296889573773586
+        },
+        "control": {
+          "d4_norm2": 0.0,
+          "amplitude_norm2_center_zero": 0.0,
+          "amplitude_norm2_mean_zero": 0.0
+        }
+      },
+      "fits": [
+        {
+          "key": "ls-6e-05_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 10931.193856782536,
+          "log_evidence": 69513.96643498787,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5183551183092044,
+          "kappa_max_abs": 0.5183551183092044,
+          "kappa_rms": 0.048713951363883345,
+          "kappa_local_rmse": 0.05774822718974508,
+          "kappa_background_rms": 0.03601506268271278,
+          "residual_rms_noise": 1.0209142003934517,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8209158017441912
+        },
+        {
+          "key": "ls-6e-05_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11009.32162730424,
+          "log_evidence": 69510.18609033251,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.4112454795110533,
+          "kappa_max_abs": 0.4112454795110533,
+          "kappa_rms": 0.03958977887040175,
+          "kappa_local_rmse": 0.05609448810600259,
+          "kappa_background_rms": 0.02665351285137026,
+          "residual_rms_noise": 1.0198290125984568,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.6512869278260118
+        },
+        {
+          "key": "ls-6e-05_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 6e-05,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 14290.231400958764,
+          "log_evidence": 66405.70417562911,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.05557159692550391,
+          "kappa_max_abs": 0.05557159692550391,
+          "kappa_rms": 0.016839984399010587,
+          "kappa_local_rmse": 0.08807353799607591,
+          "kappa_background_rms": 0.012504541767614253,
+          "residual_rms_noise": 1.138016500644082,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.07000385588788303
+        },
+        {
+          "key": "ls-0.0002_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0002,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11047.2048705858,
+          "log_evidence": 69478.68250411945,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5416415571622906,
+          "kappa_max_abs": 0.5416415571622906,
+          "kappa_rms": 0.05517961350600368,
+          "kappa_local_rmse": 0.057622061467222256,
+          "kappa_background_rms": 0.04402996310922051,
+          "residual_rms_noise": 1.0282571801403577,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8577943912393666
+        },
+        {
+          "key": "ls-0.0002_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0002,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11137.705127948138,
+          "log_evidence": 69471.80632103367,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.4296949843568558,
+          "kappa_max_abs": 0.4296949843568558,
+          "kappa_rms": 0.04215059182770803,
+          "kappa_local_rmse": 0.0552809982539496,
+          "kappa_background_rms": 0.029455397351947177,
+          "residual_rms_noise": 1.0224859972950624,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.6805052947858629
+        },
+        {
+          "key": "ls-0.0002_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.0002,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 15414.490388273141,
+          "log_evidence": 65396.44490686184,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06006661810954532,
+          "kappa_max_abs": 0.06006661810954532,
+          "kappa_rms": 0.017654126826175114,
+          "kappa_local_rmse": 0.0876811332028961,
+          "kappa_background_rms": 0.012877066310506464,
+          "residual_rms_noise": 1.1655243732060134,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.07577331132230472
+        },
+        {
+          "key": "ls-0.002_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.002,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12069.205806048387,
+          "log_evidence": 68540.57547201036,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5558880129705315,
+          "kappa_max_abs": 0.5558880129705315,
+          "kappa_rms": 0.1036841808602692,
+          "kappa_local_rmse": 0.07245578894828333,
+          "kappa_background_rms": 0.10125542649239193,
+          "residual_rms_noise": 1.1189686331912603,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8803564153783064
+        },
+        {
+          "key": "ls-0.002_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.002,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12250.620207928117,
+          "log_evidence": 68458.01011803882,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.45078474582996236,
+          "kappa_max_abs": 0.45078474582996236,
+          "kappa_rms": 0.07003674553791048,
+          "kappa_local_rmse": 0.06251468089027745,
+          "kappa_background_rms": 0.06459569525341216,
+          "residual_rms_noise": 1.0693050577979402,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.7139050198715553
+        },
+        {
+          "key": "ls-0.002_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.002,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 19000.799223629834,
+          "log_evidence": 61958.78335909199,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06731544717473964,
+          "kappa_max_abs": 0.06731544717473964,
+          "kappa_rms": 0.018370731091003987,
+          "kappa_local_rmse": 0.08714644320535064,
+          "kappa_background_rms": 0.012751898140858519,
+          "residual_rms_noise": 1.2177194336025108,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08419563657963379
+        },
+        {
+          "key": "ls-0.006_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 14000.96949982993,
+          "log_evidence": 66626.89725418146,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.6937766673066189,
+          "kappa_max_abs": 0.6937766673066189,
+          "kappa_rms": 0.15307732725259857,
+          "kappa_local_rmse": 0.09818874256846073,
+          "kappa_background_rms": 0.15494014374446166,
+          "residual_rms_noise": 1.4582516161261643,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8642287673154517
+        },
+        {
+          "key": "ls-0.006_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 14305.268985881958,
+          "log_evidence": 66426.34422484266,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.4382601624955598,
+          "kappa_max_abs": 0.5245448486164175,
+          "kappa_rms": 0.10224400727174615,
+          "kappa_local_rmse": 0.07571378680832713,
+          "kappa_background_rms": 0.10138675379204927,
+          "residual_rms_noise": 1.251317607041945,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.6940699145425868
+        },
+        {
+          "key": "ls-0.006_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 22914.97803473028,
+          "log_evidence": 58089.39637655314,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06766012846782861,
+          "kappa_max_abs": 0.06766012846782861,
+          "kappa_rms": 0.018111953017249542,
+          "kappa_local_rmse": 0.0868715985996195,
+          "kappa_background_rms": 0.012334717578449566,
+          "residual_rms_noise": 1.2389382504403708,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.0855066836015331
+        },
+        {
+          "key": "ls-0.02_lp-400000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.02,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 20030.93109197233,
+          "log_evidence": 60607.91450653988,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 1.1933042889975174,
+          "kappa_max_abs": 1.1933042889975174,
+          "kappa_rms": 0.23542293136004172,
+          "kappa_local_rmse": 0.13527472687519276,
+          "kappa_background_rms": 0.24254220085008388,
+          "residual_rms_noise": 2.940832079446978,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.8372117746179537
+        },
+        {
+          "key": "ls-0.02_lp-1600000/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.02,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 20616.03346366132,
+          "log_evidence": 60129.880295709445,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5293523474327705,
+          "kappa_max_abs": 0.6760828651806297,
+          "kappa_rms": 0.15349809356271193,
+          "kappa_local_rmse": 0.10727534574719394,
+          "kappa_background_rms": 0.1564803806064927,
+          "residual_rms_noise": 2.3213466536959277,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.6551983430454568
+        },
+        {
+          "key": "ls-0.02_lp-1e+11/subhalo/dense",
+          "case": "subhalo",
+          "lambda_source": 0.02,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 33442.668838490834,
+          "log_evidence": 47596.252272669226,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06360787852117997,
+          "kappa_max_abs": 0.06360787852117997,
+          "kappa_rms": 0.01904485143151314,
+          "kappa_local_rmse": 0.08634630601554664,
+          "kappa_background_rms": 0.014578675250631352,
+          "residual_rms_noise": 1.2731338676267032,
+          "truth_kappa_peak": 0.6314351815470731,
+          "recovery_at_truth_peak": 0.08383866133956132
+        },
+        {
+          "key": "ls-6e-05_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 10876.024496969532,
+          "log_evidence": 69569.13579480088,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.08716749519475978,
+          "kappa_max_abs": 0.089430481593863,
+          "kappa_rms": 0.02469532143555203,
+          "kappa_local_rmse": 0.025048348327114524,
+          "kappa_background_rms": 0.024657236235845103,
+          "residual_rms_noise": 0.99146994317485
+        },
+        {
+          "key": "ls-6e-05_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 10889.889262154311,
+          "log_evidence": 69629.61845548246,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.04548570132355661,
+          "kappa_max_abs": 0.04548570132355661,
+          "kappa_rms": 0.015752297923542442,
+          "kappa_local_rmse": 0.01668479571165527,
+          "kappa_background_rms": 0.015649197677139723,
+          "residual_rms_noise": 0.9915488983188039
+        },
+        {
+          "key": "ls-6e-05_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 6e-05,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 10925.383406472884,
+          "log_evidence": 69770.55217039345,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.001958538139729934,
+          "kappa_max_abs": 0.001958538139729934,
+          "kappa_rms": 0.0007023216495806784,
+          "kappa_local_rmse": 0.0006182568809715843,
+          "kappa_background_rms": 0.0007107305717712316,
+          "residual_rms_noise": 0.9929164936410282
+        },
+        {
+          "key": "ls-0.0002_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0002,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 10991.434205229347,
+          "log_evidence": 69534.45316947595,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.12677914365549856,
+          "kappa_max_abs": 0.2125397700062176,
+          "kappa_rms": 0.037957372619952606,
+          "kappa_local_rmse": 0.03015469960471183,
+          "kappa_background_rms": 0.038699429328273506,
+          "residual_rms_noise": 0.9955603402445843
+        },
+        {
+          "key": "ls-0.0002_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.0002,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11013.317763896452,
+          "log_evidence": 69596.19368508531,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.06418535287869083,
+          "kappa_max_abs": 0.09139537435907535,
+          "kappa_rms": 0.023509870657906305,
+          "kappa_local_rmse": 0.02106386876011332,
+          "kappa_background_rms": 0.02375675952694019,
+          "residual_rms_noise": 0.9937373244439601
+        },
+        {
+          "key": "ls-0.0002_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.0002,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 11066.204821280275,
+          "log_evidence": 69744.73047425687,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0014782820038404204,
+          "kappa_max_abs": 0.0014782820038404204,
+          "kappa_rms": 0.0005239043387467286,
+          "kappa_local_rmse": 0.0003099526790876011,
+          "kappa_background_rms": 0.0005418220210463985,
+          "residual_rms_noise": 0.9942847235796679
+        },
+        {
+          "key": "ls-0.002_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.002,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12018.686104611514,
+          "log_evidence": 68591.09517344696,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.40298776107725587,
+          "kappa_max_abs": 0.5635124915111516,
+          "kappa_rms": 0.10093184498184155,
+          "kappa_local_rmse": 0.06062495939357163,
+          "kappa_background_rms": 0.10432748683332606,
+          "residual_rms_noise": 1.0754025238467644
+        },
+        {
+          "key": "ls-0.002_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.002,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12124.721130212434,
+          "log_evidence": 68583.90919575532,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.20213624095483632,
+          "kappa_max_abs": 0.38540192479600893,
+          "kappa_rms": 0.06519297474326727,
+          "kappa_local_rmse": 0.03998966195223254,
+          "kappa_background_rms": 0.0673339801075682,
+          "residual_rms_noise": 1.0401852173326889
+        },
+        {
+          "key": "ls-0.002_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.002,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 12494.563518826266,
+          "log_evidence": 68465.01906363698,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.001597925094924525,
+          "kappa_max_abs": 0.0023716902074546633,
+          "kappa_rms": 0.0009767879586255678,
+          "kappa_local_rmse": 0.0004297461558984962,
+          "kappa_background_rms": 0.0010180716701910714,
+          "residual_rms_noise": 0.9982269279568424
+        },
+        {
+          "key": "ls-0.006_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.006,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 13960.589106614898,
+          "log_evidence": 66667.27764739524,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.7190577915356877,
+          "kappa_max_abs": 0.7190577915356877,
+          "kappa_rms": 0.1542336281682094,
+          "kappa_local_rmse": 0.0884884498765559,
+          "kappa_background_rms": 0.1596747761500892,
+          "residual_rms_noise": 1.4349512391239068
+        },
+        {
+          "key": "ls-0.006_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.006,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 14185.432684583833,
+          "log_evidence": 66546.180526142,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.3407965285854248,
+          "kappa_max_abs": 0.5483896579731862,
+          "kappa_rms": 0.10135237048867334,
+          "kappa_local_rmse": 0.0594814851063732,
+          "kappa_background_rms": 0.10484796098699495,
+          "residual_rms_noise": 1.2396010656953853
+        },
+        {
+          "key": "ls-0.006_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 15435.22665077142,
+          "log_evidence": 65569.14776057408,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0019662899082648374,
+          "kappa_max_abs": 0.00787740862274107,
+          "kappa_rms": 0.0029755502627312833,
+          "kappa_local_rmse": 0.0006153706715342962,
+          "kappa_background_rms": 0.003124265165364649,
+          "residual_rms_noise": 1.003003089827276
+        },
+        {
+          "key": "ls-0.02_lp-400000/control/dense",
+          "case": "control",
+          "lambda_source": 0.02,
+          "lambda_potential": 400000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 20016.652171871963,
+          "log_evidence": 60622.19342664073,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 1.2307280849795204,
+          "kappa_max_abs": 1.2307280849795204,
+          "kappa_rms": 0.23959970407625983,
+          "kappa_local_rmse": 0.1225230860238057,
+          "kappa_background_rms": 0.24888918880071584,
+          "residual_rms_noise": 2.9776841429913974
+        },
+        {
+          "key": "ls-0.02_lp-1600000/control/dense",
+          "case": "control",
+          "lambda_source": 0.02,
+          "lambda_potential": 1600000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 20517.761883736202,
+          "log_evidence": 60228.151875637996,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.5695633440141568,
+          "kappa_max_abs": 0.7048637565585542,
+          "kappa_rms": 0.15534848583800961,
+          "kappa_local_rmse": 0.09106556855096584,
+          "kappa_background_rms": 0.1607127494351608,
+          "residual_rms_noise": 2.3615812151684845
+        },
+        {
+          "key": "ls-0.02_lp-1e+11/control/dense",
+          "case": "control",
+          "lambda_source": 0.02,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0,
+          "success": true,
+          "termination": "solved",
+          "objective": 25064.14495133466,
+          "log_evidence": 55974.776160398804,
+          "diagnostic_endpoint": false,
+          "kappa_peak": 0.0065923241509742905,
+          "kappa_max_abs": 0.025488228205764525,
+          "kappa_rms": 0.009530076857372106,
+          "kappa_local_rmse": 0.004291081591781678,
+          "kappa_background_rms": 0.009928371565236599,
+          "residual_rms_noise": 1.025382678434376
+        }
+      ]
+    }
+  },
+  "frozen_linear_bias_decomposition": {
+    "configuration": {
+      "mock": {
+        "npix": 200,
+        "dpix": 0.012,
+        "nsub": 2,
+        "theta_E": 0.8,
+        "macro_center_x": 0.0,
+        "macro_center_y": 0.0,
+        "gamma1": 0.05,
+        "gamma2": 0.02,
+        "b_sub": 0.04,
+        "subhalo_x": 0.75,
+        "subhalo_y": 0.1,
+        "noise_sigma": 0.01,
+        "seed": 17,
+        "psf_sigma": 0.05,
+        "psf_size": 27,
+        "mask_inner": 0.45,
+        "mask_outer": 1.1,
+        "dtype": "float64",
+        "source": {
+          "center_x": 0.05,
+          "center_y": 0.03,
+          "sigma_x": 0.16,
+          "sigma_y": 0.12,
+          "amplitude": 1.0,
+          "clump_fraction": 0.35,
+          "clump_dx": -0.13,
+          "clump_dy": 0.1,
+          "clump_scale": 0.7
+        }
+      },
+      "source_n": 49,
+      "source_bbox": [
+        -0.4,
+        0.4,
+        -0.4,
+        0.4
+      ],
+      "potential_spacing": 0.075,
+      "log_bounds": [
+        [
+          -11.512925464970229,
+          -4.605170185988091
+        ],
+        [
+          11.512925464970229,
+          27.631021115928547
+        ]
+      ],
+      "block_size": 1024,
+      "source_tile": 24,
+      "pcg_max_iter": 20000,
+      "pcg_rtol": 1e-12,
+      "solve_rtol": 1e-08,
+      "direct_maxfun": 200,
+      "direct_len_tol": 0.001,
+      "boundary_rtol": 0.01,
+      "inversion_nsub": 2,
+      "lambda_amplitude": 10000.0,
+      "mode": "fixed",
+      "backends": [
+        "dense",
+        "operator"
+      ],
+      "make_plots": true,
+      "affine_diagnostics": true,
+      "fixed_strengths": {
+        "subhalo": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0
+        },
+        "control": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0
+        }
+      },
+      "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized."
+    },
+    "scope": "Exact frozen-linear decomposition of prior, representation, and noise effects.\n\nThis diagnostic does not claim an exact nonlinear bias decomposition. It uses\nthe public single-step design/prior and verifies superposition against its fit.\n",
+    "cases": {
+      "subhalo": [
+        {
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "truth_kappa_at_nominal_peak": 0.6314351815470731,
+          "fitted_kappa_at_nominal_peak": 0.55646624370894,
+          "superposition_max_coefficient_error": 2.255307052223543e-12,
+          "components": {
+            "regularized_matched_linear_truth": {
+              "kappa_at_nominal_peak": 0.35252473692380537,
+              "core_kappa_rms": 0.06238771403582157,
+              "image_rms_noise": 65.04272254136579
+            },
+            "nonlinear_minus_linear_truth": {
+              "kappa_at_nominal_peak": -0.005059297643406849,
+              "core_kappa_rms": 0.009532839985942688,
+              "image_rms_noise": 0.1969833317365342
+            },
+            "analytic_minus_discrete_model": {
+              "kappa_at_nominal_peak": 0.22566873767207926,
+              "core_kappa_rms": 0.01676073046818717,
+              "image_rms_noise": 0.24736065448808287
+            },
+            "noise": {
+              "kappa_at_nominal_peak": -0.01666793324298201,
+              "core_kappa_rms": 0.021413526519549274,
+              "image_rms_noise": 0.9998827048177267
+            }
+          }
+        },
+        {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "truth_kappa_at_nominal_peak": 0.6314351815470731,
+          "fitted_kappa_at_nominal_peak": 0.290141283451964,
+          "superposition_max_coefficient_error": 9.10937991704941e-13,
+          "components": {
+            "regularized_matched_linear_truth": {
+              "kappa_at_nominal_peak": 0.2191193556407678,
+              "core_kappa_rms": 0.028855501956629864,
+              "image_rms_noise": 65.04272254136579
+            },
+            "nonlinear_minus_linear_truth": {
+              "kappa_at_nominal_peak": 0.003432305645970386,
+              "core_kappa_rms": 0.0069984173803975015,
+              "image_rms_noise": 0.1969833317365342
+            },
+            "analytic_minus_discrete_model": {
+              "kappa_at_nominal_peak": 0.07182593206545633,
+              "core_kappa_rms": 0.008644294947711092,
+              "image_rms_noise": 0.24736065448808287
+            },
+            "noise": {
+              "kappa_at_nominal_peak": -0.004236309900117881,
+              "core_kappa_rms": 0.0073145894483820344,
+              "image_rms_noise": 0.9998827048177267
+            }
+          }
+        }
+      ],
+      "control": [
+        {
+          "lambda_source": 0.0006,
+          "lambda_potential": 400000.0,
+          "truth_kappa_at_nominal_peak": 0.0,
+          "fitted_kappa_at_nominal_peak": -0.03128997959293147,
+          "superposition_max_coefficient_error": 1.9944046414366312e-12,
+          "components": {
+            "regularized_matched_linear_truth": {
+              "kappa_at_nominal_peak": -0.014069751094749092,
+              "core_kappa_rms": 0.05681154441985689,
+              "image_rms_noise": 64.04840312686625
+            },
+            "nonlinear_minus_linear_truth": {
+              "kappa_at_nominal_peak": -6.897893021236323e-16,
+              "core_kappa_rms": 4.501754017761819e-16,
+              "image_rms_noise": 1.3257051165147539e-14
+            },
+            "analytic_minus_discrete_model": {
+              "kappa_at_nominal_peak": -0.0005522952540765555,
+              "core_kappa_rms": 0.0007011781670153745,
+              "image_rms_noise": 0.1094180089585898
+            },
+            "noise": {
+              "kappa_at_nominal_peak": -0.01666793324298197,
+              "core_kappa_rms": 0.02141352651954935,
+              "image_rms_noise": 0.9998827048177267
+            }
+          }
+        },
+        {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "truth_kappa_at_nominal_peak": 0.0,
+          "fitted_kappa_at_nominal_peak": -0.01538737089383615,
+          "superposition_max_coefficient_error": 1.2830847495592934e-12,
+          "components": {
+            "regularized_matched_linear_truth": {
+              "kappa_at_nominal_peak": -0.01089061518484517,
+              "core_kappa_rms": 0.017773082018364927,
+              "image_rms_noise": 64.04840312686625
+            },
+            "nonlinear_minus_linear_truth": {
+              "kappa_at_nominal_peak": -6.826956103845264e-17,
+              "core_kappa_rms": 2.1867618370199481e-16,
+              "image_rms_noise": 1.3257051165147539e-14
+            },
+            "analytic_minus_discrete_model": {
+              "kappa_at_nominal_peak": -0.00026044580821691233,
+              "core_kappa_rms": 0.0002923893782987778,
+              "image_rms_noise": 0.1094180089585898
+            },
+            "noise": {
+              "kappa_at_nominal_peak": -0.0042363099001136795,
+              "core_kappa_rms": 0.007314589448381623,
+              "image_rms_noise": 0.9998827048177267
+            }
+          }
+        }
+      ]
+    }
+  }
+}

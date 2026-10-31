@@ -1,5 +1,10 @@
 # Iterative scientific source–potential reconstruction
 
+This record describes the original fixed-strength runs. The later
+[peak-bias investigation](potential-correction-peak-recovery.md) evaluates a
+common evidence-selection policy, sharper peaks and their noise trade-off;
+the original numerical results below remain the baseline.
+
 The recorded float64 runs validate nonlinear reconstruction of the ticket 11
 scientific mock in both backends. They support localized recovery with
 substantial peak suppression. Raw potential/deflection low modes remain

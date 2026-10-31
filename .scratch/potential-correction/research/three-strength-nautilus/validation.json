@@ -1,0 +1,123 @@
+{
+  "checks": [
+    {
+      "log10_strengths": [
+        -3.2218487496163566,
+        7.204119982655925,
+        4.0
+      ],
+      "log_evidence_error": 1.4551915228366852e-11,
+      "public_relative_residual": 1.0154703647800493e-15,
+      "cached_relative_residual": 6.637999041469741e-16
+    },
+    {
+      "log10_strengths": [
+        -4.107643504209393,
+        5.829213601809588,
+        4.487406657873107
+      ],
+      "log_evidence_error": 0.0,
+      "public_relative_residual": 1.1743131579186723e-15,
+      "cached_relative_residual": 7.265588470697542e-16
+    },
+    {
+      "log10_strengths": [
+        -3.293739498346361,
+        5.439226435860842,
+        4.49383333013529
+      ],
+      "log_evidence_error": 9.167706593871117e-10,
+      "public_relative_residual": 1.0316771353198138e-15,
+      "cached_relative_residual": 6.113062508783388e-16
+    },
+    {
+      "log10_strengths": [
+        -3.7589283494440737,
+        5.7725025976421644,
+        4.779019707121669
+      ],
+      "log_evidence_error": 2.9103830456733704e-11,
+      "public_relative_residual": 1.1256126685288011e-15,
+      "cached_relative_residual": 6.364967863972543e-16
+    },
+    {
+      "log10_strengths": [
+        -4.199727923622073,
+        6.290778795729895,
+        4.226040486430745
+      ],
+      "log_evidence_error": 4.3655745685100555e-11,
+      "public_relative_residual": 1.1604074264423765e-15,
+      "cached_relative_residual": 6.782455941220187e-16
+    },
+    {
+      "log10_strengths": [
+        -4.030360073796498,
+        6.320357646624457,
+        4.078337981437092
+      ],
+      "log_evidence_error": 1.1641532182693481e-10,
+      "public_relative_residual": 1.1498563497117628e-15,
+      "cached_relative_residual": 6.527772380263579e-16
+    },
+    {
+      "log10_strengths": [
+        -3.7382682264703333,
+        5.772825687395769,
+        4.555662401985774
+      ],
+      "log_evidence_error": 5.820766091346741e-11,
+      "public_relative_residual": 1.2093250859146743e-15,
+      "cached_relative_residual": 6.42570872028833e-16
+    },
+    {
+      "log10_strengths": [
+        -4.420710356548803,
+        5.134903292592696,
+        5.037869060770899
+      ],
+      "log_evidence_error": 2.9103830456733704e-11,
+      "public_relative_residual": 1.1313184982363986e-15,
+      "cached_relative_residual": 6.470403549798877e-16
+    },
+    {
+      "log10_strengths": [
+        -7.0,
+        3.0,
+        1.0
+      ],
+      "log_evidence_error": 9.458744898438454e-10,
+      "public_relative_residual": 1.0932152966003242e-15,
+      "cached_relative_residual": 6.355142551922588e-16
+    },
+    {
+      "log10_strengths": [
+        -4.0,
+        10.0,
+        1.0
+      ],
+      "log_evidence_error": 7.930328138172626e-06,
+      "public_relative_residual": 1.1343496693184925e-12,
+      "cached_relative_residual": 1.5740752568568664e-12
+    },
+    {
+      "log10_strengths": [
+        -4.0,
+        2.0,
+        7.0
+      ],
+      "log_evidence_error": 1.1641532182693481e-10,
+      "public_relative_residual": 1.0328322587787022e-15,
+      "cached_relative_residual": 6.458592010681727e-16
+    }
+  ],
+  "maximum_log_evidence_error": 7.930328138172626e-06,
+  "warm_batch_seconds": [
+    0.28796921693719923,
+    0.2880912949331105,
+    0.2873696289025247
+  ],
+  "batch_size": 8,
+  "evidence_evaluations_per_second": 27.78074714056903,
+  "caching": "Only data Gram/rhs and strength-independent prior templates; full dense Q/H Cholesky and actual residual retained"
+}

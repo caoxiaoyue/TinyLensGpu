@@ -1,0 +1,770 @@
+{
+  "scope": "Single-step dense exact conditional linear Gaussian evidence; positive strengths; fixed true macro and frozen analytic source gradient",
+  "selection_rule": "Maximize log evidence only; no truth-based filter or recovery selection",
+  "caveat": "An empirical-Bayes point search, not hyperparameter posterior sampling or a proof of global optimality",
+  "configuration": {
+    "mock": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 10000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense",
+      "operator"
+    ],
+    "make_plots": true,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized.",
+    "three_strength_experiment": {
+      "case": "control",
+      "output": "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/potential-correction/output/three-strength-single-step/seed17/control",
+      "source_bounds": [
+        -8,
+        -1
+      ],
+      "potential_bounds": [
+        1,
+        11
+      ],
+      "amplitude_bounds": [
+        0,
+        8
+      ],
+      "direct_maxfun": 300,
+      "fixed_maxfun": 150,
+      "local_maxfun": 160,
+      "slices": 11,
+      "resume": true
+    }
+  },
+  "log10_bounds": [
+    [
+      -8,
+      -1
+    ],
+    [
+      1,
+      11
+    ],
+    [
+      0,
+      8
+    ]
+  ],
+  "source_sha256": {
+    ".scratch/potential-correction/experiments/optimize_single_step_three_strengths.py": "f31af0d9cfdbe540a607c83b25b7cf589fb125c23a2fdc492f9dc353a1819d83",
+    "examples/potential_correction/scientific_configuration.json": "9deab4af7ee68428b0b1509ec3c015bf9ed7bcbce47fb91aa775e2152b68af1d",
+    "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+    "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+    "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb"
+  },
+  "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "device": "cuda:0"
+  },
+  "searches": {
+    "joint_global_direct": {
+      "success": false,
+      "message": "Number of function evaluations done is larger than maxfun=300",
+      "status": 1,
+      "nfev": 309,
+      "nit": 36,
+      "log10_strengths": [
+        -4.067901234567901,
+        10.938271604938272,
+        7.950617283950617
+      ],
+      "objective": -69808.49911836452
+    },
+    "joint_local_0": {
+      "success": true,
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+      "status": 0,
+      "nfev": 112,
+      "nit": 10,
+      "log10_strengths": [
+        -4.025317513921843,
+        11.0,
+        8.0
+      ],
+      "objective": -69808.97885926478
+    },
+    "joint_local_1": {
+      "success": true,
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+      "status": 0,
+      "nfev": 112,
+      "nit": 14,
+      "log10_strengths": [
+        -4.025317735978287,
+        11.0,
+        8.0
+      ],
+      "objective": -69808.97885926424
+    },
+    "fixed_amplitude_global_direct": {
+      "success": false,
+      "message": "Number of function evaluations done is larger than maxfun=150",
+      "status": 1,
+      "nfev": 151,
+      "nit": 18,
+      "log10_strengths": [
+        -4.039094650205762,
+        10.979423868312757
+      ],
+      "objective": -69778.73624784674
+    },
+    "fixed_amplitude_local": {
+      "success": true,
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+      "status": 0,
+      "nfev": 45,
+      "nit": 5,
+      "log10_strengths": [
+        -4.031217811333787,
+        11.0
+      ],
+      "objective": -69778.8044303566
+    },
+    "joint_local_from_fixed_optimum": {
+      "success": true,
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+      "status": 0,
+      "nfev": 42,
+      "nit": 4,
+      "log10_strengths": [
+        -4.025317803028816,
+        11.0,
+        8.0
+      ],
+      "objective": -69808.97885926411
+    }
+  },
+  "exports": {
+    "original": {
+      "path": ".scratch/potential-correction/output/three-strength-single-step/seed17/control/original",
+      "strengths": {
+        "lambda_source": 0.0005999999999999997,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "log_evidence": 69486.8324264795,
+      "chi2": 21832.990101639338,
+      "regularization_penalty": 977.998984932982,
+      "prior_logdet": 52809.175674673876,
+      "posterior_logdet": 53336.673870504004,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 4.198626115180819e-05,
+        "relative_residual": 2.3535797719850386e-13,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "summary": {
+        "source_relative_l2": 0.05165626576900537,
+        "source_rmse": 0.018059438694691798,
+        "source_negative_node_fraction": 0.19325281132861308,
+        "source_negative_to_positive_sum": 0.019734551106124557,
+        "potential_rmse_raw_center_zero_truth": 0.0003215560976103202,
+        "potential_rmse_mean_centered_truth": 0.0003215560976103202,
+        "potential_rms": 0.0003215560976103202,
+        "potential_mean": 5.586920999673153e-12,
+        "deflection_vector_rmse_discrete_truth": 0.0005274146787093757,
+        "convergence": {
+          "all_core": {
+            "count": 724,
+            "rmse_discrete_truth": 0.00043016813338276423,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.00043016813338276423,
+            "analytic_valid_count": 724,
+            "recovered_rms": 0.00043016813338276423,
+            "recovered_mean": 4.2200276277508645e-05,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.001276485686023572,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_discrete_truth": 0.0004109224047820507,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0004109224047820507,
+            "analytic_valid_count": 526,
+            "recovered_rms": 0.0004109224047820507,
+            "recovered_mean": 1.4539804859738098e-05,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.001268341580239042,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_discrete_truth": 0.00023601939651258507,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.00023601939651258507,
+            "analytic_valid_count": 70,
+            "recovered_rms": 0.00023601939651258507,
+            "recovered_mean": 0.00012441521653126049,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.0005290327638561345,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy_arcsec": [
+          -0.8999999999999999,
+          -0.6749999999999999
+        ],
+        "peak_distance_to_injected_position_arcsec": 1.822944047413414,
+        "local_radius_arcsec": 0.35777087639996635,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            5.586921000500957e-12,
+            0.00046918686408019847,
+            3.95439321819286e-06
+          ],
+          "potential_rmse": 6.532816629311564e-05,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "nonlinear_residual_rms_noise": 0.9958070801411494,
+        "source_box": {
+          "macro_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "analytic_truth_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "fitted_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024160864803512982,
+            "outside_analytic_brightness_fraction": 0.0
+          }
+        },
+        "linear_residual_rms_noise": 0.9958350334134611,
+        "fitted_linearization_rms_noise": 0.0021212185735003694
+      },
+      "kappa_background_rms": 0.0004459689415910785,
+      "recovery_at_truth_peak": null,
+      "truth_discrete_peak": 0.0,
+      "recovered_at_truth_peak": 0.000132619343386557
+    },
+    "fixed_amplitude_optimized": {
+      "path": ".scratch/potential-correction/output/three-strength-single-step/seed17/control/fixed_amplitude_optimized",
+      "strengths": {
+        "lambda_source": 9.306410148267581e-05,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "log_evidence": 69778.8044303566,
+      "chi2": 21725.840451743752,
+      "regularization_penalty": 199.0032644449858,
+      "prior_logdet": 48334.573306558596,
+      "posterior_logdet": 49164.272865016894,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 1.3566478738901037e-05,
+        "relative_residual": 7.604818590894579e-14,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "summary": {
+        "source_relative_l2": 0.055775304015762854,
+        "source_rmse": 0.019499487013922828,
+        "source_negative_node_fraction": 0.18617242815493545,
+        "source_negative_to_positive_sum": 0.020599603943435914,
+        "potential_rmse_raw_center_zero_truth": 0.0001111824625832001,
+        "potential_rmse_mean_centered_truth": 0.0001111824625832001,
+        "potential_rms": 0.0001111824625832001,
+        "potential_mean": 2.0688032441266078e-12,
+        "deflection_vector_rmse_discrete_truth": 0.00038409147480693577,
+        "convergence": {
+          "all_core": {
+            "count": 724,
+            "rmse_discrete_truth": 0.0006423167414309254,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0006423167414309254,
+            "analytic_valid_count": 724,
+            "recovered_rms": 0.0006423167414309254,
+            "recovered_mean": 2.3125177275703624e-05,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.0017789132038876492,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_discrete_truth": 0.0006092566493046986,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.0006092566493046986,
+            "analytic_valid_count": 526,
+            "recovered_rms": 0.0006092566493046986,
+            "recovered_mean": -5.5399317354413625e-05,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.0016463139528939744,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_discrete_truth": 0.000532011678569536,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 0.000532011678569536,
+            "analytic_valid_count": 70,
+            "recovered_rms": 0.000532011678569536,
+            "recovered_mean": -0.0005101470608426222,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": -0.00010927797339295413,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy_arcsec": [
+          -0.825,
+          -0.825
+        ],
+        "peak_distance_to_injected_position_arcsec": 1.826540445760783,
+        "local_radius_arcsec": 0.35777087639996635,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            2.0688032387621125e-12,
+            9.033660362725698e-05,
+            2.768913970208481e-06
+          ],
+          "potential_rmse": 9.31851224295097e-05,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "nonlinear_residual_rms_noise": 0.9933919774167166,
+        "source_box": {
+          "macro_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "analytic_truth_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "fitted_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024328136043461512,
+            "outside_analytic_brightness_fraction": 0.0
+          }
+        },
+        "linear_residual_rms_noise": 0.9933884007300119,
+        "fitted_linearization_rms_noise": 0.0016500968886889362
+      },
+      "kappa_background_rms": 0.0006530201615247896,
+      "recovery_at_truth_peak": null,
+      "truth_discrete_peak": 0.0,
+      "recovered_at_truth_peak": 0.0010379376112958324
+    },
+    "joint_optimized": {
+      "path": ".scratch/potential-correction/output/three-strength-single-step/seed17/control/joint_optimized",
+      "strengths": {
+        "lambda_source": 9.433709229580923e-05,
+        "lambda_potential": 100000000000.0,
+        "lambda_amplitude": 100000000.0
+      },
+      "log_evidence": 69808.97885926478,
+      "chi2": 21740.613373843968,
+      "regularization_penalty": 200.00637817072914,
+      "prior_logdet": 48577.20712886963,
+      "posterior_logdet": 49330.781793685106,
+      "solver_info": {
+        "method": "cholesky",
+        "converged": true,
+        "failed": false,
+        "iterations": 1,
+        "residual_norm": 4.898943583830819e-07,
+        "relative_residual": 2.7461493847502423e-15,
+        "reason": null,
+        "diagnostics": {}
+      },
+      "summary": {
+        "source_relative_l2": 0.05461364964710228,
+        "source_rmse": 0.019093363467380407,
+        "source_negative_node_fraction": 0.1882548937942524,
+        "source_negative_to_positive_sum": 0.019884832184093187,
+        "potential_rmse_raw_center_zero_truth": 3.122053901715832e-06,
+        "potential_rmse_mean_centered_truth": 3.122053901715832e-06,
+        "potential_rms": 3.122053901715832e-06,
+        "potential_mean": 1.0102232363307502e-17,
+        "deflection_vector_rmse_discrete_truth": 1.9774557483598433e-05,
+        "convergence": {
+          "all_core": {
+            "count": 724,
+            "rmse_discrete_truth": 7.001020575326569e-05,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 7.001020575326569e-05,
+            "analytic_valid_count": 724,
+            "recovered_rms": 7.001020575326569e-05,
+            "recovered_mean": -5.66428492942424e-06,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.00015959921449132085,
+            "truth_discrete_max": 0.0
+          },
+          "illuminated_core": {
+            "count": 526,
+            "rmse_discrete_truth": 6.217145641376207e-05,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 6.217145641376207e-05,
+            "analytic_valid_count": 526,
+            "recovered_rms": 6.217145641376207e-05,
+            "recovered_mean": -1.0979099501810715e-06,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.00014327800601333482,
+            "truth_discrete_max": 0.0
+          },
+          "local_core": {
+            "count": 70,
+            "rmse_discrete_truth": 7.059896690845034e-05,
+            "truth_discrete_rms": 0.0,
+            "rmse_analytic_point_truth": 7.059896690845034e-05,
+            "analytic_valid_count": 70,
+            "recovered_rms": 7.059896690845034e-05,
+            "recovered_mean": -1.0514275719077885e-06,
+            "truth_discrete_mean": 0.0,
+            "recovered_max": 0.00012977347301887019,
+            "truth_discrete_max": 0.0
+          }
+        },
+        "convergence_peak_xy_arcsec": [
+          0.0,
+          0.375
+        ],
+        "peak_distance_to_injected_position_arcsec": 0.7988272654335229,
+        "local_radius_arcsec": 0.35777087639996635,
+        "affine_diagnostic_only": {
+          "fitted_difference_constant_x_y": [
+            1.0102318398843722e-17,
+            9.254702713150493e-09,
+            2.029219576790907e-10
+          ],
+          "potential_rmse": 3.1220477222814627e-06,
+          "applied_to_raw_fields_or_images_or_evidence": false
+        },
+        "nonlinear_residual_rms_noise": 0.9937260456006632,
+        "source_box": {
+          "macro_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "analytic_truth_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024608016597792992,
+            "outside_analytic_brightness_fraction": 0.0
+          },
+          "fitted_corrected_rays": {
+            "query_count": 88064,
+            "outside_count": 0,
+            "minimum_signed_margin_arcsec": 0.024607073030015747,
+            "outside_analytic_brightness_fraction": 0.0
+          }
+        },
+        "linear_residual_rms_noise": 0.993726080546286,
+        "fitted_linearization_rms_noise": 8.942961039768216e-05
+      },
+      "kappa_background_rms": 6.994689490152976e-05,
+      "recovery_at_truth_peak": null,
+      "truth_discrete_peak": 0.0,
+      "recovered_at_truth_peak": -0.00013065159321650247
+    }
+  },
+  "resumed_from": {
+    "source_sha256": {
+      ".scratch/potential-correction/experiments/optimize_single_step_three_strengths.py": "f31af0d9cfdbe540a607c83b25b7cf589fb125c23a2fdc492f9dc353a1819d83",
+      "examples/potential_correction/scientific_configuration.json": "9deab4af7ee68428b0b1509ec3c015bf9ed7bcbce47fb91aa775e2152b68af1d",
+      "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+      "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+      "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb"
+    },
+    "evaluation_count": 1,
+    "elapsed_seconds_at_checkpoint": 11.134617929114029
+  },
+  "counts": {
+    "data": 22016,
+    "source": 2401,
+    "potential": 956,
+    "core": 724
+  },
+  "baseline_reproduction": {
+    "reference": ".scratch/potential-correction/output/single-step-scientific/reference/control/dense",
+    "log_evidence_error": 1.1888914741575718e-08,
+    "field_max_errors": {
+      "source_values": 2.0127122191127e-11,
+      "potential_values": 7.158016583977411e-12,
+      "convergence": 5.3289355892403856e-12
+    },
+    "inputs_identical": true
+  },
+  "amplitude_adapter_check": {
+    "fresh_constructor_matches": true,
+    "lambda_amplitude": 30000.00000000001,
+    "log_evidence_error": 0.0
+  },
+  "evaluation_count": 773,
+  "failed_evaluation_count": 0,
+  "elapsed_seconds": 381.06318604713306,
+  "candidate_fit_seconds": 503.40453132777475,
+  "conditional_slices": {
+    "center_log10_strengths": [
+      -4.025317513921843,
+      11.0,
+      8.0
+    ],
+    "other_strengths": "fixed, not profiled",
+    "curves": {
+      "lambda_source": [
+        {
+          "log10_strength": -8.0,
+          "log_evidence": 68172.8262557282
+        },
+        {
+          "log10_strength": -7.3,
+          "log_evidence": 68632.43082700651
+        },
+        {
+          "log10_strength": -6.6,
+          "log_evidence": 69021.2209078192
+        },
+        {
+          "log10_strength": -5.9,
+          "log_evidence": 69341.75942597356
+        },
+        {
+          "log10_strength": -5.2,
+          "log_evidence": 69593.28122697712
+        },
+        {
+          "log10_strength": -4.5,
+          "log_evidence": 69764.01505992364
+        },
+        {
+          "log10_strength": -4.025317513921843,
+          "log_evidence": 69808.97885926478
+        },
+        {
+          "log10_strength": -3.8000000000000007,
+          "log_evidence": 69794.28050471406
+        },
+        {
+          "log10_strength": -3.1000000000000005,
+          "log_evidence": 69380.49553080456
+        },
+        {
+          "log10_strength": -2.4000000000000004,
+          "log_evidence": 67031.81308897142
+        },
+        {
+          "log10_strength": -1.7000000000000002,
+          "log_evidence": 55612.49029282648
+        },
+        {
+          "log10_strength": -1.0,
+          "log_evidence": 2421.3508552609237
+        }
+      ],
+      "lambda_potential": [
+        {
+          "log10_strength": 1.0,
+          "log_evidence": 69793.67980280274
+        },
+        {
+          "log10_strength": 2.0,
+          "log_evidence": 69793.6801164075
+        },
+        {
+          "log10_strength": 3.0,
+          "log_evidence": 69793.6832496878
+        },
+        {
+          "log10_strength": 4.0,
+          "log_evidence": 69793.71430949486
+        },
+        {
+          "log10_strength": 5.0,
+          "log_evidence": 69794.00082263561
+        },
+        {
+          "log10_strength": 6.0,
+          "log_evidence": 69795.74204559575
+        },
+        {
+          "log10_strength": 7.0,
+          "log_evidence": 69800.05278078392
+        },
+        {
+          "log10_strength": 8.0,
+          "log_evidence": 69804.59945827365
+        },
+        {
+          "log10_strength": 9.0,
+          "log_evidence": 69807.38239138284
+        },
+        {
+          "log10_strength": 10.0,
+          "log_evidence": 69808.66346925253
+        },
+        {
+          "log10_strength": 11.0,
+          "log_evidence": 69808.97885926478
+        }
+      ],
+      "lambda_amplitude": [
+        {
+          "log10_strength": 0.0,
+          "log_evidence": 69723.07360534053
+        },
+        {
+          "log10_strength": 0.8,
+          "log_evidence": 69735.33677877496
+        },
+        {
+          "log10_strength": 1.6,
+          "log_evidence": 69745.21451333893
+        },
+        {
+          "log10_strength": 2.4000000000000004,
+          "log_evidence": 69755.46486137799
+        },
+        {
+          "log10_strength": 3.2,
+          "log_evidence": 69766.98546492938
+        },
+        {
+          "log10_strength": 4.0,
+          "log_evidence": 69778.79566536803
+        },
+        {
+          "log10_strength": 4.800000000000001,
+          "log_evidence": 69790.2469255105
+        },
+        {
+          "log10_strength": 5.6000000000000005,
+          "log_evidence": 69799.89154475427
+        },
+        {
+          "log10_strength": 6.4,
+          "log_evidence": 69805.68149934772
+        },
+        {
+          "log10_strength": 7.2,
+          "log_evidence": 69808.16387828096
+        },
+        {
+          "log10_strength": 8.0,
+          "log_evidence": 69808.97885926478
+        }
+      ]
+    }
+  },
+  "repeat_best_log_evidence_difference": 0.0,
+  "selected": {
+    "log10_strengths": [
+      -4.025317513921843,
+      11.0,
+      8.0
+    ],
+    "strengths": {
+      "lambda_source": 9.433709229580923e-05,
+      "lambda_potential": 100000000000.0,
+      "lambda_amplitude": 100000000.0
+    },
+    "log_evidence": 69808.97885926478,
+    "distance_to_nearest_bound_dex": [
+      3.025317513921843,
+      0.0,
+      0.0
+    ],
+    "within_0_1_dex_of_bound": [
+      false,
+      true,
+      true
+    ],
+    "delta_log_evidence_vs_original": 322.1464327852882,
+    "delta_log_evidence_vs_reoptimized_fixed_amplitude": 30.174428908183472
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "checks": [
+    {
+      "log10_strengths": [
+        -3.2218487496163566,
+        7.204119982655925,
+        4.0
+      ],
+      "log_evidence_error": 1.0186340659856796e-10,
+      "public_relative_residual": 1.0407359142565408e-15,
+      "cached_relative_residual": 6.555304484054034e-16
+    },
+    {
+      "log10_strengths": [
+        -4.107643504209393,
+        5.829213601809588,
+        4.487406657873107
+      ],
+      "log_evidence_error": 2.9103830456733704e-11,
+      "public_relative_residual": 1.1666304883642126e-15,
+      "cached_relative_residual": 7.142350958929925e-16
+    }
+  ],
+  "maximum_log_evidence_error": 1.0186340659856796e-10,
+  "warm_batch_seconds": [
+    0.2913095070980489,
+    0.28979557007551193,
+    0.2867106799967587
+  ],
+  "batch_size": 8,
+  "evidence_evaluations_per_second": 27.60566698074592,
+  "caching": "Only data Gram/rhs and strength-independent prior templates; full dense Q/H Cholesky and actual residual retained"
+}

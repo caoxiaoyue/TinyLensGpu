@@ -1,0 +1,435 @@
+{
+  "scope": "One fixed-strength joint fit plus evidence; dense GPU float64; subhalo observation",
+  "timing_contract": {
+    "timed_call": "problem.fit(lambda_source, lambda_potential, backend='dense', **options)",
+    "synchronization": "All JAX arrays in the public result and grid are synchronized before stopping each timer",
+    "includes": "Joint source/potential solve, prior and posterior determinants, evidence normalization and returned numerical fields; complete nonlinear convergence for iteration",
+    "outside_fit_timer": "File input, imports/device/geometry setup (reported separately), plotting and file export; input simulation/partition generation is outside all worker timings",
+    "warm_reuse": "Fixed geometry, frozen single-step design and compiled kernels are reusable; each fit resets initial source/potential and computes evidence again",
+    "cold_limit": "Compile-inclusive first fit also includes lazy numerical preparation; first minus warm is not pure compiler time",
+    "isolation": "Serial independent GPU processes; persistent JAX compilation cache disabled"
+  },
+  "driver_sha256": "5823bf65d3168824ae8f39f97bcf0cdaf675b5e0e0d7b159add251c6de9c2de8",
+  "benchmark_worker_sha256": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+  "rows": {
+    "original_single_step": {
+      "algorithm": "single_step",
+      "backend": "dense",
+      "dtype": "float64",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "effective_fit_options": {},
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "setup_seconds": 3.528157092863694,
+      "first_fit_compile_inclusive_seconds": 5.292287176009268,
+      "cold_workflow_seconds": 8.820452043786645,
+      "warm_fit_seconds": [
+        0.6766952211037278,
+        0.6452069168444723,
+        0.6452935708221048,
+        0.6453121139202267,
+        0.6447484830860049
+      ],
+      "warm_median_seconds": 0.6452935708221048,
+      "warm_min_seconds": 0.6447484830860049,
+      "warm_max_seconds": 0.6766952211037278,
+      "warm_mean_seconds": 0.6514512611553073,
+      "warm_sample_sd_seconds": 0.014113671232263168,
+      "accepted_iterations": null,
+      "termination_reason": "solved",
+      "evidence_method": "conditional_linear_gaussian",
+      "determinant_method": "full_cholesky",
+      "reference": ".scratch/potential-correction/output/single-step-scientific/reference/subhalo/dense",
+      "reference_metadata_sha256": "d6a4ebcf0c3afe209a6c3d9b485d005752291fad81e60ed13e5f525a05b26a14",
+      "reference_arrays_sha256": "e6752750406ab90ac9d1ee400145a655b3e8b46a0fd129bc23c659b128acd233",
+      "fixture_sha256": "ed1e0b12efdf64343a6226bcad7f46e5832c40db9c52dfa7d658156d2ded1e30",
+      "all_cold_warm_fits_successful": true,
+      "max_evidence_error_against_reference": 2.9103830456733704e-11,
+      "field_max_errors_against_reference": {
+        "source_values": 1.7075230118734908e-13,
+        "potential_values": 2.7749070402594e-14,
+        "convergence": 2.6668597885581846e-13,
+        "nonlinear_image_active": 4.207745263329343e-14
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      }
+    },
+    "original_iterative": {
+      "algorithm": "iterative",
+      "backend": "dense",
+      "dtype": "float64",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "effective_fit_options": {
+        "gradient_rtol": 1e-08,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "max_iter": 80,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "gradient_atol": 0.0005,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "setup_seconds": 3.4726359341293573,
+      "first_fit_compile_inclusive_seconds": 38.71904929005541,
+      "cold_workflow_seconds": 42.19169389014132,
+      "warm_fit_seconds": [
+        33.85825186385773,
+        33.81850110203959,
+        33.81525789620355
+      ],
+      "warm_median_seconds": 33.81850110203959,
+      "warm_min_seconds": 33.81525789620355,
+      "warm_max_seconds": 33.85825186385773,
+      "warm_mean_seconds": 33.83067028736696,
+      "warm_sample_sd_seconds": 0.023941326557045232,
+      "accepted_iterations": 46,
+      "termination_reason": "converged_gradient",
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "reference": ".scratch/potential-correction/output/iterative-scientific/validated-reference/subhalo/dense",
+      "reference_metadata_sha256": "fe2f9808f71a56c90798b5dc87955ba539cf2a9c8e9a2afebf0f1ab4465b4061",
+      "reference_arrays_sha256": "36e6370a1756a1ae780366824631a7f9e9969d4bae7fd2b2a5825ba7400fb9d6",
+      "fixture_sha256": "1d33e70098537d63cdf34c443f4b4b6ac303763a3da8401546def294f5240bd0",
+      "all_cold_warm_fits_successful": true,
+      "max_evidence_error_against_reference": 0.0,
+      "field_max_errors_against_reference": {
+        "source_values": 3.3306690738754696e-16,
+        "potential_values": 3.1008182133085427e-17,
+        "convergence": 6.938893903907228e-16,
+        "nonlinear_image_active": 5.551115123125783e-16
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      }
+    },
+    "selected_single_step": {
+      "algorithm": "single_step",
+      "backend": "dense",
+      "dtype": "float64",
+      "strengths": {
+        "lambda_source": 6e-05,
+        "lambda_potential": 400000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "effective_fit_options": {},
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "setup_seconds": 3.5268608320038766,
+      "first_fit_compile_inclusive_seconds": 5.268707491923124,
+      "cold_workflow_seconds": 8.79557627812028,
+      "warm_fit_seconds": [
+        0.6797199768479913,
+        0.6485210091341287,
+        0.6490142790134996,
+        0.6506929008755833,
+        0.6494636239949614
+      ],
+      "warm_median_seconds": 0.6494636239949614,
+      "warm_min_seconds": 0.6485210091341287,
+      "warm_max_seconds": 0.6797199768479913,
+      "warm_mean_seconds": 0.6554823579732328,
+      "warm_sample_sd_seconds": 0.013573159633984594,
+      "accepted_iterations": null,
+      "termination_reason": "solved",
+      "evidence_method": "conditional_linear_gaussian",
+      "determinant_method": "full_cholesky",
+      "reference": ".scratch/potential-correction/output/peak-recovery/selected-single-step-final/subhalo/dense",
+      "reference_metadata_sha256": "d45a65c8f194f570912040d35014c75d7446ff9cd8ef26f35475198571f0858d",
+      "reference_arrays_sha256": "857f9313b990a6f2966f7c514823836c5aca816a63507777c9ab7a3b28435ccc",
+      "fixture_sha256": "df48a56c40a1002b9afe59707117f0734c1388ae64fd976311b6a16d2bc6e83a",
+      "all_cold_warm_fits_successful": true,
+      "max_evidence_error_against_reference": 0.0,
+      "field_max_errors_against_reference": {
+        "source_values": 7.593925488436071e-13,
+        "potential_values": 7.743740544630118e-14,
+        "convergence": 1.4025031136455368e-12,
+        "nonlinear_image_active": 1.1179945857975326e-13
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      }
+    },
+    "selected_iterative": {
+      "algorithm": "iterative",
+      "backend": "dense",
+      "dtype": "float64",
+      "strengths": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 800000.0,
+        "lambda_amplitude": 10000.0
+      },
+      "effective_fit_options": {
+        "gradient_rtol": 1e-08,
+        "objective_rtol": 1e-10,
+        "step_rtol": 1e-07,
+        "max_iter": 120,
+        "initial_damping": 0.001,
+        "damping_min": 1e-12,
+        "damping_max": 1000000000000.0,
+        "damping_increase": 5.0,
+        "damping_decrease": 3.0,
+        "max_rejections": 12,
+        "gradient_atol": 3e-05,
+        "stall_max_iter": 4,
+        "damping_fraction_max": 0.5,
+        "acceptance_ratio": 0.0001
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "setup_seconds": 3.464140424039215,
+      "first_fit_compile_inclusive_seconds": 19.889067652868107,
+      "cold_workflow_seconds": 23.3532175750006,
+      "warm_fit_seconds": [
+        14.94291641493328,
+        14.8973615730647,
+        14.905497084837407
+      ],
+      "warm_median_seconds": 14.905497084837407,
+      "warm_min_seconds": 14.8973615730647,
+      "warm_max_seconds": 14.94291641493328,
+      "warm_mean_seconds": 14.915258357611796,
+      "warm_sample_sd_seconds": 0.024295529198801794,
+      "accepted_iterations": 19,
+      "termination_reason": "converged_gradient",
+      "evidence_method": "local_gauss_newton",
+      "determinant_method": "full_cholesky",
+      "reference": ".scratch/potential-correction/output/peak-recovery/selected-iterative-final/subhalo/dense",
+      "reference_metadata_sha256": "1a67407670012c7aa0904c36be1e756e8789c2a4cd6e264eccc7416928b08850",
+      "reference_arrays_sha256": "555bb5a08b9a33509862ffb07966c08b330d1f21d7b9ab5d15e136c9103d1e68",
+      "fixture_sha256": "a86c801552dc2bbd6470555251ebaca282f4f783cf8435b79c1ae02ef0080df2",
+      "all_cold_warm_fits_successful": true,
+      "max_evidence_error_against_reference": 0.0,
+      "field_max_errors_against_reference": {
+        "source_values": 2.949029909160572e-16,
+        "potential_values": 5.2475385148298415e-17,
+        "convergence": 1.464865555245165e-15,
+        "nonlinear_image_active": 6.661338147750939e-16
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      }
+    }
+  },
+  "all_timed_fits_count": 20,
+  "artifacts": {
+    "raw_results": ".scratch/potential-correction/output/evidence-evaluation-benchmark-2026-10-30",
+    "driver": ".scratch/potential-correction/experiments/benchmark_evidence_evaluation.py"
+  },
+  "verification": {
+    "cwd": "benchmarks",
+    "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false pytest -q test_potential_correction_workflow.py::test_isolated_workflow_reports_synchronized_phases_and_preparation_peak",
+    "result": "1 passed in 8.18s",
+    "log_sha256": "016e8ac15a5698719172ee6b95abff723735cf15a933cd53c0d34eb747820fd0",
+    "all_20_timed_fits_successful": true,
+    "reference_and_source_hashes_unchanged": true
+  }
+}

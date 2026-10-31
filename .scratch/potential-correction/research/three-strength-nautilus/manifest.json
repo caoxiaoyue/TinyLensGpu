@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-31",
+  "scientific_configuration": {
+    "mock": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "source_n": 49,
+    "source_bbox": [
+      -0.4,
+      0.4,
+      -0.4,
+      0.4
+    ],
+    "potential_spacing": 0.075,
+    "log_bounds": [
+      [
+        -11.512925464970229,
+        -4.605170185988091
+      ],
+      [
+        11.512925464970229,
+        27.631021115928547
+      ]
+    ],
+    "block_size": 1024,
+    "source_tile": 24,
+    "pcg_max_iter": 20000,
+    "pcg_rtol": 1e-12,
+    "solve_rtol": 1e-08,
+    "direct_maxfun": 200,
+    "direct_len_tol": 0.001,
+    "boundary_rtol": 0.01,
+    "inversion_nsub": 2,
+    "lambda_amplitude": 10000.0,
+    "mode": "fixed",
+    "backends": [
+      "dense",
+      "operator"
+    ],
+    "make_plots": true,
+    "affine_diagnostics": true,
+    "fixed_strengths": {
+      "subhalo": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 16000000.0
+      },
+      "control": {
+        "lambda_source": 0.0006,
+        "lambda_potential": 100000000000.0
+      }
+    },
+    "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized."
+  },
+  "sampler_settings": {
+    "n_live": 300,
+    "n_eff": 5000,
+    "batch_size": 8,
+    "seed": 314159,
+    "case": "subhalo",
+    "log10_prior_bounds": [
+      [
+        -8.0,
+        -1.0
+      ],
+      [
+        1.0,
+        11.0
+      ],
+      [
+        0.0,
+        8.0
+      ]
+    ],
+    "f_live": 0.01,
+    "discard_exploration": true
+  },
+  "parameter_order": [
+    "lambda_source",
+    "lambda_potential",
+    "lambda_amplitude"
+  ],
+  "target": "p(log10 strengths | image) proportional to exp(full conditional Gaussian log evidence); independent bounded uniform log10 hyperpriors",
+  "fixed": "true macro, analytic source gradient, source/potential geometry, data, noise and PSF",
+  "software": {
+    "python": "3.11.14",
+    "jax": "0.7.1",
+    "numpy": "2.4.6",
+    "nautilus": "1.0.6"
+  },
+  "git_commit": "2680305e383a39270ea57b95c2ad2a61339a1f8c",
+  "source_sha256": {
+    ".scratch/potential-correction/experiments/sample_single_step_three_strengths.py": "f82ddcde958df6a0bc2c33da6f5f18a6f4b1025389688b1b7efefe5a8d12373f",
+    "examples/potential_correction/scientific_configuration.json": "9deab4af7ee68428b0b1509ec3c015bf9ed7bcbce47fb91aa775e2152b68af1d",
+    "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+    "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+    "TinyLensGpu/utils/inversion/potential_regularization.py": "f5a10a575093f63f90680de086050f330db6b4ff7d7313717c0a20edcfcfa9eb"
+  },
+  "resumptions": [
+    {
+      "driver_sha256": "b81418c8baa6d08753e2a949a93cb0e5e1ef6c7db0c40c1e2e12cbe86c4a8b07",
+      "reason": "Continue persisted sampler state; numerical target and settings unchanged"
+    },
+    {
+      "driver_sha256": "7f6e62131d6a07d736b7e2f7fa58263721dc0e91fd6f5f889cc65d4f58a32ccc",
+      "reason": "Continue persisted sampler state; numerical target and settings unchanged"
+    }
+  ]
+}

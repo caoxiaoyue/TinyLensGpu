@@ -1,0 +1,28 @@
+{
+  "development_seed": 17,
+  "held_out_noise_seeds": [18, 19],
+  "algorithm": "iterative",
+  "backend": "dense",
+  "source_n": 49,
+  "potential_spacing": 0.075,
+  "lambda_source": 0.0006,
+  "lambda_amplitude": 10000.0,
+  "lambda_potential_candidates": [400000.0, 800000.0, 1600000.0, 100000000000.0],
+  "data": "original analytic mock plus original sigma=0.01 noise",
+  "initialization": "same truth-derived source nodes and zero potential for every candidate",
+  "numerical_controls": {
+    "max_iter": 120,
+    "gradient_atol": 0.00003,
+    "gradient_rtol": 0.00000001,
+    "solve_atol": 0.00005,
+    "solve_rtol": 0.00000001
+  },
+  "selection": "Independently choose maximum finite full-dense local-Gauss-Newton evidence among converged fits on the identical candidate set; no truth or control-amplitude metric enters selection",
+  "evaluation": {
+    "min_recovery_at_true_peak_node": 0.60,
+    "max_control_core_kappa_rms": 0.0011,
+    "max_control_absolute_kappa": 0.0031,
+    "note": "These are diagnostic comparison thresholds, not calibrated false-positive probabilities. Background error and local aperture integrals must also be reported."
+  },
+  "limits": "Finite development-chosen grid; source strength fixed; invalid candidates excluded with failures retained; upper-edge control choice is not an established continuous optimum; no nonlinear evidence or mass-uncertainty calibration. Policy recorded before fitting held-out seeds."
+}

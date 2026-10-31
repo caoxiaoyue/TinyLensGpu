@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-31",
+  "core_checks": {
+    "command": "JAX_PLATFORMS=cpu XLA_PYTHON_CLIENT_PREALLOCATE=false pytest -q test_potential_correction_dense.py",
+    "working_directory": "tests",
+    "passed": 14,
+    "seconds": 12.26,
+    "environment": "tinylens_gpu"
+  },
+  "experiment_checks": [
+    "baseline inputs bitwise equal to saved reference",
+    "baseline fields and evidence reproduce saved reference",
+    "shared-array amplitude adapter matches independent fresh constructor",
+    "multiple local starts reproduce interior subhalo optimum",
+    "37 local-curvature and constant-gauge audit fits succeeded"
+  ],
+  "experiment_source_sha256": {
+    ".scratch/potential-correction/experiments/optimize_single_step_three_strengths.py": "f31af0d9cfdbe540a607c83b25b7cf589fb125c23a2fdc492f9dc353a1819d83",
+    ".scratch/potential-correction/experiments/plot_three_strength_single_step.py": "27ccc215777affc1b3b9ee7e196a881b25f8671f007312ed1e5aed74febe63ba",
+    ".scratch/potential-correction/experiments/audit_three_strength_optimum.py": "9892d7226d3b4d8b79d2e75264a34d3a5febf55c6b41b7096b976e246a775f8c"
+  },
+  "control_initial_process": {
+    "termination": "SIGTERM (exit 143), cause not established",
+    "saved_candidates": 207,
+    "numerical_failures": 0,
+    "recovery": "resume from persisted evaluation cache"
+  },
+  "final_experiment_source_sha256": {
+    ".scratch/potential-correction/experiments/optimize_single_step_three_strengths.py": "d61d7502f65a34a046e26785ba17be5275c9200081e9d71de31bb3e2d0885baf",
+    ".scratch/potential-correction/experiments/plot_three_strength_single_step.py": "27ccc215777affc1b3b9ee7e196a881b25f8671f007312ed1e5aed74febe63ba",
+    ".scratch/potential-correction/experiments/audit_three_strength_optimum.py": "9892d7226d3b4d8b79d2e75264a34d3a5febf55c6b41b7096b976e246a775f8c"
+  },
+  "total_unique_search_candidates": 1482,
+  "failed_search_candidates": 0,
+  "additional_local_audit_candidates": 37,
+  "export_metadata_clarification": "Clarified inherited calibration_provenance for optimized exports; numerical arrays and evidence unchanged."
+}

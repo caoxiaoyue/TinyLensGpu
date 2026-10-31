@@ -1,0 +1,319 @@
+{
+  "parameter_order": [
+    "lambda_source",
+    "lambda_potential",
+    "lambda_amplitude"
+  ],
+  "hyperpriors": [
+    [
+      -8.0,
+      -1.0
+    ],
+    [
+      1.0,
+      11.0
+    ],
+    [
+      0.0,
+      8.0
+    ]
+  ],
+  "sampler_settings": {
+    "n_live": 300,
+    "n_eff": 5000,
+    "batch_size": 8,
+    "seed": 314159,
+    "case": "subhalo",
+    "log10_prior_bounds": [
+      [
+        -8.0,
+        -1.0
+      ],
+      [
+        1.0,
+        11.0
+      ],
+      [
+        0.0,
+        8.0
+      ]
+    ],
+    "f_live": 0.01,
+    "discard_exploration": true
+  },
+  "completion": {
+    "complete": true,
+    "n_live": 300,
+    "n_like": 12520,
+    "explored": true,
+    "f_live": null,
+    "n_eff": 5005.507082125025,
+    "hyperprior_integrated_log_evidence": 69518.36235572373,
+    "failed_likelihoods_this_invocation": 0,
+    "maximum_relative_residual_this_invocation": 7.791664474055134e-16,
+    "best_conditional_log_evidence_this_invocation": 69529.62892333671,
+    "best_log10_strengths_this_invocation": [
+      -4.105447658105568,
+      5.829975843945803,
+      4.497658602678783
+    ],
+    "elapsed_seconds_this_invocation": 144.31349561107345,
+    "posterior_points": 5688,
+    "weighted_kish_effective_size": 5005.50708214445
+  },
+  "posterior_points": 5688,
+  "kish_effective_sample_size": 5005.507082144454,
+  "quantiles": {
+    "lambda_source": {
+      "log10_quantiles": [
+        -4.211249883008011,
+        -4.159657613363127,
+        -4.108380664125424,
+        -4.059644774262152,
+        -4.011167388699007
+      ],
+      "linear_quantiles": [
+        6.148230159647755e-05,
+        6.923766077768814e-05,
+        7.791468799051498e-05,
+        8.716762751537632e-05,
+        9.746139230661804e-05
+      ],
+      "probabilities": [
+        0.025,
+        0.16,
+        0.5,
+        0.84,
+        0.975
+      ],
+      "log10_mean": -4.1093002767928395,
+      "log10_standard_deviation": 0.05074211171189582,
+      "estimated_mass_within_0_1_dex_of_lower_bound": 0.0,
+      "estimated_mass_within_0_1_dex_of_upper_bound": 0.0
+    },
+    "lambda_potential": {
+      "log10_quantiles": [
+        5.670924687886302,
+        5.749798833351456,
+        5.828333246442922,
+        5.904740115403774,
+        5.97239259043675
+      ],
+      "linear_quantiles": [
+        468732.091069692,
+        562080.9071360023,
+        673493.2484849405,
+        803045.4308525377,
+        938409.9207481287
+      ],
+      "probabilities": [
+        0.025,
+        0.16,
+        0.5,
+        0.84,
+        0.975
+      ],
+      "log10_mean": 5.8267011307569145,
+      "log10_standard_deviation": 0.07701926680108095,
+      "estimated_mass_within_0_1_dex_of_lower_bound": 0.0,
+      "estimated_mass_within_0_1_dex_of_upper_bound": 0.0
+    },
+    "lambda_amplitude": {
+      "log10_quantiles": [
+        4.234010665116546,
+        4.3579542346624045,
+        4.477086384972504,
+        4.590750199552793,
+        4.695577049705133
+      ],
+      "linear_quantiles": [
+        17139.993982548018,
+        22801.01785442305,
+        29997.59137989595,
+        38971.77616903216,
+        49610.89360127239
+      ],
+      "probabilities": [
+        0.025,
+        0.16,
+        0.5,
+        0.84,
+        0.975
+      ],
+      "log10_mean": 4.4742160668884825,
+      "log10_standard_deviation": 0.11772166497276224,
+      "estimated_mass_within_0_1_dex_of_lower_bound": 0.0,
+      "estimated_mass_within_0_1_dex_of_upper_bound": 0.0
+    }
+  },
+  "pearson_log10": [
+    [
+      1.0000000000000002,
+      0.027332841759336705,
+      -0.04339189193229542
+    ],
+    [
+      0.02733284175933669,
+      1.0,
+      -0.18477938209104464
+    ],
+    [
+      -0.04339189193229544,
+      -0.18477938209104464,
+      0.9999999999999999
+    ]
+  ],
+  "pearson_linear": [
+    [
+      0.9999999999999999,
+      0.03141719585357407,
+      -0.04194112931115423
+    ],
+    [
+      0.03141719585357406,
+      1.0,
+      -0.18404574415279162
+    ],
+    [
+      -0.041941129311154214,
+      -0.18404574415279165,
+      1.0
+    ]
+  ],
+  "weighted_spearman": [
+    [
+      0.9999999999999998,
+      0.02164915431616755,
+      -0.04186212610550385
+    ],
+    [
+      0.021649154316167547,
+      1.0,
+      -0.18602080481892835
+    ],
+    [
+      -0.041862126105503855,
+      -0.18602080481892838,
+      1.0000000000000002
+    ]
+  ],
+  "partial_correlation_log10": [
+    [
+      1.0,
+      0.019671873244163113,
+      -0.039027732997409685
+    ],
+    [
+      0.019671873244163095,
+      1.0,
+      -0.18383512578068825
+    ],
+    [
+      -0.039027732997409706,
+      -0.18383512578068828,
+      1.0
+    ]
+  ],
+  "log10_covariance": [
+    [
+      0.0025747619009825152,
+      0.00010682003209607373,
+      -0.0002591991178696053
+    ],
+    [
+      0.00010682003209607368,
+      0.005931967458576091,
+      -0.001675364413248481
+    ],
+    [
+      -0.0002591991178696054,
+      -0.001675364413248481,
+      0.013858390403959274
+    ]
+  ],
+  "standardized_correlation_eigenvalues": [
+    0.814499224289428,
+    0.9880343087263613,
+    1.197466466984211
+  ],
+  "standardized_correlation_eigenvectors": [
+    [
+      0.06339819725594359,
+      -0.9672209082182855,
+      -0.24589506560744878
+    ],
+    [
+      0.6996036953029883,
+      0.21878581974929467,
+      -0.680211316132739
+    ],
+    [
+      0.7117129604714952,
+      -0.12890492535983356,
+      0.690541948121094
+    ]
+  ],
+  "standardized_correlation_condition_number": 1.4701873633199405,
+  "alternating_sample_diagnostic": [
+    {
+      "parity": 0,
+      "kish_effective_size": 2507.042629205326,
+      "pearson_log10": [
+        [
+          0.9999999999999998,
+          0.011144705913828096,
+          -0.04435437052873626
+        ],
+        [
+          0.011144705913828082,
+          1.0000000000000002,
+          -0.19353870682260824
+        ],
+        [
+          -0.04435437052873628,
+          -0.19353870682260824,
+          1.0
+        ]
+      ]
+    },
+    {
+      "parity": 1,
+      "kish_effective_size": 2498.874269517331,
+      "pearson_log10": [
+        [
+          1.0000000000000002,
+          0.04342571599757017,
+          -0.04315549215555191
+        ],
+        [
+          0.04342571599757019,
+          0.9999999999999999,
+          -0.17672069306348484
+        ],
+        [
+          -0.04315549215555195,
+          -0.17672069306348484,
+          0.9999999999999999
+        ]
+      ]
+    }
+  ],
+  "maximum_sampled_conditional_log_evidence": 69529.62892333671,
+  "plot": {
+    "coordinates": "log10 strengths",
+    "display_order": [
+      "lambda_amplitude",
+      "lambda_potential",
+      "lambda_source"
+    ],
+    "displayed_marginal_probability": 0.999,
+    "joint_contours": [
+      0.68,
+      0.95
+    ],
+    "weights": "All normalized importance weights; no equal-weight resampling",
+    "smoothing": "0.8 histogram bins; summary statistics are unsmoothed"
+  },
+  "caution": "Conditional on fixed true macro and frozen truth gradient. A single n_live=300 run and alternating-index checks do not establish between-run convergence.",
+  "posterior_sha256": "0fc39de03c0b35798c78f79202f2f5aa7c2a12f709f99402f4b9dfa98e13101c"
+}

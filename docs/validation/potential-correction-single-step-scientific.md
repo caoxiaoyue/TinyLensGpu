@@ -1,5 +1,10 @@
 # Single-step scientific reconstruction on 200x200 images
 
+This record describes the original fixed-strength runs. The later
+[peak-bias investigation](potential-correction-peak-recovery.md) separates
+regularization, source-prior and representation effects and records a common
+candidate-selection study. The results below remain the historical baseline.
+
 Completed 2026-10-29 in `tinylens_gpu`, using implementation `34954a0` plus
 retained per-file SHA256 hashes. Both backends reconstruct the same localized
 Pseudo-Jaffe feature at identical fixed strengths. Its convergence peak is

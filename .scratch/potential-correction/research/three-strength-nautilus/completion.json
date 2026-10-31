@@ -1,0 +1,20 @@
+{
+  "complete": true,
+  "n_live": 300,
+  "n_like": 12520,
+  "explored": true,
+  "f_live": null,
+  "n_eff": 5005.507082125025,
+  "hyperprior_integrated_log_evidence": 69518.36235572373,
+  "failed_likelihoods_this_invocation": 0,
+  "maximum_relative_residual_this_invocation": 7.791664474055134e-16,
+  "best_conditional_log_evidence_this_invocation": 69529.62892333671,
+  "best_log10_strengths_this_invocation": [
+    -4.105447658105568,
+    5.829975843945803,
+    4.497658602678783
+  ],
+  "elapsed_seconds_this_invocation": 144.31349561107345,
+  "posterior_points": 5688,
+  "weighted_kish_effective_size": 5005.50708214445
+}

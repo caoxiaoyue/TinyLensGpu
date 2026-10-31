@@ -33,6 +33,37 @@ with peak suppression, low-mode sensitivity, boundary optima and approximation
 limits retained. Those results do not automatically validate different image,
 source, potential or physical configurations.
 
+The follow-up [peak-bias investigation](research/peak-recovery/README.md) and
+[validation report](../../docs/validation/potential-correction-peak-recovery.md)
+separate D4 broadening, source-prior competition, representation error and
+numerical stopping. A common finite evidence-selection rule improves the
+reference nonlinear peak recovery from 48.08% to 85.30% with the original
+small control, at the cost of more background variation in the subhalo map.
+The recorded policy, fresh-noise checks and original fixed-strength outputs
+remain separate evidence; the historical default is preserved.
+
+A fresh [inversion-plus-evidence benchmark](research/evidence-timing/README.md)
+measures both original and selected scientific settings in isolated GPU
+processes. It separates setup, first-fit compilation/preparation and repeated
+complete fits, with numerical-reference guards; see the
+[timing report](../../docs/validation/potential-correction-evidence-timing.md).
+The matched operator extension reuses the same frozen inputs and records
+both its measured speed and its approximate determinant contract.
+
+The [three-strength single-step experiment](research/three-strength-single-step/README.md)
+jointly selects source, D4 and amplitude strengths using the full dense
+conditional Gaussian evidence on the unchanged scientific mock. It retains
+a reoptimized fixed-amplitude comparison, multi-start/boundary diagnostics,
+local-curvature checks and raw recovery trade-offs. This user-requested
+exploration does not change the public fixed-amplitude API or demo defaults.
+
+The [Nautilus three-strength posterior](research/three-strength-nautilus/README.md)
+then samples the same subhalo model with 300 live points and broad independent
+log-uniform hyperpriors. It retains 5006 effective weighted samples, marginal
+intervals, corner plots and correlations: the strongest log-strength pair
+is lambda0/lambda4 at rho=-0.185, without a strong three-parameter degeneracy
+in this fixed-macro, frozen-gradient single-step experiment.
+
 The [user guide](../../docs/guides/potential-correction.md) covers both public
 algorithms, initialization, geometry, priors, tuning, results and measured
 limits. The [complete coverage/integration record](../../docs/validation/potential-correction-coverage.md)
