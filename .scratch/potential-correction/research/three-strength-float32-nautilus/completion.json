@@ -1,0 +1,14 @@
+{
+  "complete": true,
+  "n_live": 300,
+  "n_like": 12408,
+  "explored": true,
+  "f_live": null,
+  "n_eff": 5002.180654923286,
+  "hyperprior_integrated_log_evidence": 69518.37119105452,
+  "calls_this_invocation": 2040,
+  "fallbacks_this_invocation": 0,
+  "elapsed_seconds_this_invocation": 15.22039790099916,
+  "posterior_points": 5496,
+  "weighted_kish_effective_size": 5002.180654886076
+}

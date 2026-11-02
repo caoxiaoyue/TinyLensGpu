@@ -60,6 +60,7 @@ class _PotentialCorrectionProblem:
         *,
         lambda_amplitude,
         source_regularization="second-order",
+        source_scale=None,
         macro_mapping=None,
         solve_rtol=None,
         solve_atol=0.0,
@@ -86,6 +87,17 @@ class _PotentialCorrectionProblem:
         self.source_regularizer = FiniteDifferenceRegularization(
             renderer.source_n, source_regularization
         )
+        self.source_scale = None
+        if source_scale is not None:
+            scale = np.array(source_scale, copy=True)
+            if scale.shape != (self.n_source,) or not np.all(
+                np.isfinite(scale) & (scale > 0)
+            ):
+                raise ValueError(
+                    "source_scale must contain n_source finite positive values"
+                )
+            with jax.experimental.enable_x64(self.dtype == jnp.float64):
+                self.source_scale = jnp.asarray(scale, dtype=self.dtype)
         self.potential_regularizer = PotentialRegularization(renderer.potential_grid)
         self.macro_mapping = (
             renderer.macro_mapping if macro_mapping is None else macro_mapping
@@ -126,7 +138,7 @@ class _PotentialCorrectionProblem:
                 (
                     jnp.asarray(lambda_source, dtype=self.dtype)
                     * self.source_regularizer.matvec_free(
-                        source, *self.renderer.source_bbox
+                        source, *self.renderer.source_bbox, scale=self.source_scale
                     ),
                     self.potential_regularizer.matvec(
                         potential,
@@ -142,6 +154,7 @@ class _PotentialCorrectionProblem:
             if self._dense_source_prior is None:
                 self._dense_source_prior = self.source_regularizer.matrix(
                     *self.renderer.source_bbox,
+                    scale=self.source_scale,
                 ).astype(self.dtype)
                 self._dense_potential_roughness = self.potential_regularizer.to_dense(
                     1, 0
@@ -161,6 +174,7 @@ class _PotentialCorrectionProblem:
         return {
             "source_n": self.renderer.source_n,
             "source_regularization": self.source_regularizer.regularization_type,
+            "source_adaptive_scale_fixed": self.source_scale is not None,
             "potential_spacing": self.renderer.potential_grid.spacing,
             "potential_regularization": "complete_pixel_unit_fourth_differences",
             "potential_amplitude_prior": "independent_all_unknowns",

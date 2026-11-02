@@ -95,7 +95,7 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
         Full native images. Only selected pixels must be finite; selected
         noise standard deviations must be positive.
     source_gradient : callable
-        Truth-derived provider ``gradient(beta_x, beta_y) -> (gx, gy)`` at
+        Provider ``gradient(beta_x, beta_y) -> (gx, gy)`` at
         macro image-subpixel rays. Evaluated once and frozen for this problem.
         Gradients outside the fixed source box are zero. No truth intensity
         is fixed: the full signed source brightness is solved along with p.
@@ -103,7 +103,11 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
         Explicit positive independent potential amplitude precision, fixed
         for all evaluations. It is never adjusted to rescue factorization.
     source_regularization : str
-        Existing nonadaptive source prior, default ``"second-order"``.
+        Source finite-difference prior, default ``"second-order"``.
+    source_scale : array_like, optional
+        Fixed positive adaptive precision scale at each source node, shape
+        ``(source_n**2,)``. It is frozen for all strength evaluations and is
+        used consistently in the source penalty and normalized evidence.
     macro_mapping : MacroMapping, optional
         Explicit fresh macro rays from ``renderer.prepare_macro(new_macro)``.
         Creating a new problem with these rays reevaluates the gradient and
@@ -127,6 +131,7 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
         *,
         lambda_amplitude,
         source_regularization="second-order",
+        source_scale=None,
         initialization_provenance=None,
         macro_mapping=None,
         solve_rtol=None,
@@ -139,6 +144,7 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
             noise_map,
             lambda_amplitude=lambda_amplitude,
             source_regularization=source_regularization,
+            source_scale=source_scale,
             macro_mapping=macro_mapping,
             solve_rtol=solve_rtol,
         )

@@ -1,0 +1,32 @@
+{
+  "posterior_corner": {
+    "pdf": ".scratch/potential-correction/output/three-strength-nautilus-float32-20261101/subhalo-nlive300/posterior_corner.pdf",
+    "auditable": true,
+    "minimum_required_pt": 5.0,
+    "minimum_found_pt": 8.4,
+    "text_run_count": 42,
+    "below_minimum_count": 0,
+    "below_minimum": [],
+    "warnings": []
+  },
+  "posterior_median_recovery": {
+    "pdf": ".scratch/potential-correction/output/three-strength-nautilus-float32-20261101/subhalo-nlive300/posterior_median_recovery.pdf",
+    "auditable": true,
+    "minimum_required_pt": 5.0,
+    "minimum_found_pt": 8.0,
+    "text_run_count": 188,
+    "below_minimum_count": 0,
+    "below_minimum": [],
+    "warnings": []
+  },
+  "subhalo_median_recovery": {
+    "pdf": ".scratch/potential-correction/output/three-strength-nautilus-float32-20261101/subhalo-nlive300/subhalo_median_recovery.pdf",
+    "auditable": true,
+    "minimum_required_pt": 5.0,
+    "minimum_found_pt": 8.0,
+    "text_run_count": 57,
+    "below_minimum_count": 0,
+    "below_minimum": [],
+    "warnings": []
+  }
+}

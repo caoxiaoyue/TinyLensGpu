@@ -6,6 +6,12 @@ at the declared accuracy below. All eight matched 200×200 scientific float32
 fits fail their existing numerical gates and retain null evidence. Their
 elapsed times are failure diagnostics, not speedups.
 
+A later [single-step-only Float32 comparison](potential-correction-single-step-float32.md)
+keeps these strict failures and adds a separately declared `solve_rtol=1e-5`
+probe with unchanged priors. Subhalo fits pass that probe in both backends;
+the strong-prior controls still fail. Its successful warm timings apply only
+to that explicitly relaxed residual certificate.
+
 The [compact measurement record](../../.scratch/potential-correction/research/precision-performance/summary.json)
 contains 45 isolated workers, numerical comparisons, dtype audits, input and
 implementation hashes, failed statuses, and the rejected calibration.

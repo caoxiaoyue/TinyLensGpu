@@ -1,7 +1,11 @@
 mytest/
 **egg-info
 *yml
-workspace/
+/workspace/*
+!/workspace/single_step/
+/workspace/single_step/*
+!/workspace/single_step/*.py
+!/workspace/single_step/*.md
 **/csst_mocks.pklz
 paper/mock_csst/dataset/
 /.*/

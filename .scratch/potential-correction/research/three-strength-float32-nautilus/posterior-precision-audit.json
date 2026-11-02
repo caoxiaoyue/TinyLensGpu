@@ -1,0 +1,22 @@
+{
+  "median_log10_strengths": [
+    -4.109320402889993,
+    5.827937607727765,
+    4.483657214907038
+  ],
+  "median_strengths": [
+    7.774627624314057e-05,
+    672879.9810362326,
+    30454.90260109322
+  ],
+  "maximum_abs_delta_logz": 23.52922082602163,
+  "weighted_mean_delta_logz": 0.013198384323329974,
+  "weighted_rms_delta_logz": 0.028465600141713395,
+  "float64_reweighted_kish_size": 5007.790746437045,
+  "reweighting_total_variation": 0.009991053787978236,
+  "float64_reweighted_median_strengths": [
+    7.775000442899242e-05,
+    672879.2321175974,
+    30449.503566584855
+  ]
+}

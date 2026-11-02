@@ -422,3 +422,84 @@ def test_masked_observation_result_preserves_data_and_both_image_diagnostics():
         )
         assert np.isnan(residual[mask]).all() and np.isnan(normalized[mask]).all()
     np.testing.assert_allclose(result.noise_logdet, 2 * np.log(noise[~mask]).sum())
+
+
+def test_fixed_adaptive_source_scale_enters_dense_operator_penalty_and_evidence():
+    from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+    from TinyLensGpu.utils.inversion.regularization import (
+        FiniteDifferenceRegularization,
+    )
+
+    renderer = _small_renderer()
+    with jax.experimental.enable_x64():
+        image = jnp.arange(9, dtype=jnp.float64).reshape(3, 3) / 20
+        noise = jnp.full((3, 3), 0.3, dtype=jnp.float64)
+        scale = np.array([1.0, 2.0, 4.0, 8.0])
+
+        def gradient(x, y):
+            return jnp.ones_like(x), -jnp.ones_like(y)
+
+        problem = SingleStepPotentialCorrection(
+            renderer,
+            image,
+            noise,
+            gradient,
+            lambda_amplitude=20.0,
+            source_regularization="first-order",
+            source_scale=scale,
+        )
+        scale[:] = 100.0
+        source_prior = FiniteDifferenceRegularization(2, "first-order").matrix(
+            *renderer.source_bbox,
+            scale=jnp.array([1.0, 2.0, 4.0, 8.0]),
+        )
+        q = np.asarray(problem.dense_prior(0.3, 0.02))
+        np.testing.assert_allclose(q[:4, :4], 0.3 * source_prior, rtol=1e-12)
+        vector = jnp.linspace(-0.2, 0.3, problem.n_joint)
+        np.testing.assert_allclose(
+            problem.prior_matvec(vector, 0.3, 0.02), q @ vector, rtol=1e-12, atol=1e-12
+        )
+        fit = problem.fit(0.3, 0.02)
+        assert fit.success
+        a = np.asarray(problem.dense_mapping())
+        n = np.asarray(problem.noise_active)
+        d = np.asarray(problem.data_active)
+        covariance = np.diag(n**2) + a @ np.linalg.solve(q, a.T)
+        expected = -0.5 * (
+            d @ np.linalg.solve(covariance, d)
+            + np.linalg.slogdet(covariance)[1]
+            + d.size * np.log(2 * np.pi)
+        )
+        np.testing.assert_allclose(fit.log_evidence, expected, atol=1e-10)
+        operator = problem.fit(
+            0.3,
+            0.02,
+            backend="operator",
+            block_size=7,
+            pcg_max_iter=500,
+            pcg_rtol=1e-12,
+        )
+        assert operator.success
+        np.testing.assert_allclose(
+            operator.source_values, fit.source_values, rtol=1e-7, atol=1e-9
+        )
+        assert fit.configuration["source_adaptive_scale_fixed"] is True
+
+
+@pytest.mark.parametrize(
+    "scale",
+    [np.ones(3), [1.0, 1.0, 0.0, 1.0], [1.0, -1.0, 1.0, 1.0], [1.0, np.nan, 1.0, 1.0]],
+)
+def test_invalid_fixed_source_scale_rejected(scale):
+    from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+
+    renderer = _small_renderer()
+    with pytest.raises(ValueError, match="source_scale"):
+        SingleStepPotentialCorrection(
+            renderer,
+            np.ones((3, 3)),
+            np.ones((3, 3)),
+            lambda x, y: (x, y),
+            lambda_amplitude=20.0,
+            source_scale=scale,
+        )

@@ -99,7 +99,9 @@ def _unit_prior_blocks(problem, basis, indices, valid):
         return jnp.concatenate(
             (
                 problem.source_regularizer.matvec_free(
-                    values[: problem.n_source], *problem.renderer.source_bbox
+                    values[: problem.n_source],
+                    *problem.renderer.source_bbox,
+                    scale=problem.source_scale,
                 ),
                 problem.potential_regularizer.matvec(values[problem.n_source :], 1, 0),
             )

@@ -64,6 +64,19 @@ intervals, corner plots and correlations: the strongest log-strength pair
 is lambda0/lambda4 at rho=-0.185, without a strong three-parameter degeneracy
 in this fixed-macro, frozen-gradient single-step experiment.
 
+The [Float32 Dense Nautilus follow-up](research/three-strength-float32-nautilus/README.md)
+samples the same three strengths with explicit Float64 fallback and posterior
+precision checks, then exports the conditional source/subhalo reconstruction
+at the three marginal medians. Its [validation report](../../docs/validation/potential-correction-three-strength-float32-nautilus.md)
+retains both the localized peak improvement and the remaining background bias.
+
+The separate [J0946 joint-QR correction](../../workspace/single_step/joint_qr_impact.md)
+fixes the standalone 100×100-source driver's joint/fallback evidence, retaining
+the complete coupled Gaussian target through a prior-whitened augmented QR.
+Its [compact numerical record](research/j0946-joint-qr-20261102/summary.json)
+keeps the full old-support re-score, evaluated-candidate failures, independent
+Float64 arithmetic controls and a fresh run under the original J0946 settings.
+
 The [user guide](../../docs/guides/potential-correction.md) covers both public
 algorithms, initialization, geometry, priors, tuning, results and measured
 limits. The [complete coverage/integration record](../../docs/validation/potential-correction-coverage.md)
@@ -107,6 +120,12 @@ Focused commands, configurations and outcomes are retained in:
   supported small float32 configuration from failed stiff scientific float32
   fits, preserve the original numerical guards, and record isolated
   compilation-inclusive/warm timing, memory and actual resolution scaling.
+- [Single-step Float32 follow-up](../../docs/validation/potential-correction-single-step-float32.md)
+  repeats the fixed-strength 200×200 mock on Dense then operator, preserving
+  the strict failures and separately measuring reconstruction and speed with
+  an explicit residual-acceptance probe. The strong-prior Float32 control
+  still fails; [inputs, results and reproduction](research/single-step-float32-20261101/README.md)
+  retain that boundary.
 
 The original core baseline passed 810 tests (3 slow tests deselected) before
 shared-code changes. An early integration checkout passed all 268 example

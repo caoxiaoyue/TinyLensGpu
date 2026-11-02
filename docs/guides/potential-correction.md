@@ -12,7 +12,7 @@ subhalo detection significance, mass intervals or posterior-sampling results.
 
 | Entry point | Initialization | Fitted image |
 | --- | --- | --- |
-| `SingleStepPotentialCorrection` | An analytic truth-gradient callable evaluated once at macro image-subpixel rays, then frozen | A linear source–potential prediction, plus a separate nonlinear re-render |
+| `SingleStepPotentialCorrection` | A source-gradient callable evaluated once at macro image-subpixel rays, then frozen; scientific mocks use analytic truth gradients | A linear source–potential prediction, plus a separate nonlinear re-render |
 | `IterativePotentialCorrection` | Truth brightness sampled at the fixed **source nodes**, with zero initial potential | A nonlinear image; mappings and analytical bilinear source gradients refresh after accepted updates |
 
 A documented small-step derivative of the truth can also supply the single-step
@@ -88,6 +88,18 @@ separate constructor parameter fixed for all fits/search candidates.
 noise arrays must match the simulator shape. Only selected pixels must be
 finite, and selected noise standard deviations must be positive. Masks use
 `True` for excluded pixels.
+
+For a reconstructed macro source, freeze the bilinear gradient with
+`renderer.source_spatial_gradient(source_values, renderer.source_mapping())`
+and supply a callable returning that pair. The single-step constructor also
+accepts `source_scale`, a fixed positive vector of length `source_n**2`.
+This reuses the existing edge-weighted adaptive finite differences in both
+the penalty and the normalized prior determinant; only `lambda_source`
+changes during strength selection. Preserve the macro fit's template and
+adaptive parameters when exporting that scale, rather than recalculating it
+from each new jointly reconstructed source. The standalone J0946 drivers in
+`workspace/single_step/` illustrate the M3 handoff and a three-strength
+Nautilus search with the Dense Float32 backend.
 
 For the operator backend, add `backend="operator"`, `block_size`, optional
 `block_indices`, `pcg_max_iter`, `pcg_rtol` and `pcg_atol`. An explicit partition

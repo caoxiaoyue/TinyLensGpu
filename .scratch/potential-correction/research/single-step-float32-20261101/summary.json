@@ -1,0 +1,3628 @@
+{
+  "scope": "200x200 physical mock; single-step only; fixed priors; matched data",
+  "residual_probe_rtol": 1e-05,
+  "driver_sha256": "4fe9484784a543672abd6d0358927784c3eaa17f1ea7e361d6512e0e39094ed3",
+  "prior_rounding": {
+    "subhalo": {
+      "max_D4_gram_diagonal": 140.0,
+      "max_float32_smoothing_diagonal": 2240000000.0,
+      "float32_ulp_at_max_diagonal": 256.0,
+      "lambda_amplitude": 10000.0,
+      "amplitude_lost_diagonal_entries": 0,
+      "potential_nodes": 956
+    },
+    "control": {
+      "max_D4_gram_diagonal": 140.0,
+      "max_float32_smoothing_diagonal": 13999999549440.0,
+      "float32_ulp_at_max_diagonal": 1048576.0,
+      "lambda_amplitude": 10000.0,
+      "amplitude_lost_diagonal_entries": 912,
+      "potential_nodes": 956
+    }
+  },
+  "runs": {
+    "dense-strict-subhalo-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 1.8722529635159178e-07,
+          "relative_residual": 1.038131287208003e-15,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.803416228502,
+        "chi2": 22170.105555453232,
+        "regularization_penalty": 1391.5012770037729,
+        "prior_logdet": 44644.972001974435,
+        "posterior_logdet": 45415.548383735804,
+        "log_evidence": 68989.98446057098,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.598378718999811,
+        "warm_fit_seconds": [
+          0.6809175150001465,
+          0.6460883640002066,
+          0.6453342590002649,
+          0.6447945739992065,
+          0.6435418399996706
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.227809765000529,
+        "cold_workflow_seconds": 8.826195876999918,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": true,
+            "failed": false,
+            "iterations": 1,
+            "residual_norm": 1.8722529635159178e-07,
+            "relative_residual": 1.038131287208003e-15,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.803416228502,
+          "log_evidence": 68989.98446057098,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.8722529635159178e-07,
+              "relative_residual": 1.038131287208003e-15,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8034162285,
+            "log_evidence": 68989.98446057098,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.8722529635159178e-07,
+              "relative_residual": 1.038131287208003e-15,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 68989.98446057098,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.8722529635159178e-07,
+              "relative_residual": 1.038131287208003e-15,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8034162285,
+            "log_evidence": 68989.98446057098,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.8722529635159178e-07,
+              "relative_residual": 1.038131287208003e-15,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 68989.98446057098,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.8722529635159178e-07,
+              "relative_residual": 1.038131287208003e-15,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 68989.98446057098,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.4399963160003608,
+        "array_export_seconds": 0.07839813400005369
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "eebd6ef04d62b9d4e10e645254d3ef956b2e4c51cc7e18039611c3be6cb7e676",
+      "record_sha256": "0ccac19f8dea9a24487167bd66e24bfdd74e2643ddc151ebc0b075ee904083c9",
+      "array_sha256": "6a40666993cd0b4a015dd7c6ef1377d9292562d09de2b74cd5390c6ebb54d2d9"
+    },
+    "dense-strict-subhalo-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "linear_residual_exceeds_tolerance",
+        "failure_reason": "linear_residual_exceeds_tolerance",
+        "solver_info": {
+          "method": "cholesky",
+          "converged": false,
+          "failed": true,
+          "iterations": 1,
+          "residual_norm": 98.745849609375,
+          "relative_residual": 5.475284297062899e-07,
+          "reason": "linear_residual_exceeds_tolerance",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.818359375,
+        "chi2": 22170.115234375,
+        "regularization_penalty": 1391.52099609375,
+        "prior_logdet": 44645.44140625,
+        "posterior_logdet": 45415.5703125,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.43432108199886,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 4.7102967360006005,
+        "cold_workflow_seconds": 8.144625671999165,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "linear_residual_exceeds_tolerance",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": false,
+            "failed": true,
+            "iterations": 1,
+            "residual_norm": 98.745849609375,
+            "relative_residual": 5.475284297062899e-07,
+            "reason": "linear_residual_exceeds_tolerance",
+            "diagnostics": {}
+          },
+          "objective": 11780.818359375,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.3354182610000862,
+        "array_export_seconds": 0.05986295299953781
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "eebd6ef04d62b9d4e10e645254d3ef956b2e4c51cc7e18039611c3be6cb7e676",
+      "record_sha256": "b7d5786f0217b480144d7eacdd82632a04794166a0835371d9f3a2776bca3492",
+      "array_sha256": "71891322cea4a86c158709b281e092c6ec8cc32c77eda39b08d225ee7fdab80d"
+    },
+    "dense-strict-control-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 4.3763906527653556e-05,
+          "relative_residual": 2.453227372975874e-13,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.494543286157,
+        "chi2": 21832.990101637413,
+        "regularization_penalty": 977.998984934901,
+        "prior_logdet": 52809.175674673825,
+        "posterior_logdet": 53336.67387043212,
+        "log_evidence": 69486.83242651496,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.443788909000432,
+        "warm_fit_seconds": [
+          0.6871094920006726,
+          0.6453221200008556,
+          0.6457721320002747,
+          0.6401070709998748,
+          0.6412136279996048
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.184571042000243,
+        "cold_workflow_seconds": 8.628368146000867,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": true,
+            "failed": false,
+            "iterations": 1,
+            "residual_norm": 4.3763906527653556e-05,
+            "relative_residual": 2.453227372975874e-13,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11405.494543286159,
+          "log_evidence": 69486.83242651496,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.3763906527653556e-05,
+              "relative_residual": 2.453227372975874e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286159,
+            "log_evidence": 69486.83242651496,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.3763906527653556e-05,
+              "relative_residual": 2.453227372975874e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286157,
+            "log_evidence": 69486.83242651496,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.3763906527653556e-05,
+              "relative_residual": 2.453227372975874e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286157,
+            "log_evidence": 69486.83242651496,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.3763906527653556e-05,
+              "relative_residual": 2.453227372975874e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286159,
+            "log_evidence": 69486.83242651496,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.3763906527653556e-05,
+              "relative_residual": 2.453227372975874e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286157,
+            "log_evidence": 69486.83242651496,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.4427123009991192,
+        "array_export_seconds": 0.07504875499944319
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "172e0c57dd34b366c676e5da0417453af10ad643d7fe749c1ce861a730869225",
+      "record_sha256": "b7497f6b0fc4ab7e39979e2baacdad2fd58b2cd9bf3492ac3980997942d9890b",
+      "array_sha256": "0152693c4c0bc79672f65bd3ad5642843fa643fe4e92cc6e119216e900199600"
+    },
+    "dense-strict-control-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "prior_factorization_failed",
+        "failure_reason": "prior_factorization_failed",
+        "solver_info": {
+          "method": "cholesky",
+          "converged": false,
+          "failed": true,
+          "iterations": 1,
+          "residual_norm": null,
+          "relative_residual": null,
+          "reason": "prior_factorization_failed",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": null,
+        "chi2": null,
+        "regularization_penalty": null,
+        "prior_logdet": null,
+        "posterior_logdet": null,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.394623809999757,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 4.569492612999966,
+        "cold_workflow_seconds": 7.964124318001268,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "prior_factorization_failed",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": false,
+            "failed": true,
+            "iterations": 1,
+            "residual_norm": null,
+            "relative_residual": null,
+            "reason": "prior_factorization_failed",
+            "diagnostics": {}
+          },
+          "objective": null,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.3973678029997245,
+        "array_export_seconds": 0.040122140000676154
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "172e0c57dd34b366c676e5da0417453af10ad643d7fe749c1ce861a730869225",
+      "record_sha256": "3a80d5bc39a3dcc1b17fcf820e636d894c89702ee80dc67067e0d99d8f3a6d07",
+      "array_sha256": "3b3cb2a10fcc9fad75eaece8c6e37bcb6a79ea5bdb26cdd2dc50db67985542e7"
+    },
+    "dense-residual_probe-subhalo-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 1.7994226501590134e-07,
+          "relative_residual": 9.977481614091358e-16,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.803416228504,
+        "chi2": 22170.105555453265,
+        "regularization_penalty": 1391.5012770037433,
+        "prior_logdet": 44644.972001974435,
+        "posterior_logdet": 45415.548383735826,
+        "log_evidence": 68989.98446057123,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.4861831440011883,
+        "warm_fit_seconds": [
+          0.6803560170010314,
+          0.6456115740002133,
+          0.6452799340004276,
+          0.645109949999096,
+          0.6423610439996992
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.207162906001031,
+        "cold_workflow_seconds": 8.693354185001226,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": true,
+            "failed": false,
+            "iterations": 1,
+            "residual_norm": 1.7994226501590134e-07,
+            "relative_residual": 9.977481614091358e-16,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.8034162285,
+          "log_evidence": 68989.98446057123,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.7994226501590134e-07,
+              "relative_residual": 9.977481614091358e-16,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 68989.98446057123,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.7994226501590134e-07,
+              "relative_residual": 9.977481614091358e-16,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 68989.98446057123,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.7994226501590134e-07,
+              "relative_residual": 9.977481614091358e-16,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 68989.98446057123,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.7994226501590134e-07,
+              "relative_residual": 9.977481614091358e-16,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8034162285,
+            "log_evidence": 68989.98446057123,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 1.7994226501590134e-07,
+              "relative_residual": 9.977481614091358e-16,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 68989.98446057123,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.4504742030003399,
+        "array_export_seconds": 0.07542352400014352
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "961fd900a3866f501fb87d2244004089cb14bb90947d704d15ca6b1b7cb3d95f",
+      "record_sha256": "25a888538cb61da5411b94150e89a6c0180a7c771157ad80ea6518c779eb0d8e",
+      "array_sha256": "d79b6b49b15c7d8f7db3e285b684478e1a2f19c18a7d6eb259289404d01f3ffb"
+    },
+    "dense-residual_probe-subhalo-float32": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 101.3772201538086,
+          "relative_residual": 5.621188847726444e-07,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.8154296875,
+        "chi2": 22170.140625,
+        "regularization_penalty": 1391.490478515625,
+        "prior_logdet": 44645.44140625,
+        "posterior_logdet": 45415.57421875,
+        "log_evidence": 68989.9140625,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.3930481059996964,
+        "warm_fit_seconds": [
+          0.029967573000249104,
+          0.02972063800007163,
+          0.032390499000030104,
+          0.030877582999892184,
+          0.030920482999135857
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 4.71701966100045,
+        "cold_workflow_seconds": 8.110075602000506,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": true,
+            "failed": false,
+            "iterations": 1,
+            "residual_norm": 101.3772201538086,
+            "relative_residual": 5.621188847726444e-07,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.8154296875,
+          "log_evidence": 68989.9140625,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 101.3772201538086,
+              "relative_residual": 5.621188847726444e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8154296875,
+            "log_evidence": 68989.9140625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 101.3772201538086,
+              "relative_residual": 5.621188847726444e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8154296875,
+            "log_evidence": 68989.9140625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 101.3772201538086,
+              "relative_residual": 5.621188847726444e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8154296875,
+            "log_evidence": 68989.9140625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 101.3772201538086,
+              "relative_residual": 5.621188847726444e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8154296875,
+            "log_evidence": 68989.9140625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 101.3772201538086,
+              "relative_residual": 5.621188847726444e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8154296875,
+            "log_evidence": 68989.9140625,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.3414022870001645,
+        "array_export_seconds": 0.05787181600135227
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": "float32"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "961fd900a3866f501fb87d2244004089cb14bb90947d704d15ca6b1b7cb3d95f",
+      "record_sha256": "cd5d54c1e1ce250717cba7efbf5fcf0bbdb8806c3b6c79768fb66123fb84f0ee",
+      "array_sha256": "dd80959e784f3bd1932bbf30e77542ccfa9883d76a171a99f44942da3eaff52b"
+    },
+    "dense-residual_probe-control-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "cholesky",
+          "converged": true,
+          "failed": false,
+          "iterations": 1,
+          "residual_norm": 4.535211055834709e-05,
+          "relative_residual": 2.542255659321976e-13,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.49454328616,
+        "chi2": 21832.990101630246,
+        "regularization_penalty": 977.9989849420748,
+        "prior_logdet": 52809.175674673825,
+        "posterior_logdet": 53336.67387042632,
+        "log_evidence": 69486.8324265167,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.459599423000327,
+        "warm_fit_seconds": [
+          0.6788621260002401,
+          0.644155617999786,
+          0.6472844780000742,
+          0.645651541000916,
+          0.6470186460010154
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.2072186850000435,
+        "cold_workflow_seconds": 8.666826423999737,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": true,
+            "failed": false,
+            "iterations": 1,
+            "residual_norm": 4.535211055834709e-05,
+            "relative_residual": 2.542255659321976e-13,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11405.49454328616,
+          "log_evidence": 69486.8324265167,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.535211055834709e-05,
+              "relative_residual": 2.542255659321976e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69486.8324265167,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.535211055834709e-05,
+              "relative_residual": 2.542255659321976e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286159,
+            "log_evidence": 69486.8324265167,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.535211055834709e-05,
+              "relative_residual": 2.542255659321976e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286159,
+            "log_evidence": 69486.8324265167,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.535211055834709e-05,
+              "relative_residual": 2.542255659321976e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286162,
+            "log_evidence": 69486.8324265167,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "cholesky",
+              "converged": true,
+              "failed": false,
+              "iterations": 1,
+              "residual_norm": 4.535211055834709e-05,
+              "relative_residual": 2.542255659321976e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69486.8324265167,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.4487902569999278,
+        "array_export_seconds": 0.07442251599968586
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "5ed811da9c6b3126cb0f2c5a2c18e7195e88cc810165934b42afa93932e3d940",
+      "record_sha256": "23d13c8430be57bab1fb569b78f63a728a34a73a2eb7b8fa33132edf714b0c3d",
+      "array_sha256": "67761cd231f5e068097f05f2427906046b2711f5d143657c2534af472c01c49b"
+    },
+    "dense-residual_probe-control-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "prior_factorization_failed",
+        "failure_reason": "prior_factorization_failed",
+        "solver_info": {
+          "method": "cholesky",
+          "converged": false,
+          "failed": true,
+          "iterations": 1,
+          "residual_norm": 3340.97705078125,
+          "relative_residual": 1.872816756076645e-05,
+          "reason": "prior_factorization_failed",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11406.0517578125,
+        "chi2": 21833.12109375,
+        "regularization_penalty": 978.9827880859375,
+        "prior_logdet": null,
+        "posterior_logdet": 53348.65625,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "full_cholesky",
+        "evidence_is_exact": true
+      },
+      "timing": {
+        "setup_seconds": 3.415942431000076,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 4.806630564999068,
+        "cold_workflow_seconds": 8.222580480000033,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "prior_factorization_failed",
+          "solver_info": {
+            "method": "cholesky",
+            "converged": false,
+            "failed": true,
+            "iterations": 1,
+            "residual_norm": 3340.97705078125,
+            "relative_residual": 1.872816756076645e-05,
+            "reason": "prior_factorization_failed",
+            "diagnostics": {}
+          },
+          "objective": 11406.0517578125,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.3272279740012891,
+        "array_export_seconds": 0.05777335499988112
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "5ed811da9c6b3126cb0f2c5a2c18e7195e88cc810165934b42afa93932e3d940",
+      "record_sha256": "b14c36556f3df727b92ba855ef98c0015ecb9337ed7fb357e91daa168a106c13",
+      "array_sha256": "e05d1db17c53257957783ca1ce6658d8fc7f27fb2082d384d23cf71397270404"
+    },
+    "operator-strict-subhalo-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 681,
+          "residual_norm": 0.00016176754274509566,
+          "relative_residual": 8.969725280235298e-13,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.803416228502,
+        "chi2": 22170.105555446935,
+        "regularization_penalty": 1391.5012770100702,
+        "prior_logdet": 45224.51546635385,
+        "posterior_logdet": 45778.039660649854,
+        "log_evidence": 69098.51055430323,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.49034269600088,
+        "warm_fit_seconds": [
+          0.2829777320002904,
+          0.2754452160006622,
+          0.27877543100112234,
+          0.2759645449987147,
+          0.2754936119999911
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 6.392998067000008,
+        "cold_workflow_seconds": 9.88334870899962,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "pcg",
+            "converged": true,
+            "failed": false,
+            "iterations": 681,
+            "residual_norm": 0.00014140590070927324,
+            "relative_residual": 7.840708097823068e-13,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.803416228502,
+          "log_evidence": 69098.51055430323,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 684,
+              "residual_norm": 0.0001507837171311263,
+              "relative_residual": 8.36069149872721e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 681,
+              "residual_norm": 0.0001679902720344067,
+              "relative_residual": 9.31476465754936e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228508,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 682,
+              "residual_norm": 0.00017027139662018962,
+              "relative_residual": 9.441248997468555e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 679,
+              "residual_norm": 0.00017544928014872485,
+              "relative_residual": 9.728353517917385e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228506,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 681,
+              "residual_norm": 0.00016176754274509566,
+              "relative_residual": 8.969725280235298e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.36768079300054524,
+        "array_export_seconds": 0.0744482540012541
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "eebd6ef04d62b9d4e10e645254d3ef956b2e4c51cc7e18039611c3be6cb7e676",
+      "record_sha256": "24dfc7f864d21bc869f3b1d3f849cec6542591f217eee4694a92e8a0685b3a55",
+      "array_sha256": "1f73438c3ab851ca5f16aacd3e722150bc26160c9b904b0439cf1ded144e8406"
+    },
+    "operator-strict-subhalo-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "linear_residual_exceeds_tolerance",
+        "failure_reason": "linear_residual_exceeds_tolerance",
+        "solver_info": {
+          "method": "pcg",
+          "converged": false,
+          "failed": true,
+          "iterations": 911,
+          "residual_norm": 161.63739013671875,
+          "relative_residual": 8.962509241428052e-07,
+          "reason": "linear_residual_exceeds_tolerance",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.8037109375,
+        "chi2": 22170.103515625,
+        "regularization_penalty": 1391.50439453125,
+        "prior_logdet": 45224.515625,
+        "posterior_logdet": 45778.0390625,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.4840546760005964,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.505328020999514,
+        "cold_workflow_seconds": 8.989390160000767,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "linear_residual_exceeds_tolerance",
+          "solver_info": {
+            "method": "pcg",
+            "converged": false,
+            "failed": true,
+            "iterations": 911,
+            "residual_norm": 161.63739013671875,
+            "relative_residual": 8.962509241428052e-07,
+            "reason": "linear_residual_exceeds_tolerance",
+            "diagnostics": {}
+          },
+          "objective": 11780.8037109375,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.32363637600064976,
+        "array_export_seconds": 0.05727923900121823
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "eebd6ef04d62b9d4e10e645254d3ef956b2e4c51cc7e18039611c3be6cb7e676",
+      "record_sha256": "ca3b11f29bb12d171860cd97bd3912f261e00991accb6156d18f583047fba69e",
+      "array_sha256": "1f3395940bca8b2d5f8fe658be5eaf7030560dc8ff594dc4cb6eb895dd8939b2"
+    },
+    "operator-strict-control-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 3675,
+          "residual_norm": 0.00034283212786808044,
+          "relative_residual": 1.921778075021937e-12,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.49454328616,
+        "chi2": 21832.990101633535,
+        "regularization_penalty": 977.9989849387874,
+        "prior_logdet": 53557.56058807703,
+        "posterior_logdet": 53939.69335451558,
+        "log_evidence": 69559.51514117431,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.480942471000162,
+        "warm_fit_seconds": [
+          1.2877820759986207,
+          1.270902742000544,
+          1.2591892659984296,
+          1.2665722199999436,
+          1.2688729379988217
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 7.514723956001035,
+        "cold_workflow_seconds": 10.995674350999252,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "pcg",
+            "converged": true,
+            "failed": false,
+            "iterations": 3685,
+            "residual_norm": 0.0003152555655478996,
+            "relative_residual": 1.7671950341005443e-12,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11405.494543286164,
+          "log_evidence": 69559.5151411743,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3624,
+              "residual_norm": 0.0003684979479595973,
+              "relative_residual": 2.0656502687864437e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286164,
+            "log_evidence": 69559.5151411743,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3684,
+              "residual_norm": 0.0003647825324080279,
+              "relative_residual": 2.044823153804533e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69559.51514117431,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3653,
+              "residual_norm": 0.00038375627502451896,
+              "relative_residual": 2.151182271277656e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69559.5151411743,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3675,
+              "residual_norm": 0.0003762021857790711,
+              "relative_residual": 2.1088371060828504e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69559.5151411743,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3675,
+              "residual_norm": 0.00034283212786808044,
+              "relative_residual": 1.921778075021937e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69559.51514117431,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.35799988500002655,
+        "array_export_seconds": 0.07457427000008465
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "172e0c57dd34b366c676e5da0417453af10ad643d7fe749c1ce861a730869225",
+      "record_sha256": "a82a95852ac979deb57c1d2c8832348274ae93268729b678f6ffe3f98f881f60",
+      "array_sha256": "72e83eaa3fdfbdf3df57708c0d77c560b8d53994d37e73e4c41a7b452b48dc47"
+    },
+    "operator-strict-control-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "linear_residual_exceeds_tolerance",
+        "failure_reason": "linear_residual_exceeds_tolerance",
+        "solver_info": {
+          "method": "pcg",
+          "converged": false,
+          "failed": true,
+          "iterations": 18609,
+          "residual_norm": 273942.0625,
+          "relative_residual": 0.0015356085496023297,
+          "reason": "linear_residual_exceeds_tolerance",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.5,
+        "chi2": 21833.0,
+        "regularization_penalty": 978.0000610351562,
+        "prior_logdet": 53557.421875,
+        "posterior_logdet": 53939.5625,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.3892960859993764,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 8.63111259300058,
+        "cold_workflow_seconds": 12.020416553999894,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "linear_residual_exceeds_tolerance",
+          "solver_info": {
+            "method": "pcg",
+            "converged": false,
+            "failed": true,
+            "iterations": 18609,
+            "residual_norm": 273942.0625,
+            "relative_residual": 0.0015356085496023297,
+            "reason": "linear_residual_exceeds_tolerance",
+            "diagnostics": {}
+          },
+          "objective": 11405.5,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.32926916500036896,
+        "array_export_seconds": 0.05927886899917212
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "172e0c57dd34b366c676e5da0417453af10ad643d7fe749c1ce861a730869225",
+      "record_sha256": "e13d2d83147a9836a3a5468fa70005e46f95feae621f2b2b317676fe203f133a",
+      "array_sha256": "fd4b4d3ddd66bbf691c4e8c1dcf15108a16a2d3a38cc5c19e14ccf1f277e5ccd"
+    },
+    "operator-residual_probe-subhalo-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 674,
+          "residual_norm": 0.00017683577589091423,
+          "relative_residual": 9.805232264411368e-13,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.803416228502,
+        "chi2": 22170.1055554717,
+        "regularization_penalty": 1391.5012769853054,
+        "prior_logdet": 45224.51546635385,
+        "posterior_logdet": 45778.039660649854,
+        "log_evidence": 69098.51055430323,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.5286235399998986,
+        "warm_fit_seconds": [
+          0.2803706759987108,
+          0.27463351499864075,
+          0.2721256259992515,
+          0.27339357399978326,
+          0.27180792599938286
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 6.412636007999026,
+        "cold_workflow_seconds": 9.941267661999518,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "pcg",
+            "converged": true,
+            "failed": false,
+            "iterations": 674,
+            "residual_norm": 0.00017143673544561916,
+            "relative_residual": 9.505864982511771e-13,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.803416228504,
+          "log_evidence": 69098.51055430323,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 681,
+              "residual_norm": 0.0001568043002355139,
+              "relative_residual": 8.694522226182086e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 676,
+              "residual_norm": 0.0001452194290836116,
+              "relative_residual": 8.052161528379887e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 69098.51055430324,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 681,
+              "residual_norm": 0.00014545302942888468,
+              "relative_residual": 8.065114256021731e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228504,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 673,
+              "residual_norm": 0.00014560580845493184,
+              "relative_residual": 8.073585583884974e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 674,
+              "residual_norm": 0.00017683577589091423,
+              "relative_residual": 9.805232264411368e-13,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.803416228502,
+            "log_evidence": 69098.51055430323,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.3654068369996821,
+        "array_export_seconds": 0.07454801200037764
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "961fd900a3866f501fb87d2244004089cb14bb90947d704d15ca6b1b7cb3d95f",
+      "record_sha256": "f968d9cab15b4c57fcb3525dfbe5ab74143acbc52aa6e28b8f2c49a5e0067a4e",
+      "array_sha256": "ecf4b97a46c380b0706aa285ae1da704c9ce2cf88016ffc9ecc147c7b9411971"
+    },
+    "operator-residual_probe-subhalo-float32": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 934,
+          "residual_norm": 182.57431030273438,
+          "relative_residual": 1.01234240901249e-06,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11780.8056640625,
+        "chi2": 22170.125,
+        "regularization_penalty": 1391.486572265625,
+        "prior_logdet": 45224.515625,
+        "posterior_logdet": 45778.0390625,
+        "log_evidence": 69098.515625,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.387898122000479,
+        "warm_fit_seconds": [
+          0.18728088500029116,
+          0.19011890500041773,
+          0.18682683499901032,
+          0.1848554010011867,
+          0.18498596499921405
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 5.486268339998787,
+        "cold_workflow_seconds": 8.874174217000473,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "pcg",
+            "converged": true,
+            "failed": false,
+            "iterations": 916,
+            "residual_norm": 162.71463012695312,
+            "relative_residual": 9.022240305966989e-07,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11780.8037109375,
+          "log_evidence": 69098.515625,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 904,
+              "residual_norm": 158.62359619140625,
+              "relative_residual": 8.795399253358482e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8037109375,
+            "log_evidence": 69098.515625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 937,
+              "residual_norm": 160.49949645996094,
+              "relative_residual": 8.899414751795121e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.802734375,
+            "log_evidence": 69098.515625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 945,
+              "residual_norm": 184.797119140625,
+              "relative_residual": 1.0246675401504035e-06,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8037109375,
+            "log_evidence": 69098.515625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 934,
+              "residual_norm": 162.587890625,
+              "relative_residual": 9.015212754093227e-07,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8056640625,
+            "log_evidence": 69098.515625,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 934,
+              "residual_norm": 182.57431030273438,
+              "relative_residual": 1.01234240901249e-06,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11780.8056640625,
+            "log_evidence": 69098.515625,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.3237449190000916,
+        "array_export_seconds": 0.05745555300018168
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": "float32"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "961fd900a3866f501fb87d2244004089cb14bb90947d704d15ca6b1b7cb3d95f",
+      "record_sha256": "ee2bdd03219cc83bf7a3c7a67fc1cd0ba4cfb2e5fc4d12a511c3b92772ad5752",
+      "array_sha256": "2ecef1f0772fc5b0391b2e61a5929011d38b41e4e651edcba25a1b92d514cc56"
+    },
+    "operator-residual_probe-control-float64": {
+      "result": {
+        "success": true,
+        "status": "success",
+        "termination_reason": "solved",
+        "failure_reason": null,
+        "solver_info": {
+          "method": "pcg",
+          "converged": true,
+          "failed": false,
+          "iterations": 3594,
+          "residual_norm": 0.00033905535862278327,
+          "relative_residual": 1.9006070360788704e-12,
+          "reason": null,
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.494543286159,
+        "chi2": 21832.990101635736,
+        "regularization_penalty": 977.9989849365821,
+        "prior_logdet": 53557.56058807703,
+        "posterior_logdet": 53939.6933545156,
+        "log_evidence": 69559.51514117428,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.478645486999085,
+        "warm_fit_seconds": [
+          1.288266391000434,
+          1.274809542001094,
+          1.265656849998777,
+          1.2568710430005012,
+          1.2448872459990525
+        ],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 7.493024448000142,
+        "cold_workflow_seconds": 10.971677849998741,
+        "cold_status": {
+          "success": true,
+          "termination_reason": "solved",
+          "solver_info": {
+            "method": "pcg",
+            "converged": true,
+            "failed": false,
+            "iterations": 3685,
+            "residual_norm": 0.0003832826431568588,
+            "relative_residual": 2.1485272828302152e-12,
+            "reason": null,
+            "diagnostics": {}
+          },
+          "objective": 11405.494543286162,
+          "log_evidence": 69559.51514117428,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3616,
+              "residual_norm": 0.0003412909855139325,
+              "relative_residual": 1.9131390550878744e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.49454328616,
+            "log_evidence": 69559.51514117428,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3686,
+              "residual_norm": 0.00034091094110790194,
+              "relative_residual": 1.911008680051013e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286162,
+            "log_evidence": 69559.51514117428,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3660,
+              "residual_norm": 0.00035949106194416706,
+              "relative_residual": 2.0151613132258486e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286162,
+            "log_evidence": 69559.51514117428,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3629,
+              "residual_norm": 0.00032011798368726654,
+              "relative_residual": 1.7944517810977795e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286162,
+            "log_evidence": 69559.51514117428,
+            "final_scaled_gradient": null
+          },
+          {
+            "success": true,
+            "termination_reason": "solved",
+            "solver_info": {
+              "method": "pcg",
+              "converged": true,
+              "failed": false,
+              "iterations": 3594,
+              "residual_norm": 0.00033905535862278327,
+              "relative_residual": 1.9006070360788704e-12,
+              "reason": null,
+              "diagnostics": {}
+            },
+            "objective": 11405.494543286159,
+            "log_evidence": 69559.51514117428,
+            "final_scaled_gradient": null
+          }
+        ],
+        "audit_seconds": 0.3548096640006406,
+        "array_export_seconds": 0.0742350210002769
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float64",
+        "source_axis": "float64",
+        "psf_fft": "complex128",
+        "mapping_weights": "float64",
+        "gradient_x": "float64",
+        "gradient_y": "float64",
+        "forward_action": "float64",
+        "adjoint_action": "float64",
+        "prior_action": "float64",
+        "initial_source": "float64",
+        "frozen_gradient": "float64",
+        "result_source_values": "float64",
+        "result_potential_values": "float64",
+        "result_objective": "float64",
+        "result_chi2": "float64",
+        "result_regularization_penalty": "float64",
+        "result_prior_logdet": "float64",
+        "result_posterior_logdet": "float64",
+        "result_noise_logdet": "float64",
+        "result_log_evidence": "float64"
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "3673652b1b2e9e489a7ae2d968bebe9ec41fc21c2cccd2c593f30ed12123a8bf",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7a4461819b7b80ae4928bdf088b09f2317d0c57ca62020e786748a528f546563",
+        "changed_query_corner_rows": 0
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "5ed811da9c6b3126cb0f2c5a2c18e7195e88cc810165934b42afa93932e3d940",
+      "record_sha256": "e50f6b5a93b55f8d6aee59132bfd4152b93dd1946f8dbf4daf6818a875c6e913",
+      "array_sha256": "6ffe50416bb843861a09d4b8069e4468fee1a6b3f1d29462d4fa42fe1fcda299"
+    },
+    "operator-residual_probe-control-float32": {
+      "result": {
+        "success": false,
+        "status": "failed",
+        "termination_reason": "linear_residual_exceeds_tolerance",
+        "failure_reason": "linear_residual_exceeds_tolerance",
+        "solver_info": {
+          "method": "pcg",
+          "converged": false,
+          "failed": true,
+          "iterations": 16434,
+          "residual_norm": 326042.40625,
+          "relative_residual": 0.0018276618793606758,
+          "reason": "linear_residual_exceeds_tolerance",
+          "diagnostics": {}
+        },
+        "strengths": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0,
+          "lambda_amplitude": 10000.0
+        },
+        "objective": 11405.4990234375,
+        "chi2": 21832.986328125,
+        "regularization_penalty": 978.0111083984375,
+        "prior_logdet": 53557.421875,
+        "posterior_logdet": 53939.56640625,
+        "log_evidence": null,
+        "evidence_method": "conditional_linear_gaussian",
+        "determinant_method": "principal_block_cholesky",
+        "evidence_is_exact": false
+      },
+      "timing": {
+        "setup_seconds": 3.403067352001017,
+        "warm_fit_seconds": [],
+        "synchronization": "recursive dataclass/collection array leaves inside each timed fit",
+        "first_fit_compile_inclusive_seconds": 8.225876521999453,
+        "cold_workflow_seconds": 11.628952331000619,
+        "cold_status": {
+          "success": false,
+          "termination_reason": "linear_residual_exceeds_tolerance",
+          "solver_info": {
+            "method": "pcg",
+            "converged": false,
+            "failed": true,
+            "iterations": 16434,
+            "residual_norm": 326042.40625,
+            "relative_residual": 0.0018276618793606758,
+            "reason": "linear_residual_exceeds_tolerance",
+            "diagnostics": {}
+          },
+          "objective": 11405.4990234375,
+          "log_evidence": null,
+          "final_scaled_gradient": null
+        },
+        "warm_status": [],
+        "audit_seconds": 0.3224910330009152,
+        "array_export_seconds": 0.057791138999164104
+      },
+      "counts": {
+        "image_shape": [
+          200,
+          200
+        ],
+        "data": 22016,
+        "source": 2401,
+        "core": 724,
+        "support": 956,
+        "support_only": 232,
+        "joint": 3357,
+        "query_subpixels": 88064,
+        "mock_nsub": 2,
+        "inversion_nsub": 2
+      },
+      "dtype_audit": {
+        "query": "float32",
+        "source_axis": "float32",
+        "psf_fft": "complex64",
+        "mapping_weights": "float32",
+        "gradient_x": "float32",
+        "gradient_y": "float32",
+        "forward_action": "float32",
+        "adjoint_action": "float32",
+        "prior_action": "float32",
+        "initial_source": "float32",
+        "frozen_gradient": "float32",
+        "result_source_values": "float32",
+        "result_potential_values": "float32",
+        "result_objective": "float32",
+        "result_chi2": "float32",
+        "result_regularization_penalty": "float32",
+        "result_prior_logdet": "float32",
+        "result_posterior_logdet": "float32",
+        "result_noise_logdet": "float32",
+        "result_log_evidence": null
+      },
+      "geometry": {
+        "integer_topology_matches_fixture": true,
+        "node_sha256": "0d53bc5a3a3cef3e44dbcbbe48a736cd61aa1bff3d87a273ca936c7d1585580a",
+        "core_sha256": "187943c70f1f26e62c3a7938a1ca3142642d548c2be2d041afbb8f5dd07c9516",
+        "query_sha256": "296773d2db5b115796064bcb508b6fd798c798f3364b378059a3d0bcfc345c5a",
+        "mask_sha256": "43873ed7f2682913618ca882e68b236d1c1ca5811822cad6035cf8c43ee2ffb5",
+        "source_axis_sha256": "7348d9338cceb9bbb9f3ff9a6cef9a734972350d8c19ba377f8aaf46fb094948",
+        "changed_query_corner_rows": 3464
+      },
+      "software": {
+        "python": "3.11.14",
+        "versions": {
+          "jax": "0.7.1",
+          "jaxlib": "0.7.1",
+          "jax-cuda12-plugin": "0.7.1",
+          "jax-cuda12-pjrt": "0.7.1",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "caskade": "1.0.0",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cudnn-cu12": "9.10.2.21"
+        },
+        "platform": "gpu",
+        "device": "NVIDIA GeForce RTX 5080",
+        "gpu_query": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 610.57.04, 16303 MiB",
+        "git_commit": "fd93b98673512a244bbbba5029cc2eb9b62bbc97",
+        "git_dirty": true,
+        "implementation_sha256": {
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction.py": "ce6440f6beca402d3d35ccef44c3f65c6caaae8b710cf2ae4c612e8fd958d0e3",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py": "8cb05741c1b4fa733c1f8200de6455254c75ed664ca15b375cc6ce6ca36bd738",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_result.py": "7886358962868ae59bd425ef00774b013ea6a7e4866aab6df0adc7c7205623a2",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_common.py": "d13120a402e0bac89bfb7940139bdf2a753977ce289d0a4c323bf6933108fc2f",
+          "TinyLensGpu/ObservationModel/LensImage/_potential_correction_operator_common.py": "bd18ed369d9c546145e8ee11f44d060cec12e0cacc2dacf626ca5e4d4f8c8a52",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py": "947bbc20b6a09367c57c520141018db4d5d7dca8f6231913534bdfee6d4b1774",
+          "TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py": "75ac98afbca2653f9674ab68b3b8a6f703dcc7e6fe85dc63dfc289869584cd04",
+          "benchmarks/potential_correction_workflow.py": "54ca72c1eac4eae72e20da925fb1556d743cfbf68d7b6f627bc5d9f5e8d524f5",
+          "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py": "081a5f0b4025e9b538d5b26827baf6fdd5ca890c87d01511cceb15f54efe21a0",
+          "TinyLensGpu/utils/inversion/regularization.py": "e3ae7a2f0f68303d73d9ff18be1aded5769e4f4749dc870847f814f0d25a5700",
+          "TinyLensGpu/utils/cg_solver.py": "147cdd1844958e6c5064e8c79ed96eac6ab24ba0ab9176f5d8eb8ece42a2b12e",
+          "TinyLensGpu/Inference/potential_correction.py": "9415b88d11c29bf9fafa106b63f5cc5efd003cd430993e4ccd90bbfe16711615"
+        },
+        "environment": {
+          "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+          "JAX_ENABLE_COMPILATION_CACHE": "false"
+        }
+      },
+      "input_sha256": "5ed811da9c6b3126cb0f2c5a2c18e7195e88cc810165934b42afa93932e3d940",
+      "record_sha256": "28d29b1a786e54265f2324c2ef0a1eb3dbfeabcc283867ebf3f9a6c791e3afd5",
+      "array_sha256": "f5891b7e6aaa46a8649860a0455cdc48ea564ca0b19a4e059ec501f9ed1c0c45"
+    }
+  },
+  "comparisons": {
+    "dense-strict-subhalo-float32": {
+      "reference": "dense-strict-subhalo-float64.json",
+      "candidate": "dense-strict-subhalo-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "max_absolute": 0.000722451056904716,
+          "rms": 0.00030358721163609316,
+          "relative_l2": 0.0008537580965929262
+        },
+        "potential_values": {
+          "max_absolute": 9.172489145405516e-05,
+          "rms": 3.521930039765224e-05,
+          "relative_l2": 0.01923631805244156
+        },
+        "convergence": {
+          "max_absolute": 0.0012615550788053179,
+          "rms": 0.00041674871662138657,
+          "relative_l2": 0.012625873701855722
+        },
+        "nonlinear_image_difference_rms_noise": 0.0035300706660982622
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.29014128345192763,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        },
+        "float32": {
+          "kappa": 0.2894960939884186,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        }
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    },
+    "dense-strict-control-float32": {
+      "reference": "dense-strict-control-float64.json",
+      "candidate": "dense-strict-control-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "finite_pairs": 0,
+          "total": 2401,
+          "unavailable_reason": "failed_fit_nonfinite_fields"
+        },
+        "potential_values": {
+          "finite_pairs": 0,
+          "total": 956,
+          "unavailable_reason": "failed_fit_nonfinite_fields"
+        },
+        "convergence": {
+          "finite_pairs": 0,
+          "total": 724,
+          "unavailable_reason": "failed_fit_nonfinite_fields"
+        },
+        "nonlinear_image_difference_rms_noise": null
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.0012764856879640917,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        },
+        "float32": null
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    },
+    "dense-residual_probe-subhalo-float32": {
+      "reference": "dense-residual_probe-subhalo-float64.json",
+      "candidate": "dense-residual_probe-subhalo-float32.json",
+      "reference_success": true,
+      "candidate_success": true,
+      "fields": {
+        "source_values": {
+          "max_absolute": 0.0007578131709854441,
+          "rms": 0.00034435397196168024,
+          "relative_l2": 0.0009684037416196086
+        },
+        "potential_values": {
+          "max_absolute": 7.820632989595858e-05,
+          "rms": 3.189168234468655e-05,
+          "relative_l2": 0.017418816895383812
+        },
+        "convergence": {
+          "max_absolute": 0.0011874218018027819,
+          "rms": 0.00042051093135108433,
+          "relative_l2": 0.012739854252061696
+        },
+        "nonlinear_image_difference_rms_noise": 0.0034500449938561447
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.2901412834521059,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        },
+        "float32": {
+          "kappa": 0.28944942355155945,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        }
+      },
+      "log_evidence_difference": -0.07039807122782804,
+      "warm_speedup": 20.898006621913403
+    },
+    "dense-residual_probe-control-float32": {
+      "reference": "dense-residual_probe-control-float64.json",
+      "candidate": "dense-residual_probe-control-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "max_absolute": 0.00240060659004393,
+          "rms": 0.0007378828645628507,
+          "relative_l2": 0.0021079020048418965
+        },
+        "potential_values": {
+          "max_absolute": 0.0006382729971056545,
+          "rms": 0.0003153622912322505,
+          "relative_l2": 0.9807380070167468
+        },
+        "convergence": {
+          "max_absolute": 0.0004082029477172944,
+          "rms": 0.00016302226257954554,
+          "relative_l2": 0.37897335948173794
+        },
+        "nonlinear_image_difference_rms_noise": 0.00264056401394535
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.0012764856850146955,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        },
+        "float32": {
+          "kappa": 0.0013297999976202846,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6
+          ],
+          "distance_to_injection_arcsec": 1.792344832893492
+        }
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    },
+    "operator-strict-subhalo-float32": {
+      "reference": "operator-strict-subhalo-float64.json",
+      "candidate": "operator-strict-subhalo-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "max_absolute": 0.00011674206004064214,
+          "rms": 3.7032045475752017e-05,
+          "relative_l2": 0.00010414275518390007
+        },
+        "potential_values": {
+          "max_absolute": 1.0189025137429322e-05,
+          "rms": 3.959589000397687e-06,
+          "relative_l2": 0.0021626753657159785
+        },
+        "convergence": {
+          "max_absolute": 0.00015398625428232268,
+          "rms": 5.0607784752187514e-05,
+          "relative_l2": 0.0015332200750973841
+        },
+        "nonlinear_image_difference_rms_noise": 0.00037127284778266353
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.29014128345715245,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        },
+        "float32": {
+          "kappa": 0.29020458459854126,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        }
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    },
+    "operator-strict-control-float32": {
+      "reference": "operator-strict-control-float64.json",
+      "candidate": "operator-strict-control-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "max_absolute": 6.175843924194346e-05,
+          "rms": 1.955942260186936e-05,
+          "relative_l2": 5.5875191166730127e-05
+        },
+        "potential_values": {
+          "max_absolute": 2.1074757560985617e-05,
+          "rms": 1.2002273282946606e-05,
+          "relative_l2": 0.03732559666455457
+        },
+        "convergence": {
+          "max_absolute": 6.733662596103667e-06,
+          "rms": 2.6813042491446547e-06,
+          "relative_l2": 0.006233154059972131
+        },
+        "nonlinear_image_difference_rms_noise": 0.00010305932032191284
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.001276485686325684,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        },
+        "float32": {
+          "kappa": 0.001271720975637436,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        }
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    },
+    "operator-residual_probe-subhalo-float32": {
+      "reference": "operator-residual_probe-subhalo-float64.json",
+      "candidate": "operator-residual_probe-subhalo-float32.json",
+      "reference_success": true,
+      "candidate_success": true,
+      "fields": {
+        "source_values": {
+          "max_absolute": 0.00010737515640990569,
+          "rms": 2.7418026394614858e-05,
+          "relative_l2": 7.710588960847346e-05
+        },
+        "potential_values": {
+          "max_absolute": 9.798769944413012e-06,
+          "rms": 4.089708335935291e-06,
+          "relative_l2": 0.0022337448334501468
+        },
+        "convergence": {
+          "max_absolute": 0.0001836767027549261,
+          "rms": 4.764607765925002e-05,
+          "relative_l2": 0.0014434918089423297
+        },
+        "nonlinear_image_difference_rms_noise": 0.0003047124551842683
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.2901412834778427,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        },
+        "float32": {
+          "kappa": 0.2901931405067444,
+          "position_arcsec": [
+            0.75,
+            0.075
+          ],
+          "distance_to_injection_arcsec": 0.02500000000000001
+        }
+      },
+      "log_evidence_difference": 0.00507069677405525,
+      "warm_speedup": 1.4633528101101296
+    },
+    "operator-residual_probe-control-float32": {
+      "reference": "operator-residual_probe-control-float64.json",
+      "candidate": "operator-residual_probe-control-float32.json",
+      "reference_success": true,
+      "candidate_success": false,
+      "fields": {
+        "source_values": {
+          "max_absolute": 9.771586660778375e-05,
+          "rms": 3.3304382071848414e-05,
+          "relative_l2": 9.514026834194438e-05
+        },
+        "potential_values": {
+          "max_absolute": 2.3484229779591273e-05,
+          "rms": 1.1517372128948316e-05,
+          "relative_l2": 0.035817613594250695
+        },
+        "convergence": {
+          "max_absolute": 6.926416776070884e-06,
+          "rms": 2.4476304994103814e-06,
+          "relative_l2": 0.005689939136229409
+        },
+        "nonlinear_image_difference_rms_noise": 0.00011370407457332963
+      },
+      "peaks": {
+        "float64": {
+          "kappa": 0.0012764856865169853,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        },
+        "float32": {
+          "kappa": 0.0012824932346120477,
+          "position_arcsec": [
+            -0.8999999999999999,
+            -0.6749999999999999
+          ],
+          "distance_to_injection_arcsec": 1.822944047413414
+        }
+      },
+      "log_evidence_difference": null,
+      "warm_speedup": null
+    }
+  }
+}

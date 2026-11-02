@@ -1,0 +1,349 @@
+{
+  "calls": 12408,
+  "fallback_calls": 696,
+  "invalid_after_fallback": 0,
+  "maximum_fallback_log_evidence": 69456.28055645779,
+  "median_fit": {
+    "success": true,
+    "status": "success",
+    "failure_reason": null,
+    "termination_reason": "solved",
+    "algorithm": "single_step",
+    "backend": "dense",
+    "dtype": "float32",
+    "evidence_method": "conditional_linear_gaussian",
+    "determinant_method": "full_cholesky",
+    "evidence_is_exact": true,
+    "evidence_image": "linear_model_image",
+    "log_evidence": 69529.7109375,
+    "chi2": 21674.162109375,
+    "regularization_penalty": 305.1734924316406,
+    "objective": 10989.66796875,
+    "prior_logdet": 36963.265625,
+    "posterior_logdet": 38236.73828125,
+    "noise_logdet": -202774.875,
+    "strengths": {
+      "lambda_source": 7.774627624314057e-05,
+      "lambda_potential": 672879.9810362326,
+      "lambda_amplitude": 30454.90260109322
+    },
+    "solver_info": {
+      "method": "cholesky",
+      "converged": true,
+      "failed": false,
+      "iterations": 1,
+      "residual_norm": 103.23029327392578,
+      "relative_residual": 5.723938443225052e-07,
+      "reason": null,
+      "diagnostics": {}
+    },
+    "initialization_provenance": {
+      "gradient_coordinates": "fixed_macro_image_subpixel_rays",
+      "gradient_provider": "problem_for.<locals>.<lambda>",
+      "potential_linearization": "zero_potential"
+    },
+    "configuration": {
+      "mock": {
+        "npix": 200,
+        "dpix": 0.012,
+        "nsub": 2,
+        "theta_E": 0.8,
+        "macro_center_x": 0.0,
+        "macro_center_y": 0.0,
+        "gamma1": 0.05,
+        "gamma2": 0.02,
+        "b_sub": 0.04,
+        "subhalo_x": 0.75,
+        "subhalo_y": 0.1,
+        "noise_sigma": 0.01,
+        "seed": 17,
+        "psf_sigma": 0.05,
+        "psf_size": 27,
+        "mask_inner": 0.45,
+        "mask_outer": 1.1,
+        "dtype": "float64",
+        "source": {
+          "center_x": 0.05,
+          "center_y": 0.03,
+          "sigma_x": 0.16,
+          "sigma_y": 0.12,
+          "amplitude": 1.0,
+          "clump_fraction": 0.35,
+          "clump_dx": -0.13,
+          "clump_dy": 0.1,
+          "clump_scale": 0.7
+        }
+      },
+      "source_n": 49,
+      "source_bbox": [
+        -0.4,
+        0.4,
+        -0.4,
+        0.4
+      ],
+      "potential_spacing": 0.075,
+      "log_bounds": [
+        [
+          -11.512925464970229,
+          -4.605170185988091
+        ],
+        [
+          11.512925464970229,
+          27.631021115928547
+        ]
+      ],
+      "block_size": 1024,
+      "source_tile": 24,
+      "pcg_max_iter": 20000,
+      "pcg_rtol": 1e-12,
+      "solve_rtol": 1e-08,
+      "direct_maxfun": 200,
+      "direct_len_tol": 0.001,
+      "boundary_rtol": 0.01,
+      "inversion_nsub": 2,
+      "lambda_amplitude": 10000.0,
+      "mode": "fixed",
+      "backends": [
+        "dense",
+        "operator"
+      ],
+      "make_plots": true,
+      "affine_diagnostics": true,
+      "fixed_strengths": {
+        "subhalo": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 16000000.0
+        },
+        "control": {
+          "lambda_source": 0.0006,
+          "lambda_potential": 100000000000.0
+        }
+      },
+      "calibration_provenance": "Fixed strengths scaled from the separate 64x64 calibration and validated at 200x200; see docs/validation/potential-correction-single-step-scientific.md. The 200x200 strengths were not optimized.",
+      "selected_log10_strengths": [
+        -4.109320402889993,
+        5.827937607727765,
+        4.483657214907038
+      ]
+    },
+    "result_configuration": {
+      "source_n": 49,
+      "source_regularization": "second-order",
+      "potential_spacing": 0.075,
+      "potential_regularization": "complete_pixel_unit_fourth_differences",
+      "potential_amplitude_prior": "independent_all_unknowns",
+      "nsub": 2,
+      "image_shape": [
+        200,
+        200
+      ],
+      "n_data": 22016,
+      "n_source": 2401,
+      "n_potential": 956,
+      "n_core": 724,
+      "solve_rtol": 1e-05,
+      "dtype": "float32"
+    },
+    "mock_configuration": {
+      "npix": 200,
+      "dpix": 0.012,
+      "nsub": 2,
+      "theta_E": 0.8,
+      "macro_center_x": 0.0,
+      "macro_center_y": 0.0,
+      "gamma1": 0.05,
+      "gamma2": 0.02,
+      "b_sub": 0.04,
+      "subhalo_x": 0.75,
+      "subhalo_y": 0.1,
+      "noise_sigma": 0.01,
+      "seed": 17,
+      "psf_sigma": 0.05,
+      "psf_size": 27,
+      "mask_inner": 0.45,
+      "mask_outer": 1.1,
+      "dtype": "float64",
+      "source": {
+        "center_x": 0.05,
+        "center_y": 0.03,
+        "sigma_x": 0.16,
+        "sigma_y": 0.12,
+        "amplitude": 1.0,
+        "clump_fraction": 0.35,
+        "clump_dx": -0.13,
+        "clump_dy": 0.1,
+        "clump_scale": 0.7
+      }
+    },
+    "observation": "subhalo",
+    "integration": {
+      "mock_nsub": 2,
+      "inversion_nsub": 2
+    },
+    "source_bbox": [
+      -0.4000000059604645,
+      0.4000000059604645,
+      -0.4000000059604645,
+      0.4000000059604645
+    ],
+    "potential_geometry": {
+      "spacing": 0.075,
+      "origin": [
+        0.0,
+        0.0
+      ],
+      "unknown_count": 956,
+      "core_count": 724,
+      "support_only_count": 232
+    },
+    "units": {
+      "coordinates": "arcsec",
+      "potential": "arcsec^2",
+      "deflection": "arcsec",
+      "convergence": "dimensionless"
+    },
+    "truth_conventions": {
+      "potential": "analytic nodal singular PseudoJaffeSubhalo; psi(center)=0",
+      "discrete_derivatives": "centered physical differences of nodal analytic psi; derivative_valid core only",
+      "analytic_derivatives": "point samples, no pixel averaging; kappa NaN for R<1e-8 arcsec; zero strength identically zero",
+      "illuminated_core": "observation annulus and macro-source brightness >=5% of core maximum",
+      "local_core": "matched disk around specified subhalo position (nominal for control); radius max(2*sqrt(mock b_sub*theta_E),2*h)",
+      "raw_fields": "signed, unclipped and unaligned; support-only derivatives undefined/NaN"
+    },
+    "search": null,
+    "history": [],
+    "scope": "fixed true macro reconstruction; no detection significance or mass confidence intervals",
+    "summary": {
+      "source_relative_l2": 0.0766882672905922,
+      "source_rmse": 0.026810823008418083,
+      "source_negative_node_fraction": 0.2044981257809246,
+      "source_negative_to_positive_sum": 0.02347572334110737,
+      "potential_rmse_raw_center_zero_truth": 0.015386764891445637,
+      "potential_rmse_mean_centered_truth": 0.003490662667900324,
+      "potential_rms": 0.0012000689748674631,
+      "potential_mean": 8.850128324411344e-06,
+      "deflection_vector_rmse_discrete_truth": 0.00854300707578659,
+      "convergence": {
+        "all_core": {
+          "count": 724,
+          "rmse_discrete_truth": 0.03715686872601509,
+          "truth_discrete_rms": 0.030862828716635704,
+          "rmse_analytic_point_truth": 0.03804668411612511,
+          "analytic_valid_count": 724,
+          "recovered_rms": 0.046151094138622284,
+          "recovered_mean": 0.0010536285117268562,
+          "truth_discrete_mean": 0.00482728099450469,
+          "recovered_max": 0.4804942011833191,
+          "truth_discrete_max": 0.6314350962638855
+        },
+        "illuminated_core": {
+          "count": 528,
+          "rmse_discrete_truth": 0.03431360423564911,
+          "truth_discrete_rms": 0.036121174693107605,
+          "rmse_analytic_point_truth": 0.035620905458927155,
+          "analytic_valid_count": 528,
+          "recovered_rms": 0.0471683144569397,
+          "recovered_mean": -0.0005272345733828843,
+          "truth_discrete_mean": 0.006264226045459509,
+          "recovered_max": 0.4804942011833191,
+          "truth_discrete_max": 0.6314350962638855
+        },
+        "local_core": {
+          "count": 70,
+          "rmse_discrete_truth": 0.05811082571744919,
+          "truth_discrete_rms": 0.09916875511407852,
+          "rmse_analytic_point_truth": 0.06375190615653992,
+          "analytic_valid_count": 70,
+          "recovered_rms": 0.1061665341258049,
+          "recovered_mean": 0.02693658322095871,
+          "truth_discrete_mean": 0.04340191185474396,
+          "recovered_max": 0.4804942011833191,
+          "truth_discrete_max": 0.6314350962638855
+        }
+      },
+      "convergence_peak_xy_arcsec": [
+        0.75,
+        0.07500000298023224
+      ],
+      "peak_distance_to_injected_position_arcsec": 0.024999997019767767,
+      "local_radius_arcsec": 0.35777087639996635,
+      "nonlinear_residual_rms_noise": 1.016588568687439,
+      "source_box": {
+        "macro_rays": {
+          "query_count": 88064,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.024607986211776733,
+          "outside_analytic_brightness_fraction": 0.0
+        },
+        "analytic_truth_corrected_rays": {
+          "query_count": 88064,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.019113481044769287,
+          "outside_analytic_brightness_fraction": 0.0
+        },
+        "fitted_corrected_rays": {
+          "query_count": 88064,
+          "outside_count": 0,
+          "minimum_signed_margin_arcsec": 0.031675130128860474,
+          "outside_analytic_brightness_fraction": 0.0
+        }
+      },
+      "linear_residual_rms_noise": 0.9922062158584595,
+      "fitted_linearization_rms_noise": 0.22010402381420135
+    }
+  },
+  "source_sha256": {
+    ".scratch/potential-correction/experiments/sample_dense_three_strengths_precision.py": "0d248037d49adeb150b92f7558471f5215d771a11bf2ae15da08634cfe2406ff",
+    ".scratch/potential-correction/experiments/plot_dense_three_strength_median.py": "14d643d1affcac5d6bd3763c18d3be307e6e2856643c592ec28c23c30e8a3a76"
+  },
+  "numerical_artifact_sha256": {
+    "manifest.json": "b32fd10cdd76be42a77e6cd2d770d22063c0195a63796455106c67b76d1eea97",
+    "validation.json": "eaddbac877cd96db8a3c9b56a58e1d1e6eb4ce9137e1be7c180951d3b8b50c13",
+    "progress.json": "59d2de09760f0e288ff271d2eea999d8c6add22717744d3ae03a1692c9281d5f",
+    "resume-validation.json": "42124ba3debfe9376282f53cc806686121358885d873d6a50aec9b80533fbb63",
+    "checkpoint.h5": "701a0c4124e684411268fecbe4ba7fed2b15c8d0a2143e120fe2f7ac36597fb1",
+    "posterior.npz": "90ded34616877c437f1742516a87b8d24fb6e55386e144d8fc0a6161c2813630",
+    "completion.json": "ae4d8f7b6e3098ed15059b13e63d64dab1540a1bf351c2cd88dcc63c5ddf672a",
+    "posterior-summary.json": "405999e2b4ea3dc4e835538c21c31f096b28a13bfdc010e98e54662dfab7696c",
+    "posterior_corner.collisions.json": "0811388d677aa4055e0a1c7fbdd350aee65cfc44c8dbf7d0388a35b230809e50",
+    "posterior_median_recovery.collisions.json": "c7bf1eaae10fb6e9b1444c5a14f75faa7b7180778cb45daf0af81c7131fb192f",
+    "posterior_corner.alignment.json": "e73e871a59a0d9b3bcf97bcdcc62cc52c1c81b5647d46000dd70b4e1b9988422",
+    "posterior_median_recovery.alignment.json": "710d60a1fa39e02abd07a1a309f31b2e7cfddaaf03c34e7edbe4092f218bfa4e",
+    "subhalo_median_recovery.alignment.json": "31cc15e943c769316b30ee10981dcb15f1e4f266c376b17cbc2e5668a111e9f8",
+    "subhalo_median_recovery.collisions.json": "5f49d189570322d33bc1a5d241e385c042b45153ef557b0c5102c020dad23f1a",
+    "text-audit.json": "5e0d4f0a12ec0e43bfb647e9558679b3905e6241ed2d4a3c302e3fb4dc6469b8",
+    "median-reconstruction-precision.json": "b098cbd2c32847fdb28f961482b6677fc1a54b752e351c21bbfb384976f46495",
+    "posterior-precision-audit.json": "e4951de9df49b7e728b8611ae07c1b11c9ee00d1d022763fe9f78576a4eca8fa",
+    "posterior-median/reconstruction.npz": "3655ab906746e7010f6e839359c504255022ffea10594be9d9b79539b561f6b5",
+    "posterior-median/result.json": "23640d114069f087452bb0cd54bc92ee55fb21c8b83b3183b71444a139c380ff",
+    "posterior-median-float64/reconstruction.npz": "bc1c063673fab01513c83f35d0f738d5bf08b32598f24e5feb8341347cf37ae9",
+    "posterior-median-float64/result.json": "40438aab99c45b3d6b9d04f0577bebdd9fd6e1965f7ce062c333254676319cae"
+  },
+  "visual_inspection": "All three figures inspected: marginal contours and quantiles, shared intensity and kappa scales, raw error maps, undefined derivatives masked, subhalo crosses and full-core background visible",
+  "static_preflight_warnings_accepted": [
+    "Diagnostic report dimensions, not journal-width target",
+    "PNG at 300 dpi plus editable PDF/SVG; no TIFF submission requested"
+  ],
+  "precision_summary": {
+    "median_log10_strengths": [
+      -4.109320402889993,
+      5.827937607727765,
+      4.483657214907038
+    ],
+    "median_strengths": [
+      7.774627624314057e-05,
+      672879.9810362326,
+      30454.90260109322
+    ],
+    "maximum_abs_delta_logz": 23.52922082602163,
+    "weighted_mean_delta_logz": 0.013198384323329974,
+    "weighted_rms_delta_logz": 0.028465600141713395,
+    "float64_reweighted_kish_size": 5007.790746437045,
+    "reweighting_total_variation": 0.009991053787978236,
+    "float64_reweighted_median_strengths": [
+      7.775000442899242e-05,
+      672879.2321175974,
+      30449.503566584855
+    ]
+  }
+}

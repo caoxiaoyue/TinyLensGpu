@@ -1,0 +1,95 @@
+{
+  "fields": {
+    "source_values": {
+      "max_absolute": 0.0023512663194056316,
+      "relative_l2": 0.0021004943734022024
+    },
+    "potential_values": {
+      "max_absolute": 0.0001182651269202575,
+      "relative_l2": 0.03238766513770578
+    },
+    "convergence": {
+      "max_absolute": 0.0027682513838275524,
+      "relative_l2": 0.029218517894231296
+    }
+  },
+  "float32_minus_float64_log_evidence": 0.07803990498359781,
+  "float64_summary": {
+    "source_relative_l2": 0.0755480732003454,
+    "source_rmse": 0.02641220336299189,
+    "source_negative_node_fraction": 0.2044981257809246,
+    "source_negative_to_positive_sum": 0.023476346739753046,
+    "potential_rmse_raw_center_zero_truth": 0.015392313069854256,
+    "potential_rmse_mean_centered_truth": 0.0034770759901423796,
+    "potential_rms": 0.0012022793680282542,
+    "potential_mean": -5.861739499183956e-15,
+    "deflection_vector_rmse_discrete_truth": 0.008410006919281721,
+    "convergence": {
+      "all_core": {
+        "count": 724,
+        "rmse_discrete_truth": 0.03670250270115453,
+        "truth_discrete_rms": 0.03086283532854628,
+        "rmse_analytic_point_truth": 0.03760937513638343,
+        "analytic_valid_count": 724,
+        "recovered_rms": 0.045885441490221994,
+        "recovered_mean": 0.0008836306208600446,
+        "truth_discrete_mean": 0.004827277554311594,
+        "recovered_max": 0.4818812803100129,
+        "truth_discrete_max": 0.6314351815470731
+      },
+      "illuminated_core": {
+        "count": 526,
+        "rmse_discrete_truth": 0.03369090731272884,
+        "truth_discrete_rms": 0.036189779042003795,
+        "rmse_analytic_point_truth": 0.03503568640248972,
+        "analytic_valid_count": 526,
+        "recovered_rms": 0.0469016144822686,
+        "recovered_mean": -0.0004234093592722759,
+        "truth_discrete_mean": 0.006286946014811116,
+        "recovered_max": 0.4818812803100129,
+        "truth_discrete_max": 0.6314351815470731
+      },
+      "local_core": {
+        "count": 70,
+        "rmse_discrete_truth": 0.05797390726151124,
+        "truth_discrete_rms": 0.09916877174425745,
+        "rmse_analytic_point_truth": 0.06366713755207172,
+        "analytic_valid_count": 70,
+        "recovered_rms": 0.10654653665330746,
+        "recovered_mean": 0.027563489402444095,
+        "truth_discrete_mean": 0.04340187187363288,
+        "recovered_max": 0.4818812803100129,
+        "truth_discrete_max": 0.6314351815470731
+      }
+    },
+    "convergence_peak_xy_arcsec": [
+      0.75,
+      0.075
+    ],
+    "peak_distance_to_injected_position_arcsec": 0.02500000000000001,
+    "local_radius_arcsec": 0.35777087639996635,
+    "nonlinear_residual_rms_noise": 1.016498802561073,
+    "source_box": {
+      "macro_rays": {
+        "query_count": 88064,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.024608016597792992,
+        "outside_analytic_brightness_fraction": 0.0
+      },
+      "analytic_truth_corrected_rays": {
+        "query_count": 88064,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.019113498358473813,
+        "outside_analytic_brightness_fraction": 0.0
+      },
+      "fitted_corrected_rays": {
+        "query_count": 88064,
+        "outside_count": 0,
+        "minimum_signed_margin_arcsec": 0.03172959677903897,
+        "outside_analytic_brightness_fraction": 0.0
+      }
+    },
+    "linear_residual_rms_noise": 0.9922068104579157,
+    "fitted_linearization_rms_noise": 0.2196740825184736
+  }
+}
