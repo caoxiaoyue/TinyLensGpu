@@ -6,6 +6,14 @@ mytest/
 /workspace/single_step/*
 !/workspace/single_step/*.py
 !/workspace/single_step/*.md
+!/workspace/pt_new_algorithm/
+/workspace/pt_new_algorithm/*
+!/workspace/pt_new_algorithm/*.py
+!/workspace/pt_new_algorithm/*.md
+!/workspace/iteration/
+/workspace/iteration/*
+!/workspace/iteration/*.py
+!/workspace/iteration/*.md
 **/csst_mocks.pklz
 paper/mock_csst/dataset/
 /.*/
