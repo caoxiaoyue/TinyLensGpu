@@ -916,10 +916,11 @@ class PixelizedLensOperator:
                 weights[:, :, None] * weights[:, None, :] * noise_weights[:, None, None]
             )
             block = jnp.zeros((pixels.size, pixels.size), dtype=weights.dtype)
+            # Drop cross-block pairs to avoid concentrated zero updates at (0, 0).
             return block.at[
-                jnp.where(valid, rows, 0).ravel(),
+                jnp.where(valid, rows, pixels.size).ravel(),
                 jnp.where(valid, cols, 0).ravel(),
-            ].add((values * valid).astype(block.dtype).ravel())
+            ].add(values.astype(block.dtype).ravel(), mode="drop")
 
         return map_source_blocks(self.source_n, block_size, build)
 

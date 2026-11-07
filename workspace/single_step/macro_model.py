@@ -685,9 +685,9 @@ def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
     n_in = int((~feature_mask).sum())
     print(f"[stage-B] arc pixels kept = {n_in} / {feature_mask.size}")
 
-    DATA_DIR.mkdir(exist_ok=True)
+    OUT_DIR.mkdir(exist_ok=True)
     fits.writeto(
-        DATA_DIR / "feature_mask.fits", feature_mask.astype(np.uint8), overwrite=True
+        OUT_DIR / "feature_mask.fits", feature_mask.astype(np.uint8), overwrite=True
     )
 
     ny_img, nx_img = image_data.shape
@@ -720,7 +720,6 @@ def run_stage_b(image_data, noise_map, lens_light_model, circular_mask=None):
     )
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     plt.tight_layout()
-    OUT_DIR.mkdir(exist_ok=True)
     plt.savefig(OUT_DIR / "stage_b_mask.png", dpi=120, bbox_inches="tight")
     plt.close(fig)
     return feature_mask
@@ -2096,10 +2095,14 @@ def cli():
     parser.add_argument("--seed", type=int, default=946)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--prepare-only", action="store_true")
-    parser.add_argument("--out-dir", type=Path, help="Macro output directory")
+    parser.add_argument(
+        "--out-dir", type=Path,
+        help="Macro output directory, relative to this script (default: macro)",
+    )
     parser.add_argument(
         "--source-interpolation", choices=("bilinear", "cubic_hermite"),
-        help="Source interpolation for a fresh fit, or a check on the saved mode",
+        help="Pixelized source interpolation (fresh fit: bilinear by default; "
+        "resume: use the saved mode unless explicitly specified)",
     )
     parser.add_argument(
         "--input-dir",
