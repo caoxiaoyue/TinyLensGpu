@@ -339,9 +339,11 @@ def test_survey_source_export_preserves_public_products(
     saved = pickle.loads(path.read_bytes())
     assert set(saved) == {
         "source_pixels", "source_image", "source_bbox",
-        "source_x_axis", "source_y_axis", "n",
+        "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
     assert saved["n"] == 3
+    assert saved["source_interpolation"] == "bilinear"
+    assert saved["source_boundary"] == "hard_zero_outside_bbox"
     for key in ("source_pixels", "source_image", "source_x_axis", "source_y_axis"):
         assert saved[key].dtype == np.float64
     np.testing.assert_allclose(

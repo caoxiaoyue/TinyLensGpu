@@ -43,6 +43,135 @@ class ControlledSampler:
         return samples, np.log([0.2, 0.3, 0.5]), np.zeros(3)
 
 
+@pytest.mark.parametrize("recorded", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_slacs_rejects_interpolation_conflict_before_stage_reuse(recorded, tmp_path, monkeypatch):
+    from TinyLensGpu.example_support import StageStorageConfig, save_stage
+
+    module = load_case(CASES[0], monkeypatch)
+    config = StageStorageConfig(tmp_path, include_schema=True)
+    extra = {"log_lambda_best": 0.0}
+    if recorded is not None:
+        extra["source_interpolation"] = recorded
+    save_stage(config, "m0", None, None, ["log_lambda_reg"], -12.0, extra=extra)
+
+    def unexpected_load(**kwargs):
+        pytest.fail("the interpolation conflict must precede data and stage reuse")
+
+    monkeypatch.setattr(module, "load_lens_data", unexpected_load)
+    requested = "cubic_hermite" if recorded is None else "bilinear"
+    with pytest.raises(ValueError, match=r"stage_m0\.pkl.*Start a fresh run"):
+        module.main(skip_done=True, out_dir=tmp_path, source_interpolation=requested)
+
+
+def test_slacs_checks_source_package_provenance_before_restore(tmp_path, monkeypatch):
+    from TinyLensGpu.example_support import StageStorageConfig, save_stage
+
+    module = load_case(CASES[0], monkeypatch)
+    storage = StageStorageConfig(tmp_path, include_schema=True)
+    # An explicitly Hermite checkpoint cannot point to a legacy bilinear S1.
+    save_stage(
+        storage, "m1", None, None, ["log_lambda_reg"], -12.0,
+        extra={"source_interpolation": "cubic_hermite", "s1": {}},
+    )
+    with pytest.raises(ValueError, match="S1 source package.*Start a fresh run"):
+        module.main(skip_done=True, out_dir=tmp_path)
+
+
+@pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_slacs_saves_and_resumes_one_source_model(requested, tmp_path, monkeypatch):
+    module = load_case(CASES[0], monkeypatch)
+    for key, value in dict(
+        Sampler=ControlledSampler, NSRC=3, NSUB=1, NSUB_PIX=1,
+        N_GAUSSIANS_SRC=2, N_GAUSSIANS_LENS=2, DPIX=0.08,
+        PIXEL_REGULARIZATION_TYPE="zero-order",
+    ).items():
+        monkeypatch.setattr(module, key, value)
+    y, x = np.indices((8, 8))
+    image = 0.06 + 0.08 * np.exp(-((x - 6) ** 2 + (y - 4) ** 2) / 3)
+    noise, psf = np.full_like(image, 0.1), np.array([[1.0]])
+    feature_mask = np.zeros_like(image, dtype=bool)
+    feature_mask[3:5, 3:5] = True
+    monkeypatch.setattr(module, "load_lens_data", lambda **kw: (image, noise, psf, None))
+    monkeypatch.setattr(module, "run_stage_b", lambda *a, **kw: feature_mask)
+    monkeypatch.setattr(module, "_position_likelihood_from_stage_a", lambda *a: None)
+    monkeypatch.setattr(module, "plot_model_results", lambda *a, **kw: None)
+    reports = {}
+
+    def reconstruct(tag, likelihood, medians, names, path):
+        result, diagnostics = likelihood.evaluate_with_diagnostics(
+            jnp.asarray([medians[name] for name in names])
+        )
+        assert diagnostics.valid
+        reports[tag] = (likelihood.source_model.interpolation, result)
+        Path(path).touch()
+
+    monkeypatch.setattr(module, "_plot_pix_stage", reconstruct)
+    seed = None
+    if requested is not None:
+        # A saved pre-feature source supplies nodal intensities for a fresh
+        # Hermite M0 solve while its interpolation provenance stays bilinear.
+        seed = dict(
+            n=3, source_pixels=np.linspace(0.1, 0.9, 9),
+            source_bbox=(-0.55, 0.55, -0.55, 0.55),
+            source_x_axis=np.linspace(-0.55, 0.55, 3),
+            source_y_axis=np.linspace(-0.55, 0.55, 3),
+        )
+    module.main(out_dir=tmp_path, source_interpolation=requested, initial_source=seed)
+    fresh_reports = reports.copy()
+    assert set(fresh_reports) == {"stage-M0", "stage-M1", "stage-M2", "stage-M3"}
+    mode = requested or "bilinear"
+    boundary = (
+        "C1_cardinal_bicubic_fixed_zero_exterior_nodes"
+        if requested else "hard_zero_outside_bbox"
+    )
+    stages = ("a", "l", "m0", "m1", "m2", "m3")
+    for tag in stages:
+        path = tmp_path / f"stage_{tag}.pkl"
+        payload = pickle.loads(path.read_bytes())
+        extra = payload["extra"]
+        assert extra["source_interpolation"] == mode
+        assert extra["source_boundary"] == boundary
+        if tag == "m0":
+            assert "s1" not in extra
+            if seed is not None:
+                np.testing.assert_array_equal(extra["initial_source"]["source_pixels"], seed["source_pixels"])
+                np.testing.assert_allclose(fresh_reports["stage-M0"][1].source_bbox, seed["source_bbox"])
+        if tag == "m1":
+            s1 = extra["s1"]
+            assert s1["source_interpolation"] == mode
+            assert s1["source_boundary"] == boundary
+            np.testing.assert_allclose(s1["source_bbox"], fresh_reports["stage-M2"][1].source_bbox)
+        if requested is None:
+            # Restore the historical stage format and exercise legacy fallback.
+            for record in (extra, extra.get("s1", {})):
+                record.pop("source_interpolation", None)
+                record.pop("source_boundary", None)
+            path.write_bytes(pickle.dumps(payload))
+
+    if requested:
+        # Reopen the run at a checkpoint which has M0 evidence and no S1.
+        for tag in ("m1", "m2", "m3"):
+            (tmp_path / f"stage_{tag}.pkl").unlink()
+        reports.clear()
+        module.main(skip_done=True, out_dir=tmp_path)
+        assert {value[0] for value in reports.values()} == {mode}
+        assert module._load_stage("m1")["extra"]["s1"]["source_interpolation"] == mode
+
+    original = {tag: (tmp_path / f"stage_{tag}.pkl").read_bytes() for tag in stages}
+    for tag in ("m0", "m1", "m2", "m3"):
+        (tmp_path / f"stage_{tag}_model.png").unlink()
+    reports.clear()
+    module.main(skip_done=True, out_dir=tmp_path)
+    for tag in stages:
+        assert (tmp_path / f"stage_{tag}.pkl").read_bytes() == original[tag]
+    assert reports.keys() == fresh_reports.keys()
+    for tag, (saved_mode, resumed) in reports.items():
+        assert saved_mode == fresh_reports[tag][0] == mode
+        fresh = fresh_reports[tag][1]
+        np.testing.assert_allclose(resumed.source_bbox, fresh.source_bbox)
+        np.testing.assert_allclose(resumed.model_image, fresh.model_image, rtol=2e-5, atol=1e-7)
+
+
 @pytest.mark.parametrize('case', CASES)
 def test_survey_stage_a_artifact_and_recovery(case, tmp_path, monkeypatch):
     module = load_case(case, monkeypatch)

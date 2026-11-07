@@ -449,7 +449,8 @@ def test_subhalo_exports_keep_raw_package_contract_with_unsupported_joint_stats(
     assert diagnostics.effective_dof_method == "operator_joint_unsupported"
     package = module._solve_pixel_source_for_package(likelihood, medians, list(medians))
     assert set(package) == {
-        "source_pixels", "source_image", "source_bbox", "source_x_axis", "source_y_axis", "n",
+        "source_pixels", "source_image", "source_bbox",
+        "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
     assert package["n"] == 5
     assert isinstance(package["source_bbox"], tuple)
