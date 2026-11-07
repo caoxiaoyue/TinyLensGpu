@@ -42,15 +42,35 @@ def _dense_response_columns(action, size, dtype):
 def _positive(value, name):
     try:
         scalar = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{name} must be a finite positive scalar") from exc
     if not np.isfinite(scalar) or scalar <= 0:
         raise ValueError(f"{name} must be a finite positive scalar")
     return scalar
 
 
-class _PotentialCorrectionProblem:
-    """Observation, fixed geometry, physical priors and raw result products."""
+def _integer(value, name, *, minimum=1):
+    try:
+        integer = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be an integer >= {minimum}") from exc
+    if isinstance(value, bool) or integer != value or integer < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}")
+    return integer
+
+
+def _nonnegative(value, name):
+    try:
+        scalar = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be finite and nonnegative") from exc
+    if not np.isfinite(scalar) or scalar < 0:
+        raise ValueError(f"{name} must be finite and nonnegative")
+    return scalar
+
+
+class _PotentialCorrectionObservation:
+    """Fixed observation, geometry, physical prior shapes and result products."""
 
     def __init__(
         self,
@@ -58,7 +78,6 @@ class _PotentialCorrectionProblem:
         image_data,
         noise_map,
         *,
-        lambda_amplitude,
         source_regularization="second-order",
         source_scale=None,
         macro_mapping=None,
@@ -69,7 +88,6 @@ class _PotentialCorrectionProblem:
             raise TypeError("renderer must be a PotentialCorrectionRenderer")
         self.renderer = renderer
         self.dtype = renderer.dtype
-        self.lambda_amplitude = _positive(lambda_amplitude, "lambda_amplitude")
         self.solve_rtol = _positive(
             (
                 (1e-8 if self.dtype == jnp.float64 else 1e-3)
@@ -121,8 +139,6 @@ class _PotentialCorrectionProblem:
             ):
                 raise ValueError("Selected noise_map must be finite and positive")
             self.noise_logdet = 2 * jnp.sum(jnp.log(self.noise_active))
-        self._dense_source_prior = None
-        self._dense_potential_roughness = None
 
     def _joint(self, joint_values):
         values = jnp.asarray(joint_values, dtype=self.dtype)
@@ -130,7 +146,9 @@ class _PotentialCorrectionProblem:
             raise ValueError(f"joint_values must have shape ({self.n_joint},)")
         return values[: self.n_source], values[self.n_source :]
 
-    def prior_matvec(self, joint_values, lambda_source, lambda_potential):
+    def _apply_prior(
+        self, joint_values, lambda_source, lambda_potential, lambda_amplitude
+    ):
         """Apply the complete block prior without creating square matrices."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             source, potential = self._joint(joint_values)
@@ -143,31 +161,9 @@ class _PotentialCorrectionProblem:
                     self.potential_regularizer.matvec(
                         potential,
                         lambda_potential,
-                        self.lambda_amplitude,
+                        lambda_amplitude,
                     ),
                 )
-            )
-
-    def dense_prior(self, lambda_source, lambda_potential):
-        """Explicitly materialize Q, including the independent all-node prior."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            if self._dense_source_prior is None:
-                self._dense_source_prior = self.source_regularizer.matrix(
-                    *self.renderer.source_bbox,
-                    scale=self.source_scale,
-                ).astype(self.dtype)
-                self._dense_potential_roughness = self.potential_regularizer.to_dense(
-                    1, 0
-                )
-            prior = jnp.zeros((self.n_joint, self.n_joint), dtype=self.dtype)
-            prior = prior.at[: self.n_source, : self.n_source].set(
-                jnp.asarray(lambda_source, dtype=self.dtype) * self._dense_source_prior
-            )
-            return prior.at[self.n_source :, self.n_source :].set(
-                jnp.asarray(lambda_potential, dtype=self.dtype)
-                * self._dense_potential_roughness
-                + jnp.asarray(self.lambda_amplitude, dtype=self.dtype)
-                * jnp.eye(self.n_potential, dtype=self.dtype)
             )
 
     def _configuration(self):
@@ -191,9 +187,8 @@ class _PotentialCorrectionProblem:
             "dtype": self.dtype.name,
         }
 
-    def _result_products(
-        self, joint_values, lambda_source, lambda_potential, *, linear_image=None
-    ):
+    def _field_products(self, joint_values, strengths, penalty, *, linear_image=None):
+        """Render and assemble the raw products with the fit's physical penalty."""
         source, potential = self._joint(joint_values)
         finite = bool(jnp.all(jnp.isfinite(source)) & jnp.all(jnp.isfinite(potential)))
         if finite:
@@ -221,10 +216,6 @@ class _PotentialCorrectionProblem:
         )
         residual = nonlinear_residual if linear_residual is None else linear_residual
         chi2 = jnp.vdot(residual / self.noise_active, residual / self.noise_active)
-        penalty = jnp.vdot(
-            jnp.asarray(joint_values, dtype=self.dtype),
-            self.prior_matvec(joint_values, lambda_source, lambda_potential),
-        )
 
         def full(values):
             if values is None:
@@ -264,12 +255,62 @@ class _PotentialCorrectionProblem:
             nonlinear_normalized_residual=full(nonlinear_residual / self.noise_active),
             data_active=self.data_active,
             noise_active=self.noise_active,
-            strengths=PotentialCorrectionStrengths(
-                lambda_source, lambda_potential, self.lambda_amplitude
-            ),
+            strengths=strengths,
             chi2=chi2,
             regularization_penalty=penalty,
             objective=0.5 * (chi2 + penalty),
             noise_logdet=self.noise_logdet,
             dtype=self.dtype.name,
         )
+
+
+class _PotentialCorrectionProblem(_PotentialCorrectionObservation):
+    """Shared preparation for fits with a constructor-fixed amplitude prior."""
+
+    def __init__(self, renderer, image_data, noise_map, *, lambda_amplitude, **options):
+        self.lambda_amplitude = _positive(lambda_amplitude, "lambda_amplitude")
+        super().__init__(renderer, image_data, noise_map, **options)
+        self._dense_source_prior = None
+        self._dense_potential_roughness = None
+
+    def prior_matvec(self, joint_values, lambda_source, lambda_potential):
+        """Apply the complete block prior without creating square matrices."""
+        return self._apply_prior(
+            joint_values, lambda_source, lambda_potential, self.lambda_amplitude
+        )
+
+    def _result_products(
+        self, joint_values, lambda_source, lambda_potential, *, linear_image=None
+    ):
+        strengths = PotentialCorrectionStrengths(
+            lambda_source, lambda_potential, self.lambda_amplitude
+        )
+        penalty = jnp.vdot(
+            jnp.asarray(joint_values, dtype=self.dtype),
+            self.prior_matvec(joint_values, lambda_source, lambda_potential),
+        )
+        return self._field_products(
+            joint_values, strengths, penalty, linear_image=linear_image
+        )
+
+    def dense_prior(self, lambda_source, lambda_potential):
+        """Explicitly materialize Q, including the independent all-node prior."""
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            if self._dense_source_prior is None:
+                self._dense_source_prior = self.source_regularizer.matrix(
+                    *self.renderer.source_bbox,
+                    scale=self.source_scale,
+                ).astype(self.dtype)
+                self._dense_potential_roughness = self.potential_regularizer.to_dense(
+                    1, 0
+                )
+            prior = jnp.zeros((self.n_joint, self.n_joint), dtype=self.dtype)
+            prior = prior.at[: self.n_source, : self.n_source].set(
+                jnp.asarray(lambda_source, dtype=self.dtype) * self._dense_source_prior
+            )
+            return prior.at[self.n_source :, self.n_source :].set(
+                jnp.asarray(lambda_potential, dtype=self.dtype)
+                * self._dense_potential_roughness
+                + jnp.asarray(self.lambda_amplitude, dtype=self.dtype)
+                * jnp.eye(self.n_potential, dtype=self.dtype)
+            )

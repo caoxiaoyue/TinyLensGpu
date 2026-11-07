@@ -274,6 +274,14 @@ class PotentialCorrectionRenderer:
         self, potential_values=None, *, macro_mapping=None
     ) -> SourceMapping:
         """Prepare current source interpolation at corrected macro rays."""
+        return self._source_mapping_for(
+            self.source_interpolation, potential_values, macro_mapping=macro_mapping
+        )
+
+    def _source_mapping_for(
+        self, interpolation, potential_values=None, *, macro_mapping=None
+    ):
+        """Use an alternate interpolant on the same frozen rays and source grid."""
         rays = self.macro_mapping if macro_mapping is None else macro_mapping
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             bx, by = rays
@@ -284,7 +292,7 @@ class PotentialCorrectionRenderer:
                 jnp.stack((bx, by), axis=1),
                 *self.source_bbox,
                 self.source_n,
-                interpolation=self.source_interpolation,
+                interpolation=interpolation,
             )
             return SourceMapping(weights, indices, valid, bx, by)
 

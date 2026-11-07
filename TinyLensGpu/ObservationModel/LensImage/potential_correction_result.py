@@ -38,6 +38,24 @@ class PotentialSolverInfo:
 
 
 @dataclass(frozen=True)
+class PotentialOptimizerInfo:
+    """Native L-BFGS-B exit and independent endpoint qualification diagnostics."""
+
+    native_success: bool | None
+    native_status: int | None
+    native_message: str | None
+    iterations: int
+    function_evaluations: int
+    gradient_evaluations: int
+    initial_objective: float | None
+    gradient_inf: float | None
+    white_gradient_inf: float | None
+    gn_stationarity: float | None
+    gn_stationarity_tol: float
+    diagnostics: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PotentialCorrectionResult:
     """Raw fitted fields, their valid domains, images, and inference metadata.
 
@@ -53,7 +71,9 @@ class PotentialCorrectionResult:
     for chi2/objective. History contains scalar dictionaries for initialization
     and accepted/rejected attempts. ``success`` describes nonlinear convergence;
     ``solver_info`` describes the last inner solve and may be converged even
-    when the nonlinear reconstruction stalls.
+    when the nonlinear reconstruction stalls. L-BFGS-B records its native
+    exit and GN stationarity in ``optimizer_info`` and leaves ``solver_info``
+    empty.
     """
 
     source_values: Array
@@ -92,10 +112,11 @@ class PotentialCorrectionResult:
     success: bool
     failure_reason: str | None
     termination_reason: str
-    solver_info: PotentialSolverInfo
+    solver_info: PotentialSolverInfo | None
     evidence_method: str
     determinant_method: str
     evidence_is_exact: bool
     initialization_provenance: dict = field(default_factory=dict)
     configuration: dict = field(default_factory=dict)
     history: tuple = ()
+    optimizer_info: PotentialOptimizerInfo | None = None
