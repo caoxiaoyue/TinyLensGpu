@@ -115,3 +115,195 @@ def test_j0946_rejects_an_unmatched_comparison_domain(small_dense_refit, field):
     trial = {"objective": float(fit.objective), "log_evidence": float(fit.log_evidence)}
     with pytest.raises(ValueError, match=field):
         compare_dense_to_trial(fit, trial, trial_fields)
+
+
+def test_j0946_operator_requires_a_retained_dense_reference(tmp_path, capsys):
+    from examples.potential_correction.validate_j0946_lbfgs import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "--backend",
+                "operator",
+                "--macro-dir",
+                str(tmp_path / "macro"),
+                "--archive-dir",
+                str(tmp_path / "archive"),
+                "--output",
+                str(tmp_path / "operator"),
+            ]
+        )
+    assert exc.value.code == 2
+    assert (
+        "operator qualification requires --dense-reference" in capsys.readouterr().err
+    )
+    assert not (tmp_path / "operator").exists()
+
+
+@pytest.mark.parametrize(
+    "shift, residual, passed",
+    [(1, 1e-12, True), (2, 1e-12, False), (1, 2e-8, False)],
+)
+def test_j0946_operator_scores_peak_distance_and_true_residual(shift, residual, passed):
+    import numpy as np
+    from examples.potential_correction.validate_j0946_lbfgs import (
+        compare_operator_to_dense,
+    )
+
+    nodes = np.array([[-7, 11], [-7, 12], [-7, 13], [-7, 14]])
+    geometry = {
+        "potential_node_indices": nodes,
+        "potential_x": nodes[:, 0] * 0.1,
+        "potential_y": nodes[:, 1] * 0.1,
+        "derivative_valid": np.array([True, True, True, False]),
+    }
+    dense_fields = {**geometry, "convergence": np.array([0.1, 0.098, 0.098, np.nan])}
+    operator_convergence = np.array([0.098, 0.098, 0.098, np.nan])
+    operator_convergence[shift] = 0.1
+    operator_fields = {**geometry, "convergence": operator_convergence}
+    optimizer_info = {
+        "native_success": True,
+        "gn_stationarity": 4e-5,
+        "gn_stationarity_tol": 1e-3,
+    }
+    shared = {
+        "algorithm": "lbfgs",
+        "success": True,
+        "objective": 4.0,
+        "log_evidence": 12.0,
+        "evidence_method": "local_gauss_newton",
+        "evidence_is_exact": False,
+        "optimizer_info": optimizer_info,
+        "configuration": {
+            "potential_spacing": 0.1,
+            "solve_rtol": 1e-8,
+            "solve_atol": 0.0,
+        },
+    }
+    dense = {**shared, "backend": "dense", "determinant_method": "full_data_space"}
+    operator = {
+        **shared,
+        "backend": "operator",
+        "determinant_method": "principal_block_cholesky",
+        "log_evidence": 15.0,
+        "optimizer_info": {
+            **optimizer_info,
+            "diagnostics": {
+                "stationarity_solver": {
+                    "method": "pcg",
+                    "converged": True,
+                    "failed": False,
+                    "rhs_norm": 1.0,
+                    "true_residual_norm": residual,
+                    "true_residual_threshold": 1e-8,
+                },
+            },
+        },
+    }
+
+    comparison = compare_operator_to_dense(
+        operator, operator_fields, dense, dense_fields
+    )
+    assert comparison["passed"] is passed
+    assert comparison["gates"]["true_residual"] is (residual <= 1e-8)
+    assert comparison["absolute_differences"][
+        "peak_separation_arcsec"
+    ] == pytest.approx(shift * 0.1)
+    assert comparison["absolute_differences"]["convergence"] == pytest.approx(0.002)
+    assert comparison["evidence"]["operator_minus_dense"] == 3.0
+
+
+@pytest.mark.parametrize(
+    "change, error",
+    [
+        (None, None),
+        ("digest", "archive identity"),
+        ("max_iter", "configuration differs"),
+        ("evidence", "does not pass the archive comparison"),
+        ("reconstruction", "reconstruction SHA-256"),
+    ],
+)
+def test_j0946_dense_reference_is_bound_to_the_archive_and_fit(tmp_path, change, error):
+    import hashlib
+    import json
+    import numpy as np
+    from examples.potential_correction.validate_j0946_lbfgs import load_dense_reference
+
+    archive = {
+        "trial_index": 497,
+        "protocol": "regenerated",
+        "files": {"macro": {"path": "original", "sha256": "a" * 64}},
+        "objective": 4.0,
+        "log_evidence": 12.0,
+    }
+    fields = {
+        "potential_node_indices": np.array([[0, 0], [1, 0]]),
+        "potential_x": np.array([0.0, 0.1]),
+        "potential_y": np.array([0.0, 0.0]),
+        "derivative_valid": np.array([True, False]),
+        "convergence": np.array([0.1, np.nan]),
+        "source_bbox": np.array([-0.1, 0.1, -0.1, 0.1]),
+        "source_x_axis": np.array([-0.1, 0.1]),
+        "source_y_axis": np.array([-0.1, 0.1]),
+    }
+    expected_fit = {
+        "strengths": {
+            "lambda_source": 0.2,
+            "lambda_potential": 0.3,
+            "lambda_amplitude": 0.4,
+        },
+        "configuration": {"max_iter": 3000},
+        "initialization_provenance": {"source_start_archive": "regenerated"},
+    }
+    stored_archive = {
+        **archive,
+        "files": {
+            "macro": {
+                "path": "relocated",
+                "sha256": ("b" if change == "digest" else "a") * 64,
+            },
+        },
+    }
+    fit = {
+        **expected_fit,
+        "configuration": {"max_iter": 42 if change == "max_iter" else 3000},
+        "algorithm": "lbfgs",
+        "backend": "dense",
+        "success": True,
+        "objective": 4.0,
+        "log_evidence": 13.0 if change == "evidence" else 12.0,
+        "evidence_method": "local_gauss_newton",
+        "determinant_method": "full_data_space",
+        "evidence_is_exact": False,
+        "optimizer_info": {
+            "native_success": True,
+            "gn_stationarity_tol": 1e-3,
+            "gn_stationarity": 4e-7,
+        },
+    }
+    path = tmp_path / "reconstruction.npz"
+    np.savez_compressed(path, **fields)
+    record = {
+        "archive": stored_archive,
+        "result": fit,
+        "comparison": {"passed": True},
+        "reconstruction": {
+            "path": path.name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+    }
+    (tmp_path / "result.json").write_text(json.dumps(record))
+    if change == "reconstruction":
+        path.write_bytes(path.read_bytes() + b"changed")
+    if error is None:
+        saved, saved_fields, provenance = load_dense_reference(
+            tmp_path, archive, fields, expected_fit
+        )
+        assert saved["log_evidence"] == 12.0
+        np.testing.assert_array_equal(
+            saved_fields["derivative_valid"], fields["derivative_valid"]
+        )
+        assert provenance["comparison"]["passed"]
+    else:
+        with pytest.raises(ValueError, match=error):
+            load_dense_reference(tmp_path, archive, fields, expected_fit)
