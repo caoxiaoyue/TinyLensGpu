@@ -1,7 +1,7 @@
 # L-BFGS-B source–potential reconstruction
 
 **Status:** ready-for-agent
-**State:** claimed
+**State:** resolved
 
 ## Problem Statement
 
@@ -122,3 +122,9 @@ Validate both backends on independent small references, a matched injection and 
 ## Comments
 
 Implementation coordinated on `codex/lbfgs-potential-correction`.
+
+All seven tickets are resolved on the integration branch. The standards and spec reviews covered the diff from `9334487` to `a3d9f9c`. The review fixes in `cce1e14` were merged at `2b5bd98`. They cover stable operator noise weighting, the shared dense comparison, isolated mock destinations, and the workflow index.
+
+The final CUDA checks passed in separate processes in `tinylens_gpu`. From `tests/`, `pytest -xq test_potential_correction_lbfgs.py` passed 16 cases. From `examples/tests/`, `pytest -xq test_potential_correction_lbfgs_mock.py test_potential_correction_lbfgs_j0946.py` passed 16 cases. From `benchmarks/`, `pytest -xq test_lbfgs_operator_resources.py` passed. The tiny-positive-noise regression also passed on CPU.
+
+The final [J0946 qualification](../../docs/validation/potential-correction-lbfgs-j0946.md), [matched mock comparison](../../examples/potential_correction/README.md#fixed-strength-l-bfgs-b-mock), and [allocation benchmark](../../docs/validation/potential-correction-lbfgs-operator-resources.md) retain the commands, controls, and measured results.
