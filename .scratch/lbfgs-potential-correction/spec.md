@@ -1,7 +1,7 @@
 # L-BFGS-B source–potential reconstruction
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 ## Problem Statement
 
@@ -118,3 +118,7 @@ Validate both backends on independent small references, a matched injection and 
 - The [potential-correction spec](../potential-correction/spec.md) and [source interpolation spec](../pixelized-source-interpolation/spec.md) define the established geometry, priors, and Hermite representation this feature uses. The [block-Schur ADR](../../docs/adr/0001-use-block-schur-for-joint-operator-inversion.md) concerns the separate joint semi-linear source and lens-light workflow.
 - The [trial 497 report](../../workspace/iteration/cubic_evidence_joint_results.md) is the historical reference for the fixed-strength J0946 refit. It used \((\lambda_s,\lambda_4,\lambda_0)=(0.0002532641285041916, 538677.9228218549, 10572.677018080045)\), a 100 × 100 source grid, 2,293 selected pixels, 1,134 potential coefficients, and 802 derivative-valid nodes. Its reported objective is 605.0380047097701 and local GN log evidence is 6307.427179447846. Its \(\delta\kappa\) positive peak is approximately 0.17433 at \((-0.7'',1.1'')\) on a \(0.1''\) potential grid.
 - The [archived experiment runner](../../workspace/iteration/run_cubic_evidence_joint.py) records how the frozen fit start and distinct bilinear whitening reference were prepared. The [previous fixed-state Hermite replay](../../docs/validation/pixelized-source-interpolation-j0946-replay.md) establishes renderer parity on a different archived trial. The gates above apply to the new refits at trial 497's strengths.
+
+## Comments
+
+Implementation coordinated on `codex/lbfgs-potential-correction`.

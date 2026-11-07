@@ -5,7 +5,7 @@
 **Blocked by:** None (can start immediately).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -16,3 +16,7 @@
 - [ ] Fit success requires native L-BFGS-B success, finite endpoint quantities, and the GN stationarity check. The public defaults are `max_iter=3000` and `gn_stationarity_tol=1e-3`. `optimizer_info` records the optimizer exit and endpoint diagnostics, with `solver_info=None`. Invalid configuration raises, and numerical failure returns its reason, available fields, and `log_evidence=None`.
 - [ ] An independent small Hermite case with nonzero source–potential coupling verifies the objective and gradient, dense whitening, endpoint stationarity, and complete determinant ratio. An A → B → A sequence on one object checks per-call amplitude strength, normalization, and repeatability.
 - [ ] Applicable single-step and GN/LM fit and inference regressions pass after the shared-code changes.
+
+## Comments
+
+Claimed by `codex/lbfgs-01-dense` for integration into `codex/lbfgs-potential-correction`.
