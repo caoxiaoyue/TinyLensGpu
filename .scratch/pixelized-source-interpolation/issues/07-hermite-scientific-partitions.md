@@ -33,3 +33,8 @@ passed and matched the bundled archive's geometry hash. The CPU geometry
 differed and regenerated its partition. The same CUDA geometry with
 Hermite rejected the archive's bilinear provenance. Tests also cover real
 Hermite fits in all three drivers and intentional fixed cross-mode reuse.
+
+Review fix `ee1c67d` checks traced macro rays and initial gradients for
+automatic source-incidence reuse. The documented legacy pairing still
+matches on CUDA. The final scientific example suite passed 29 checks.
+[Review verification](../review.md#integrated-verification)

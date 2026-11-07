@@ -31,3 +31,8 @@ run passed 43 tests. From `workspace/iteration/tests/`, the CPU
 `pytest -xq test_j0946_iteration.py test_j0946_cubic_source.py test_j0946_zero_boundary.py`
 run passed 13. A final CPU selection on the merged ticket tree passed 15
 handoff, export, resume and archive cases.
+
+After the support-edge precision fix in `ee1c67d`, the refreshed cubic replay
+matched the experimental derivatives and PSF-convolved image within
+`1.60e-12` and `1.50e-15` absolute, respectively. The hard-box and zero-ring
+controls also passed. The report and raw records were refreshed in `38e37fd`.

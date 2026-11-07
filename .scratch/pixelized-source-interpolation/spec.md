@@ -1,7 +1,7 @@
 # Opt-in cubic Hermite interpolation for pixelized sources
 
 **Status:** ready-for-agent
-**State:** claimed
+**State:** resolved
 
 ## Problem Statement
 
@@ -102,3 +102,9 @@ Both backends use a shared calculation of each ray's neighbor indices and weight
 ## Comments
 
 Claimed for implementation on `codex/pixelized-source-interpolation`.
+
+All nine implementation tickets are resolved on
+`codex/pixelized-source-interpolation`. The review fixes are integrated
+at `015daaf`. [Tickets](issues/) · [Review and verification](review.md) ·
+[Evidence and GPU measurements](../../docs/validation/pixelized-source-interpolation.md) ·
+[J0946 fixed-state replay](../../docs/validation/pixelized-source-interpolation-j0946-replay.md)

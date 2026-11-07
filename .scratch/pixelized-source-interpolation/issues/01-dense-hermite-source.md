@@ -24,5 +24,11 @@ Implemented in `0ffbfcd`, merged as `db40705`. In `tinylens_gpu` from `tests/`, 
 `XLA_PYTHON_CLIENT_PREALLOCATE=false`, the following command passed 181 tests.
 
 ```bash
-pytest -xq test_pixelized_source_interpolation.py test_pixelized_source_model.py   test_pixelized_source_utils.py test_pixelized_inversion.py test_image_template_light.py   'test_pixelized_source_precision.py::test_reconstruction_keeps_explicit_double_precision_source_geometry[dense]'
+pytest -xq test_pixelized_source_interpolation.py test_pixelized_source_model.py \
+  test_pixelized_source_utils.py test_pixelized_inversion.py test_image_template_light.py \
+  'test_pixelized_source_precision.py::test_reconstruction_keeps_explicit_double_precision_source_geometry[dense]'
 ```
+
+Review fix `ee1c67d` preserves the two-spacing support edges under JIT.
+The added Float64 regression checks both outer edges and their nearest
+representable neighbors on CPU and CUDA. [Review verification](../review.md#support-edge-precision)
