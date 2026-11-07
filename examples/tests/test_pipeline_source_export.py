@@ -128,7 +128,7 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
     assert len(calls) == 1
     assert set(package) == {
         "source_pixels", "source_image", "source_bbox",
-        "source_x_axis", "source_y_axis", "n",
+        "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
     assert package["n"] == 3
     assert package["source_pixels"].dtype == np.float64
@@ -230,7 +230,10 @@ def test_source_package_matches_legacy_real_operator(
     helper = _load_source_package_helper(examples_dir / "pix_src_demo_operator" / "pipe" / relative_path)
     package = helper(model,medians,names)
     assert len(calls) == 1
-    assert set(package) == {"source_pixels","source_image","source_bbox","source_x_axis","source_y_axis","n"}
+    assert set(package) == {
+        "source_pixels", "source_image", "source_bbox",
+        "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
+    }
     assert package["n"] == 3
     assert package["source_pixels"].dtype == np.float64
     np.testing.assert_allclose(package["source_pixels"],expected_source,rtol=2e-5,atol=2e-5)

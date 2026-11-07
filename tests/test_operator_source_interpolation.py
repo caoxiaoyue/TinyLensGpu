@@ -175,3 +175,33 @@ def test_hermite_operator_inversion_matches_dense(imaging, solvers, joint):
 
     # The cached and uncached paths should also use identical determinant blocks.
     np.testing.assert_allclose(evidence[0], evidence[1], rtol=0, atol=1e-10)
+
+
+@pytest.mark.integration
+def test_saved_node_intensities_can_initialize_a_new_operator_fit(imaging):
+    config, bbox = imaging
+    strength, sigma = 0.5, 0.05
+    source = PixelizedSourceModel(
+        4, log_lambda_reg=np.log(strength), regularization_type="zero-order",
+        interpolation="cubic_hermite",
+    )
+    source.log_lambda_reg.to_static()
+    physical = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
+    simulator = PixelizedLensSimulator(physical, config)
+    design, _ = simulator.design_matrix(source_bbox=bbox)
+    design = np.asarray(design)
+    saved_nodes = np.linspace(-0.2, 1.0, 16)
+    # Choose a data vector whose regularized solution is the saved source.
+    offset = np.linalg.solve(design.T @ design, strength * sigma**2 * saved_nodes)
+    image = np.zeros(config.mask.shape)
+    image[~np.asarray(config.mask)] = design @ (saved_nodes + offset)
+    options = dict(mask=config.mask, nsub=config.nsub, fixed_source_bbox=bbox)
+    args = (image, np.full_like(image, sigma), config.psf_kernel, config.dpix, physical)
+    cold = PixelizedImageProbModelOperator(*args, **options)
+    warm = PixelizedImageProbModelOperator(*args, initial_source=saved_nodes, **options)
+    # A zero iteration budget can only converge if the supplied seed is used.
+    cold.pcg_max_iter = warm.pcg_max_iter = 0
+    assert not cold.evaluate().solver_info.converged
+    result = warm.evaluate()
+    assert result.solver_info.converged
+    np.testing.assert_array_equal(result.source_pixels, saved_nodes)

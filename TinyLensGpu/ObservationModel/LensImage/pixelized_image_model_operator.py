@@ -135,6 +135,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         (default: 1e-4). This does not change forward convergence. Redundant
         bright bases may need a smaller margin in double precision; verify
         KKT accuracy and finite-difference derivatives before using it.
+    initial_source : array_like, optional
+        Finite nodal intensities for the initial solver iterate. Requires
+        ``fixed_source_bbox`` so the node coordinates stay fixed. Joint fits
+        initialize the lens-light intensities at zero.
     """
 
     def __init__(
@@ -159,6 +163,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         pnpg_power_iter: int = 20,
         lens_light_regularization: float = EPSILON_REG,
         pnpg_comp_rel_tol: float = 1e-4,
+        *,
+        initial_source: Union[np.ndarray, Array, None] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "pnpg"):
@@ -201,6 +207,16 @@ class PixelizedImageProbModelOperator(ck.Module):
             self.reg_type,
         )
         self._fixed_source_bbox = self._validate_fixed_source_bbox(fixed_source_bbox)
+        self._initial_linear = None
+        if initial_source is not None:
+            if self._fixed_source_bbox is None:
+                raise ValueError("initial_source requires a fixed_source_bbox.")
+            initial = jnp.asarray(initial_source)
+            if initial.shape == (source_n, source_n):
+                initial = initial.ravel()
+            if initial.shape != (source_n**2,) or not jnp.all(jnp.isfinite(initial)):
+                raise ValueError("initial_source must contain n² finite node intensities.")
+            self._initial_linear = jnp.pad(initial, (0, self.n_lens_light))
         template_u = prepare_reg_template(
             fixed_reg_template, source_n,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
@@ -568,18 +584,20 @@ class PixelizedImageProbModelOperator(ck.Module):
                 )
 
         if self.solver_type == "pnpg":
-            warm_start, warm_info = pcg_solve(
-                operator,
-                b,
-                preconditioner,
-                max_iter=self.pcg_max_iter,
-                rtol=self.pcg_rtol,
-            )
-            warm_start = jnp.where(
-                warm_info.converged & jnp.all(jnp.isfinite(warm_start)),
-                warm_start,
-                jnp.zeros_like(warm_start),
-            )
+            warm_start = self._initial_linear
+            if warm_start is None:
+                warm_start, warm_info = pcg_solve(
+                    operator,
+                    b,
+                    preconditioner,
+                    max_iter=self.pcg_max_iter,
+                    rtol=self.pcg_rtol,
+                )
+                warm_start = jnp.where(
+                    warm_info.converged & jnp.all(jnp.isfinite(warm_start)),
+                    warm_start,
+                    jnp.zeros_like(warm_start),
+                )
             source_pixels, solver_info = pnpg_nnls_solve_with_implicit_grad(
                 operator,
                 b,
@@ -597,6 +615,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 operator,
                 b,
                 preconditioner,
+                x0=self._initial_linear,
                 max_iter=self.pcg_max_iter,
                 rtol=self.pcg_rtol,
                 backward_max_iter=2 * self.pcg_max_iter,
