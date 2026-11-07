@@ -9,6 +9,8 @@ Stage b : EPL + shear + MGE lens light + pixelized source (joint fit)
 
 Each stage pickles its posterior samples/weights to
 ``output/stage_{a,b}.pkl`` and is re-runnable via ``--skip-done``.
+Use ``--source-interpolation cubic_hermite`` for a fresh Hermite fit.
+A resume inherits the interpolation recorded in the checkpoints.
 """
 
 from __future__ import annotations
@@ -55,6 +57,8 @@ from TinyLensGpu.example_support import (
     StageStorageConfig,
     draw_image_panel,
     load_stage,
+    resolve_source_interpolation,
+    resolve_stage_source_interpolation,
     run_sampling,
     save_stage,
     require_valid_reconstruction,
@@ -69,6 +73,7 @@ NSUB_PIX = 4  # lower oversampling for pixelized stage (memory)
 OUT_DIR = Path("output")
 DATA_DIR = Path("data")
 
+NSRC = 40
 N_GAUSSIANS_LENS = 10
 N_GAUSSIANS_SRC = 10
 
@@ -85,16 +90,24 @@ def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool
     )
 
 
-def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None):
+def _dump_stage(
+    tag: str, samples, weights, param_names, log_z, extra=None,
+    *, source_interpolation=None,
+):
     save_stage(
-        StageStorageConfig(output_dir=OUT_DIR, include_schema=False),
+        StageStorageConfig(
+            OUT_DIR, include_schema=False, source_interpolation=source_interpolation,
+        ),
         tag, samples, weights, param_names, log_z, extra=extra,
     )
 
 
-def _load_stage(tag: str):
+def _load_stage(tag: str, *, source_interpolation=None):
     return load_stage(
-        StageStorageConfig(output_dir=OUT_DIR, include_schema=False), tag,
+        StageStorageConfig(
+            OUT_DIR, include_schema=False, source_interpolation=source_interpolation,
+        ),
+        tag,
     )
 
 
@@ -242,7 +255,8 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel):
     )
 
 
-def run_stage_a(image_data, noise_map, psf_kernel):
+def run_stage_a(image_data, noise_map, psf_kernel, *, source_interpolation=None):
+    source_interpolation = resolve_source_interpolation(source_interpolation)
     OUT_DIR.mkdir(exist_ok=True)
     print("\n" + "=" * 60)
     print(" Stage A : SIE + shear + MGE lens light + MGE source light")
@@ -274,6 +288,7 @@ def run_stage_a(image_data, noise_map, psf_kernel):
             medians=medians,
             lens_light_model=lens_image_model,
         ),
+        source_interpolation=source_interpolation,
     )
 
     try:
@@ -502,6 +517,8 @@ def build_stage_b_likelihood(
     passer: StagePosterior,
     position_likelihood,
     feature_mask,
+    *,
+    source_interpolation=None,
 ):
     epl, shear = _epl_mass_from_stage_a(passer)
     lens_light = _mge_lens_light_from_stage_a(passer)
@@ -514,9 +531,11 @@ def build_stage_b_likelihood(
     )
     lam.to_dynamic()
 
-    pix_src = PixelizedSourceModel(n=40,
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
         log_lambda_reg=lam,
         regularization_type="first-order",
+        interpolation=resolve_source_interpolation(source_interpolation),
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -697,13 +716,15 @@ def _plot_stage_b(tag, likelihood, medians, param_names, save_path, positions=No
 
 
 def run_stage_b(image_data, noise_map, psf_kernel,
-                samples_a, weights_a, names_a, position_likelihood, feature_mask):
+                samples_a, weights_a, names_a, position_likelihood, feature_mask,
+                *, source_interpolation=None):
     print("\n" + "=" * 60)
     print(" Stage B : EPL + shear + MGE lens light + pix source (joint fit)")
     print("=" * 60)
     passer = StagePosterior(samples_a, weights_a, names_a)
     likelihood = build_stage_b_likelihood(
         image_data, noise_map, psf_kernel, passer, position_likelihood, feature_mask,
+        source_interpolation=source_interpolation,
     )
     stage = _run_sampler(
         likelihood, n_live=300, n_eff=800, tag="stage-B", vectorized=False,
@@ -713,7 +734,10 @@ def run_stage_b(image_data, noise_map, psf_kernel,
     )
     _print_summary("stage-B", samples, weights, names)
     medians = _posterior_median(samples, weights, names)
-    _dump_stage("b", samples, weights, names, logz, extra=dict(medians=medians))
+    _dump_stage(
+        "b", samples, weights, names, logz, extra=dict(medians=medians),
+        source_interpolation=likelihood.source_model.interpolation,
+    )
     try:
         _plot_stage_b("stage-B", likelihood, medians, names,
                       str(OUT_DIR / "stage_b_model.png"),
@@ -728,7 +752,10 @@ def run_stage_b(image_data, noise_map, psf_kernel,
 # ------------------------------------------------------------------ #
 # Main entry point
 # ------------------------------------------------------------------ #
-def main(skip_done: bool = False):
+def main(skip_done: bool = False, *, source_interpolation=None):
+    source_interpolation = resolve_stage_source_interpolation(
+        OUT_DIR, ("a", "b"), requested=source_interpolation, resume=skip_done,
+    )
     image_data, noise_map, psf_kernel, _ = load_lens_data(
         image_path=str(DATA_DIR / "image.fits"),
         noise_path=str(DATA_DIR / "noise.fits"),
@@ -738,13 +765,13 @@ def main(skip_done: bool = False):
     # ---- stage A ---------------------------------------------------- #
     if skip_done and (OUT_DIR / "stage_a.pkl").exists():
         print("[stage-A] loading cached output/stage_a.pkl")
-        d = _load_stage("a")
+        d = _load_stage("a", source_interpolation=source_interpolation)
         samples_a, weights_a, names_a = d["samples"], d["weights"], d["param_names"]
         medians_a = d["extra"]["medians"]
         lens_light_model = d["extra"]["lens_light_model"]
     else:
         samples_a, weights_a, names_a, medians_a, lens_light_model = run_stage_a(
-            image_data, noise_map, psf_kernel,
+            image_data, noise_map, psf_kernel, source_interpolation=source_interpolation,
         )
 
     # ---- position likelihood ---------------------------------------- #
@@ -756,13 +783,14 @@ def main(skip_done: bool = False):
     # ---- stage B ---------------------------------------------------- #
     if skip_done and (OUT_DIR / "stage_b.pkl").exists():
         print("[stage-B] loading cached output/stage_b.pkl")
-        d = _load_stage("b")
+        d = _load_stage("b", source_interpolation=source_interpolation)
         samples_b, weights_b, names_b = d["samples"], d["weights"], d["param_names"]
         medians_b = d["extra"]["medians"]
     else:
         samples_b, weights_b, names_b, medians_b = run_stage_b(
             image_data, noise_map, psf_kernel,
             samples_a, weights_a, names_a, position_likelihood, feature_mask,
+            source_interpolation=source_interpolation,
         )
 
     print("\n" + "=" * 60)
@@ -778,5 +806,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-done", action="store_true",
                         help="Re-use cached posteriors in output/stage_*.pkl")
+    parser.add_argument(
+        "--source-interpolation", choices=("bilinear", "cubic_hermite"),
+        help="Source interpolation for a fresh run or an explicit resume check.",
+    )
     args = parser.parse_args()
-    main(skip_done=args.skip_done)
+    main(skip_done=args.skip_done, source_interpolation=args.source_interpolation)

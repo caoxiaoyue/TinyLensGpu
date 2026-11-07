@@ -3,6 +3,7 @@ Fit lens mass + pixelized source + lens light with Nautilus nested sampling.
 
 Joint model: SIE mass + Sersic lens light (linear amplitude) + pixelized source
 Dual masking: data_mask for likelihood, source_seed_mask for bounding box
+Set TINYLENS_SOURCE_INTERPOLATION=cubic_hermite to opt in to Hermite.
 """
 
 import os
@@ -31,6 +32,7 @@ from TinyLensGpu.example_support import (
     posterior_quantiles,
     draw_image_panel,
     require_valid_reconstruction,
+    source_interpolation_metadata,
 )
 from TinyLensGpu.PhysicalModel import PhysicalModel, SIE, SersicEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light import PixelizedSourceModel
@@ -145,6 +147,7 @@ lens_light = SersicEllipse(
 pix_src = PixelizedSourceModel(
     n=80,
     regularization_type="first-order",
+    interpolation=os.environ.get("TINYLENS_SOURCE_INTERPOLATION", "bilinear"),
     log_lambda_reg=ParamU(
         "log_lambda_reg",
         0.0,
@@ -241,8 +244,13 @@ with open("output/fit_summary.csv", "w") as f:
         f.write(f"{name},{q50_list[i]:.6f},{q16_list[i]:.6f},{q84_list[i]:.6f}\n")
 
 with gzip.open("output/fit_results.pkl.gz", "wb") as f:
-    pickle.dump({"samples": samples, "weights": weights,
-                 "log_z": log_z, "param_names": param_names}, f)
+    pickle.dump(
+        dict(
+            samples=samples, weights=weights, log_z=log_z, param_names=param_names,
+            **source_interpolation_metadata(pix_src.interpolation),
+        ),
+        f,
+    )
 
 # ------------------------------------------------------------------ #
 # Visualization: MAP source reconstruction and separated components
