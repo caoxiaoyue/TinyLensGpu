@@ -213,12 +213,27 @@ fit_options = {"block_size": 1024, "block_indices": blocks,
 
 The helper assigns potential nodes to fixed source tiles using sparse query
 and derivative-stencil incidence, attaches support-only nodes spatially,
-interleaves fields, and splits at the declared cap. It constructs no dense
-source-by-potential matrix and retains no truth callable. Keep this partition
-fixed during a run; refreshing an iterative Jacobian does not require retaining
-the truth gradient. Saved records contain its method, actual block sizes and
-complete indices. A source grid, mask, integration, initialization or potential
-spacing change requires rebuilding the partition and checking its approximation.
+interleaves fields, and splits at the declared cap. Each source neighbor votes
+with the magnitude of its weight. The forward model and its transpose use the
+signed weights. Keep this partition fixed during a run while the iterative
+Jacobian refreshes. Saved records contain its method, actual block sizes, and
+complete indices.
+
+Single-step, iterative, and calibration JSON accept
+`"source_interpolation": "cubic_hermite"`. Omitting it selects hard-box
+bilinear interpolation. Hermite extends source support by two grid spacings
+on each side using fixed zero exterior nodes. The saved source box and field
+arrays still describe the fitted nodes.
+
+Set `partition_file` to a saved run or calibration JSON, or to its extracted
+`block_partition` object. Automatic reuse checks the geometry hash,
+interpolation, boundary convention, vote rule, method, tile size, and block
+cap. The drivers generate a partition with their configured gradients when
+these checks fail and record the rejection in `block_partition.reuse_rejected`.
+For a controlled comparison, copy the saved `indices` into `block_indices`
+in the input configuration. This takes precedence over automatic reuse,
+validates the partition against the joint coefficients and cap, and records
+its origin as `explicit_fixed`.
 
 The completed [64x64 calibration record](../../docs/validation/potential-correction-single-step-calibration.md)
 adopts independently fixed `lambda_amplitude=10000`, source-strength bounds
@@ -412,11 +427,14 @@ The optional reference directory is a saved `single_step_scientific.py` run;
 comparison loads its public results without refitting. Dense single-step versus
 dense iterative is the primary algorithm comparison. Each algorithm's
 operator-minus-dense comparison reports determinant contributions separately.
-The default scientific partition reuses the exact recorded single-step indices
-after checking a geometry hash, so its change cannot be mistaken for an
-algorithm effect. `partition_source="initial_nodal"` prepares a partition from
-the initial pixelized-source gradient for another configured geometry; that
-choice is fixed throughout the fit/search and recorded explicitly.
+The default scientific configuration requests the bundled historical
+single-step partition. A byte-identical copy is reusable with matching
+bilinear geometry, tile size, and cap. A geometry hash can differ when
+floating-point coordinates change across devices. The iterative example
+builds a partition from the initial pixelized-source gradient when automatic
+reuse fails. With `partition_source="initial_nodal"` and no `partition_file`,
+it directly builds that partition. Both paths keep the selected partition
+fixed through the fit and strength search.
 
 Use `--mode tune` for DIRECT around **complete** inner reconstructions, with
 the configured natural-log bounds and budget. Candidates reset source,

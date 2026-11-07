@@ -333,6 +333,7 @@ def load_result(output):
         PotentialCorrectionStrengths,
         PotentialSolverInfo,
     )
+    from TinyLensGpu.utils.lensing.mapping import source_boundary_for_interpolation
     from TinyLensGpu.utils.lensing.potential import PotentialGrid
 
     output = Path(output)
@@ -368,6 +369,13 @@ def load_result(output):
                 **geometry,
             )
             configuration = dict(metadata["result_configuration"])
+            source_interpolation = configuration.setdefault(
+                "source_interpolation", "bilinear"
+            )
+            if "source_boundary" not in configuration:
+                configuration["source_boundary"] = source_boundary_for_interpolation(
+                    source_interpolation
+                )
             configuration["image_shape"] = tuple(configuration["image_shape"])
             if "block_sizes" in configuration:
                 configuration["block_sizes"] = tuple(configuration["block_sizes"])
@@ -471,6 +479,14 @@ def compare_reconstructions(reference, candidate):
         ),
         same_source_regularization=reference.configuration["source_regularization"]
         == candidate.configuration["source_regularization"],
+        source_interpolations=[
+            fit.configuration.get("source_interpolation", "bilinear")
+            for fit in (reference, candidate)
+        ],
+        source_boundaries=[
+            fit.configuration.get("source_boundary", "hard_zero_outside_bbox")
+            for fit in (reference, candidate)
+        ],
         same_static_partition=(
             None
             if left_partition is None or right_partition is None

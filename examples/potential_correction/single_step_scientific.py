@@ -25,6 +25,7 @@ import numpy as np
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.Inference import optimize_potential_correction
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+from examples.potential_correction._scientific_partitions import prepare_partition
 from examples.potential_correction.calibrate_single_step import source_incidence_blocks
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
 from examples.potential_correction.result_products import (
@@ -146,20 +147,31 @@ def run_scientific(configuration, *, output):
             tuple(config["source_bbox"]),
             potential_spacing=config["potential_spacing"],
             dtype=mock.dtype,
+            source_interpolation=config.get("source_interpolation", "bilinear"),
         )
-        mapping = renderer.source_mapping()
-        gx, gy = pair.control.source_truth.gradient(mapping.beta_x, mapping.beta_y)
-        blocks = source_incidence_blocks(
+
+        def build_blocks():
+            mapping = renderer.source_mapping()
+            gx, gy = pair.control.source_truth.gradient(mapping.beta_x, mapping.beta_y)
+            return source_incidence_blocks(
+                renderer,
+                mapping,
+                gx,
+                gy,
+                source_tile=config["source_tile"],
+                block_size=config["block_size"],
+            )
+
+        blocks, partition = prepare_partition(
             renderer,
-            mapping,
-            gx,
-            gy,
-            source_tile=config["source_tile"],
-            block_size=config["block_size"],
+            config,
+            build_blocks,
+            source="frozen_macro",
+            method="source_incidence",
         )
         options = {
             "block_size": config["block_size"],
-            "block_indices": [b.tolist() for b in blocks],
+            "block_indices": blocks,
             "pcg_max_iter": config["pcg_max_iter"],
             "pcg_rtol": config["pcg_rtol"],
             "pcg_atol": 0.0,
@@ -177,6 +189,8 @@ def run_scientific(configuration, *, output):
             Path(__file__).with_name("result_products.py"),
             Path(__file__).with_name("mock.py"),
             Path(__file__).with_name("calibrate_single_step.py"),
+            Path(__file__).with_name("_scientific_partitions.py"),
+            root / "TinyLensGpu/utils/lensing/mapping.py",
         ]
         files.extend(
             root.glob(
@@ -215,13 +229,9 @@ def run_scientific(configuration, *, output):
                 "potential_support": renderer.potential_grid.n_unknown,
                 "query_subpixels": len(renderer.query_x),
             },
-            "block_partition": {
-                "method": "source_incidence",
-                "source_tile": config["source_tile"],
-                "cap": config["block_size"],
-                "actual_sizes": [len(b) for b in blocks],
-                "indices": options["block_indices"],
-            },
+            "source_interpolation": renderer.source_interpolation,
+            "source_boundary": renderer.source_boundary,
+            "block_partition": partition,
             "initialization": "frozen analytic mock truth gradient at fixed true macro rays; zero potential",
             "geometry": "source box and potential support fixed throughout every fit and strength candidate",
             "scope": "reconstruction validation; no detection significance or mass confidence intervals",
@@ -272,6 +282,8 @@ def run_scientific(configuration, *, output):
                             "stage": "strength_search",
                             "search": search_record,
                             "configuration": config,
+                            "source_interpolation": renderer.source_interpolation,
+                            "source_boundary": renderer.source_boundary,
                             "initialization_provenance": problem.initialization_provenance,
                             "failure_reason": "no_successful_candidate",
                         }
