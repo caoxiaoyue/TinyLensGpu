@@ -5,6 +5,37 @@ from __future__ import annotations
 import numpy as np
 
 
+def source_interpolation_metadata(interpolation):
+    """Return the interpolation and boundary recorded by library workflows."""
+    from TinyLensGpu.utils.lensing.mapping import source_boundary_for_interpolation
+
+    return dict(
+        source_interpolation=interpolation,
+        source_boundary=source_boundary_for_interpolation(interpolation),
+    )
+
+
+def resolve_source_interpolation(requested=None, *, metadata=None, context="Source"):
+    """Resolve a fresh choice or validate it against a known library record."""
+    from TinyLensGpu.utils.lensing.mapping import validate_source_interpolation
+
+    if requested is not None:
+        validate_source_interpolation(requested)
+    if metadata is None:
+        return "bilinear" if requested is None else requested
+
+    recorded = metadata.get("source_interpolation", "bilinear")
+    expected_boundary = source_interpolation_metadata(recorded)["source_boundary"]
+    if metadata.get("source_boundary", expected_boundary) != expected_boundary:
+        raise ValueError(f"{context} has a source_boundary incompatible with {recorded!r}.")
+    if requested is not None and requested != recorded:
+        raise ValueError(
+            f"{context} uses source interpolation {recorded!r}, but {requested!r} "
+            "was requested. Start a fresh run to change the interpolation."
+        )
+    return recorded
+
+
 def source_axes_from_bbox(source_bbox, n):
     xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
     return (
@@ -67,6 +98,8 @@ def export_source_package(
     pixels = np.asarray(result.source_pixels, dtype=np.float64)
     bbox = tuple(float(v) for v in result.source_bbox)
     x, y = source_axes_from_bbox(bbox, n)
+    source_model = getattr(likelihood, "source_model", None)
+    interpolation = getattr(source_model, "interpolation", "bilinear")
     return dict(
         source_pixels=pixels,
         source_image=pixels.reshape(n, n),
@@ -74,12 +107,14 @@ def export_source_package(
         source_x_axis=x,
         source_y_axis=y,
         n=int(n),
+        **source_interpolation_metadata(interpolation),
     )
 
 
 def validate_source_package(
     package, *, expected_n, rho, expected_source_bbox=None,
     normalize_bbox=False, check_axes=False, require_regularization=True,
+    source_interpolation=None,
 ):
     """Validate/normalize a source package in place; return the same dict."""
     legacy_keys = [k for k in ("nx", "ny") if k in package]
@@ -98,6 +133,10 @@ def validate_source_package(
     missing = [k for k in required if k not in package]
     if missing:
         raise KeyError("Source package missing required keys: " + ", ".join(missing))
+
+    resolve_source_interpolation(
+        source_interpolation, metadata=package, context="Source package"
+    )
 
     n = int(package["n"])
     if n != expected_n:
