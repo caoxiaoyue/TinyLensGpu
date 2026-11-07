@@ -35,7 +35,7 @@ from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from TinyLensGpu.utils.lensing.mapping import (
     build_source_grid,
     infer_source_bbox,
-    lens_mapping_operator_bilinear_from,
+    lens_mapping_operator_from,
 )
 
 # ==================================================================
@@ -48,8 +48,8 @@ class LensOperatorData(NamedTuple):
 
     All fields are plain JAX arrays so they can be captured by JIT closures.
     """
-    weights: Array       # (Nd_sub, 4)  bilinear interpolation weights
-    indices: Array       # (Nd_sub, 4)  flat source-pixel indices
+    weights: Array       # (Nd_sub, stencil_width) interpolation weights
+    indices: Array       # (Nd_sub, stencil_width) flat source-pixel indices
     flat_indices: Array  # (Nd_native,) native active pixel flat indices
     n_source: int
     nsub: int
@@ -263,7 +263,7 @@ def _apply_Lt_jit(
     else:
         active_sub = active_native
 
-    # Adjoint bilinear: accumulate weighted contributions to source pixels
+    # Accumulate weighted contributions to the fitted source nodes.
     contributions = (weights * active_sub[:, None]).ravel()
     result = jnp.zeros(n_source, dtype=contributions.dtype)
     result = result.at[indices.ravel()].add(contributions)
@@ -607,10 +607,9 @@ class PixelizedLensOperator:
         self, xmin, xmax, ymin, ymax, *,
         _betas_sub: tuple | None = None,
     ) -> LensOperatorData:
-        """Ray-trace and compute bilinear weights/indices.
+        """Ray-trace and compute weights and indices for source interpolation.
 
-        This is the expensive step (deflection angles + bilinear weights).
-        Call once per evidence evaluation; reuse for all matvecs.
+        Prepare once per geometry and reuse for all matvecs.
 
         If ``_betas_sub`` is provided as ``(beta_x_sub, beta_y_sub)``, the
         deflection call is skipped — useful when the caller has already
@@ -626,13 +625,14 @@ class PixelizedLensOperator:
         data_mesh = jnp.stack(
             [jnp.ravel(beta_x_sub), jnp.ravel(beta_y_sub)], axis=1
         )
-        weights, indices, _ = lens_mapping_operator_bilinear_from(
+        weights, indices, _ = lens_mapping_operator_from(
             data_mesh,
             source_x_axis[0],
             source_x_axis[-1],
             source_y_axis[0],
             source_y_axis[-1],
             self.source_n,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
         )
         return LensOperatorData(
             weights=weights,
@@ -886,8 +886,8 @@ class PixelizedLensOperator:
     ):
         """Build native-resolution data blocks and their source pixel indices.
 
-        This approximation deliberately uses a separate native mapping even
-        when the curvature operator integrates a sub-grid (nsub > 1).
+        This approximation uses the selected interpolation at native
+        resolution even when the curvature operator integrates a sub-grid.
         """
         if noise_weights is None:
             noise_weights = self._effective_noise_weights(jnp.asarray(noise_1d))
@@ -895,13 +895,14 @@ class PixelizedLensOperator:
             x=self.image_x_active,
             y=self.image_y_active,
         )
-        weights, indices, _ = lens_mapping_operator_bilinear_from(
+        weights, indices, _ = lens_mapping_operator_from(
             jnp.stack([beta_x.ravel(), beta_y.ravel()], axis=1),
             xmin,
             xmax,
             ymin,
             ymax,
             self.source_n,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
         )
 
         def build(x, xe, y, ye, pixels):

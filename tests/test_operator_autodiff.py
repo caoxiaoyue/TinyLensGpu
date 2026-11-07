@@ -17,7 +17,7 @@ from TinyLensGpu.PhysicalModel.LensImage.Pixelized.Light.pixelized_source import
 )
 
 
-def _build_model(solver, joint=False, adaptive=False):
+def _build_model(solver, joint=False, adaptive=False, interpolation="bilinear"):
     sie = SIE(theta_E=0.12, e1=0.1, e2=0.0, center_x=0.0, center_y=0.0)
     sie.theta_E.to_dynamic()
     lam = ParamU("log_lambda_reg", 0.0)
@@ -31,7 +31,7 @@ def _build_model(solver, joint=False, adaptive=False):
         rho.to_dynamic()
     source = PixelizedSourceModel(
         n=5, log_lambda_reg=lam, regularization_type="first-order",
-        adaptive_reg_rho=rho,
+        adaptive_reg_rho=rho, interpolation=interpolation,
     )
     lens_light = []
     if joint:
@@ -72,12 +72,8 @@ def _build_model(solver, joint=False, adaptive=False):
     return model, model.get_values(), jnp.asarray(steps)
 
 
-@pytest.mark.integration
-@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
-@pytest.mark.parametrize("joint", [False, True])
-@pytest.mark.parametrize("adaptive", [False, True])
-def test_operator_reconstruction_and_evidence_jacobian(solver, joint, adaptive):
-    model, theta, steps = _build_model(solver, joint, adaptive)
+def _check_reconstruction_and_evidence_jacobian(solver, joint, adaptive, interpolation):
+    model, theta, steps = _build_model(solver, joint, adaptive, interpolation)
     weights = jnp.linspace(0.5, 1.5, 25)
 
     def outputs(parameters):
@@ -101,6 +97,21 @@ def test_operator_reconstruction_and_evidence_jacobian(solver, joint, adaptive):
     # the envelope theorem can hide a missing solution derivative in evidence.
     assert jnp.max(jnp.abs(expected[0])) > 1.0
     np.testing.assert_allclose(actual, expected, rtol=0.05, atol=0.03)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
+@pytest.mark.parametrize("joint", [False, True])
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_operator_reconstruction_and_evidence_jacobian(solver, joint, adaptive):
+    _check_reconstruction_and_evidence_jacobian(solver, joint, adaptive, "bilinear")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("solver", ["pcg", "pnpg"])
+def test_hermite_operator_reconstruction_and_evidence_jacobian(solver):
+    with jax.experimental.enable_x64():
+        _check_reconstruction_and_evidence_jacobian(solver, True, True, "cubic_hermite")
 
 
 @pytest.mark.integration
