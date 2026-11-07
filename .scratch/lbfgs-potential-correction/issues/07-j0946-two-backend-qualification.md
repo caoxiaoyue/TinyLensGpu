@@ -5,7 +5,7 @@
 **Blocked by:** 05 — Operator mock fitting and result round trip, 06 — Verify bounded memory for operator fits.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,7 @@
 - [ ] The operator objective differs from the dense objective by at most \(0.01\). The maximum absolute \(\delta\kappa\) difference over the full valid domain is at most \(0.005\). The positive peak positions differ by at most one potential grid spacing.
 - [ ] Retain both local GN evidence values, determinant methods, and the measured difference. Use the small explicit principal-block check from ticket 04 as the operator evidence verification.
 - [ ] The validation report links the input identity and fit products, records the comparison gates and measured differences, and reports stage timings and peak device memory for both backends. Include the commands and measurement configuration needed to repeat the qualification.
+
+## Comments
+
+Claimed by `codex/lbfgs-07-j0946-qualification` for integration into `codex/lbfgs-potential-correction`.
