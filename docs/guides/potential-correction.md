@@ -14,15 +14,17 @@ subhalo detection significance, mass intervals or posterior-sampling results.
 | --- | --- | --- |
 | `SingleStepPotentialCorrection` | A source-gradient callable evaluated once at macro image-subpixel rays, then frozen; scientific mocks use analytic truth gradients | A linear source–potential prediction, plus a separate nonlinear re-render |
 | `IterativePotentialCorrection` | Truth brightness sampled at the fixed **source nodes**, with zero initial potential | A nonlinear image; mappings and gradients of the selected interpolant refresh after accepted updates |
+| `LBFGSPotentialCorrection` | Supplied signed intensities on the fixed source nodes, with zero initial potential | A Float64 cubic Hermite image optimized with L-BFGS-B at fixed strengths |
 
 A documented small-step derivative of the truth can also supply the single-step
-gradient callable. Both solve the complete signed source and potential together. Source brightness
-is not fixed to truth, and negative coefficients are neither clipped nor
+gradient callable. All three fit the complete signed source and potential
+together. Source brightness is not fixed to truth, and negative coefficients
+are neither clipped nor
 constrained by NNLS/PNPG. The existing source–lens-light “joint semi-linear
 inversion” is a separate workflow with its established block-Schur contract.
 No lens-light amplitudes or macro parameters are fitted here.
 
-Use `backend="dense"` for the complete Cholesky reference. Use
+Use `backend="dense"` for complete determinants and
 `backend="operator"` for fully coupled matrix-free PCG. Bounded principal
 blocks approximate its preconditioner and determinants, while the actual solve
 retains all source–potential cross terms. A partition suitable for one geometry
@@ -81,8 +83,8 @@ with jax.experimental.enable_x64(True):
 ```
 
 The physical strengths passed to `fit` are positive **direct values**.
-`lambda_potential` multiplies fourth differences; `lambda_amplitude` is a
-separate constructor parameter fixed for all fits/search candidates.
+`lambda_potential` multiplies fourth differences. The single-step and GN/LM
+constructors fix `lambda_amplitude` for their fits and search candidates.
 `source_regularization` defaults to `"second-order"`; existing nonadaptive
 `"zero-order"` and `"first-order"` are also supported. Full native image and
 noise arrays must match the simulator shape. Only selected pixels must be
@@ -123,6 +125,51 @@ accumulated fields; iteration is not repeated single-step fitting followed by
 adding its full solution. A rejected proposal cannot replace accepted fields.
 A small damping-dominated step does not establish convergence, and unresolved
 bilinear kinks can return an explicit stall.
+
+## Fixed-strength L-BFGS-B
+
+Use the preceding example's observation, macro and initial source with a Float64
+renderer configured for `cubic_hermite`. Supply all three physical strengths
+with each fit.
+
+```python
+from TinyLensGpu.ObservationModel import (
+    LBFGSPotentialCorrection, PotentialCorrectionStrengths,
+)
+
+hermite = PotentialCorrectionRenderer(
+    macro, config, source_n=2, source_bbox=(-0.5, 0.5, -0.5, 0.5),
+    dtype="float64", source_interpolation="cubic_hermite",
+)
+fitter = LBFGSPotentialCorrection(
+    hermite, image, noise, initial_source, source_regularization="zero-order",
+)
+strengths = PotentialCorrectionStrengths(0.3, 0.02, 20.0)
+result = fitter.fit(strengths)
+```
+
+Each call resets the supplied source and zero potential. The optional
+`source_scale` is a fixed finite positive weight for each fitted source node.
+The default whitening reference is the starting Hermite source at zero
+potential. Pass `whitening_reference=PotentialCorrectionWhiteningReference(values, "bilinear")`
+to use a distinct reference on the same grid with hard-box bilinear
+interpolation. Both the fit and endpoint evaluation use the Hermite image.
+
+The dense backend uses data-space whitening and the complete local GN
+determinant ratio. To use bounded principal blocks for whitening and
+determinants, call `fitter.fit(strengths, backend="operator")`. The operator
+defaults to field-separated contiguous blocks of at most 64 coefficients and
+accepts the partition and PCG controls above.
+
+Both backends require native optimizer success and finite endpoints with
+`0.5 * g.T @ H_GN^{-1} @ g` at or below `gn_stationarity_tol` (default
+`1e-3`). Here `g` is the physical objective gradient and `H_GN` is the
+undamped coupled Gauss–Newton curvature at the endpoint. The operator uses
+PCG and checks its recomputed residual against the constructor's `solve_atol`
+and `solve_rtol`. Read the native status, evaluation counts and stationarity
+in `optimizer_info`, with the operator certificate under
+`optimizer_info.diagnostics["stationarity_solver"]`. L-BFGS-B sets
+`solver_info=None`. The optimizer iteration limit defaults to `max_iter=3000`.
 
 ## Geometry, derivatives and the physical prior
 
@@ -174,11 +221,13 @@ establish that every support coefficient or broad potential mode is measured.
 | Single-step operator | `conditional_linear_gaussian` | `principal_block_cholesky` | False |
 | Iterative dense | `local_gauss_newton` | `full_cholesky` | False |
 | Iterative operator | `local_gauss_newton` | `principal_block_cholesky` | False |
+| L-BFGS-B dense | `local_gauss_newton` | `full_data_space` | False |
+| L-BFGS-B operator | `local_gauss_newton` | `principal_block_cholesky` | False |
 
 The single-step Gaussian formula uses its fitted **linear** residual. Its
 nonlinear re-render measures linearization error and does not replace that
-residual in evidence. Iterative evidence uses the converged nonlinear residual
-and a freshly evaluated, **undamped** current Gauss–Newton curvature. Local
+residual in evidence. GN/LM and L-BFGS-B evidence use the converged nonlinear
+residual and a freshly evaluated, **undamped** Gauss–Newton curvature. Local
 linearization and block determinants are separate approximations. Agreement
 of fitted fields does not make absolute evidences or selected strengths
 interchangeable. The [small nested validation](../validation/potential-correction-iterative-inference.md)
@@ -188,9 +237,9 @@ retains both an accepted partition and a rejected one with misleading recovery.
 valid deflection/convergence maps, selected data/noise, strengths, chi2,
 regularization penalty, objective, evidence terms/methods, dtype, status,
 configuration and initialization provenance. Single-step results contain
-`linear_*` and `nonlinear_*` image/residual products. Iterative `linear_*`
-products are **None** and the nonlinear image defines chi2/objective. Full
-residual maps are NaN at excluded observation pixels.
+`linear_*` and `nonlinear_*` image/residual products. GN/LM and L-BFGS-B
+`linear_*` products are **None** and the nonlinear image defines chi2/objective.
+Full residual maps are NaN at excluded observation pixels.
 
 Check `success` and `termination_reason` before using evidence. Invalid
 configuration raises an exception; valid numerical failure returns a failed
@@ -218,7 +267,8 @@ not alter the prior, LM acceptance or final undamped evidence.
 
 ## Strength selection and reproducible examples
 
-The inference boundary is public:
+For a single-step or GN/LM fitter, the inference API can select source and
+potential strengths.
 
 ```python
 from TinyLensGpu.Inference import (
@@ -265,6 +315,8 @@ python examples/potential_correction/iterative_scientific.py \
   --config examples/potential_correction/iterative_scientific_configuration.json \
   --backend both --mode fixed --single-step-reference output/pc_single_new \
   --output output/pc_iterative_new
+python -m examples.potential_correction.lbfgs_mock \
+  --backend both --output output/pc_lbfgs_mock_new
 ```
 
 The first two are small numerical demonstrations. Scientific runners also

@@ -43,5 +43,11 @@
     "max_iter": 3000,
     "gn_stationarity_tol": 0.001
   },
+  "operator_options": {
+    "block_size": 64,
+    "pcg_max_iter": 2000,
+    "pcg_rtol": 1e-10,
+    "pcg_atol": 0.0
+  },
   "make_plots": true
 }
