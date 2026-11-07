@@ -5,7 +5,7 @@
 **Blocked by:** None (can start immediately).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] Spatial derivatives use the same interpolation definition as brightness and agree with automatic differentiation and finite differences. Check continuity at internal knots, fitted edges, and virtual lines, including a zero-weight row with a nonzero normal derivative. Brightness and first derivatives vanish at and beyond the outer support.
 - [ ] Direct brightness and a dense reconstruction agree on the selected mapping for a small case with a mask, asymmetric PSF, and subpixel integration. Exercise fixed and freshly prepared geometry and preserve the ray coordinate precision.
 
+## Comments
+
+Claimed for implementation on `codex/pixelized-source-interpolation`.

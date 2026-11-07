@@ -1,7 +1,7 @@
 # Opt-in cubic Hermite interpolation for pixelized sources
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 ## Problem Statement
 
@@ -97,3 +97,7 @@ Both backends use a shared calculation of each ray's neighbor indices and weight
 - The related square-grid and potential-correction specs establish the fitted geometry and the existing bilinear path. The new mode is explicitly selected and preserves the existing default contracts. Joint semi-linear inversion continues to follow the block-Schur and lens-light basis ADRs. [Square-grid spec](../square-pixelized-source-grid/spec.md) · [Potential-correction spec](../potential-correction/spec.md) · [Block-Schur ADR](../../docs/adr/0001-use-block-schur-for-joint-operator-inversion.md) · [Lens-light basis ADR](../../docs/adr/0002-require-unit-amplitude-lens-light-bases.md)
 - The J0946 records explain the grid-line gradient mechanism and identify the fixed handoff and archived cubic fields needed for replay. The timing report compares a particular signed source–potential optimization and includes an experimental zero-ring bilinear comparator. These records supply a reference implementation and configuration-specific evidence. [Interpolation lessons](../../workspace/iteration/lbfgs_source_interpolation_lessons.md) · [Cubic experiment](../../workspace/iteration/cubic_source_results.md) · [Timing comparison](../../workspace/iteration/stability_timing_results.md) · [Existing fixed-state probe](../../workspace/iteration/check_source_knots.py)
 - A later default change needs its own scientific comparison of recovery on injected mocks and representative real lenses, including sensitivity to solve tolerance, block partition, and evidence approximation. The existing bilinear potential-correction calibration illustrates why fixed-strength parity and evidence-based strength selection need separate checks. [Partition calibration](../../docs/validation/potential-correction-iterative-inference.md#partition-calibration-and-selected-recovery)
+
+## Comments
+
+Claimed for implementation on `codex/pixelized-source-interpolation`.
