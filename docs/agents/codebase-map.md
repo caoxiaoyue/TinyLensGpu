@@ -12,6 +12,7 @@ Paths below are relative to the repository root. Start with the row for the beha
 | Pixelized operator inversion and derivatives | `TinyLensGpu/ForwardSimulation/LensImage/pixelized_operator.py`; `TinyLensGpu/ObservationModel/LensImage/pixelized_image_model_operator.py`; `TinyLensGpu/utils/curvature_operator.py`; `TinyLensGpu/utils/cg_solver.py`; `TinyLensGpu/utils/pnpg_solver.py` | `tests/test_pixelized_operator.py`; `tests/test_operator_autodiff.py`; `tests/test_solver_autodiff.py` |
 | Fixed-macro source–potential reconstruction | `TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py`; `TinyLensGpu/ObservationModel/LensImage/potential_correction.py`; `TinyLensGpu/ObservationModel/LensImage/potential_correction_operator.py`; `TinyLensGpu/utils/lensing/potential.py`; `TinyLensGpu/utils/inversion/potential_regularization.py` | `tests/test_potential_correction_rendering.py`; `tests/test_potential_correction_dense.py`; `tests/test_potential_correction_operator.py`; `examples/tests/test_potential_correction_operator_example.py`; `benchmarks/test_potential_correction_memory.py` |
 | Fixed-macro nonlinear source–potential iteration | `TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative.py`; `TinyLensGpu/ObservationModel/LensImage/potential_correction_iterative_operator.py` | `tests/test_potential_correction_iterative.py`; `tests/test_potential_correction_iterative_operator.py`; `tests/test_potential_correction_residual_refinement.py` (slow current scientific control/budget); `examples/tests/test_potential_correction_iterative_example.py`; `examples/tests/test_potential_correction_iterative_scientific.py` |
+| Fixed-strength L-BFGS-B source–potential reconstruction | `TinyLensGpu/ObservationModel/LensImage/potential_correction_lbfgs.py`; `TinyLensGpu/ObservationModel/LensImage/potential_correction_lbfgs_operator.py` | `tests/test_potential_correction_lbfgs.py`; `examples/tests/test_potential_correction_lbfgs_*.py`; `benchmarks/test_lbfgs_operator_resources.py` |
 | Source–potential inference, exports and precision | `TinyLensGpu/Inference/potential_correction.py`; `examples/potential_correction/result_products.py`; `examples/potential_correction/{single_step_scientific,iterative_scientific}.py` | `tests/test_potential_correction_{inference,iterative_inference,precision,jax_compatibility}.py`; `examples/tests/test_potential_correction_*.py`; `benchmarks/test_potential_correction_{memory,preconditioner,workflow}.py` |
 | Source mapping, PSF, and regularization | `TinyLensGpu/utils/lensing/`; `TinyLensGpu/utils/inversion/`; `TinyLensGpu/ObservationModel/LensImage/_pixelized_regularization.py` | `tests/test_pixelized_source_utils.py`; `tests/test_regularization.py` |
 | Multi-band and point-source likelihoods | `TinyLensGpu/ObservationModel/LensImage/multi_band_image_model.py`; `TinyLensGpu/ObservationModel/LensImage/point_source_model.py`; `TinyLensGpu/ObservationModel/LensImage/_position_likelihood.py` | `tests/test_multiband_parametric.py`; `tests/test_point_source_model.py`; `tests/test_position_likelihood.py` |
@@ -42,10 +43,11 @@ Solver names depend on the observation model:
 
 The historical FISTA spec and experiments remain as records of earlier work; consult their supersession notes and the current operator constructor before selecting a solver. Fixed-input preparation, supported differentiation, and evidence approximations are described in [the guide](../guides/guide.md) and the relevant model's docstring.
 
-Source–potential fits have separate signed `SingleStepPotentialCorrection` and
-`IterativePotentialCorrection` APIs, exported by `TinyLensGpu.ObservationModel`;
-their renderer is exported by `TinyLensGpu.ForwardSimulation`. The callable
-evidence/DIRECT interfaces are exported by `TinyLensGpu.Inference`. See the
+`TinyLensGpu.ObservationModel` exports the signed source–potential fit APIs
+`SingleStepPotentialCorrection`, `IterativePotentialCorrection`, and
+`LBFGSPotentialCorrection`. `TinyLensGpu.ForwardSimulation` exports their
+renderer. `TinyLensGpu.Inference` exports the callable evidence/DIRECT
+interfaces. See the
 [usage guide](../guides/potential-correction.md) and
 [requirement/verification record](../validation/potential-correction-coverage.md).
 

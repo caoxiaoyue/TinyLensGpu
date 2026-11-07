@@ -319,7 +319,8 @@ python -m examples.potential_correction.lbfgs_mock \
   --backend both --output output/pc_lbfgs_mock_new
 ```
 
-The first two are small numerical demonstrations. Scientific runners also
+Choose a new output directory for each L-BFGS-B mock run. The first two
+commands are small numerical demonstrations. Scientific runners also
 support `--mode tune`, but the retained 200×200 results are **fixed-strength**,
 not claims of converged scientific outer searches. Mock generation and
 single-step tuning commands are in the [example README](../../examples/potential_correction/README.md).

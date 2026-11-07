@@ -47,7 +47,8 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
     config = _configuration()
     config["backends"] = ["dense", "operator"]
     config["operator_options"] = {"block_size": 16, "pcg_max_iter": 1200}
-    run = run_lbfgs_mock(config, output=tmp_path)
+    output_dir = tmp_path / "matched"
+    run = run_lbfgs_mock(config, output=output_dir)
 
     assert run.record["success"]
     assert set(run.results) == {
@@ -56,9 +57,9 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
         "subhalo/operator",
         "control/operator",
     }
-    assert json.loads((tmp_path / "configuration.json").read_text()) == config
+    assert json.loads((output_dir / "configuration.json").read_text()) == config
     for key, result in run.results.items():
-        output = tmp_path / key
+        output = output_dir / key
         record = json.loads((output / "result.json").read_text())
         assert record["algorithm"] == "lbfgs"
         assert record["evidence_method"] == "local_gauss_newton"
@@ -136,10 +137,10 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
             )
     with (
         np.load(
-            tmp_path / "subhalo/dense/reconstruction.npz", allow_pickle=False
+            output_dir / "subhalo/dense/reconstruction.npz", allow_pickle=False
         ) as subhalo,
         np.load(
-            tmp_path / "control/dense/reconstruction.npz", allow_pickle=False
+            output_dir / "control/dense/reconstruction.npz", allow_pickle=False
         ) as control,
     ):
         for name in (
@@ -157,10 +158,10 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
             control["truth_discrete_convergence"][control["derivative_valid"]] == 0
         )
 
-    comparisons = json.loads((tmp_path / "run.json").read_text())["comparisons"]
+    comparisons = json.loads((output_dir / "run.json").read_text())["comparisons"]
     for case in ("subhalo", "control"):
-        dense = load_result(tmp_path / case / "dense")
-        operator = load_result(tmp_path / case / "operator")
+        dense = load_result(output_dir / case / "dense")
+        operator = load_result(output_dir / case / "operator")
         comparison = comparisons[case]
         assert comparison["both_successful"]
         assert comparison["same_strengths"]
@@ -199,6 +200,18 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
             float(operator.log_evidence) - float(dense.log_evidence)
         )
 
+    def products():
+        return {
+            path.relative_to(output_dir): path.read_bytes()
+            for path in output_dir.rglob("*")
+            if path.is_file()
+        }
+
+    previous = products()
+    with pytest.raises(FileExistsError):
+        run_lbfgs_mock({**config, "backends": ["operator"]}, output=output_dir)
+    assert products() == previous
+
 
 def test_unqualified_mock_exports_native_failure_and_withholds_evidence(tmp_path):
     from examples.potential_correction.lbfgs_mock import run_lbfgs_mock
@@ -206,11 +219,12 @@ def test_unqualified_mock_exports_native_failure_and_withholds_evidence(tmp_path
 
     config = _configuration()
     config["fit_options"] = {"max_iter": 1}
-    run = run_lbfgs_mock(config, output=tmp_path)
+    output_dir = tmp_path / "unqualified"
+    run = run_lbfgs_mock(config, output=output_dir)
 
     assert run.record["success"] is False
     for key, result in run.results.items():
-        output = tmp_path / key
+        output = output_dir / key
         failure = json.loads((output / "failure.json").read_text())
         assert failure["success"] is False
         assert failure["failure_reason"] == result.failure_reason

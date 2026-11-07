@@ -167,7 +167,8 @@ def _convergence_if_success(reference_fields, fit, fields):
     return None
 
 
-def _compare_dense_record(fit, fields, trial, trial_fields):
+def compare_dense_to_trial(fit, fields, trial, trial_fields):
+    """Score the dense fit products against the trial 497 gates."""
     convergence = _convergence_if_success(trial_fields, fit, fields)
     evidence = fit["log_evidence"]
     differences = {
@@ -184,13 +185,6 @@ def _compare_dense_record(fit, fields, trial, trial_fields):
         dict(_DENSE_TOLERANCES),
         convergence,
         qualified=_qualified_fit(fit, "dense", "full_data_space"),
-    )
-
-
-def compare_dense_to_trial(result, trial, trial_fields):
-    """Score the dense trial 497 gates using a freshly fitted public result."""
-    return _compare_dense_record(
-        _fit_record(result), _result_convergence_fields(result), trial, trial_fields
     )
 
 
@@ -304,7 +298,7 @@ def load_dense_reference(directory, archive, trial_fields, expected_fit):
         for name in ("source_bbox", "source_x_axis", "source_y_axis"):
             if not np.allclose(fields[name], trial_fields[name], rtol=0, atol=1e-14):
                 raise ValueError(f"Dense reference {name} differs from the archive")
-        comparison = _compare_dense_record(fit, fields, archive, trial_fields)
+        comparison = compare_dense_to_trial(fit, fields, archive, trial_fields)
         if report["comparison"]["passed"] is not True or not comparison["passed"]:
             raise ValueError("Dense reference does not pass the archive comparison")
     except (KeyError, TypeError) as exc:
@@ -564,7 +558,7 @@ def run_j0946_validation(
     if backend == "operator":
         comparison = compare_operator_to_dense(fit, fields, dense_fit, dense_fields)
     else:
-        comparison = _compare_dense_record(fit, fields, trial, trial_fields)
+        comparison = compare_dense_to_trial(fit, fields, trial, trial_fields)
     report = {
         "lens": trial["lens"],
         "archive": archive,

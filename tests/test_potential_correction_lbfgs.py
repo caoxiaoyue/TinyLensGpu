@@ -8,7 +8,9 @@ from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, Simulator
 from TinyLensGpu.PhysicalModel import PhysicalModel, Shear
 
 
-def _renderer(interpolation="cubic_hermite", dtype="float64"):
+def _renderer(
+    interpolation="cubic_hermite", dtype="float64", *, bbox=(-0.17, 0.19, -0.16, 0.20)
+):
     with jax.experimental.enable_x64(dtype == "float64"):
         return PotentialCorrectionRenderer(
             PhysicalModel(
@@ -18,7 +20,7 @@ def _renderer(interpolation="cubic_hermite", dtype="float64"):
             ),
             SimulatorConfig(0.1, 4, np.ones((1, 1))),
             3,
-            (-0.17, 0.19, -0.16, 0.20),
+            bbox,
             dtype=dtype,
             potential_spacing=0.1,
             source_interpolation=interpolation,
@@ -628,3 +630,30 @@ def test_operator_invalid_controls_raise(coupled_case, options, message):
     fit = LBFGSPotentialCorrection(renderer, data, noise, initial_source)
     with pytest.raises(ValueError, match=message):
         fit.fit(PotentialCorrectionStrengths(1, 1, 1), backend="operator", **options)
+
+
+def test_operator_qualifies_at_tiny_positive_noise_with_zero_response():
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+    )
+
+    # The macro rays fall outside the compact source support, so the data
+    # response is zero and the exact GN system consists of the physical prior.
+    renderer = _renderer(bbox=(10.0, 11.0, 10.0, 11.0))
+    fitter = LBFGSPotentialCorrection(
+        renderer,
+        np.zeros(renderer.image_shape),
+        np.full(renderer.image_shape, 1e-180),
+        np.ones(renderer.n_source),
+        source_regularization="zero-order",
+    )
+    strengths = PotentialCorrectionStrengths(1.0, 1.0, 1.0)
+    dense = fitter.fit(strengths)
+    operator = fitter.fit(strengths, backend="operator")
+
+    assert dense.success, dense.failure_reason
+    assert operator.success, operator.failure_reason
+    assert operator.optimizer_info.diagnostics["stationarity_solver"]["converged"]
+    np.testing.assert_allclose(_joint(operator), _joint(dense), atol=1e-14)
+    np.testing.assert_allclose(operator.log_evidence, dense.log_evidence, rtol=1e-14)

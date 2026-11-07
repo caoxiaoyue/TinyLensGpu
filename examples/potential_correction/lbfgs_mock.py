@@ -33,7 +33,7 @@ class LBFGSMockRun:
 
 
 def run_lbfgs_mock(configuration, *, output):
-    """Fit both observations with the same geometry, initialization and strengths."""
+    """Fit the matched observations and retain products in a new directory."""
     backends = configuration.get("backends", ["dense"])
     if (
         not isinstance(backends, (list, tuple))
@@ -49,6 +49,7 @@ def run_lbfgs_mock(configuration, *, output):
     output = Path(output)
     fit_options = configuration.get("fit_options", {})
     operator_options = configuration.get("operator_options", {})
+    output.mkdir(parents=True, exist_ok=False)
     pair = generate_mock_pair(mock)
 
     with jax.experimental.enable_x64():
@@ -139,6 +140,7 @@ def main(argv=None):
         "--output",
         type=Path,
         default=Path("output/potential_correction_lbfgs_mock"),
+        help="New directory for this run and its products",
     )
     parser.add_argument("--backend", choices=("dense", "operator", "both"))
     parser.add_argument("--no-plots", action="store_true")
@@ -150,7 +152,10 @@ def main(argv=None):
         )
     if args.no_plots:
         configuration["make_plots"] = False
-    run = run_lbfgs_mock(configuration, output=args.output)
+    try:
+        run = run_lbfgs_mock(configuration, output=args.output)
+    except FileExistsError:
+        parser.error(f"Choose a new output directory. {args.output} already exists.")
     print(
         json.dumps(
             {"success": run.record["success"], "output": str(args.output.resolve())}
