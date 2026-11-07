@@ -48,6 +48,30 @@ def small_configuration():
     }
 
 
+def test_scientific_hermite_exports_selected_model_and_partition(tmp_path):
+    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.single_step_scientific import run_scientific
+
+    config = small_configuration()
+    config.update(
+        source_interpolation="cubic_hermite", backends=["operator"], make_plots=False
+    )
+    run = run_scientific(config, output=tmp_path)
+    assert run.record["success"]
+    record = json.loads((tmp_path / "run.json").read_text())
+    assert record["block_partition"]["source_interpolation"] == "cubic_hermite"
+    for key, result in run.results.items():
+        restored = load_result(tmp_path / key)
+        assert restored.configuration == result.configuration
+        assert restored.configuration["source_interpolation"] == "cubic_hermite"
+        assert (
+            restored.configuration["source_boundary"]
+            == "C1_cardinal_bicubic_fixed_zero_exterior_nodes"
+        )
+        assert restored.source_bbox == tuple(config["source_bbox"])
+        assert restored.source_values.shape == (config["source_n"] ** 2,)
+
+
 def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
     tmp_path,
 ):
@@ -74,6 +98,8 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
         assert metadata["evidence_image"] == "linear_model_image"
         assert metadata["evidence_method"] == "conditional_linear_gaussian"
         assert metadata["determinant_method"] == "full_cholesky"
+        assert metadata["result_configuration"]["source_interpolation"] == "bilinear"
+        assert metadata["result_configuration"]["source_boundary"] == "hard_zero_outside_bbox"
         assert metadata["initialization_provenance"] == result.initialization_provenance
         assert metadata["integration"] == {"mock_nsub": 2, "inversion_nsub": 1}
         assert (

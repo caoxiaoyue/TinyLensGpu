@@ -209,7 +209,7 @@ def test_slacs_stage_a_sampling_save_recovery(tmp_path, monkeypatch, examples_di
     from TinyLensGpu.Inference import StagePosterior
     from TinyLensGpu.example_support import (
         SamplingConfig, StageStorageConfig, run_sampling, save_stage,
-        load_stage, stage_from_payload,
+        load_stage, stage_from_payload, resolve_source_interpolation,
     )
 
     path = examples_dir / "pix_src_demo_operator" / "pipe" / "slacs_examples" / "pipeline.py"
@@ -219,12 +219,14 @@ def test_slacs_stage_a_sampling_save_recovery(tmp_path, monkeypatch, examples_di
         if isinstance(n, ast.FunctionDef)
         and n.name in {"_run_sampler", "_stage_storage", "_dump_stage",
                        "_load_stage", "_stage_from_payload",
+                       "_initial_source_kwargs",
                        "build_stage_a_likelihood", "run_stage_a", "_print_summary"}
     ]
     assert {
         n.name for n in selected
     } == {"_run_sampler", "_stage_storage", "_dump_stage", "_load_stage",
-          "_stage_from_payload", "build_stage_a_likelihood", "run_stage_a",
+          "_stage_from_payload", "_initial_source_kwargs",
+          "build_stage_a_likelihood", "run_stage_a",
           "_print_summary"}
 
     import caskade as ck
@@ -264,6 +266,7 @@ def test_slacs_stage_a_sampling_save_recovery(tmp_path, monkeypatch, examples_di
         SamplingConfig=SamplingConfig, StageStorageConfig=StageStorageConfig,
         run_sampling=run_sampling, save_stage=save_stage,
         load_stage=load_stage, stage_from_payload=stage_from_payload,
+        resolve_source_interpolation=resolve_source_interpolation,
         weighted_quantile=weighted_quantile,
         ImageProbModel=ImageProbModel, PointSourceProbModel=PointSourceProbModel,
         PhysicalModel=PhysicalModel, SIE=SIE, Shear=Shear, GaussianEllipse=GaussianEllipse,
@@ -569,7 +572,7 @@ def test_slacs_export_validate_next_stage_and_plot(
     )
     from TinyLensGpu.example_support import (
         export_source_package, validate_source_package,
-        require_valid_reconstruction, source_axes_from_bbox,
+        require_valid_reconstruction, resolve_source_interpolation, source_axes_from_bbox,
         draw_image_panel,
     )
     from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
@@ -596,6 +599,7 @@ def test_slacs_export_validate_next_stage_and_plot(
         export_source_package=export_source_package,
         validate_source_package=validate_source_package,
         require_valid_reconstruction=require_valid_reconstruction,
+        resolve_source_interpolation=resolve_source_interpolation,
         source_axes_from_bbox=source_axes_from_bbox,
         draw_image_panel=draw_image_panel,
         source_template_scale_map=source_template_scale_map,

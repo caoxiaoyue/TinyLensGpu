@@ -77,6 +77,26 @@ def test_slacs_checks_source_package_provenance_before_restore(tmp_path, monkeyp
         module.main(skip_done=True, out_dir=tmp_path)
 
 
+@pytest.mark.parametrize("case,late_tag", [(CASES[1], "m3"), (CASES[4], "m3"), (CASES[5], "m2")])
+def test_survey_rejects_late_stage_conflicts_before_any_restore(
+    case, late_tag, tmp_path, monkeypatch,
+):
+    module = load_case(case, monkeypatch)
+    monkeypatch.setattr(module, "OUT_DIR", tmp_path)
+    module._dump_stage("a", None, None, ["theta_E"], 0.0)
+    module._dump_stage(
+        late_tag, None, None, ["log_lambda_reg"], -12.0,
+        source_interpolation="cubic_hermite",
+    )
+
+    def unexpected_load(**kwargs):
+        pytest.fail("all checkpoint modes must be checked before loading data")
+
+    monkeypatch.setattr(module, "load_lens_data", unexpected_load)
+    with pytest.raises(ValueError, match=rf"stage_{late_tag}\.pkl.*Start a fresh run"):
+        module.main(skip_done=True)
+
+
 @pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
 def test_slacs_saves_and_resumes_one_source_model(requested, tmp_path, monkeypatch):
     module = load_case(CASES[0], monkeypatch)
@@ -227,10 +247,13 @@ def test_survey_template_validation_keeps_identity(case, monkeypatch):
 
 
 @pytest.mark.parametrize('case', [CASES[0], CASES[1], CASES[4]])
-def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch):
+@pytest.mark.parametrize("interpolation", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch, interpolation):
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
-    from TinyLensGpu.example_support import export_source_package, validate_source_package
+    from TinyLensGpu.example_support import (
+        export_source_package, source_interpolation_metadata, validate_source_package,
+    )
 
     module = load_case(case, monkeypatch)
     for key, value in dict(NSRC=3, DPIX=0.08, NSUB_PIX=1, SOLVER_TYPE='pcg').items():
@@ -243,6 +266,8 @@ def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch):
                    source_x_axis=np.linspace(-0.3, 0.3, 3),
                    source_y_axis=np.linspace(-0.3, 0.3, 3),
                    lambda_best=1., log_lambda_best=0.)
+    if interpolation is not None:
+        package.update(source_interpolation_metadata(interpolation))
     image, noise = np.full((10, 10), 0.05), np.full((10, 10), 0.1)
     mask = np.zeros((10, 10), dtype=bool)
     mask[:2] = True
@@ -251,9 +276,11 @@ def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch):
     names = [p.name for p in initial.get_dynamic_params()]
     values = {p.name: float(np.asarray(p.value)) for p in initial.get_dynamic_params()}
     exported = export_source_package(initial, values, names, n=3)
+    assert exported["source_interpolation"] == (interpolation or "bilinear")
     exported.update(lambda_best=1., log_lambda_best=0.)
     prepared = validate_source_package(exported, expected_n=3, rho=module.ADAPTIVE_REG_RHO)
     next_stage = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, prepared)
+    assert next_stage.source_model.interpolation == exported["source_interpolation"]
     result, diagnostics = next_stage.evaluate_with_diagnostics(include_effective_dof=True)
     assert diagnostics.valid
     np.testing.assert_allclose(result.source_bbox, prepared['source_bbox'])

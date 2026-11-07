@@ -28,6 +28,7 @@ from TinyLensGpu.Inference import (
     optimize_potential_correction,
 )
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+from examples.potential_correction._scientific_partitions import prepare_partition
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
 from examples.potential_correction._recovery_diagnostics import (
     _ray_domain,
@@ -79,9 +80,10 @@ def source_incidence_blocks(
 ):
     """Sparse query incidence only; no dense source-by-potential matrix.
 
-    Vote for source tiles through absolute linear-potential-response stencil
-    weights at the same subpixel, then attach unilluminated support nodes to
-    their nearest voted potential node. This ignores PSF spread deliberately.
+    Vote for source tiles using the magnitude of each source weight times
+    each linear-potential-response magnitude at the same subpixel. Attach
+    unilluminated support nodes to their nearest voted potential node.
+    This ignores PSF spread deliberately.
     Inputs are explicit initial mapping and gradient arrays, evaluated once;
     no truth function or reconstruction problem is retained. Iterative callers
     may supply gradients of their initial pixelized source nodes and keep this
@@ -111,22 +113,32 @@ def source_incidence_blocks(
     iw = np.asarray(grid.interpolation_weights)
     si = np.asarray(source_mapping.indices)
     sw = np.asarray(source_mapping.weights)
+    valid = np.asarray(source_mapping.valid)
     gx, gy = np.asarray(gradient_x), np.asarray(gradient_y)
+    ray_shape = grid.query_x.shape
     if (
-        gx.shape != grid.query_x.shape
-        or gy.shape != grid.query_y.shape
-        or si.shape != iw.shape
-        or sw.shape != iw.shape
+        gx.shape != ray_shape
+        or gy.shape != ray_shape
+        or grid.query_y.shape != ray_shape
+        or valid.shape != ray_shape
+        or si.ndim != 2
+        or si.shape != sw.shape
+        or si.shape[0] != len(grid.query_x)
+        or si.shape[1] == 0
+        or ii.ndim != 2
+        or ii.shape != iw.shape
+        or ii.shape[0] != len(grid.query_x)
+        or ii.shape[1] == 0
     ):
         raise ValueError(
             "Mapping and gradients must match the renderer query positions"
         )
     if not np.isfinite(gx).all() or not np.isfinite(gy).all():
         raise ValueError("Partition gradients must be finite")
-    gx = np.where(np.asarray(source_mapping.valid), gx, 0.0)
-    gy = np.where(np.asarray(source_mapping.valid), gy, 0.0)
+    gx = np.where(valid, gx, 0.0)
+    gy = np.where(valid, gy, 0.0)
     for q in range(len(ii)):
-        for corner in range(4):
+        for corner in range(ii.shape[1]):
             core = ii[q, corner]
             for neighbour, gradient in ((1, gx[q]), (2, gx[q]), (3, gy[q]), (4, gy[q])):
                 p = di[core, neighbour]
@@ -134,8 +146,11 @@ def source_incidence_blocks(
                 if factor == 0:
                     continue
                 for src, weight in zip(si[q], sw[q]):
+                    if weight == 0:
+                        continue
                     tile = int(tiles[src])
-                    votes[p][tile] = votes[p].get(tile, 0.0) + factor * float(weight)
+                    vote = votes[p]
+                    vote[tile] = vote.get(tile, 0.0) + factor * abs(float(weight))
     assigned = np.array(
         [max(vote, key=lambda key: (vote[key], -key)) if vote else -1 for vote in votes]
     )
@@ -445,6 +460,7 @@ def run_calibration(configuration, *, output):
         tuple(config["source_bbox"]),
         potential_spacing=config["potential_spacing"],
         dtype=mock.dtype,
+        source_interpolation=config.get("source_interpolation", "bilinear"),
     )
     layout = config.get("block_layout", "morton")
     if layout not in ("morton", "source_incidence"):
@@ -461,6 +477,8 @@ def run_calibration(configuration, *, output):
         conditional_nonlinear_discrepancy="frozen analytic truth gradient versus nonlinear fitted pixelized source; not solely a Taylor remainder",
         purpose="Small physical-mock backend calibration; no detection or mass-precision claim",
         configuration=config,
+        source_interpolation=renderer.source_interpolation,
+        source_boundary=renderer.source_boundary,
         software=dict(
             jax=jax.__version__,
             numpy=np.__version__,
@@ -527,28 +545,32 @@ def run_calibration(configuration, *, output):
                     },
                 )
                 if blocks is None:
-                    blocks = (
-                        spatial_blocks(renderer, config["block_size"])
-                        if layout == "morton"
-                        else [
-                            block.tolist()
-                            for block in source_incidence_blocks(
-                                renderer,
-                                problem.mapping,
-                                problem.gradient_x,
-                                problem.gradient_y,
-                                block_size=config["block_size"],
-                                source_tile=config["source_tile"],
-                            )
-                        ]
+                    def build_blocks():
+                        if layout == "morton":
+                            return spatial_blocks(renderer, config["block_size"])
+                        return source_incidence_blocks(
+                            renderer,
+                            problem.mapping,
+                            problem.gradient_x,
+                            problem.gradient_y,
+                            block_size=config["block_size"],
+                            source_tile=config["source_tile"],
+                        )
+
+                    blocks, partition = prepare_partition(
+                        renderer,
+                        config,
+                        build_blocks,
+                        source="calibration",
+                        method=layout,
                     )
                     options["block_indices"] = blocks
-                    record["block_partition"].update(
-                        indices=blocks,
-                        actual_sizes=[len(block) for block in blocks],
-                        version=1,
-                        construction_gradient="explicit initial mapping/gradient arrays; no retained truth callable",
-                    )
+                    partition["version"] = 1
+                    if partition["origin"] == "generated" and layout == "source_incidence":
+                        partition["construction_gradient"] = (
+                            "explicit initial mapping and frozen macro gradient"
+                        )
+                    record["block_partition"] = partition
                 row = dict(
                     key=key,
                     case=case,

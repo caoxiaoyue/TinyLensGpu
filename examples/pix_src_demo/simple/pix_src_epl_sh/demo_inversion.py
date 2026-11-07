@@ -21,6 +21,7 @@ import numpy as np
 from TinyLensGpu.example_support import (
     draw_image_panel,
     require_valid_reconstruction,
+    source_interpolation_metadata,
 )
 import matplotlib.pyplot as plt
 
@@ -59,6 +60,7 @@ for LAMBDA in LAMBDA_LIST:
     print(f"Running pixelized source inversion (λ={LAMBDA}) …")
     
     pix_src = PixelizedSourceModel(n=40,
+        interpolation=os.environ.get("TINYLENS_SOURCE_INTERPOLATION", "bilinear"),
         regularization_type="first-order",
         log_lambda_reg=np.log(max(LAMBDA, 1e-8)),
     )
@@ -154,7 +156,7 @@ for LAMBDA in LAMBDA_LIST:
     axes[2].set_xlabel("arcsec")
 
     # Panel 4: source reconstruction
-    reg_label = f"1st-order, λ={LAMBDA}"
+    reg_label = f"1st-order, λ={LAMBDA}, {pix_src.interpolation}"
     title_suffix = f"\n({reg_label})\nlog Z = {log_ev:.2f}"
     im3 = draw_image_panel(
         axes[3],
@@ -180,7 +182,10 @@ for LAMBDA in LAMBDA_LIST:
 
     os.makedirs("output", exist_ok=True)
     out_name = f"output/demo_inversion_lambda{LAMBDA}.png"
-    plt.savefig(out_name, dpi=150, bbox_inches="tight")
+    plt.savefig(
+        out_name, dpi=150, bbox_inches="tight",
+        metadata=source_interpolation_metadata(pix_src.interpolation),
+    )
     print(f"Saved to {out_name}")
     plt.close(fig)
 
