@@ -5,7 +5,7 @@
 **Blocked by:** 06 — Run single-step and iterative potential correction with Hermite.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] Automatic partition provenance checks include geometry, interpolation, and vote rule. Verify reuse for matching cases and regeneration on mismatch, including the treatment of known old bilinear partitions.
 - [ ] A valid explicitly supplied fixed partition can be used for a controlled comparison and its origin is recorded. Exercise small example runs and their result records for both potential-correction methods.
 
+## Comments
+
+Claimed for implementation on `codex/psi-07-scientific-partitions`.

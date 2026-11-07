@@ -5,7 +5,7 @@
 **Blocked by:** 02 — Reconstruct the same Hermite source with the operator backend, and 06 — Run single-step and iterative potential correction with Hermite.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] Record mapping preparation, preconditioner construction, peak device memory, and synchronized solve time, distinguishing compilation from warm execution. Record inputs, precision, tolerances, commands, and the device used.
 - [ ] Run the relevant core, example, and benchmark checks in separate processes in the documented environment and retain the results with their configurations and limits.
 
+## Comments
+
+Claimed for implementation on `codex/psi-09-verification`.
