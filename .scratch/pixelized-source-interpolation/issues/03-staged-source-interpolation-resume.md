@@ -5,7 +5,7 @@
 **Blocked by:** 02 — Reconstruct the same Hermite source with the operator backend.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] A conflicting explicit mode fails before any completed stage or its evidence is reused. A fresh run can explicitly use old node intensities as initialization.
 - [ ] The guide and a maintained runnable example show how to select Hermite explicitly, how resume chooses the mode, and how to interpret nodal non-negativity with signed weights. Exercise the workflow through its existing configuration, export, and restore entry points.
 
+## Comments
+
+Claimed for implementation on `codex/psi-03-stage-resume`.
