@@ -13,7 +13,7 @@ subhalo detection significance, mass intervals or posterior-sampling results.
 | Entry point | Initialization | Fitted image |
 | --- | --- | --- |
 | `SingleStepPotentialCorrection` | A source-gradient callable evaluated once at macro image-subpixel rays, then frozen; scientific mocks use analytic truth gradients | A linear source–potential prediction, plus a separate nonlinear re-render |
-| `IterativePotentialCorrection` | Truth brightness sampled at the fixed **source nodes**, with zero initial potential | A nonlinear image; mappings and analytical bilinear source gradients refresh after accepted updates |
+| `IterativePotentialCorrection` | Truth brightness sampled at the fixed **source nodes**, with zero initial potential | A nonlinear image; mappings and gradients of the selected interpolant refresh after accepted updates |
 
 A documented small-step derivative of the truth can also supply the single-step
 gradient callable. Both solve the complete signed source and potential together. Source brightness
@@ -89,7 +89,13 @@ noise arrays must match the simulator shape. Only selected pixels must be
 finite, and selected noise standard deviations must be positive. Masks use
 `True` for excluded pixels.
 
-For a reconstructed macro source, freeze the bilinear gradient with
+Select `source_interpolation="cubic_hermite"` on the renderer to extend
+source support by two grid spacings per side using fixed zero exterior nodes.
+The default `"bilinear"` uses the fitted box as its support. Single-step
+Hermite applies its frozen callback strictly inside the extended support and
+sets it to zero at the outer edge and beyond.
+
+For a reconstructed macro source, freeze the gradient of the selected interpolant with
 `renderer.source_spatial_gradient(source_values, renderer.source_mapping())`
 and supply a callable returning that pair. The single-step constructor also
 accepts `source_scale`, a fixed positive vector of length `source_n**2`.
@@ -106,7 +112,8 @@ For the operator backend, add `backend="operator"`, `block_size`, optional
 covers every joint coefficient exactly once; blocks can mix fields but cannot
 contain the whole potential or joint field. Default bounded blocks separate
 fields. The result records complete indices, sizes and a partition digest.
-The scientific examples load their recorded partition after geometry checks.
+The scientific examples check partition provenance before automatic reuse,
+including traced macro rays and initial gradients for source-incidence votes.
 
 Every iterative call resets source nodes, potential and damping. Its controls
 include `max_iter`, initial/minimum/maximum damping and increase/decrease

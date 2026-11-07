@@ -256,6 +256,46 @@ def test_single_step_uses_frozen_callback_inside_selected_support(
     np.testing.assert_allclose(image, expected, atol=1e-13, rtol=1e-13)
 
 
+def test_frozen_hermite_callback_excludes_exact_float64_support_edges():
+    from TinyLensGpu.ForwardSimulation import (
+        PotentialCorrectionRenderer,
+    )
+    from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import (
+        MacroMapping,
+    )
+    from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+
+    base = _small_renderer()
+    lower, upper = -0.022404768054233637, 0.3577528867209083
+    n = 11
+    width = 2 * (upper - lower) / (n - 1)
+    left, right = lower - width, upper + width
+    bx = np.array([
+        np.nextafter(left, -np.inf), left, np.nextafter(left, np.inf),
+        lower, (lower + upper) / 2, upper,
+        np.nextafter(right, -np.inf), right, np.nextafter(right, np.inf),
+    ])
+    by = np.full_like(bx, (lower + upper) / 2)
+    with jax.experimental.enable_x64():
+        renderer = PotentialCorrectionRenderer(
+            base.macro_model, base.sim_config, n, (lower, upper, lower, upper),
+            source_interpolation="cubic_hermite",
+        )
+        problem = SingleStepPotentialCorrection(
+            renderer, np.zeros((3, 3)), np.ones((3, 3)),
+            lambda x, y: (jnp.ones_like(x), jnp.zeros_like(y)),
+            macro_mapping=MacroMapping(jnp.asarray(bx), jnp.asarray(by)),
+            lambda_amplitude=1.0,
+        )
+        np.testing.assert_array_equal(
+            problem.mapping.valid, [False, True, True, True, True, True, True, True, False]
+        )
+        # A linear potential has unit x deflection on the entire query grid.
+        joint = jnp.concatenate((jnp.zeros(n**2), renderer.potential_grid.x))
+        image = problem.forward(joint)
+    np.testing.assert_allclose(image, [0, 0, -1, -1, -1, -1, -1, 0, 0], atol=2e-14, rtol=0)
+
+
 def test_frozen_response_has_lens_equation_sign_and_quadratic_linearization_error():
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,

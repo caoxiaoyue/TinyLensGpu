@@ -448,10 +448,13 @@ def test_subhalo_exports_keep_raw_package_contract_with_unsupported_joint_stats(
     assert diagnostics.valid and diagnostics.reduced_chi2 is None
     assert diagnostics.effective_dof_method == "operator_joint_unsupported"
     package = module._solve_pixel_source_for_package(likelihood, medians, list(medians))
-    assert set(package) == {
+    keys = {
         "source_pixels", "source_image", "source_bbox",
-        "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
+        "source_x_axis", "source_y_axis", "n",
     }
+    if "subhalo_0946" in relative_path:
+        keys.update(("source_interpolation", "source_boundary"))
+    assert set(package) == keys
     assert package["n"] == 5
     assert isinstance(package["source_bbox"], tuple)
     assert all(type(value) is float for value in package["source_bbox"])

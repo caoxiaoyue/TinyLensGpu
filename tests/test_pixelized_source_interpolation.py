@@ -166,6 +166,42 @@ def test_hermite_brightness_and_gradient_are_continuous_at_grid_lines(axis):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("reflect", [False, True], ids=["lower_edge", "upper_edge"])
+def test_hermite_support_edges_keep_float64_spacing_under_jit(reflect):
+    lower, upper = -0.022404768054233637, 0.3577528867209083
+    if reflect:
+        lower, upper = -upper, -lower
+    n = 11
+    spacing = (upper - lower) / (n - 1)
+    edges = np.array([lower - 2 * spacing, upper + 2 * spacing])
+    probes = np.column_stack((
+        np.nextafter(edges, -np.inf), edges, np.nextafter(edges, np.inf)
+    )).ravel()
+    rays = np.column_stack((probes, np.full_like(probes, (lower + upper) / 2)))
+    bbox = (lower, upper, lower, upper)
+    expected_support = [False, True, True, True, True, False]
+    outside_or_edge = np.array([0, 1, 4, 5])
+
+    with jax.experimental.enable_x64():
+        weights, _, support = mapping.lens_mapping_operator_from(
+            rays, *bbox, n, interpolation="cubic_hermite"
+        )
+        gx, gy = mapping.source_spatial_gradient(
+            np.ones(n**2), rays, *bbox, n, interpolation="cubic_hermite"
+        )
+        with jax.disable_jit():
+            _, _, eager_support = mapping.lens_mapping_operator_from(
+                rays, *bbox, n, interpolation="cubic_hermite"
+            )
+
+    np.testing.assert_array_equal(support, expected_support)
+    np.testing.assert_array_equal(eager_support, expected_support)
+    np.testing.assert_array_equal(weights[outside_or_edge], 0.0)
+    np.testing.assert_array_equal(gx[outside_or_edge], 0.0)
+    np.testing.assert_array_equal(gy[outside_or_edge], 0.0)
+
+
+@pytest.mark.unit
 def test_source_light_interpolation_is_fixed_at_construction():
     from TinyLensGpu.PhysicalModel import PixelizedSourceModel
 

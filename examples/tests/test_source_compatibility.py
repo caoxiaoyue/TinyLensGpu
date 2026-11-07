@@ -304,6 +304,18 @@ def test_survey_plot_renders_public_reconstruction(
     np.testing.assert_array_equal(model.get_values("flat"), initial)
 
 
+def test_source_export_helper_preserves_legacy_default_schema(survey_source_model):
+    from TinyLensGpu.example_support import export_source_package
+
+    model = survey_source_model
+    names = [param.name for param in model.get_dynamic_params()]
+    medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=0.0)
+    package = export_source_package(model, medians, names, n=3)
+    assert set(package) == {
+        "source_pixels", "source_image", "source_bbox", "source_x_axis", "source_y_axis", "n",
+    }
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("relative_path", _SURVEY_DIAGNOSTIC_SCRIPTS[:-1])
 @pytest.mark.parametrize("rho", [0.0, 1.2])

@@ -58,9 +58,10 @@ def _partition(renderer, initial_source, config):
         else None
     )
 
+    mapping = renderer.source_mapping()
+    gx, gy = renderer.source_spatial_gradient(initial_source, mapping)
+
     def build_blocks():
-        mapping = renderer.source_mapping()
-        gx, gy = renderer.source_spatial_gradient(initial_source, mapping)
         return source_incidence_blocks(
             renderer,
             mapping,
@@ -77,6 +78,7 @@ def _partition(renderer, initial_source, config):
         source="initial_nodal",
         method="source_incidence",
         default_file=default_file,
+        incidence_gradients=(gx, gy),
     )
     if provenance["origin"] == "generated":
         provenance["gradient"] = "analytic derivative of initial pixelized source"

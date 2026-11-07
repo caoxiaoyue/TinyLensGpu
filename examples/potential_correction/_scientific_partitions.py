@@ -18,12 +18,34 @@ _LEGACY_PARTITION_SHA256 = (
     "203e0ccc7bfde571c44cd5bf0e02c07ef4b903f182c513e55b40ada9c4f32486"
 )
 
+# Regenerated from scientific_configuration.json on CUDA, where the recorded
+# grid hash and source-incidence blocks match the bundled calibration exactly.
+_LEGACY_MACRO_RAYS_SHA256 = (
+    "6c9b99d998332c6a4d900a2852c386a0a385349bd0b5ab6e329355993e859adb"
+)
+_LEGACY_INCIDENCE_GRADIENT_SHA256 = (
+    "e26f1d21fef1f5048a300dcb3d472eb5c5a6c7c8fd8af653f28c084bfa7ab663"
+)
+# The paired iterative_scientific_configuration.json uses the same partition
+# with its own initial nodal gradient on that traced geometry.
+_LEGACY_INITIAL_NODAL_GRADIENT_SHA256 = (
+    "47803ae571abc1b926302e0b6471d6abeaf5eb9b7d90e3bab13c09a5b26b78ba"
+)
+
+
+def _arrays_fingerprint(arrays):
+    digest = hashlib.sha256()
+    for values in arrays:
+        array = np.asarray(values)
+        digest.update(str((array.shape, array.dtype.str)).encode())
+        digest.update(np.ascontiguousarray(array).tobytes())
+    return digest.hexdigest()
+
 
 def geometry_fingerprint(renderer):
     """Fingerprint fixed source and potential geometry independently of mode."""
-    digest = hashlib.sha256()
     grid = renderer.potential_grid
-    for values in (
+    return _arrays_fingerprint((
         renderer.source_x_axis,
         renderer.source_y_axis,
         grid.node_indices,
@@ -32,11 +54,7 @@ def geometry_fingerprint(renderer):
         grid.y,
         grid.query_x,
         grid.query_y,
-    ):
-        array = np.asarray(values)
-        digest.update(str((array.shape, array.dtype.str)).encode())
-        digest.update(np.ascontiguousarray(array).tobytes())
-    return digest.hexdigest()
+    ))
 
 
 def _validated_blocks(renderer, cap, indices):
@@ -49,7 +67,7 @@ def _validated_blocks(renderer, cap, indices):
     return [list(block) for block in blocks]
 
 
-def _load_automatic_partition(renderer, path, expected):
+def _load_automatic_partition(renderer, path, expected, *, source):
     candidate = {"file": str(path)}
     try:
         payload = path.read_bytes()
@@ -73,10 +91,23 @@ def _load_automatic_partition(renderer, path, expected):
             source_interpolation="bilinear",
             source_boundary=source_boundary_for_interpolation("bilinear"),
             vote_rule=SOURCE_INCIDENCE_VOTE_RULE,
+            macro_rays_sha256=_LEGACY_MACRO_RAYS_SHA256,
+            incidence_gradient_sha256=_LEGACY_INCIDENCE_GRADIENT_SHA256,
             source_tile=24,
             cap=1024,
         )
         candidate["legacy_bilinear"] = True
+        # The historical iterative comparison deliberately keeps the fixed
+        # partition constructed with the single-step analytic gradient.
+        if (
+            source == "initial_nodal"
+            and expected.get("incidence_gradient_sha256")
+            == _LEGACY_INITIAL_NODAL_GRADIENT_SHA256
+        ):
+            expected = {
+                **expected,
+                "incidence_gradient_sha256": _LEGACY_INCIDENCE_GRADIENT_SHA256,
+            }
     mismatches = [
         field
         for field, value in expected.items()
@@ -97,11 +128,14 @@ def _load_automatic_partition(renderer, path, expected):
     candidate["source"] = record.get("source", "saved_partition")
     if "reference" in record:
         candidate["reference"] = record["reference"]
+    if "incidence_gradient_sha256" in record:
+        candidate["incidence_gradient_sha256"] = record["incidence_gradient_sha256"]
     return blocks, candidate
 
 
 def prepare_partition(
-    renderer, config, build_blocks, *, source, method, default_file=None
+    renderer, config, build_blocks, *, source, method, default_file=None,
+    incidence_gradients=None,
 ):
     """Select validated fixed, compatible saved, or newly generated blocks."""
     provenance = {
@@ -116,6 +150,11 @@ def prepare_partition(
     blocks = None
     path = config.get("partition_file", default_file)
     fixed_indices = config.get("block_indices")
+    if method == "source_incidence" and fixed_indices is None:
+        if incidence_gradients is None:
+            raise ValueError("Source-incidence partitioning requires its initial gradients")
+        provenance["macro_rays_sha256"] = _arrays_fingerprint(renderer.macro_mapping)
+        provenance["incidence_gradient_sha256"] = _arrays_fingerprint(incidence_gradients)
     if fixed_indices is not None:
         blocks = _validated_blocks(renderer, provenance["cap"], fixed_indices)
         provenance.update(
@@ -126,7 +165,9 @@ def prepare_partition(
             source_tile=None,
         )
     elif path is not None:
-        blocks, candidate = _load_automatic_partition(renderer, Path(path), provenance)
+        blocks, candidate = _load_automatic_partition(
+            renderer, Path(path), provenance, source=source,
+        )
         if blocks is None:
             provenance["reuse_rejected"] = candidate
         else:

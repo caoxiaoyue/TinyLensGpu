@@ -86,8 +86,9 @@ def require_valid_reconstruction(result, diagnostics, *, context):
 
 def export_source_package(
     likelihood, medians, param_names, *, n, context="exporting source package",
+    record_source_interpolation=False,
 ):
-    """Solve the source template once and package it in the single-n schema."""
+    """Solve once and package the source, optionally recording its interpolation."""
     import jax.numpy as jnp
 
     theta = jnp.asarray([medians[name] for name in param_names])
@@ -98,17 +99,19 @@ def export_source_package(
     pixels = np.asarray(result.source_pixels, dtype=np.float64)
     bbox = tuple(float(v) for v in result.source_bbox)
     x, y = source_axes_from_bbox(bbox, n)
-    source_model = getattr(likelihood, "source_model", None)
-    interpolation = getattr(source_model, "interpolation", "bilinear")
-    return dict(
+    package = dict(
         source_pixels=pixels,
         source_image=pixels.reshape(n, n),
         source_bbox=bbox,
         source_x_axis=x,
         source_y_axis=y,
         n=int(n),
-        **source_interpolation_metadata(interpolation),
     )
+    if record_source_interpolation:
+        source_model = getattr(likelihood, "source_model", None)
+        interpolation = getattr(source_model, "interpolation", "bilinear")
+        package.update(source_interpolation_metadata(interpolation))
+    return package
 
 
 def validate_source_package(

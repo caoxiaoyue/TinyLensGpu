@@ -81,7 +81,6 @@ from TinyLensGpu.example_support import (
     StageStorageConfig,
     load_stage,
     resolve_source_interpolation,
-    resolve_stage_source_interpolation,
     save_stage,
     source_interpolation_metadata,
     stage_from_payload as _stage_from_payload,
@@ -99,6 +98,11 @@ from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
 from TinyLensGpu.Inference import StagePosterior
+
+from workspace._j0946_macro_provenance import (
+    resolve_run_source_interpolation,
+    source_settings_match,
+)
 
 import caskade as ck
 
@@ -143,42 +147,6 @@ SAMPLER_BATCH_SIZE = 32
 
 
 SOURCE_INTERPOLATION = None
-_STAGE_TAGS = ("a", "m0", "m1", "m2", "m3")
-_SAMPLER_TAGS = ("a", "m1", "m2", "m3")
-
-
-def _resolve_run_source_interpolation(requested, *, resume):
-    if resume:
-        manifest = OUT_DIR / "manifest.json"
-        if manifest.exists():
-            requested = resolve_source_interpolation(
-                requested, metadata=json.loads(manifest.read_text())["settings"],
-                context=str(manifest),
-            )
-        for tag in _SAMPLER_TAGS:
-            path = OUT_DIR / f"sampler_{tag}.json"
-            if path.exists():
-                requested = resolve_source_interpolation(
-                    requested, metadata=json.loads(path.read_text()), context=str(path),
-                )
-            elif (OUT_DIR / f"sampler_{tag}.h5").exists():
-                raise RuntimeError(f"Sampler checkpoint has no matching settings: {path}")
-        handoff = OUT_DIR / "m3_handoff.json"
-        if handoff.exists():
-            requested = resolve_source_interpolation(
-                requested, metadata=json.loads(handoff.read_text()), context=str(handoff),
-            )
-    return resolve_stage_source_interpolation(
-        OUT_DIR, _STAGE_TAGS, requested=requested, resume=resume,
-    )
-
-
-def _settings_match(saved, current, path):
-    mode = resolve_source_interpolation(
-        current["source_interpolation"], metadata=saved, context=str(path),
-    )
-    # Compare old settings in memory without rewriting their original metadata.
-    return {**saved, **source_interpolation_metadata(mode)} == current
 
 
 def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
@@ -212,7 +180,7 @@ def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
     )
     settings_path = OUT_DIR / f"sampler_{stage_id}.json"
     if settings_path.exists():
-        if not RESUME or not _settings_match(
+        if not RESUME or not source_settings_match(
             json.loads(settings_path.read_text()), settings, settings_path,
         ):
             raise RuntimeError(f"Incompatible existing sampler: {settings_path}")
@@ -1725,8 +1693,8 @@ def main(skip_done: bool = False, out_dir: str | None = None, *, source_interpol
     if out_dir is not None:
         OUT_DIR = SCRIPT_DIR / Path(out_dir).expanduser()
     RESUME = skip_done
-    SOURCE_INTERPOLATION = _resolve_run_source_interpolation(
-        source_interpolation, resume=RESUME,
+    SOURCE_INTERPOLATION = resolve_run_source_interpolation(
+        OUT_DIR, source_interpolation, resume=RESUME,
     )
     _run_macro(skip_done)
 
@@ -2145,8 +2113,8 @@ def cli():
         parser.error("--batch-size must be positive")
     if args.out_dir is not None:
         OUT_DIR = SCRIPT_DIR / args.out_dir.expanduser()
-    SOURCE_INTERPOLATION = _resolve_run_source_interpolation(
-        args.source_interpolation, resume=RESUME,
+    SOURCE_INTERPOLATION = resolve_run_source_interpolation(
+        OUT_DIR, args.source_interpolation, resume=RESUME,
     )
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2183,7 +2151,7 @@ def cli():
     )
     manifest_path = OUT_DIR / "manifest.json"
     if manifest_path.exists():
-        if not RESUME or not _settings_match(
+        if not RESUME or not source_settings_match(
             json.loads(manifest_path.read_text())["settings"], settings, manifest_path,
         ):
             raise RuntimeError(

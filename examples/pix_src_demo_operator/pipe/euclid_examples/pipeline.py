@@ -266,6 +266,7 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
     return export_source_package(
         likelihood, medians, param_names, n=NSRC,
         context="exporting the stage source template",
+        record_source_interpolation=True,
     )
 
 

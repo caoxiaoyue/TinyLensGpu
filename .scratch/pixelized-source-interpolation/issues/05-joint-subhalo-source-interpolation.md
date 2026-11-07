@@ -36,3 +36,28 @@ unit-amplitude basis and fitted intensity contract, pre-S1 and post-S1
 J0946 resume, incompatible M0/M1/M4/M5 state, and M5-only continuation.
 The comparison schema preserves compatible legacy bilinear caches and
 distinguishes Hermite caches.
+
+The following command selects the 70 CPU cases from `examples/tests/` in `tinylens_gpu`.
+
+```bash
+export JAX_PLATFORMS=cpu XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg
+pytest -xq \
+  'test_joint_shared_support.py::test_joint_stages_keep_interpolation_and_unit_lens_light' \
+  'test_joint_shared_support.py::test_j0946_resumes_before_and_after_source_package' \
+  'test_joint_shared_support.py::test_j0946_rejects_incompatible_comparison_caches_before_reuse' \
+  'test_joint_shared_support.py::test_simple_joint_exports_source_model_choice' \
+  'test_joint_shared_support.py::test_joint_sampling_and_cache_contract[pipe/simult_fit_lens_source/mge_lens_light/model.py-7-False]' \
+  'test_joint_shared_support.py::test_joint_sampling_and_cache_contract[pipe/subhalo_0946/model.py-100-True]' \
+  'test_joint_shared_support.py::test_subhalo_source_package_normalization_and_identity[pipe/subhalo_0946/model.py]' \
+  'test_joint_shared_support.py::test_joint_pipeline_renders_actual_components_with_unavailable_dof' \
+  'test_operator_diagnostics_plotting.py::test_joint_pipeline_plots_fitted_components_and_unavailable_statistics' \
+  'test_operator_diagnostics_plotting.py::test_joint_plots_reject_failed_reconstruction_before_output' \
+  'test_operator_diagnostics_plotting.py::test_simple_joint_plots_preserve_per_pixel_and_arc_summaries' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_reject_failed_reconstruction_before_output[unconverged-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_reject_failed_reconstruction[unconverged-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_reject_failed_reconstruction_before_output[nonfinite-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_reject_failed_reconstruction[nonfinite-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_keep_raw_package_contract_with_unsupported_joint_stats[pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_preserve_position_scale_and_subhalo_overlays[pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_joint_fit_plotting.py'
+```
