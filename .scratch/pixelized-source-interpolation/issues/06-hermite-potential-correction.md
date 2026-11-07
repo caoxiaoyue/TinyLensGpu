@@ -37,3 +37,7 @@ residuals below `5.7e-14`. The iterative fits agreed to `2.12e-16` in
 potential and `4.44e-16` in the image, with maximum accepted true relative
 residuals below `8.6e-13`. The suite exercises the frozen callback domain
 and the refreshed Jacobian and its transpose.
+
+The follow-up CUDA command `pytest -xq test_potential_correction_rendering.py
+test_potential_correction_residual_refinement.py` passed 25 checks,
+including both slow bilinear control and solve-budget regressions.
