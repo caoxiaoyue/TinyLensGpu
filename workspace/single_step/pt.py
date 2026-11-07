@@ -1,7 +1,7 @@
 """Dense Float32 single-step correction of the fresh J0946 M3 macro model.
 
 Run macro_model.py first. This driver freezes the exported M3 macro, source
-mesh, bilinear source gradient and adaptive source weights. Only lambda_s,
+mesh, source gradient and adaptive source weights. Only lambda_s,
 lambda4 and lambda0 are sampled with Nautilus. Source and potential pixels
 are signed linear unknowns, marginalized with the full Gaussian determinant.
 No parameterized subhalo or M4/M5 result enters this analysis.
@@ -41,6 +41,7 @@ from TinyLensGpu.ObservationModel.LensImage._potential_correction_common import 
     _dense_response_columns,
 )
 from TinyLensGpu.PhysicalModel import EPL, PhysicalModel, Shear
+from TinyLensGpu.example_support import resolve_source_interpolation
 from TinyLensGpu.utils.misc import weighted_quantile
 from examples.potential_correction.result_products import (
     RESULT_ARRAYS,
@@ -89,6 +90,7 @@ def load_handoff(macro_dir):
 
 def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, solve_rtol=1e-5):
     metadata, arrays = load_handoff(macro_dir)
+    interpolation = resolve_source_interpolation(metadata=metadata, context="M3 handoff")
     p = metadata["macro_parameters"]
     macro = PhysicalModel(
         lens_mass=[
@@ -119,8 +121,9 @@ def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, solve_rtol=1e-
         tuple(arrays["source_bbox"]),
         potential_spacing=potential_spacing,
         dtype="float32",
+        source_interpolation=interpolation,
     )
-    # Differentiate the same piecewise-bilinear source interpolant used to render.
+    # Freeze the derivative of the saved M3 source interpolant at the macro rays.
     frozen_gradient = renderer.source_spatial_gradient(
         jnp.asarray(arrays["source_values"]),
         renderer.source_mapping(),
@@ -137,7 +140,7 @@ def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, solve_rtol=1e-
         initialization_provenance=dict(
             handoff_sha256=metadata["handoff_sha256"],
             representative=metadata["representative"],
-            gradient="frozen_bilinear_derivative_of_M3_source",
+            gradient=f"frozen_{interpolation}_derivative_of_M3_source",
             adaptive_scale="fixed_M1_template_and_M2_rho_as_used_in_M3",
         ),
     )

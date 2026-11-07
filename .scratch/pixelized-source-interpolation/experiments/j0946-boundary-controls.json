@@ -1,0 +1,130 @@
+[
+  {
+    "protocol": "J0946_fixed_single_step_lambdas_boundary_initialization_v1",
+    "trial_directory": "hard/single_step/repeat_02",
+    "profile": null,
+    "repeat": 2,
+    "input_sha256": {
+      "m3_handoff.json": "ef9c77f40fd055854e011bae1bdb4b4d49f70f9db99e8e0f6283906a25f0fb03",
+      "m3_handoff.npz": "d09a1102a64f74dcf540530d850ed633430313009d44bc0f5b5b551e18b10bda",
+      "result.json": "d458d99867c1c81ee363c4d430c1255c3c9c61c68b2573fd637d4ca59ec6e17d",
+      "reconstruction.npz": "69f1314de9ed45c3f051b526a705daf1f12521050706d8ba7341c9f45ac80f83",
+      "protocol.json": "e7ca3e26aabacabdec65ab1fdffed08d7995b1a369c20363cbe2d97083f68fe4"
+    },
+    "recorded_source_conventions": {
+      "result": {
+        "source_boundary": "hard"
+      },
+      "configuration": {},
+      "initialization": {}
+    },
+    "handoff_interpolation": "bilinear",
+    "handoff_boundary": "hard_zero_outside_bbox",
+    "source_interpolation": "bilinear",
+    "source_boundary": "hard_zero_outside_bbox",
+    "preconditioner_reference_boundary": "hard_zero_outside_bbox",
+    "source_bbox": [
+      -0.5641691088676453,
+      0.43583089113235474,
+      -0.6536976099014282,
+      0.3463023602962494
+    ],
+    "recorded_source_support_bbox": [
+      -0.5641691088676453,
+      0.43583089113235474,
+      -0.6536976099014282,
+      0.3463023602962494
+    ],
+    "source_n": 100,
+    "n_potential": 1134,
+    "n_core": 802,
+    "potential_spacing": 0.1,
+    "n_active": 2293,
+    "n_rays": 36688,
+    "image_shape": [
+      201,
+      201
+    ],
+    "psf_shape": [
+      15,
+      15
+    ],
+    "dpix": 0.05,
+    "nsub": 4,
+    "dtype": "float64",
+    "absolute_tolerance": 1e-11,
+    "differences": {
+      "replay_image_vs_archive": {
+        "max_abs": 3.885780586188048e-15,
+        "rms": 7.178170004899965e-17
+      }
+    },
+    "jax": "0.7.1",
+    "device": "cpu"
+  },
+  {
+    "protocol": "J0946_fixed_M3_prior_paired_bilinear_C1_cardinal_cubic_v1",
+    "trial_directory": "trials/0022",
+    "profile": "single_step_lens",
+    "repeat": 2,
+    "input_sha256": {
+      "m3_handoff.json": "ef9c77f40fd055854e011bae1bdb4b4d49f70f9db99e8e0f6283906a25f0fb03",
+      "m3_handoff.npz": "d09a1102a64f74dcf540530d850ed633430313009d44bc0f5b5b551e18b10bda",
+      "result.json": "9d7b46200ff812a9bdcdaa0ffaae659de6e1763b42a60db1c7ed9912414e57a1",
+      "reconstruction.npz": "ef26c06e0db635db377226962c344d54d26c1b55d1bc5d686e7e9351413f2ceb",
+      "protocol.json": "d835836fbd8bb33df9cad6e2adc9a496faa5d4a69720d0b4ff96dd78497190b7"
+    },
+    "recorded_source_conventions": {
+      "result": {
+        "source_interpolation": "bilinear"
+      },
+      "configuration": {},
+      "initialization": {
+        "source_boundary": "one_fixed_zero_ghost_ring"
+      }
+    },
+    "handoff_interpolation": "bilinear",
+    "handoff_boundary": "hard_zero_outside_bbox",
+    "source_interpolation": "bilinear",
+    "source_boundary": "bilinear_fixed_zero_ghost_ring",
+    "preconditioner_reference_boundary": "hard_zero_outside_bbox",
+    "source_bbox": [
+      -0.5641691088676453,
+      0.43583089113235474,
+      -0.6536976099014282,
+      0.3463023602962494
+    ],
+    "recorded_source_support_bbox": [
+      -0.5742701189686553,
+      0.44593190123336485,
+      -0.6637986197014047,
+      0.3564033700962259
+    ],
+    "source_n": 100,
+    "n_potential": 1134,
+    "n_core": 802,
+    "potential_spacing": 0.1,
+    "n_active": 2293,
+    "n_rays": 36688,
+    "image_shape": [
+      201,
+      201
+    ],
+    "psf_shape": [
+      15,
+      15
+    ],
+    "dpix": 0.05,
+    "nsub": 4,
+    "dtype": "float64",
+    "absolute_tolerance": 1e-11,
+    "differences": {
+      "replay_image_vs_archive": {
+        "max_abs": 3.6637359812630166e-15,
+        "rms": 6.811422800026503e-17
+      }
+    },
+    "jax": "0.7.1",
+    "device": "cpu"
+  }
+]

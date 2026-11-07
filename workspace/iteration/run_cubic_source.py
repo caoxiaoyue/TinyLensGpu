@@ -35,8 +35,11 @@ PROTOCOL = "J0946_fixed_M3_prior_paired_bilinear_C1_cardinal_cubic_v1"
 
 def cubic_problem(hard, arrays, lambda0):
     r = hard.renderer
-    renderer = CubicSourceRenderer(r.macro_model, r.sim_config, r.source_n, r.source_bbox,
-        potential_grid=r.potential_grid, dtype="float64")
+    renderer = CubicSourceRenderer(
+        r.macro_model, r.sim_config, r.source_n, r.source_bbox,
+        potential_grid=r.potential_grid, dtype="float64",
+        source_interpolation="cubic_hermite",
+    )
     problem = IterativePotentialCorrection(renderer, arrays["lens_subtracted_image"],
         arrays["noise_map"], arrays["source_values"], lambda_amplitude=lambda0,
         source_regularization=hard.source_regularizer.regularization_type,
