@@ -499,7 +499,7 @@ geometry, and prior strengths for both observations.
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg \
   python -m examples.potential_correction.lbfgs_mock \
-  --output output/potential_correction_lbfgs_mock
+  --backend both --output output/potential_correction_lbfgs_mock
 ```
 
 The [default configuration](lbfgs_mock_configuration.json) records the 32 × 32
@@ -508,27 +508,38 @@ Hermite source, and the 0.15 arcsec potential grid. Each fit starts at
 analytic mock brightness sampled on the fixed source nodes and zero
 potential. The same Hermite source initializes the whitening metric. The
 first-order source, fourth-difference, and all-node amplitude strengths are
-`0.001`, `10000`, and `10000`.
+`0.001`, `10000`, and `10000`. Select `--backend dense` (the default) or
+`--backend operator` for one backend. The operator configuration uses a
+field-separated contiguous partition capped at 64 coefficients, a PCG limit
+of 2000 iterations and a recursive relative tolerance of `1e-10`.
+Set `operator_options.block_indices` in JSON to supply an explicit partition.
 
-The dense runs on the RTX 5080 selected 568 image pixels and qualified at the
+All four runs on the RTX 5080 selected 568 image pixels and qualified at the
 common GN stationarity tolerance of `0.001`. Convergence metrics use all 200
 derivative-valid nodes, and the residual RMS is in noise units on selected
 image pixels.
 
-| Observation | Objective | Local GN log evidence | Convergence RMSE vs discrete truth | Positive convergence peak | Residual RMS / noise |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Injection | 175.20734 | 1239.17317 | 0.05137 | 0.26035 | 0.72976 |
-| Control | 156.24661 | 1261.08347 | 0.03568 | 0.09435 | 0.70969 |
+| Observation | Backend | Objective | Local GN log evidence | Convergence RMSE vs discrete truth | Positive convergence peak | Residual RMS / noise |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Injection | Dense | 175.20734 | 1239.17316 | 0.05137 | 0.26035 | 0.72976 |
+| Injection | Operator | 175.20734 | 1152.05306 | 0.05137 | 0.26035 | 0.72976 |
+| Control | Dense | 156.24661 | 1261.08347 | 0.03568 | 0.09435 | 0.70969 |
+| Control | Operator | 156.24661 | 1177.98929 | 0.03568 | 0.09435 | 0.70969 |
 
-The injection peak is at `(0.75, 0.15)` arcsec, 0.05 arcsec from the injected
-position. The control has zero injected convergence and its largest positive
-recovered value is at `(-1.05, 0.6)` arcsec. These values describe the
-recorded mock and prior settings.
+The largest backend difference in convergence is `2.09e-7` for the injection
+and `3.51e-7` for the control over the full valid fields. The objective
+differences were below `2e-11`. The nonlinear images differ by `2.89e-7` and
+`3.72e-7` noise units RMS on the selected pixels. Both recover the injection
+peak at `(0.75, 0.15)` arcsec, 0.05 arcsec from the injected position, and the control peak at `(-1.05, 0.6)` arcsec. Operator endpoint
+PCG took 341 and 349 iterations, with true residuals of `2.17e-13` and
+`2.09e-13` against thresholds of `2.17e-11` and `2.16e-11`, respectively.
 
-The output contains the reusable `configuration.json` and the per-case
-`run.json` summary. Read `subhalo/dense` or `control/dense` with
+The output contains reusable `configuration.json` and per-run summaries and
+backend differences in `run.json`. Load any successful result directory
+such as `subhalo/operator` with
 `examples.potential_correction.result_products.load_result` to inspect the
-raw fields, nonlinear images, and `optimizer_info`. Dense local GN evidence
-uses `full_data_space` determinants and carries `evidence_is_exact=False`.
-An unqualified run writes `failure.json` with native optimizer and
-stationarity diagnostics and null evidence.
+raw fields, nonlinear images, and `optimizer_info`. Both local GN evidence
+methods carry `evidence_is_exact=False`. Dense uses `full_data_space`
+determinants and operator uses `principal_block_cholesky`. An unqualified
+run writes `failure.json` with the available optimizer diagnostics and null
+evidence.
