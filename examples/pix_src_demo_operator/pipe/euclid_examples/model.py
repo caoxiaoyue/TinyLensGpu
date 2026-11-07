@@ -42,5 +42,6 @@ if __name__ == "__main__":
         "--out-dir", default=None,
         help="Output directory relative to this script.",
     )
+    parser.add_argument("--source-interpolation", choices=("bilinear", "cubic_hermite"))
     args = parser.parse_args()
-    main(skip_done=args.skip_done, out_dir=args.out_dir)
+    main(skip_done=args.skip_done, out_dir=args.out_dir, source_interpolation=args.source_interpolation)
