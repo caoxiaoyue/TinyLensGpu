@@ -5,7 +5,7 @@
 **Blocked by:** 04 — Fixed-strength operator L-BFGS-B fit.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] The matrix-free check covers whitening preparation, fit execution, endpoint certification, and evidence. It demonstrates bounded block work in place of the full matrix allocations and reports violations.
 - [ ] The measurement entry point records synchronized stage timings and peak device memory with the device, precision, configuration, and measurement method. It can be applied to both backends during ticket 07. Report compilation and warm execution separately where both are measured.
 - [ ] Resource checks run in the benchmark suite with a documented invocation. Structural matrix-free behavior is the acceptance gate. Timings and peak memory are reported measurements.
+
+## Comments
+
+Claimed by `codex/lbfgs-06-operator-resources` for integration into `codex/lbfgs-potential-correction`.

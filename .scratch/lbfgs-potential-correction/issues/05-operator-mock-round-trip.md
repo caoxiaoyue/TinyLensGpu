@@ -5,7 +5,7 @@
 **Blocked by:** 04 — Fixed-strength operator L-BFGS-B fit.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Both operator fits qualify. Report their objectives, image residuals, and convergence fields on matching valid domains alongside the dense results. Record each evidence value with its determinant method.
 - [ ] Export and reload the operator products with the physical fields, partition metadata, principal-block determinant method, and terminal stationarity and residual diagnostics. The dense products remain readable through the same interface.
 - [ ] Example regressions run the comparison and readback in a separate process from core tests using regenerable data.
+
+## Comments
+
+Claimed by `codex/lbfgs-05-operator-mock` for integration into `codex/lbfgs-potential-correction`.
