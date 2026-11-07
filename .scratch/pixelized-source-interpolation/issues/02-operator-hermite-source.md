@@ -5,7 +5,7 @@
 **Blocked by:** 01 — Reconstruct an opt-in Hermite source with the dense backend.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] Include joint semi-linear inversion with unit-amplitude lens-light bases. Retain the coupled curvature and block-Schur preconditioner. In the constrained case the non-negativity constraint applies to node intensities and the forward uses the signed Hermite weights.
 - [ ] Run the applicable default bilinear and supported differentiation regressions. Keep the full operator action matrix-free and retain the existing determinant approximation contract.
 
+## Comments
+
+Claimed for implementation on `codex/psi-02-operator`.

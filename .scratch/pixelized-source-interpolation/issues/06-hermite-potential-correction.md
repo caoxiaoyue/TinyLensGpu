@@ -5,7 +5,7 @@
 **Blocked by:** 01 — Reconstruct an opt-in Hermite source with the dense backend.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -15,3 +15,6 @@
 - [ ] Both methods record the actual source interpolation, boundary, and gradient provenance in the applicable result configuration. The original source bounding box continues to identify the fitted grid.
 - [ ] For small fixed-strength problems, compare dense and operator objectives, true residuals, and source and potential reconstructions on their valid domains. Preserve legacy bilinear regressions and the existing solve and evidence methods.
 
+## Comments
+
+Claimed for implementation on `codex/psi-06-correction`.
