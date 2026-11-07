@@ -1,8 +1,10 @@
 """Joint/subhalo support keeps sampling controls and stage artifact contracts."""
 import importlib.util
 import json
+from pathlib import Path
 import pickle
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -11,8 +13,10 @@ from TinyLensGpu.example_support import stage_from_payload
 from test_pixelized_support import _small_likelihood
 
 
-def load_case(examples_dir, relative, monkeypatch, tmp_path):
-    path = examples_dir / 'pix_src_demo_operator' / relative
+def load_case(
+    examples_dir, relative, monkeypatch, tmp_path, *, family="pix_src_demo_operator",
+):
+    path = examples_dir / family / relative
     spec = importlib.util.spec_from_file_location('joint_support_case', path)
     module = importlib.util.module_from_spec(spec)
     with monkeypatch.context() as import_context:
@@ -20,6 +24,294 @@ def load_case(examples_dir, relative, monkeypatch, tmp_path):
         spec.loader.exec_module(module)
     monkeypatch.setattr(module, 'OUT_DIR', tmp_path)
     return module
+
+
+@pytest.mark.parametrize("family", ["pix_src_demo", "pix_src_demo_operator"])
+@pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_joint_stages_keep_interpolation_and_unit_lens_light(
+    examples_dir, monkeypatch, tmp_path, family, requested,
+):
+    import caskade as ck
+    from test_survey_shared_support import ControlledSampler
+
+    case = load_case(
+        examples_dir, "pipe/simult_fit_lens_source/mge_lens_light/model.py",
+        monkeypatch, tmp_path, family=family,
+    )
+    for name, value in dict(
+        Sampler=ControlledSampler, DPIX=0.08, NSUB=1, NSUB_PIX=1,
+        N_GAUSSIANS_SRC=2, N_GAUSSIANS_LENS=2,
+    ).items():
+        monkeypatch.setattr(case, name, value)
+    # Keep a small inversion while exercising the real joint stage builder.
+    monkeypatch.setattr(case, "NSRC", 4, raising=False)
+    y, x = np.indices((8, 8))
+    image = 0.06 + 0.12 * np.exp(-((x - 3.1) ** 2 + (y - 3.8) ** 2) / 5)
+    noise, psf = np.full_like(image, 0.1), np.ones((1, 1))
+    mask = np.zeros_like(image, dtype=bool)
+    mask[0, 0] = True
+    monkeypatch.setattr(case, "load_lens_data", lambda **kw: (image, noise, psf, None))
+    monkeypatch.setattr(case, "_position_likelihood_from_stage_a", lambda *a: {"positions": []})
+    monkeypatch.setattr(case, "_build_arc_mask", lambda *a: mask)
+    monkeypatch.setattr(case, "plot_model_results", lambda *a, **kw: None)
+    reconstructions = []
+
+    def observe_joint_fit(tag, likelihood, medians, names, path, **kwargs):
+        theta = jnp.asarray([medians[name] for name in names])
+        result, diagnostics = likelihood.evaluate_with_diagnostics(
+            theta, include_components=True, include_effective_dof=True,
+        )
+        assert diagnostics.valid
+        with ck.ActiveContext(likelihood):
+            likelihood.fill_params(theta)
+            assert all(
+                float(basis.flux.value) == 1 for basis in likelihood.phys_model.lens_light
+            )
+            matrix = likelihood.sim_obj.build_lens_light_matrix()
+        np.testing.assert_allclose(
+            diagnostics.lens_light_image[~mask], matrix @ result.lens_amplitudes,
+            atol=1e-6, rtol=2e-5,
+        )
+        np.testing.assert_allclose(
+            result.model_image[~mask],
+            (diagnostics.source_image + diagnostics.lens_light_image)[~mask],
+            atol=1e-6, rtol=2e-5,
+        )
+        reconstructions.append((likelihood.source_model.interpolation, result))
+
+    monkeypatch.setattr(case, "_plot_stage_b", observe_joint_fit)
+    case.main(source_interpolation=requested)
+    mode = requested or "bilinear"
+    assert len(reconstructions) == 1
+    assert reconstructions[0][0] == mode
+    for tag in ("a", "b"):
+        path = tmp_path / f"stage_{tag}.pkl"
+        payload = pickle.loads(path.read_bytes())
+        extra = payload["extra"]
+        assert extra["source_interpolation"] == mode
+        assert extra["source_boundary"] == (
+            "C1_cardinal_bicubic_fixed_zero_exterior_nodes" if requested
+            else "hard_zero_outside_bbox"
+        )
+        if requested is None:
+            extra.pop("source_interpolation")
+            extra.pop("source_boundary")
+            path.write_bytes(pickle.dumps(payload))
+
+    if requested is not None:
+        # A records the choice before any joint pixelized fit is complete.
+        (tmp_path / "stage_b.pkl").unlink()
+        case.main(skip_done=True)
+        restored_mode, restored = reconstructions[-1]
+        assert restored_mode == mode
+        np.testing.assert_allclose(
+            restored.model_image, reconstructions[0][1].model_image,
+            rtol=2e-5, atol=1e-7,
+        )
+        np.testing.assert_allclose(
+            restored.lens_amplitudes, reconstructions[0][1].lens_amplitudes,
+            rtol=2e-5, atol=1e-7,
+        )
+    before = {path.name: path.read_bytes() for path in tmp_path.glob("stage_*.pkl")}
+    count = len(reconstructions)
+    case.main(skip_done=True)
+    assert len(reconstructions) == count
+    assert {path.name: path.read_bytes() for path in tmp_path.glob("stage_*.pkl")} == before
+    monkeypatch.setattr(
+        case, "load_lens_data", lambda **kw: pytest.fail("conflict must precede stage reuse"),
+    )
+    conflict = "bilinear" if requested else "cubic_hermite"
+    with pytest.raises(ValueError, match="stage_a.pkl.*Start a fresh run"):
+        case.main(skip_done=True, source_interpolation=conflict)
+
+
+@pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_j0946_resumes_before_and_after_source_package(
+    examples_dir, monkeypatch, tmp_path, requested,
+):
+    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
+    from test_survey_shared_support import ControlledSampler
+
+    case = load_case(
+        examples_dir, "pipe/subhalo_0946/model.py", monkeypatch, tmp_path,
+    )
+    for name, value in dict(
+        Sampler=ControlledSampler, DPIX=0.35, NSUB=1, NSUB_PIX=1, NSRC=4,
+        N_GAUSSIANS_SRC=2, N_GAUSSIANS_LENS=2,
+        PIXEL_REGULARIZATION_TYPE="zero-order", SUBHALO_POSITION_MODE="gaussian_local",
+    ).items():
+        monkeypatch.setattr(case, name, value)
+    y, x = np.indices((10, 10))
+    image = 0.04 + 0.09 * np.exp(-((x - 8.6) ** 2 + (y - 5.2) ** 2) / 4)
+    noise, psf = np.full_like(image, 0.1), np.ones((1, 1))
+    mask = np.zeros_like(image, dtype=bool)
+    mask[4:6, 4:6] = True
+    monkeypatch.setattr(case, "load_lens_data", lambda **kw: (image, noise, psf, None))
+    monkeypatch.setattr(case, "_position_likelihood_from_stage_a", lambda *a: None)
+    monkeypatch.setattr(case, "run_stage_b", lambda *a, **kw: mask)
+    monkeypatch.setattr(case, "arc_mask_from", lambda *a, **kw: mask)
+    monkeypatch.setattr(case, "plot_model_results", lambda *a, **kw: None)
+    reports = {}
+
+    def observe_fit(tag, likelihood, medians, names, path):
+        result, diagnostics = likelihood.evaluate_with_diagnostics(
+            jnp.asarray([medians[name] for name in names])
+        )
+        assert diagnostics.valid
+        reports[tag] = (
+            likelihood.source_model.interpolation, result, diagnostics.regularization_scale,
+            diagnostics.adaptive_reg_rho,
+        )
+        Path(path).touch()
+
+    monkeypatch.setattr(case, "_plot_pix_stage", observe_fit)
+
+    class InterruptedAtM0(Exception):
+        pass
+
+    def stop_after_m0(*args, **kwargs):
+        raise InterruptedAtM0
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(case, "run_stage_m1", stop_after_m0)
+        with pytest.raises(InterruptedAtM0):
+            case.main(source_interpolation=requested)
+    mode = requested or "bilinear"
+    early = case._load_stage("m0")["extra"]
+    assert early["source_interpolation"] == mode
+    assert "s1" not in early
+    assert not (tmp_path / "stage_m1.pkl").exists()
+    assert reports["stage-M0"][0] == mode
+
+    stages = ("a", "m0", "m1", "m2", "m3", "m4", "m5")
+    case.main(skip_done=True)
+    assert {report[0] for report in reports.values()} == {mode}
+    assert set(reports) == {f"stage-M{n}" for n in range(6)}
+    source = case._load_stage("m1")["extra"]["s1"]
+    assert source["source_interpolation"] == mode
+    assert np.any(source["source_pixels"] != 0)
+    assert source["scale_map"].shape == (case.NSRC ** 2,)
+    for tag, (_, result, scale, rho) in reports.items():
+        np.testing.assert_allclose(result.source_bbox, source["source_bbox"])
+        if tag in ("stage-M2", "stage-M3", "stage-M4", "stage-M5"):
+            assert np.any(scale != 1.0)
+            expected = np.asarray(
+                source_template_scale_map(source["source_pixels"], case.NSRC, rho=rho)
+            )
+            np.testing.assert_allclose(scale, expected.reshape(scale.shape), rtol=2e-5)
+    first_reports = reports.copy()
+    for tag in stages:
+        path = tmp_path / f"stage_{tag}.pkl"
+        payload = pickle.loads(path.read_bytes())
+        assert payload["extra"]["source_interpolation"] == mode
+        if requested is None:
+            for metadata in (payload["extra"], payload["extra"].get("s1", {})):
+                metadata.pop("source_interpolation", None)
+                metadata.pop("source_boundary", None)
+            path.write_bytes(pickle.dumps(payload))
+    comparison = case._load_stage("m4")["extra"]["pipeline_schema"]
+    assert case._load_stage("m5")["extra"]["pipeline_schema"] == comparison
+
+    # Rebuild diagnostics from cached fits and the original S1 intensities.
+    reports.clear()
+    for tag in stages[1:]:
+        (tmp_path / f"stage_{tag}_model.png").unlink()
+    with monkeypatch.context() as restored:
+        restored.setattr(
+            case, "_run_sampler", lambda *a, **kw: pytest.fail("reused fit was sampled"),
+        )
+        case.main(skip_done=True)
+    assert reports.keys() == first_reports.keys()
+    for tag, (resumed_mode, result, scale, _) in reports.items():
+        assert resumed_mode == mode
+        np.testing.assert_allclose(
+            result.model_image, first_reports[tag][1].model_image, rtol=2e-5, atol=1e-7
+        )
+        np.testing.assert_allclose(scale, first_reports[tag][2], rtol=2e-5)
+
+    m5_output = tmp_path / "m5-only"
+    summary = case.run_m5_from_cache(tmp_path, m5_output)
+    assert summary["source_interpolation"] == mode
+    assert summary["reference_m4_schema_matches"] is True
+    assert np.isfinite(summary["delta_log_z_m5_m4"])
+    assert case._load_stage("m5")["extra"]["source_interpolation"] == mode
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        case.run_m5_from_cache(tmp_path, m5_output)
+
+
+@pytest.mark.parametrize("stage", ["m0", "m1", "m4", "m5"])
+def test_j0946_rejects_incompatible_comparison_caches_before_reuse(
+    examples_dir, monkeypatch, tmp_path, stage,
+):
+    case = load_case(
+        examples_dir, "pipe/subhalo_0946/model.py", monkeypatch, tmp_path,
+    )
+    extra = {"source_interpolation": "cubic_hermite"}
+    if stage == "m1":
+        # A legacy package cannot accompany a Hermite stage checkpoint.
+        extra["s1"] = {}
+    case._dump_stage(stage, None, None, [], -2.0, extra=extra)
+    monkeypatch.setattr(
+        case, "load_lens_data", lambda **kw: pytest.fail("conflict must precede data and evidence reuse"),
+    )
+    requested = None if stage == "m1" else "bilinear"
+    match = rf"stage_{stage}\.pkl.*Start a fresh run"
+    with pytest.raises(ValueError, match=match):
+        case.main(skip_done=True, source_interpolation=requested)
+    output = tmp_path / "m5-only"
+    with pytest.raises(ValueError, match=match):
+        case.run_m5_from_cache(tmp_path, output, source_interpolation=requested)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("family", ["pix_src_demo", "pix_src_demo_operator"])
+@pytest.mark.parametrize("case", ["pix_src_lens_light", "pix_src_lens_light_mge"])
+@pytest.mark.parametrize("mode", [None, "cubic_hermite"], ids=["default", "hermite"])
+def test_simple_joint_exports_source_model_choice(
+    examples_dir, monkeypatch, tmp_path, family, case, mode,
+):
+    import ast
+    import gzip
+    import os
+
+    from TinyLensGpu.Inference import ParamU
+    from TinyLensGpu.PhysicalModel import PixelizedSourceModel
+    from TinyLensGpu.example_support import source_interpolation_metadata
+
+    # Exercise the constructor and persisted posterior of the top-level
+    # script without running its full simulated lens analysis.
+    path = examples_dir / family / "simple" / case / "fit_joint.py"
+    nodes = ast.parse(path.read_text()).body
+    model = next(node for node in nodes if (
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "pix_src" for target in node.targets)
+    ))
+    export = next(node for node in nodes if (
+        isinstance(node, ast.With) and "fit_results.pkl.gz" in ast.unparse(node.items[0].context_expr)
+    ))
+    if mode is None:
+        monkeypatch.delenv("TINYLENS_SOURCE_INTERPOLATION", raising=False)
+    else:
+        monkeypatch.setenv("TINYLENS_SOURCE_INTERPOLATION", mode)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    namespace = dict(
+        os=os, jnp=jnp, gzip=gzip, pickle=pickle,
+        PixelizedSourceModel=PixelizedSourceModel, ParamU=ParamU,
+        source_interpolation_metadata=source_interpolation_metadata,
+        samples=np.zeros((1, 1)), weights=np.ones(1),
+        log_z=-1.0, param_names=["theta_E"],
+    )
+    code = ast.Module(body=[model, export], type_ignores=[])
+    exec(compile(code, str(path), "exec"), namespace)
+    assert namespace["pix_src"].interpolation == (mode or "bilinear")
+    with gzip.open(tmp_path / "output" / "fit_results.pkl.gz", "rb") as stream:
+        saved = pickle.load(stream)
+    assert saved["source_interpolation"] == (mode or "bilinear")
+    assert saved["source_boundary"] == (
+        "C1_cardinal_bicubic_fixed_zero_exterior_nodes" if mode else "hard_zero_outside_bbox"
+    )
+    assert saved["param_names"] == ["theta_E"]
 
 
 @pytest.mark.parametrize('relative,batch,schema', [
