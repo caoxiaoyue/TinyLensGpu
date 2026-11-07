@@ -6,6 +6,7 @@ import json
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 
 def _observation_problem():
@@ -89,8 +90,9 @@ def _configuration():
     return config
 
 
+@pytest.mark.parametrize("mode", [None, "cubic_hermite"])
 def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_history(
-    tmp_path,
+    tmp_path, mode,
 ):
     from examples.potential_correction.iterative_scientific import (
         run_iterative_scientific,
@@ -98,6 +100,9 @@ def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_h
     from examples.potential_correction.result_products import load_result
 
     config = _configuration()
+    if mode is not None:
+        config.update(source_interpolation=mode, partition_source="single_step")
+    expected_mode = mode or "bilinear"
     run = run_iterative_scientific(config, output=tmp_path)
     assert run.record["success"]
     assert set(run.results) == {
@@ -116,15 +121,21 @@ def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_h
             metadata["initialization_provenance"]["source_initialization"]
             == "supplied_truth_derived_source_node_intensities"
         )
+        policy = {
+            "bilinear": "current_analytic_bilinear_branch",
+            "cubic_hermite": "current_analytic_cubic_hermite",
+        }
         assert (
             metadata["initialization_provenance"]["gradient_policy"]
-            == "current_analytic_bilinear_branch"
+            == policy[expected_mode]
         )
         assert metadata["initialization_provenance"]["reset_each_fit"] is True
         assert metadata["history"][0]["reason"] == "initial"
         assert metadata["termination_reason"].startswith("converged_")
         assert (tmp_path / key / "history.png").is_file()
         restored = load_result(tmp_path / key)
+        assert restored.configuration["source_interpolation"] == expected_mode
+        assert restored.configuration == result.configuration
         assert restored.linear_model_image is restored.linear_residual is None
         np.testing.assert_array_equal(restored.source_values, result.source_values)
         np.testing.assert_array_equal(
@@ -136,7 +147,11 @@ def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_h
             assert "linear_model_image" not in saved.files
             assert "linear_residual" not in saved.files
             assert np.isnan(saved["convergence"][~saved["derivative_valid"]]).all()
-    assert run.record["block_partition"]["source"] == "initial_nodal"
+    partition = run.record["block_partition"]
+    assert partition["source"] == "initial_nodal"
+    assert partition["source_interpolation"] == expected_mode
+    if mode is not None:
+        assert "source_interpolation" in partition["reuse_rejected"]["mismatched_fields"]
 
 
 def test_iterative_scientific_nested_search_exports_only_converged_results(tmp_path):
@@ -179,6 +194,37 @@ def test_iterative_scientific_nested_search_exports_only_converged_results(tmp_p
         )
         assert not (tmp_path / key / "reconstruction.npz").exists()
         assert not (tmp_path / key / "history.png").exists()
+
+
+def test_iterative_scientific_accepts_explicit_fixed_partition_from_other_mode(tmp_path):
+    from examples.potential_correction.iterative_scientific import (
+        run_iterative_scientific,
+    )
+    from examples.potential_correction.single_step_scientific import run_scientific
+
+    config = _configuration()
+    config.update(make_plots=False, backends=["dense"])
+    reference = run_scientific(config, output=tmp_path / "single_step")
+    assert reference.record["success"]
+    blocks = reference.record["block_partition"]["indices"]
+    config.update(
+        source_interpolation="cubic_hermite",
+        cases=["control"],
+        backends=["operator"],
+        block_indices=blocks,
+    )
+    run = run_iterative_scientific(config, output=tmp_path / "iterative")
+    assert run.record["success"]
+    partition = run.record["block_partition"]
+    assert partition["origin"] == "explicit_fixed"
+    assert partition["indices"] == blocks
+    result = run.results["control/operator"]
+    assert result.configuration["source_interpolation"] == "cubic_hermite"
+    assert result.configuration["block_indices"] == tuple(map(tuple, blocks))
+
+    config.update(backends=["dense"], block_indices=blocks + blocks[:1])
+    with pytest.raises(ValueError, match="cover every joint coefficient exactly once"):
+        run_iterative_scientific(config, output=tmp_path / "invalid")
 
 
 def test_algorithm_comparison_keeps_single_step_linear_evidence_and_nonlinear_objective_distinct():
