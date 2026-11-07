@@ -16,8 +16,6 @@ import json
 
 import os
 
-import pickle
-
 import time
 
 from pathlib import Path
@@ -79,6 +77,17 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import (
     SIE,
 )
 
+from TinyLensGpu.example_support import (
+    StageStorageConfig,
+    load_stage,
+    resolve_source_interpolation,
+    resolve_stage_source_interpolation,
+    save_stage,
+    source_interpolation_metadata,
+    stage_from_payload as _stage_from_payload,
+    validate_source_package,
+)
+
 from TinyLensGpu.utils import generate_radial_basis_knots
 
 from TinyLensGpu.utils import load_lens_data
@@ -133,6 +142,45 @@ SEED = 946
 SAMPLER_BATCH_SIZE = 32
 
 
+SOURCE_INTERPOLATION = None
+_STAGE_TAGS = ("a", "m0", "m1", "m2", "m3")
+_SAMPLER_TAGS = ("a", "m1", "m2", "m3")
+
+
+def _resolve_run_source_interpolation(requested, *, resume):
+    if resume:
+        manifest = OUT_DIR / "manifest.json"
+        if manifest.exists():
+            requested = resolve_source_interpolation(
+                requested, metadata=json.loads(manifest.read_text())["settings"],
+                context=str(manifest),
+            )
+        for tag in _SAMPLER_TAGS:
+            path = OUT_DIR / f"sampler_{tag}.json"
+            if path.exists():
+                requested = resolve_source_interpolation(
+                    requested, metadata=json.loads(path.read_text()), context=str(path),
+                )
+            elif (OUT_DIR / f"sampler_{tag}.h5").exists():
+                raise RuntimeError(f"Sampler checkpoint has no matching settings: {path}")
+        handoff = OUT_DIR / "m3_handoff.json"
+        if handoff.exists():
+            requested = resolve_source_interpolation(
+                requested, metadata=json.loads(handoff.read_text()), context=str(handoff),
+            )
+    return resolve_stage_source_interpolation(
+        OUT_DIR, _STAGE_TAGS, requested=requested, resume=resume,
+    )
+
+
+def _settings_match(saved, current, path):
+    mode = resolve_source_interpolation(
+        current["source_interpolation"], metadata=saved, context=str(path),
+    )
+    # Compare old settings in memory without rewriting their original metadata.
+    return {**saved, **source_interpolation_metadata(mode)} == current
+
+
 def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
     """Persist both unfinished Nautilus state and sample likelihoods per stage."""
     prior, specs = make_prior_transformation(likelihood)
@@ -144,7 +192,11 @@ def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
     )
     stage_id = tag.lower().replace("stage-", "")
     checkpoint = OUT_DIR / f"sampler_{stage_id}.h5"
+    mode = getattr(getattr(likelihood, "source_model", None), "interpolation", None)
+    if mode is None:
+        mode = resolve_source_interpolation(SOURCE_INTERPOLATION)
     settings = dict(
+        **source_interpolation_metadata(mode),
         n_live=n_live,
         n_eff=n_eff,
         seed=SEED
@@ -160,9 +212,13 @@ def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
     )
     settings_path = OUT_DIR / f"sampler_{stage_id}.json"
     if settings_path.exists():
-        if not RESUME or json.loads(settings_path.read_text()) != settings:
+        if not RESUME or not _settings_match(
+            json.loads(settings_path.read_text()), settings, settings_path,
+        ):
             raise RuntimeError(f"Incompatible existing sampler: {settings_path}")
     else:
+        if checkpoint.exists():
+            raise RuntimeError(f"Sampler checkpoint has no matching settings: {settings_path}")
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     sampler = Sampler(
         prior,
@@ -205,53 +261,23 @@ def _run_sampler(likelihood, n_live, n_eff, tag, vectorized=True):
     )
 
 
-def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
-    OUT_DIR.mkdir(exist_ok=True)
-    extra = dict(extra or {})
-    if stage is not None:
-        stage_payload = stage.cache_payload()
-        payload = dict(
-            samples=stage_payload["samples"],
-            weights=stage_payload["weights"],
-            param_names=stage_payload["param_names"],
-            log_z=stage_payload["log_z"],
-            stage_schema={
-                key: stage_payload[key]
-                for key in ("param_names", "prior_specs")
-                if key in stage_payload
-            },
-            extra=extra or {},
-        )
-    else:
-        payload = dict(
-            samples=samples,
-            weights=weights,
-            param_names=param_names,
-            log_z=log_z,
-            stage_schema={"param_names": list(param_names)},
-            extra=extra or {},
-        )
-    with open(OUT_DIR / f"stage_{tag}.pkl", "wb") as f:
-        pickle.dump(payload, f)
-    print(f"[{tag}] posterior saved to {OUT_DIR}/stage_{tag}.pkl")
+def _dump_stage(
+    tag, samples, weights, param_names, log_z, extra=None, stage=None, *,
+    source_interpolation=None,
+):
+    mode = resolve_source_interpolation(
+        SOURCE_INTERPOLATION if source_interpolation is None else source_interpolation
+    )
+    save_stage(
+        StageStorageConfig(OUT_DIR, include_schema=True, source_interpolation=mode),
+        tag, samples, weights, param_names, log_z, extra=extra, stage=stage,
+    )
 
 
-def _load_stage(tag: str):
-    with open(OUT_DIR / f"stage_{tag}.pkl", "rb") as f:
-        return pickle.load(f)
-
-
-def _stage_from_payload(payload):
-    """Rehydrate a stage posterior from a cached stage payload."""
-    schema = payload.get("stage_schema", {})
-    prior_specs = payload.get("prior_specs") or schema.get("prior_specs")
-    param_names = payload.get("param_names") or schema.get("param_names")
-    return StagePosterior.from_schema(
-        payload["samples"],
-        payload["weights"],
-        prior_specs=prior_specs,
-        param_names=None if prior_specs is not None else param_names,
-        log_z=payload.get("log_z"),
+def _load_stage(tag):
+    return load_stage(
+        StageStorageConfig(OUT_DIR, include_schema=True, source_interpolation=SOURCE_INTERPOLATION),
+        tag,
     )
 
 
@@ -289,11 +315,6 @@ def _stage_a_source_bbox(stage_a: StagePosterior):
     return (cx - half_width, cx + half_width, cy - half_width, cy + half_width)
 
 
-def _is_square_bbox(source_bbox, *, rtol=1.0e-6, atol=1.0e-7):
-    xmin, xmax, ymin, ymax = [float(v) for v in source_bbox]
-    return np.isclose(xmax - xmin, ymax - ymin, rtol=rtol, atol=atol)
-
-
 def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):
     """Build the fixed adaptive scale map from the stage-M0 source template."""
     return source_template_scale_map(
@@ -304,69 +325,10 @@ def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):
 
 
 def _validate_source_package(source_package):
-    legacy_keys = [k for k in ("nx", "ny") if k in source_package]
-    if legacy_keys:
-        raise KeyError(
-            "Source package uses legacy source-grid keys "
-            f"{', '.join(legacy_keys)}; regenerate S0 with the single-n "
-            "source-grid schema."
-        )
-
-    required = (
-        "source_pixels",
-        "source_bbox",
-        "source_x_axis",
-        "source_y_axis",
-        "n",
-        "lambda_best",
-        "log_lambda_best",
+    return validate_source_package(
+        source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO,
+        source_interpolation=SOURCE_INTERPOLATION,
     )
-    missing = [k for k in required if k not in source_package]
-    if missing:
-        raise KeyError("Source package missing required keys: " + ", ".join(missing))
-
-    n = int(source_package["n"])
-    if n != NSRC:
-        raise ValueError(
-            f"Source grid dimension n={n} does not match configured n={NSRC}."
-        )
-    source_pixels = np.asarray(source_package["source_pixels"])
-    if source_pixels.shape != (n * n,):
-        raise ValueError(
-            f"Source source_pixels must have shape ({n * n},), "
-            f"got {source_pixels.shape}."
-        )
-    for axis_name in ("source_x_axis", "source_y_axis"):
-        axis = np.asarray(source_package[axis_name])
-        if axis.shape != (n,):
-            raise ValueError(
-                f"S0 {axis_name} must have shape ({n},), got {axis.shape}."
-            )
-    bbox = tuple(float(v) for v in source_package["source_bbox"])
-    if len(bbox) != 4 or not np.all(np.isfinite(bbox)):
-        raise ValueError("Source source_bbox must contain four finite values.")
-    if not (bbox[0] < bbox[1] and bbox[2] < bbox[3]):
-        raise ValueError("Source source_bbox must satisfy xmin < xmax and ymin < ymax.")
-    if not _is_square_bbox(bbox):
-        raise ValueError(
-            "Source source_bbox is rectangular; regenerate S0 with a square "
-            "pixelized source bbox."
-        )
-
-    scale_map = source_package.get("scale_map")
-    if scale_map is None:
-        scale_map = np.asarray(_make_source_scale(source_package), dtype=np.float32)
-        source_package["scale_map"] = scale_map
-    else:
-        scale_map = np.asarray(scale_map, dtype=np.float32)
-        if scale_map.shape != (n * n,):
-            raise ValueError(
-                f"Source scale_map must have shape ({n * n},), got {scale_map.shape}."
-            )
-        if not np.all(np.isfinite(scale_map) & (scale_map > 0.0)):
-            raise ValueError("Source scale_map values must be finite and positive.")
-        source_package["scale_map"] = scale_map
-    return source_package
 
 
 def _fixed_source_kwargs(source_package):
@@ -444,6 +406,7 @@ def _solve_pixel_source_for_package(likelihood, medians, param_names):
         source_x_axis=x_axis,
         source_y_axis=y_axis,
         n=NSRC,
+        **source_interpolation_metadata(likelihood.source_model.interpolation),
     )
 
 
@@ -1040,6 +1003,7 @@ def build_stage_m0_likelihood(
         n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type=PIXEL_REGULARIZATION_TYPE,
+        interpolation=resolve_source_interpolation(SOURCE_INTERPOLATION),
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -1208,6 +1172,7 @@ def build_stage_m1_likelihood(
         n=NSRC,
         log_lambda_reg=log_lam,
         regularization_type=PIXEL_REGULARIZATION_TYPE,
+        interpolation=resolve_source_interpolation(SOURCE_INTERPOLATION),
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -1534,6 +1499,9 @@ def build_stage_m2_likelihood(
         log_lambda_reg=log_lam,
         regularization_type=PIXEL_REGULARIZATION_TYPE,
         adaptive_reg_rho=rho,
+        interpolation=resolve_source_interpolation(
+            SOURCE_INTERPOLATION, metadata=s1_package, context="M1 source template",
+        ),
     )
     phys = PhysicalModel(
         lens_mass=[sie, shear],
@@ -1616,7 +1584,10 @@ def run_stage_m2(
         reg_hyperparams=reg_hyperparams_m2,
         time_taken=t1 - t0,
     )
-    _dump_stage("m2", samples, weights, names, logz, extra=extra, stage=stage)
+    _dump_stage(
+        "m2", samples, weights, names, logz, extra=extra, stage=stage,
+        source_interpolation=likelihood.source_model.interpolation,
+    )
     try:
         _plot_pix_stage(
             "stage-M2", likelihood, medians, names, str(OUT_DIR / "stage_m2_model.png")
@@ -1649,6 +1620,9 @@ def build_stage_m3_likelihood(
         log_lambda_reg=log_lam,
         regularization_type=PIXEL_REGULARIZATION_TYPE,
         adaptive_reg_rho=rho,
+        interpolation=resolve_source_interpolation(
+            SOURCE_INTERPOLATION, metadata=s1_package, context="M1 source template",
+        ),
     )
     phys = PhysicalModel(
         lens_mass=[epl, shear],
@@ -1735,6 +1709,7 @@ def run_stage_m3(
             time_taken=t1 - t0,
         ),
         stage=stage,
+        source_interpolation=likelihood.source_model.interpolation,
     )
     try:
         _plot_pix_stage(
@@ -1745,16 +1720,18 @@ def run_stage_m3(
     return stage, medians
 
 
-def main(skip_done: bool = False, out_dir: str | None = None):
-    global OUT_DIR
+def main(skip_done: bool = False, out_dir: str | None = None, *, source_interpolation=None):
+    global OUT_DIR, RESUME, SOURCE_INTERPOLATION
     if out_dir is not None:
-        requested_out_dir = Path(out_dir).expanduser()
-        OUT_DIR = (
-            requested_out_dir
-            if requested_out_dir.is_absolute()
-            else SCRIPT_DIR / requested_out_dir
-        )
+        OUT_DIR = SCRIPT_DIR / Path(out_dir).expanduser()
+    RESUME = skip_done
+    SOURCE_INTERPOLATION = _resolve_run_source_interpolation(
+        source_interpolation, resume=RESUME,
+    )
+    _run_macro(skip_done)
 
+
+def _run_macro(skip_done):
     image_data, noise_map, psf_kernel, _ = load_lens_data(
         image_path=str(DATA_DIR / "image.fits"),
         noise_path=str(DATA_DIR / "noise.fits"),
@@ -2109,8 +2086,10 @@ def export_m3_bundle(
         source_template=cast(s1_package["source_pixels"]),
         macro_model_image=cast(result.model_image),
     )
+    mode = likelihood.source_model.interpolation
     record = dict(
         complete=True,
+        **source_interpolation_metadata(mode),
         representative="maximum_likelihood_retained_M3_sample",
         selected_sample_index=best_index,
         best_sample_log_likelihood=best_loglike,
@@ -2124,7 +2103,7 @@ def export_m3_bundle(
         log_lambda_source=reg_hyperparams["log_lambda_reg"],
         lambda_source=float(np.exp(reg_hyperparams["log_lambda_reg"])),
         source_template_provenance="new_stage_M1_median_reconstruction",
-        gradient_provenance="bilinear_derivative_of_new_M3_reconstruction",
+        gradient_provenance=f"{mode}_derivative_of_new_M3_reconstruction",
         macro_backend="operator",
         dtype="float32",
         n_data=int((~mask).sum()),
@@ -2143,12 +2122,17 @@ def cli():
     import shutil
     from datetime import datetime, timezone
 
-    global RESUME, SEED, SAMPLER_BATCH_SIZE
+    global OUT_DIR, RESUME, SEED, SAMPLER_BATCH_SIZE, SOURCE_INTERPOLATION
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--seed", type=int, default=946)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--out-dir", type=Path, help="Macro output directory")
+    parser.add_argument(
+        "--source-interpolation", choices=("bilinear", "cubic_hermite"),
+        help="Source interpolation for a fresh fit, or a check on the saved mode",
+    )
     parser.add_argument(
         "--input-dir",
         type=Path,
@@ -2159,6 +2143,11 @@ def cli():
     RESUME, SEED, SAMPLER_BATCH_SIZE = args.resume, args.seed, args.batch_size
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
+    if args.out_dir is not None:
+        OUT_DIR = SCRIPT_DIR / args.out_dir.expanduser()
+    SOURCE_INTERPOLATION = _resolve_run_source_interpolation(
+        args.source_interpolation, resume=RESUME,
+    )
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     input_directory = args.input_dir or Path(
@@ -2178,6 +2167,7 @@ def cli():
             shutil.copy2(original, destination)
         inputs[name] = hashlib.sha256(destination.read_bytes()).hexdigest()
     settings = dict(
+        **source_interpolation_metadata(SOURCE_INTERPOLATION),
         seed=SEED,
         batch_size=SAMPLER_BATCH_SIZE,
         source_n=NSRC,
@@ -2193,7 +2183,9 @@ def cli():
     )
     manifest_path = OUT_DIR / "manifest.json"
     if manifest_path.exists():
-        if not RESUME or json.loads(manifest_path.read_text())["settings"] != settings:
+        if not RESUME or not _settings_match(
+            json.loads(manifest_path.read_text())["settings"], settings, manifest_path,
+        ):
             raise RuntimeError(
                 "Existing macro run: use --resume with the same settings"
             )
@@ -2230,7 +2222,7 @@ def cli():
         f"[runtime] package={__import__('TinyLensGpu').__file__}; devices={jax.devices()}",
         flush=True,
     )
-    main(skip_done=RESUME)
+    _run_macro(skip_done=RESUME)
 
 
 if __name__ == "__main__":
