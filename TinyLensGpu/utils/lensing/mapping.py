@@ -115,13 +115,19 @@ def lens_mapping_operator_bilinear_from(
     return weights, indices, valid
 
 
-def _hermite_axis(coordinates, lower, upper, n):
-    """Choose the four centered-difference stencil nodes in one dimension."""
+def _hermite_axis_support(coordinates, lower, upper, n):
+    """Return the spacing, closed support, and strict interior along one axis."""
     step = (upper - lower) / (n - 1)
     support_lower, support_upper = lower - 2 * step, upper + 2 * step
     support = (coordinates >= support_lower) & (coordinates <= support_upper)
     # At the final edges both brightness and its gradient are exactly zero.
     interior = (coordinates > support_lower) & (coordinates < support_upper)
+    return step, support, interior
+
+
+def _hermite_axis(coordinates, lower, upper, n):
+    """Choose the four centered-difference stencil nodes in one dimension."""
+    step, support, interior = _hermite_axis_support(coordinates, lower, upper, n)
     u = (jnp.where(interior, coordinates, lower) - lower) / step
     cell = jnp.floor(u).astype(jnp.int32)
     indices = cell[:, None] + jnp.arange(-1, 3, dtype=jnp.int32)

@@ -233,7 +233,11 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
             **dict(initialization_provenance or {}),
             "source_initialization": "supplied_truth_derived_source_node_intensities",
             "potential_initialization": "zero",
-            "gradient_policy": "current_analytic_bilinear_branch",
+            "gradient_policy": (
+                "current_analytic_cubic_hermite"
+                if renderer.source_interpolation == "cubic_hermite"
+                else "current_analytic_bilinear_branch"
+            ),
             "reset_each_fit": True,
         }
         self._evaluate_kernel = jax.jit(self._evaluate)

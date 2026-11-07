@@ -7,7 +7,13 @@ import pytest
 
 
 def _renderer(
-    *, dtype="float64", npix=4, source_n=3, bbox=(-0.5, 0.7, -0.5, 0.7), nsub=1
+    *,
+    dtype="float64",
+    npix=4,
+    source_n=3,
+    bbox=(-0.5, 0.7, -0.5, 0.7),
+    nsub=1,
+    source_interpolation="bilinear",
 ):
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
@@ -20,7 +26,10 @@ def _renderer(
         macro = PhysicalModel(
             lens_mass=[Shear(gamma1=0.0, gamma2=0.0)], source_light=[], lens_light=[]
         )
-        return PotentialCorrectionRenderer(macro, config, source_n, bbox, dtype=dtype)
+        return PotentialCorrectionRenderer(
+            macro, config, source_n, bbox, dtype=dtype,
+            source_interpolation=source_interpolation,
+        )
 
 
 def test_nonaffine_source_gradient_differentiates_current_bilinear_branch():
@@ -161,10 +170,17 @@ def _independent_problem(renderer, data, noise, ls, lp, la):
     return forward, residual, prior
 
 
-def _coupled_problem(*, dtype="float64", solve_rtol=None):
+def _coupled_problem(
+    *, dtype="float64", solve_rtol=None, source_interpolation="bilinear"
+):
     from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 
-    renderer = _renderer(dtype=dtype, source_n=2, bbox=(-0.5, 0.5, -0.5, 0.5))
+    renderer = _renderer(
+        dtype=dtype,
+        source_n=2,
+        bbox=(-0.5, 0.5, -0.5, 0.5),
+        source_interpolation=source_interpolation,
+    )
     source = np.array([0.4, 1.1, 0.2, 1.4])
     with jax.experimental.enable_x64(dtype == "float64"):
         grid = renderer.potential_grid
@@ -240,10 +256,17 @@ def test_dense_iteration_matches_independent_nonlinear_objective_and_local_evide
     assert all(item["objective_after"] < item["objective_before"] for item in accepted)
 
 
-def test_current_coupled_jacobian_refreshes_source_and_shifted_cells_inside_jit():
+@pytest.mark.parametrize(
+    "interpolation, x_shift", [("bilinear", 0.073), ("cubic_hermite", 0.453)]
+)
+def test_current_coupled_jacobian_refreshes_source_and_shifted_cells_inside_jit(
+    interpolation, x_shift
+):
     from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 
-    renderer = _renderer(bbox=(-0.2, 0.2, -0.2, 0.2), nsub=3)
+    renderer = _renderer(
+        bbox=(-0.2, 0.2, -0.2, 0.2), nsub=3, source_interpolation=interpolation
+    )
     source = np.array([0.0, 2.0, 5.0, -1.0, 4.0, 3.0, 7.0, -2.0, 6.0])
     problem = IterativePotentialCorrection(
         renderer, np.zeros((4, 4)), np.ones((4, 4)), source, lambda_amplitude=1.0
@@ -254,7 +277,7 @@ def test_current_coupled_jacobian_refreshes_source_and_shifted_cells_inside_jit(
             jnp.array([0.2, 1.4, 0.7, -0.5, 0.4, 2.0, 0.1, -0.1, 1.1])
         )
         changed = changed.at[9:].set(
-            0.073 * renderer.potential_grid.x + 0.021 * renderer.potential_grid.y
+            x_shift * renderer.potential_grid.x + 0.021 * renderer.potential_grid.y
         )
         initial_linearization = problem.linearize(first)
         current_linearization = problem.linearize(changed)
@@ -268,6 +291,8 @@ def test_current_coupled_jacobian_refreshes_source_and_shifted_cells_inside_jit(
             - problem.forward(changed - h * direction)
         ) / (2 * h)
         np.testing.assert_allclose(current_action, difference, atol=2e-9, rtol=2e-7)
+        _, tangent = jax.jvp(problem.forward, (changed,), (direction,))
+        np.testing.assert_allclose(current_action, tangent, atol=2e-13, rtol=2e-13)
         image = jnp.cos(jnp.arange(renderer.n_active))
         transpose = jax.jit(problem.jacobian_adjoint)(image, current_linearization)
         np.testing.assert_allclose(

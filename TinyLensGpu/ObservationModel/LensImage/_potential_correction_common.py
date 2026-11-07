@@ -173,6 +173,9 @@ class _PotentialCorrectionProblem:
     def _configuration(self):
         return {
             "source_n": self.renderer.source_n,
+            "source_interpolation": self.renderer.source_interpolation,
+            "source_boundary": self.renderer.source_boundary,
+            "gradient_policy": self.initialization_provenance["gradient_policy"],
             "source_regularization": self.source_regularizer.regularization_type,
             "source_adaptive_scale_fixed": self.source_scale is not None,
             "potential_spacing": self.renderer.potential_grid.spacing,
