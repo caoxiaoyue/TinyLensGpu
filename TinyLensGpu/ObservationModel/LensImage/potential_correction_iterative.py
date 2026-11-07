@@ -18,6 +18,8 @@ from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import SourceM
 from ._potential_correction_common import (
     _PotentialCorrectionProblem,
     _dense_response_columns,
+    _integer,
+    _nonnegative,
     _positive,
 )
 from .potential_correction_result import PotentialCorrectionResult, PotentialSolverInfo
@@ -161,26 +163,6 @@ class _DenseIterationBackend:
 
     def logdets(self, system):
         return _logdet_spd(system.curvature)
-
-
-def _integer(value, name, *, minimum=1):
-    try:
-        integer = int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{name} must be an integer >= {minimum}") from exc
-    if isinstance(value, bool) or integer != value or integer < minimum:
-        raise ValueError(f"{name} must be an integer >= {minimum}")
-    return integer
-
-
-def _nonnegative(value, name):
-    try:
-        scalar = float(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{name} must be finite and nonnegative") from exc
-    if not np.isfinite(scalar) or scalar < 0:
-        raise ValueError(f"{name} must be finite and nonnegative")
-    return scalar
 
 
 class IterativePotentialCorrection(_PotentialCorrectionProblem):
