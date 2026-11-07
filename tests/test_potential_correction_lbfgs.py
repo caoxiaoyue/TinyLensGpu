@@ -153,9 +153,31 @@ def test_dense_fixed_strengths_qualify_against_complete_gn_reference(coupled_cas
     assert info.gn_stationarity <= info.gn_stationarity_tol == 1e-3
 
 
-def test_dense_whitening_can_use_a_distinct_bilinear_reference(coupled_case):
+def _first_white_step(base, inverse_root, forward, data_weighted, prior):
     from scipy.optimize import minimize
 
+    def independent_white_objective(white):
+        values = base + inverse_root @ white
+        residual = forward(values) - data_weighted
+        prior_values = prior @ values
+        physical_gradient = _jacobian(forward, values).T @ residual + prior_values
+        return (
+            0.5 * (residual @ residual + values @ prior_values),
+            inverse_root.T @ physical_gradient,
+        )
+
+    # At one iteration the optimizer trajectory checks the whitening geometry,
+    # without requiring the library's particular square root orientation.
+    return minimize(
+        independent_white_objective,
+        np.zeros_like(base),
+        method="L-BFGS-B",
+        jac=True,
+        options={"maxiter": 1, "maxls": 80, "ftol": 1e-15, "gtol": 1e-8},
+    )
+
+
+def test_dense_whitening_can_use_a_distinct_bilinear_reference(coupled_case):
     from TinyLensGpu.ObservationModel import (
         LBFGSPotentialCorrection,
         PotentialCorrectionStrengths,
@@ -191,25 +213,7 @@ def test_dense_whitening_can_use_a_distinct_bilinear_reference(coupled_case):
     forward = _weighted_render(renderer, noise)
     data_weighted = data.ravel() / noise.ravel()
 
-    def independent_white_objective(white):
-        values = base + inverse_root @ white
-        residual = forward(values) - data_weighted
-        prior_values = prior @ values
-        physical_gradient = _jacobian(forward, values).T @ residual + prior_values
-        return (
-            0.5 * (residual @ residual + values @ prior_values),
-            inverse_root.T @ physical_gradient,
-        )
-
-    # At one iteration the optimizer trajectory checks the whitening geometry,
-    # without requiring the library's particular square root orientation.
-    expected = minimize(
-        independent_white_objective,
-        np.zeros_like(base),
-        method="L-BFGS-B",
-        jac=True,
-        options={"maxiter": 1, "maxls": 80, "ftol": 1e-15, "gtol": 1e-8},
-    )
+    expected = _first_white_step(base, inverse_root, forward, data_weighted, prior)
     result = fit.fit(strengths, max_iter=1)
     np.testing.assert_allclose(
         _joint(result), base + inverse_root @ expected.x, atol=1e-8
@@ -217,7 +221,7 @@ def test_dense_whitening_can_use_a_distinct_bilinear_reference(coupled_case):
     np.testing.assert_allclose(result.objective, expected.fun, atol=1e-8)
     np.testing.assert_allclose(
         result.optimizer_info.initial_objective,
-        independent_white_objective(np.zeros_like(base))[0],
+        0.5 * (np.sum((forward(base) - data_weighted) ** 2) + base @ prior @ base),
     )
     assert (
         result.initialization_provenance["whitening_source_interpolation"] == "bilinear"
@@ -231,7 +235,10 @@ def test_dense_whitening_can_use_a_distinct_bilinear_reference(coupled_case):
     assert np.isfinite(result.optimizer_info.gn_stationarity)
 
 
-def test_dense_candidates_restart_and_use_the_supplied_amplitude_strength(coupled_case):
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_candidates_restart_and_use_the_supplied_amplitude_strength(
+    coupled_case, backend
+):
     from TinyLensGpu.ObservationModel import (
         LBFGSPotentialCorrection,
         PotentialCorrectionStrengths,
@@ -248,15 +255,34 @@ def test_dense_candidates_restart_and_use_the_supplied_amplitude_strength(couple
         source_regularization="zero-order",
         source_scale=scale,
     )
-    results = [fit.fit(strengths) for strengths in (first, second, first)]
+    results = [
+        fit.fit(strengths, backend=backend) for strengths in (first, second, first)
+    ]
     for result, strengths in zip(results, (first, second, first)):
         assert result.success, result.failure_reason
         assert result.strengths == strengths
         values = _joint(result)
         prior = _prior(renderer, scale, strengths)
         jacobian = _jacobian(_weighted_render(renderer, noise), values)
-        prior_logdet = np.linalg.slogdet(prior)[1]
-        posterior_logdet = np.linalg.slogdet(jacobian.T @ jacobian + prior)[1]
+        curvature = jacobian.T @ jacobian + prior
+        if backend == "operator":
+            assert (
+                result.configuration["block_layout"] == "field_separated_contiguous_v1"
+            )
+            assert result.configuration["block_size"] == 64
+            blocks = result.configuration["block_indices"]
+            assert [index for block in blocks for index in block] == list(
+                range(values.size)
+            )
+            assert all(
+                block[-1] < renderer.n_source or block[0] >= renderer.n_source
+                for block in blocks
+            )
+            prior_logdet = _principal_logdet(prior, blocks)
+            posterior_logdet = _principal_logdet(curvature, blocks)
+        else:
+            prior_logdet = np.linalg.slogdet(prior)[1]
+            posterior_logdet = np.linalg.slogdet(curvature)[1]
         np.testing.assert_allclose(
             result.regularization_penalty, values @ prior @ values
         )
@@ -345,3 +371,260 @@ def test_dense_invalid_configuration_raises(coupled_case):
         fit.fit(PotentialCorrectionStrengths(1, 1, np.inf))
     with pytest.raises(ValueError, match="max_iter"):
         fit.fit(PotentialCorrectionStrengths(1, 1, 1), max_iter=0)
+
+
+def _principal_logdet(matrix, blocks):
+    return sum(np.linalg.slogdet(matrix[np.ix_(block, block)])[1] for block in blocks)
+
+
+def _mixed_partition(n_source, n_joint, width):
+    source = list(range(n_source))
+    potential = list(range(n_source, n_joint))
+    mixed = [index for pair in zip(source, potential) for index in pair]
+    mixed.extend(potential[n_source:])
+    return tuple(tuple(mixed[i : i + width]) for i in range(0, n_joint, width))
+
+
+def test_operator_fixed_strengths_qualify_against_principal_block_reference(
+    coupled_case,
+):
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+    )
+
+    renderer, data, noise, initial_source, scale = coupled_case
+    strengths = PotentialCorrectionStrengths(0.13, 0.5, 120.0)
+    n_joint = renderer.n_source + renderer.potential_grid.n_unknown
+    blocks = _mixed_partition(renderer.n_source, n_joint, 5)
+    fit = LBFGSPotentialCorrection(
+        renderer,
+        data,
+        noise,
+        initial_source,
+        source_regularization="zero-order",
+        source_scale=scale,
+    )
+    result = fit.fit(
+        strengths,
+        backend="operator",
+        block_size=5,
+        block_indices=blocks,
+    )
+
+    assert result.success, result.failure_reason
+    assert result.solver_info is None
+    assert result.backend == "operator"
+    assert result.evidence_method == "local_gauss_newton"
+    assert result.determinant_method == "principal_block_cholesky"
+    assert not result.evidence_is_exact
+    assert result.configuration["block_indices"] == blocks
+    assert result.configuration["block_layout"] == "explicit_joint_partition_v1"
+    assert result.configuration["pcg_max_iter"] == 400
+
+    values = _joint(result)
+    forward = _weighted_render(renderer, noise)
+    prior = _prior(renderer, scale, strengths)
+    jacobian = _jacobian(forward, values)
+    residual = forward(values) - data.ravel() / noise.ravel()
+    gradient = jacobian.T @ residual + prior @ values
+    curvature = jacobian.T @ jacobian + prior
+    prior_logdet = _principal_logdet(prior, blocks)
+    posterior_logdet = _principal_logdet(curvature, blocks)
+
+    objective = 0.5 * (residual @ residual + values @ prior @ values)
+    np.testing.assert_allclose(result.objective, objective)
+    np.testing.assert_allclose(result.prior_logdet, prior_logdet)
+    np.testing.assert_allclose(result.posterior_logdet, posterior_logdet, atol=1e-7)
+    np.testing.assert_allclose(
+        result.log_evidence,
+        -objective
+        - 0.5
+        * (
+            posterior_logdet
+            - prior_logdet
+            + 2 * np.log(noise).sum()
+            + noise.size * np.log(2 * np.pi)
+        ),
+        atol=1e-7,
+    )
+    np.testing.assert_allclose(
+        result.optimizer_info.gn_stationarity,
+        0.5 * gradient @ np.linalg.solve(curvature, gradient),
+        atol=1e-12,
+    )
+    certificate = result.optimizer_info.diagnostics["stationarity_solver"]
+    assert certificate["method"] == "pcg"
+    assert certificate["converged"]
+    assert certificate["true_residual_norm"] <= certificate["true_residual_threshold"]
+
+
+def test_operator_whitening_and_coupled_stationarity_at_nonstationary_endpoint(
+    coupled_case,
+):
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+        PotentialCorrectionWhiteningReference,
+    )
+
+    renderer, data, noise, initial_source, scale = coupled_case
+    strengths = PotentialCorrectionStrengths(0.13, 0.5, 120.0)
+    reference_source = 0.3 - 1.7 * initial_source
+    base = np.r_[initial_source, np.zeros(renderer.potential_grid.n_unknown)]
+    blocks = _mixed_partition(renderer.n_source, base.size, 5)
+    fit = LBFGSPotentialCorrection(
+        renderer,
+        data,
+        noise,
+        initial_source,
+        source_regularization="zero-order",
+        source_scale=scale,
+        whitening_reference=PotentialCorrectionWhiteningReference(
+            reference_source, "bilinear"
+        ),
+    )
+    result = fit.fit(
+        strengths,
+        backend="operator",
+        block_size=5,
+        block_indices=blocks,
+        max_iter=1,
+    )
+
+    prior = _prior(renderer, scale, strengths)
+    reference = np.r_[reference_source, base[renderer.n_source :]]
+    jacobian = _jacobian(_weighted_render(_renderer("bilinear"), noise), reference)
+    reference_curvature = jacobian.T @ jacobian + prior
+    inverse_root = np.zeros_like(reference_curvature)
+    for block in blocks:
+        panel = np.ix_(block, block)
+        inverse_root[panel] = np.linalg.solve(
+            np.linalg.cholesky(reference_curvature[panel]).T,
+            np.eye(len(block)),
+        )
+    forward = _weighted_render(renderer, noise)
+    data_weighted = data.ravel() / noise.ravel()
+    expected = _first_white_step(base, inverse_root, forward, data_weighted, prior)
+    values = _joint(result)
+    np.testing.assert_allclose(values, base + inverse_root @ expected.x, atol=1e-8)
+    np.testing.assert_allclose(result.objective, expected.fun, atol=1e-8)
+
+    jacobian = _jacobian(forward, values)
+    gradient = jacobian.T @ (forward(values) - data_weighted) + prior @ values
+    curvature = jacobian.T @ jacobian + prior
+    stationarity = 0.5 * gradient @ np.linalg.solve(curvature, gradient)
+    block_only = sum(
+        0.5
+        * gradient[list(block)]
+        @ np.linalg.solve(curvature[np.ix_(block, block)], gradient[list(block)])
+        for block in blocks
+    )
+    assert abs(stationarity - block_only) > 1e-3
+    np.testing.assert_allclose(
+        result.optimizer_info.gn_stationarity, stationarity, atol=1e-8
+    )
+    certificate = result.optimizer_info.diagnostics["stationarity_solver"]
+    assert certificate["converged"]
+    np.testing.assert_allclose(
+        certificate["rhs_norm"], np.linalg.norm(gradient), rtol=1e-7
+    )
+    assert certificate["true_residual_norm"] <= certificate["true_residual_threshold"]
+    assert not result.success and result.log_evidence is None
+    assert result.failure_reason == "native_optimizer_did_not_succeed"
+
+    # The first PCG direction and true residual have a direct matrix reference.
+    limited = fit.fit(
+        strengths,
+        backend="operator",
+        block_size=5,
+        block_indices=blocks,
+        max_iter=1,
+        pcg_max_iter=1,
+    )
+    np.testing.assert_allclose(_joint(limited), values, atol=1e-10, rtol=0)
+    direction = np.empty_like(gradient)
+    for block in blocks:
+        direction[list(block)] = np.linalg.solve(
+            curvature[np.ix_(block, block)], gradient[list(block)]
+        )
+    first_step = (
+        (gradient @ direction) / (direction @ curvature @ direction) * direction
+    )
+    limited_certificate = limited.optimizer_info.diagnostics["stationarity_solver"]
+    assert not limited_certificate["converged"]
+    assert limited_certificate["iterations"] == 1
+    np.testing.assert_allclose(
+        limited_certificate["true_residual_norm"],
+        np.linalg.norm(gradient - curvature @ first_step),
+        atol=1e-8,
+    )
+    np.testing.assert_allclose(
+        limited.optimizer_info.gn_stationarity,
+        0.5 * gradient @ first_step,
+        atol=1e-8,
+    )
+
+
+@pytest.mark.parametrize(
+    "pcg_controls, reason",
+    [
+        ({"pcg_max_iter": 1}, "pcg_iteration_limit"),
+        ({"pcg_rtol": 1e-6}, "linear_residual_exceeds_tolerance"),
+    ],
+)
+def test_operator_rejects_uncertified_coupled_solves(
+    coupled_case, pcg_controls, reason
+):
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+    )
+
+    renderer, data, noise, initial_source, scale = coupled_case
+    strengths = PotentialCorrectionStrengths(0.13, 0.5, 120.0)
+    fit = LBFGSPotentialCorrection(
+        renderer,
+        data,
+        noise,
+        initial_source,
+        source_regularization="zero-order",
+        source_scale=scale,
+        solve_rtol=1e-16,
+    )
+    result = fit.fit(strengths, backend="operator", **pcg_controls)
+    assert result.optimizer_info.native_success
+    assert not result.success and result.log_evidence is None
+    assert result.failure_reason == reason
+    assert result.solver_info is None
+    certificate = result.optimizer_info.diagnostics["stationarity_solver"]
+    assert certificate["failed"] and certificate["reason"] == reason
+    assert certificate["recursive_converged"] == ("pcg_rtol" in pcg_controls)
+    assert certificate["true_residual_norm"] > certificate["true_residual_threshold"]
+    np.testing.assert_allclose(
+        certificate["true_residual_threshold"],
+        1e-16 * certificate["rhs_norm"],
+    )
+    assert np.isfinite(result.objective) and np.isfinite(_joint(result)).all()
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"block_size": 0}, "block_size"),
+        ({"block_indices": ((0, 1),)}, "exactly once"),
+        ({"pcg_max_iter": 0}, "pcg_max_iter"),
+        ({"pcg_rtol": -1}, "pcg_rtol"),
+        ({"pcg_atol": np.nan}, "pcg_atol"),
+    ],
+)
+def test_operator_invalid_controls_raise(coupled_case, options, message):
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+    )
+
+    renderer, data, noise, initial_source, _ = coupled_case
+    fit = LBFGSPotentialCorrection(renderer, data, noise, initial_source)
+    with pytest.raises(ValueError, match=message):
+        fit.fit(PotentialCorrectionStrengths(1, 1, 1), backend="operator", **options)

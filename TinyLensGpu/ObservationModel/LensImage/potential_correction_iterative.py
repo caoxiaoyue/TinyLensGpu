@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import numpy as np
 
-from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import SourceMapping
 from ._potential_correction_common import (
+    PotentialLinearization,
     _PotentialCorrectionProblem,
     _dense_response_columns,
     _integer,
@@ -23,14 +23,6 @@ from ._potential_correction_common import (
     _positive,
 )
 from .potential_correction_result import PotentialCorrectionResult, PotentialSolverInfo
-
-
-class PotentialLinearization(NamedTuple):
-    """Current corrected interpolation and analytical pixelized-source gradients."""
-
-    mapping: SourceMapping
-    gradient_x: jax.Array
-    gradient_y: jax.Array
 
 
 class _CurrentPoint(NamedTuple):
@@ -228,13 +220,7 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
 
     def linearize(self, joint_values):
         """Refresh corrected rays and spatial gradients from the supplied fields."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            source, potential = self._joint(joint_values)
-            mapping = self.renderer.source_mapping(
-                potential, macro_mapping=self.macro_mapping
-            )
-            gx, gy = self.renderer.source_spatial_gradient(source, mapping)
-            return PotentialLinearization(mapping, gx, gy)
+        return self._linearize(joint_values, self.renderer.source_interpolation)
 
     def forward(self, joint_values):
         """Nonlinear selected image with the accumulated source and potential."""
@@ -247,24 +233,11 @@ class IterativePotentialCorrection(_PotentialCorrectionProblem):
 
     def jacobian_forward(self, increment, linearization):
         """Current coupled image derivative, including the lens-equation sign."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            source, potential = self._joint(increment)
-            mapping, gx, gy = linearization
-            brightness = jnp.sum(mapping.weights * source[mapping.indices], axis=1)
-            ax, ay = self.renderer.potential_grid.deflection(potential)
-            return self.renderer.image_forward(brightness - gx * ax - gy * ay)
+        return self._jacobian_forward(increment, linearization)
 
     def jacobian_adjoint(self, image_active, linearization):
         """Exact transpose of the current coupled image derivative."""
-        with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            mapping, gx, gy = linearization
-            subpixel = self.renderer.image_adjoint(image_active)
-            potential = self.renderer.potential_grid.deflection_adjoint(
-                -gx * subpixel, -gy * subpixel
-            )
-            return jnp.concatenate(
-                (self.renderer.source_adjoint(image_active, mapping), potential)
-            )
+        return self._jacobian_adjoint(image_active, linearization)
 
     def _evaluate(self, values, lambda_source, lambda_potential):
         with jax.default_matmul_precision("highest"):

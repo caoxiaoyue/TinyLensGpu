@@ -1,11 +1,13 @@
 """Shared numerical preparation for source–potential reconstruction."""
 
 from inspect import signature
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer
+from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import SourceMapping
 from TinyLensGpu.utils.inversion.potential_regularization import PotentialRegularization
 from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
 from .potential_correction_result import PotentialCorrectionStrengths
@@ -67,6 +69,14 @@ def _nonnegative(value, name):
     if not np.isfinite(scalar) or scalar < 0:
         raise ValueError(f"{name} must be finite and nonnegative")
     return scalar
+
+
+class PotentialLinearization(NamedTuple):
+    """Current corrected interpolation and analytical pixelized-source gradients."""
+
+    mapping: SourceMapping
+    gradient_x: jax.Array
+    gradient_y: jax.Array
 
 
 class _PotentialCorrectionObservation:
@@ -145,6 +155,49 @@ class _PotentialCorrectionObservation:
         if values.shape != (self.n_joint,):
             raise ValueError(f"joint_values must have shape ({self.n_joint},)")
         return values[: self.n_source], values[self.n_source :]
+
+    def _source_mapping(self, potential, interpolation):
+        if interpolation == self.renderer.source_interpolation:
+            return self.renderer.source_mapping(
+                potential, macro_mapping=self.macro_mapping
+            )
+        return self.renderer._source_mapping_for(
+            interpolation, potential, macro_mapping=self.macro_mapping
+        )
+
+    def _linearize(self, values, interpolation):
+        """Refresh the source map and derivatives on the same corrected rays."""
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            source, potential = self._joint(values)
+            mapping = self._source_mapping(potential, interpolation)
+            if interpolation == self.renderer.source_interpolation:
+                gx, gy = self.renderer.source_spatial_gradient(source, mapping)
+            else:
+                gx, gy = self.renderer._source_spatial_gradient_for(
+                    interpolation, source, mapping
+                )
+            return PotentialLinearization(mapping, gx, gy)
+
+    def _jacobian_forward(self, increment, linearization):
+        """Current coupled image derivative, including the lens-equation sign."""
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            source, potential = self._joint(increment)
+            mapping, gx, gy = linearization
+            brightness = jnp.sum(mapping.weights * source[mapping.indices], axis=1)
+            ax, ay = self.renderer.potential_grid.deflection(potential)
+            return self.renderer.image_forward(brightness - gx * ax - gy * ay)
+
+    def _jacobian_adjoint(self, image_active, linearization):
+        """Exact transpose of the current coupled image derivative."""
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
+            mapping, gx, gy = linearization
+            subpixel = self.renderer.image_adjoint(image_active)
+            potential = self.renderer.potential_grid.deflection_adjoint(
+                -gx * subpixel, -gy * subpixel
+            )
+            return jnp.concatenate(
+                (self.renderer.source_adjoint(image_active, mapping), potential)
+            )
 
     def _apply_prior(
         self, joint_values, lambda_source, lambda_potential, lambda_amplitude

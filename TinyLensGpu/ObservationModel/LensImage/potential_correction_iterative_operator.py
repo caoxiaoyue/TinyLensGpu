@@ -10,14 +10,15 @@ from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 
 from TinyLensGpu.utils.cg_solver import PCGInfo, PrincipalBlockPreconditioner, pcg_solve
 from TinyLensGpu.utils.curvature_operator import CurvatureOperator
 from ._potential_correction_operator_common import (
     _assemble_prior_blocks,
     _block_basis,
+    _data_curvature_block,
     _factor_blocks,
+    _inverse_lower_factors,
     _padded_partition,
     _partition,
     _pcg_controls,
@@ -79,7 +80,14 @@ class _OperatorIterationBackend:
         def initialize(strengths):
             ls, lp = strengths
             prior = _assemble_prior_blocks(
-                problem, source_blocks, potential_blocks, indices, valid, ls, lp
+                problem,
+                source_blocks,
+                potential_blocks,
+                indices,
+                valid,
+                ls,
+                lp,
+                problem.lambda_amplitude,
             )
             _, logdet, positive = _factor_blocks(prior)
             return _PriorBlocks(strengths, prior), logdet, positive
@@ -92,15 +100,11 @@ class _OperatorIterationBackend:
 
                 def one_block(_, inputs):
                     index, mask = inputs
-                    panel = (
-                        jax.vmap(
-                            lambda vector: problem.jacobian_forward(
-                                vector, linearization
-                            )
-                        )(_block_basis(problem, index, mask))
-                        / problem.noise_active[None, :]
+                    return None, _data_curvature_block(
+                        problem,
+                        _block_basis(problem, index, mask),
+                        lambda vector: problem.jacobian_forward(vector, linearization),
                     )
-                    return None, panel @ panel.T
 
                 _, data = jax.lax.scan(one_block, None, (indices, valid))
                 posterior = data + prior.blocks
@@ -136,11 +140,7 @@ class _OperatorIterationBackend:
                     + (damping * system.metric[indices] * valid)[:, :, None] * identity
                 )
                 chols, _, positive = _factor_blocks(damped)
-                inverses = jax.vmap(
-                    lambda chol: jsl.solve_triangular(
-                        chol, jnp.eye(width, dtype=problem.dtype), lower=True
-                    )
-                )(chols)
+                inverses = _inverse_lower_factors(chols)
                 positive = positive & jnp.all(jnp.isfinite(inverses))
                 operator = CurvatureOperator(
                     data=(
