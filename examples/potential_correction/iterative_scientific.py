@@ -25,6 +25,10 @@ import numpy as np
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.Inference import optimize_potential_correction
 from TinyLensGpu.ObservationModel import IterativePotentialCorrection
+from examples.potential_correction._scientific_partitions import (
+    geometry_fingerprint,
+    prepare_partition,
+)
 from examples.potential_correction.calibrate_single_step import source_incidence_blocks
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
 from examples.potential_correction.result_products import (
@@ -44,71 +48,38 @@ class IterativeScientificRun:
     output: Path
 
 
-def geometry_fingerprint(renderer):
-    """Fingerprint public fixed source/potential/query geometry for a partition."""
-    digest = hashlib.sha256()
-    grid = renderer.potential_grid
-    for values in (
-        renderer.source_x_axis,
-        renderer.source_y_axis,
-        grid.node_indices,
-        grid.core_indices,
-        grid.x,
-        grid.y,
-        grid.query_x,
-        grid.query_y,
-    ):
-        array = np.asarray(values)
-        digest.update(str((array.shape, array.dtype.str)).encode())
-        digest.update(np.ascontiguousarray(array).tobytes())
-    return digest.hexdigest()
-
-
 def _partition(renderer, initial_source, config):
-    source = config.get("partition_source", "initial_nodal")
-    fingerprint = geometry_fingerprint(renderer)
-    if source == "single_step":
-        path = Path(
-            config.get(
-                "partition_file", Path(__file__).with_name("scientific_partition.json")
-            )
-        )
-        record = json.loads(path.read_text())
-        if record["geometry_sha256"] != fingerprint:
-            raise ValueError(
-                "Recorded single-step partition geometry differs; configure an explicit matching partition or partition_source=initial_nodal"
-            )
-        blocks = record["indices"]
-        provenance = {
-            "source": "single_step",
-            "geometry_sha256": fingerprint,
-            "reference": record["reference"],
-            "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        }
-    elif source == "initial_nodal":
+    partition_source = config.get("partition_source", "initial_nodal")
+    if partition_source not in ("single_step", "initial_nodal"):
+        raise ValueError("partition_source must be single_step or initial_nodal")
+    default_file = (
+        Path(__file__).with_name("scientific_partition.json")
+        if partition_source == "single_step"
+        else None
+    )
+
+    def build_blocks():
         mapping = renderer.source_mapping()
         gx, gy = renderer.source_spatial_gradient(initial_source, mapping)
-        blocks = [
-            b.tolist()
-            for b in source_incidence_blocks(
-                renderer,
-                mapping,
-                gx,
-                gy,
-                source_tile=config["source_tile"],
-                block_size=config["block_size"],
-            )
-        ]
-        provenance = {
-            "source": "initial_nodal",
-            "geometry_sha256": fingerprint,
-            "gradient": "analytic derivative of initial pixelized source; no truth-gradient callable",
-        }
-    else:
-        raise ValueError("partition_source must be single_step or initial_nodal")
-    provenance.update(
-        indices=blocks, actual_sizes=[len(b) for b in blocks], cap=config["block_size"]
+        return source_incidence_blocks(
+            renderer,
+            mapping,
+            gx,
+            gy,
+            source_tile=config["source_tile"],
+            block_size=config["block_size"],
+        )
+
+    blocks, provenance = prepare_partition(
+        renderer,
+        config,
+        build_blocks,
+        source="initial_nodal",
+        method="source_incidence",
+        default_file=default_file,
     )
+    if provenance["origin"] == "generated":
+        provenance["gradient"] = "analytic derivative of initial pixelized source"
     return blocks, provenance
 
 
@@ -200,6 +171,7 @@ def run_iterative_scientific(configuration, *, output, single_step_reference=Non
             tuple(config["source_bbox"]),
             potential_spacing=config["potential_spacing"],
             dtype=mock.dtype,
+            source_interpolation=config.get("source_interpolation", "bilinear"),
         )
         sx, sy = jnp.meshgrid(renderer.source_x_axis, renderer.source_y_axis)
         initial_source = pair.control.source_truth.brightness(sx, sy).ravel()
@@ -216,6 +188,8 @@ def run_iterative_scientific(configuration, *, output, single_step_reference=Non
             Path(__file__),
             Path(__file__).with_name("result_products.py"),
             Path(__file__).with_name("mock.py"),
+            Path(__file__).with_name("calibrate_single_step.py"),
+            Path(__file__).with_name("_scientific_partitions.py"),
         ]
         files.extend(
             root.glob(
@@ -226,6 +200,7 @@ def run_iterative_scientific(configuration, *, output, single_step_reference=Non
             root / path
             for path in (
                 "TinyLensGpu/utils/cg_solver.py",
+                "TinyLensGpu/utils/lensing/mapping.py",
                 "TinyLensGpu/ForwardSimulation/LensImage/potential_correction.py",
                 "TinyLensGpu/Inference/potential_correction.py",
             )
@@ -234,6 +209,8 @@ def run_iterative_scientific(configuration, *, output, single_step_reference=Non
             "configuration": config,
             "success": True,
             "runs": {},
+            "source_interpolation": renderer.source_interpolation,
+            "source_boundary": renderer.source_boundary,
             "block_partition": partition,
             "sizes": {
                 "data": renderer.n_active,
@@ -319,6 +296,8 @@ def run_iterative_scientific(configuration, *, output, single_step_reference=Non
                             dtype=mock.dtype,
                             failure_reason="no_successful_inner_reconstruction",
                             configuration=config,
+                            source_interpolation=renderer.source_interpolation,
+                            source_boundary=renderer.source_boundary,
                             search=search_metadata,
                             initialization_provenance=problem.initialization_provenance,
                         )

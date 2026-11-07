@@ -3,11 +3,189 @@
 from dataclasses import asdict
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 CONSUMER_FIXTURE = Path(__file__).parent / "fixtures/potential_correction_consumers"
+
+
+def test_source_incidence_votes_with_signed_source_weights():
+    from examples.potential_correction.calibrate_single_step import (
+        source_incidence_blocks,
+    )
+
+    grid = SimpleNamespace(
+        n_unknown=5,
+        query_x=np.zeros(1),
+        query_y=np.zeros(1),
+        derivative_indices=np.array([[0, 1, 2, 3, 4]]),
+        interpolation_indices=np.zeros((1, 4), dtype=int),
+        interpolation_weights=np.array([[1.0, 0.0, 0.0, 0.0]]),
+        spacing=1.0,
+        node_indices=np.array([[1, 1], [0, 1], [2, 1], [1, 0], [1, 2]]),
+    )
+    renderer = SimpleNamespace(source_n=4, n_source=16, potential_grid=grid)
+    mapping = SimpleNamespace(
+        indices=np.array([[0, 1, 2] + [0] * 13]),
+        weights=np.array([[0.3, -0.3, 0.4] + [0.0] * 13]),
+        valid=np.array([True]),
+    )
+    blocks = source_incidence_blocks(
+        renderer, mapping, [1.0], [0.0], source_tile=2, block_size=5
+    )
+    # The first potential block attaches to tile 0, whose unsigned vote is
+    # 0.60. A signed sum would instead attach it to tile 1 (vote 0.40).
+    assert 0 in blocks[0] and 17 in blocks[0]
+    np.testing.assert_array_equal(np.sort(np.concatenate(blocks)), np.arange(21))
+    with pytest.raises(ValueError, match="query positions"):
+        source_incidence_blocks(
+            renderer, mapping, [1.0, 1.0], [0.0], source_tile=2, block_size=5
+        )
+    extra_ray = SimpleNamespace(
+        indices=np.repeat(mapping.indices, 2, axis=0),
+        weights=np.repeat(mapping.weights, 2, axis=0),
+        valid=np.ones(1, dtype=bool),
+    )
+    with pytest.raises(ValueError, match="query positions"):
+        source_incidence_blocks(
+            renderer, extra_ray, [1.0], [0.0], source_tile=2, block_size=5
+        )
+
+
+@pytest.fixture
+def tiny_partition_renderer():
+    axis = np.array([0.0, 1.0])
+    return SimpleNamespace(
+        n_source=4,
+        source_x_axis=axis,
+        source_y_axis=axis,
+        source_interpolation="cubic_hermite",
+        source_boundary="C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+        potential_grid=SimpleNamespace(
+            n_unknown=3,
+            node_indices=np.array([[0, 0], [0, 1], [1, 0]]),
+            core_indices=np.array([0]),
+            x=np.array([0.0, 1.0, 0.0]),
+            y=np.array([0.0, 0.0, 1.0]),
+            query_x=np.array([0.3]),
+            query_y=np.array([0.4]),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "mismatch", [None, "geometry_sha256", "source_interpolation", "vote_rule"]
+)
+def test_saved_partition_reuse_checks_provenance(
+    tmp_path, tiny_partition_renderer, mismatch
+):
+    from examples.potential_correction._scientific_partitions import (
+        geometry_fingerprint,
+        prepare_partition,
+    )
+
+    renderer = tiny_partition_renderer
+    fresh = [[0, 1], [2, 3], [4, 5], [6]]
+    saved = {
+        "indices": [[0, 4], [1, 5], [2, 6], [3]],
+        "geometry_sha256": geometry_fingerprint(renderer),
+        "source_interpolation": "cubic_hermite",
+        "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+        "method": "source_incidence",
+        "source_tile": 1,
+        "cap": 2,
+        "vote_rule": "absolute_source_neighbor_weight_v1",
+    }
+    if mismatch is not None:
+        saved[mismatch] = "unmatched"
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps({"block_partition": saved}))
+    blocks, provenance = prepare_partition(
+        renderer,
+        {"partition_file": str(path), "source_tile": 1, "block_size": 2},
+        lambda: fresh,
+        source="initial_nodal",
+        method="source_incidence",
+    )
+    if mismatch is None:
+        assert blocks == saved["indices"]
+        assert provenance["origin"] == "automatic_reuse"
+    else:
+        assert blocks == fresh
+        assert provenance["origin"] == "generated"
+        assert provenance["reuse_rejected"]["mismatched_fields"] == [mismatch]
+
+
+@pytest.mark.integration
+def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
+    import jax
+
+    from TinyLensGpu.ForwardSimulation import (
+        PotentialCorrectionRenderer,
+        SimulatorConfig,
+    )
+    from examples.potential_correction import iterative_scientific
+    from examples.potential_correction._scientific_partitions import (
+        geometry_fingerprint,
+        prepare_partition,
+    )
+    from examples.potential_correction.mock import MockConfig, generate_mock_pair
+
+    directory = Path(iterative_scientific.__file__).parent
+    config_path = directory / "iterative_scientific_configuration.json"
+    config = json.loads(config_path.read_text())
+    archive = directory / "scientific_partition.json"
+    recorded = json.loads(archive.read_text())
+    mock = MockConfig.from_dict(config["mock"])
+    observation = generate_mock_pair(mock).control
+    with jax.experimental.enable_x64():
+        sim = SimulatorConfig(
+            mock.dpix, mock.npix, observation.psf_kernel,
+            config["inversion_nsub"], observation.mask,
+        )
+        args = (
+            observation.macro, sim, config["source_n"], tuple(config["source_bbox"])
+        )
+        renderer = PotentialCorrectionRenderer(
+            *args, potential_spacing=config["potential_spacing"]
+        )
+        hermite = PotentialCorrectionRenderer(
+            *args,
+            potential_grid=renderer.potential_grid,
+            source_interpolation="cubic_hermite",
+        )
+    regenerated = [
+        [index] for index in range(renderer.n_source + renderer.potential_grid.n_unknown)
+    ]
+    selected, provenance = prepare_partition(
+        renderer,
+        config,
+        lambda: regenerated,
+        source="initial_nodal",
+        method="source_incidence",
+        default_file=archive,
+    )
+    # CUDA matches the archived hash. CPU can differ in floating-point
+    # coordinates even though the physical configuration is unchanged.
+    if geometry_fingerprint(renderer) == recorded["geometry_sha256"]:
+        assert selected == recorded["indices"]
+        assert provenance["legacy_bilinear"] is True
+        assert provenance["origin"] == "automatic_reuse"
+    else:
+        assert selected == regenerated
+        assert provenance["reuse_rejected"]["mismatched_fields"] == ["geometry_sha256"]
+    selected, provenance = prepare_partition(
+        hermite,
+        config,
+        lambda: regenerated,
+        source="initial_nodal",
+        method="source_incidence",
+        default_file=archive,
+    )
+    assert selected == regenerated
+    assert "source_interpolation" in provenance["reuse_rejected"]["mismatched_fields"]
 
 
 def _assert_metrics(actual, expected):
@@ -23,9 +201,12 @@ def _assert_metrics(actual, expected):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("layout", ["morton", "source_incidence"])
+@pytest.mark.parametrize(
+    ("layout", "mode"),
+    [("morton", None), ("source_incidence", None), ("source_incidence", "cubic_hermite")],
+)
 def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
-    tmp_path, layout
+    tmp_path, layout, mode
 ):
     from examples.potential_correction.calibrate_single_step import run_calibration
     from examples.potential_correction.mock import (
@@ -69,25 +250,33 @@ def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
         "direct_len_tol": 1e-2,
         "boundary_rtol": 0.1,
     }
+    if mode is not None:
+        configuration.update(source_interpolation=mode, lambda_amplitudes=[1000.0])
+    expected_mode = mode or "bilinear"
     baseline = json.loads((CONSUMER_FIXTURE / "baseline.json").read_text())
     observations = generate_mock_pair(MockConfig.from_dict(configuration["mock"]))
     run = run_calibration(configuration, output=tmp_path)
     record = json.loads((tmp_path / "calibration.json").read_text())
     assert record["configuration"] == configuration
     assert record["block_partition"]["method"] == layout
-    assert len(record["runs"]) == 4
+    assert record["block_partition"]["source_interpolation"] == expected_mode
+    assert len(record["runs"]) == 2 * len(configuration["lambda_amplitudes"])
     with np.load(tmp_path / "inputs.npz", allow_pickle=False) as inputs:
         assert np.count_nonzero(inputs["control_potential_truth"]) == 0
         np.testing.assert_array_equal(inputs["subhalo_noise"], inputs["control_noise"])
     with np.load(tmp_path / "reconstructions.npz", allow_pickle=False) as saved:
         for key, fits in run.reconstructions.items():
             row = next(row for row in record["runs"] if row["key"] == key)
-            expected = baseline["calibration"][key]
-            assert sorted(row["selected"]["dense"]) == expected["schema"]
-            _assert_metrics(
-                {name: row["selected"]["dense"][name] for name in expected["metrics"]},
-                expected["metrics"],
-            )
+            if mode is None:
+                expected = baseline["calibration"][key]
+                assert sorted(row["selected"]["dense"]) == expected["schema"]
+                _assert_metrics(
+                    {
+                        name: row["selected"]["dense"][name]
+                        for name in expected["metrics"]
+                    },
+                    expected["metrics"],
+                )
             assert row["scan"]
             assert row["order_check"]["passed"]
             assert row["failure_check"]["objective"] is None
@@ -96,6 +285,7 @@ def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
             for backend in ("dense", "operator"):
                 fit = fits[backend]
                 assert fit.success
+                assert fit.configuration["source_interpolation"] == expected_mode
                 assert row["selected"][backend]["optimizer_success"] is False
                 assert row["selected"][backend]["boundary_sides"]
                 assert row["selected"][backend]["determinant_method"] == (
@@ -162,6 +352,8 @@ def test_saved_public_results_keep_pre_review_truth_domains_and_recovery(case):
         case,
     )
     result = load_result(CONSUMER_FIXTURE / case)
+    assert result.configuration["source_interpolation"] == "bilinear"
+    assert result.configuration["source_boundary"] == "hard_zero_outside_bbox"
     summary, truth = summarize_result(result, observation, affine_diagnostics=True)
     _assert_metrics(summary, baseline["scientific"][case])
     products, local_radius = truth_products(result, observation)
