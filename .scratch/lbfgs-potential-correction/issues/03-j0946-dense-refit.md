@@ -5,7 +5,7 @@
 **Blocked by:** 02 — Dense mock fitting and result round trip.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,7 @@
 - [ ] The dense fit qualifies with the common \(10^{-3}\) stationarity threshold. The comparison verifies matching potential topology and derivative-valid domains.
 - [ ] The absolute objective difference from trial 497 is at most \(10^{-3}\), the absolute log evidence difference is at most \(0.01\), and the maximum absolute \(\delta\kappa\) difference over all valid nodes is at most \(10^{-4}\).
 - [ ] Retain the dense comparison and result with the input identity, controls, measured differences, and command needed to reproduce it. Routine automated checks use regenerable data.
+
+## Comments
+
+Claimed by `codex/lbfgs-03-j0946-dense` for integration into `codex/lbfgs-potential-correction`.
