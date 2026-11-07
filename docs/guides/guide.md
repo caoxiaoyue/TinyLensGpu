@@ -367,6 +367,31 @@ variants remain in each case's entry point. Launch and resume commands are
 unchanged; for example, from `examples/pix_src_demo_operator/pipe/slacs_examples/`,
 use `python model.py J0737+3216 --skip-done`.
 
+Fresh pixelized fits default to `bilinear`, with zero brightness outside the
+fitted bounding box. Select `interpolation="cubic_hermite"` on
+`PixelizedSourceModel` to interpolate with the cubic Hermite basis and fixed
+zero exterior nodes. Brightness and its first derivatives go continuously to
+zero two grid spacings beyond the fitted box. NNLS and PNPG constrain the
+fitted node intensities. The signed Hermite weights can produce negative
+brightness between those nodes.
+
+The operator SLACS example accepts an explicit mode. Run these commands from
+the same `slacs_examples` directory to start and then resume a Hermite run.
+
+```bash
+python model.py J0737+3216 --out-dir output_hermite --source-interpolation cubic_hermite
+python model.py J0737+3216 --out-dir output_hermite --skip-done
+```
+
+On resume, the pipeline inherits the recorded mode and treats legacy
+checkpoints as bilinear. An explicit conflicting mode requires a fresh run.
+To initialize the fresh M0 solver from saved S1 node intensities, add
+`--initial-source-from output/stage_m1.pkl`, with the path relative to the
+lens directory. Use a package with the same grid size. M0 uses the saved
+fitted grid and recomputes its evidence using the new run's selected
+interpolation. Current validation covers fixed-parameter reconstructions
+and gradient consistency.
+
 Pass sampling choices explicitly. For a case using 300 live points, batches of
 100 and vectorized likelihood evaluation, the adapter is:
 
@@ -396,10 +421,13 @@ for legacy cases and `True` for cases already writing `stage_schema`.
 `stage_from_payload` reads both formats. Existing case adapters retain their
 filenames, fields and numerical array representations. B1938's M4/M5 schema
 validation and protected-M5 overwrite checks still run at the case layer.
+In interpolation-aware workflows, `StageStorageConfig` records the selected
+mode and boundary in the existing `extra` dictionary.
 
 `export_source_package` consumes the public diagnostic result and returns the
-raw dictionary with source pixels/image, square bbox, axes and `n`. A prepared
-template also carries `lambda_best` and `log_lambda_best`.
+raw dictionary with source pixels/image, fitted square `source_bbox`, axes,
+`n`, `source_interpolation` and `source_boundary`. A prepared template also
+carries `lambda_best` and `log_lambda_best`.
 `validate_source_package(package, expected_n=..., rho=...)` validates that
 contract, generates or coerces the float32 scale map in place, and returns the
 same dictionary. The Galan variants additionally request bbox normalization,

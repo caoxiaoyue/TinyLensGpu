@@ -5,7 +5,7 @@
 **Blocked by:** 03 — Save and resume a staged fit with its source interpolation.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,6 @@
 - [ ] Verify known older bilinear checkpoints restore correctly, recorded Hermite checkpoints reconstruct the same model, and conflicting explicit choices stop before saved results are reused.
 - [ ] Exercise representative default and explicit-mode round trips through the existing basic and survey regression entry points. Preserve each workflow's fitted-grid and source-template validation rules.
 
+## Comments
+
+Claimed for implementation on `codex/psi-04-workflows`.

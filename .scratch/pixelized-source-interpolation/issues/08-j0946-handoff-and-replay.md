@@ -5,7 +5,7 @@
 **Blocked by:** 03 — Save and resume a staged fit with its source interpolation, and 06 — Run single-step and iterative potential correction with Hermite.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,6 @@
 - [ ] Replay a documented saved cubic reconstruction with its fixed source intensities, potential coefficients, corrected rays, precision, and imaging settings. Evaluate the experimental and library Hermite paths with the same inputs.
 - [ ] Compare ray brightness, spatial derivatives, and the prediction after subpixel integration and PSF convolution. Record the archive identifier, input provenance, command, tolerance, and observed differences as a fixed-state comparison.
 
+## Comments
+
+Claimed for implementation on `codex/psi-08-handoff-replay`.

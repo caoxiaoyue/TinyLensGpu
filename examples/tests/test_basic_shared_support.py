@@ -107,6 +107,8 @@ def test_source_export_to_adaptive_stage_and_plot(
         "source_x_axis",
         "source_y_axis",
         "n",
+        "source_interpolation",
+        "source_boundary",
     }
     package.update(lambda_best=1.0, log_lambda_best=0.0)
     kwargs = (

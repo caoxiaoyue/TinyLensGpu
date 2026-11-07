@@ -7,11 +7,19 @@ from .source import (
     is_square_bbox,
     normalize_source_bbox,
     require_valid_reconstruction,
+    resolve_source_interpolation,
     source_axes_from_bbox,
     source_bboxes_match,
+    source_interpolation_metadata,
     validate_source_package,
 )
-from .stages import StageStorageConfig, load_stage, save_stage, stage_from_payload
+from .stages import (
+    StageStorageConfig,
+    load_stage,
+    resolve_stage_source_interpolation,
+    save_stage,
+    stage_from_payload,
+)
 
 __all__ = [
     "SamplingConfig",
@@ -23,10 +31,13 @@ __all__ = [
     "normalize_source_bbox",
     "posterior_quantiles",
     "require_valid_reconstruction",
+    "resolve_source_interpolation",
+    "resolve_stage_source_interpolation",
     "run_sampling",
     "save_stage",
     "source_axes_from_bbox",
     "source_bboxes_match",
+    "source_interpolation_metadata",
     "stage_from_payload",
     "validate_source_package",
 ]
