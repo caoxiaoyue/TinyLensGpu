@@ -1,0 +1,86 @@
+{
+  "protocol": "J0946_fixed_M3_prior_paired_bilinear_C1_cardinal_cubic_v1",
+  "trial_directory": "trials/0023",
+  "profile": "single_step_lens",
+  "repeat": 2,
+  "input_sha256": {
+    "m3_handoff.json": "ef9c77f40fd055854e011bae1bdb4b4d49f70f9db99e8e0f6283906a25f0fb03",
+    "m3_handoff.npz": "d09a1102a64f74dcf540530d850ed633430313009d44bc0f5b5b551e18b10bda",
+    "result.json": "0419acf60c1dc79e5825019caadedc3a7212abb5d10e0bd91de25398222d6ff4",
+    "reconstruction.npz": "8324a7afea0348e20cfbd77d2064835d914d709c3a22df8c91c2129033a3753a",
+    "protocol.json": "d835836fbd8bb33df9cad6e2adc9a496faa5d4a69720d0b4ff96dd78497190b7",
+    "source_cubic.py": "d89aa1d17e02a014a64909396993ec3e014556c39dfd3dadbf02fe08b3f66916"
+  },
+  "recorded_source_conventions": {
+    "result": {
+      "source_interpolation": "cubic"
+    },
+    "configuration": {},
+    "initialization": {
+      "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes"
+    }
+  },
+  "handoff_interpolation": "bilinear",
+  "handoff_boundary": "hard_zero_outside_bbox",
+  "source_interpolation": "cubic_hermite",
+  "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+  "preconditioner_reference_boundary": "hard_zero_outside_bbox",
+  "source_bbox": [
+    -0.5641691088676453,
+    0.43583089113235474,
+    -0.6536976099014282,
+    0.3463023602962494
+  ],
+  "recorded_source_support_bbox": [
+    -0.5843711290696655,
+    0.45603291133437496,
+    -0.6738996295013813,
+    0.3665043798962025
+  ],
+  "source_n": 100,
+  "n_potential": 1134,
+  "n_core": 802,
+  "potential_spacing": 0.1,
+  "n_active": 2293,
+  "n_rays": 36688,
+  "image_shape": [
+    201,
+    201
+  ],
+  "psf_shape": [
+    15,
+    15
+  ],
+  "dpix": 0.05,
+  "nsub": 4,
+  "dtype": "float64",
+  "absolute_tolerance": 1e-11,
+  "differences": {
+    "replay_image_vs_archive": {
+      "max_abs": 3.6637359812630166e-15,
+      "rms": 7.213266272926851e-17
+    },
+    "ray_brightness": {
+      "max_abs": 6.661338147750939e-16,
+      "rms": 3.570810008617112e-17
+    },
+    "derivative_x": {
+      "max_abs": 4.973799150320701e-14,
+      "rms": 2.4454511261648116e-15
+    },
+    "derivative_y": {
+      "max_abs": 5.5067062021407764e-14,
+      "rms": 2.848828575107508e-15
+    },
+    "integrated_psf_image": {
+      "max_abs": 2.220446049250313e-16,
+      "rms": 1.3417984148282501e-17
+    },
+    "experimental_image_vs_archive": {
+      "max_abs": 3.608224830031759e-15,
+      "rms": 7.221887849399492e-17
+    }
+  },
+  "jax": "0.7.1",
+  "device": "cpu"
+}

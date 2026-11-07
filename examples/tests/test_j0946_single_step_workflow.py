@@ -4,8 +4,8 @@ import ast
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import jax
@@ -61,6 +61,228 @@ def _handoff(path):
         lambda_source=0.1,
     )
     (path / "m3_handoff.json").write_text(json.dumps(record))
+
+
+@pytest.mark.parametrize("workspace", ["single_step", "iteration"])
+@pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
+def test_j0946_consumers_use_the_handoff_interpolation(
+    tmp_path, monkeypatch, workspace, interpolation
+):
+    from TinyLensGpu.example_support import source_interpolation_metadata
+
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    path = Path(__file__).resolve().parents[2] / "workspace" / workspace / "pt.py"
+    spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_handoff_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    handoff = tmp_path / "macro"
+    _handoff(handoff)
+    metadata_file = handoff / "m3_handoff.json"
+    metadata = json.loads(metadata_file.read_text())
+    if interpolation is not None:
+        metadata.update(source_interpolation_metadata(interpolation))
+        metadata_file.write_text(json.dumps(metadata))
+    with jax.experimental.enable_x64(workspace == "iteration"):
+        problem, saved, arrays = module.load_problem(handoff)
+    mode = interpolation or "bilinear"
+    assert saved == metadata == json.loads(metadata_file.read_text())
+    assert problem.renderer.source_interpolation == mode
+    assert problem.renderer.source_boundary == source_interpolation_metadata(mode)["source_boundary"]
+    assert problem.renderer.source_mapping().weights.shape[1] == (
+        16 if mode == "cubic_hermite" else 4
+    )
+    assert arrays["source_values"].shape == (4,)
+    provenance = problem.initialization_provenance
+    if workspace == "single_step":
+        assert provenance["gradient"] == f"frozen_{mode}_derivative_of_M3_source"
+        gx, gy = problem.renderer.source_spatial_gradient(arrays["source_values"])
+        np.testing.assert_array_equal(problem.gradient_x, gx)
+        np.testing.assert_array_equal(problem.gradient_y, gy)
+    else:
+        assert provenance["gradient_policy"] == f"JAX_autodiff_current_{mode}_source"
+        np.testing.assert_array_equal(problem.initial_values[:4], arrays["source_values"])
+
+
+@pytest.mark.parametrize(
+    "record, boundary, expected",
+    [
+        ({"source_boundary": "hard"}, "hard_zero_outside_bbox", 0.0),
+        (
+            {
+                "source_interpolation": "bilinear",
+                "initialization": {"source_boundary": "one_fixed_zero_ghost_ring"},
+            },
+            "bilinear_fixed_zero_ghost_ring",
+            0.75,
+        ),
+        (
+            {
+                "source_interpolation": "cubic",
+                "initialization": {
+                    "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+                },
+                "preconditioner_reference_boundary": "hard_zero_outside_bbox",
+            },
+            "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+            0.796875,
+        ),
+    ],
+)
+def test_archive_replay_keeps_distinct_source_boundaries(
+    tmp_path, monkeypatch, record, boundary, expected
+):
+    from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import MacroMapping
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    from workspace.iteration.replay_source_interpolation import archive_renderer, pt
+
+    handoff = tmp_path / "macro"
+    _handoff(handoff)
+    saved = json.dumps(record)
+    with jax.experimental.enable_x64():
+        problem, _, _ = pt.load_problem(handoff)
+        renderer = archive_renderer(problem.renderer, record)
+        mapping = renderer.source_mapping(
+            macro_mapping=MacroMapping(jnp.array([0.75]), jnp.array([-0.5])),
+        )
+        # All fitted nodes have unit brightness. This ray lies past the fitted box.
+        brightness = np.asarray(mapping.weights).sum()
+    assert renderer.source_boundary == boundary
+    assert json.dumps(record) == saved
+    np.testing.assert_allclose(brightness, expected, rtol=0, atol=1e-14)
+
+
+@pytest.fixture(params=["single_step", "iteration"])
+def macro_producer(request, monkeypatch):
+    workspace = request.param
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    path = Path(__file__).resolve().parents[2] / "workspace" / workspace / "macro_model.py"
+    spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_macro_test", path)
+    module = importlib.util.module_from_spec(spec)
+    precision = jax.config.jax_default_matmul_precision
+    try:
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        jax.config.update("jax_default_matmul_precision", precision)
+
+
+@pytest.mark.parametrize("interpolation", [None, "cubic_hermite"])
+def test_macro_resume_preserves_the_recorded_source_interpolation(
+    tmp_path, monkeypatch, macro_producer, interpolation
+):
+    from TinyLensGpu.example_support import source_interpolation_metadata
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for name in ("image.fits", "noise.fits", "psf.fits"):
+        (raw / name).write_bytes(name.encode())
+    output = tmp_path / "macro"
+    monkeypatch.setattr(macro_producer, "DATA_DIR", tmp_path / "data")
+    options = [
+        "macro_model.py", "--prepare-only", "--out-dir", str(output),
+        "--input-dir", str(raw),
+    ]
+    requested = [] if interpolation is None else ["--source-interpolation", interpolation]
+    monkeypatch.setattr(sys, "argv", options + requested)
+    macro_producer.cli()
+    manifest_path = output / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    mode = interpolation or "bilinear"
+    expected = source_interpolation_metadata(mode)
+    for key, value in expected.items():
+        assert manifest["settings"][key] == value
+        if interpolation is None:
+            # Simulate a known pre-feature manifest without changing its inputs.
+            del manifest["settings"][key]
+    manifest_path.write_text(json.dumps(manifest))
+    preserved = manifest_path.read_bytes()
+
+    monkeypatch.setattr(sys, "argv", options + ["--resume"])
+    macro_producer.cli()
+    assert macro_producer.SOURCE_INTERPOLATION == mode
+    assert manifest_path.read_bytes() == preserved
+
+    other = "cubic_hermite" if mode == "bilinear" else "bilinear"
+    monkeypatch.setattr(sys, "argv", options + ["--resume", "--source-interpolation", other])
+    with pytest.raises(ValueError, match="Start a fresh run"):
+        macro_producer.cli()
+
+    monkeypatch.setattr(sys, "argv", options + ["--resume"])
+    (output / "sampler_m1.h5").touch()
+    (output / "sampler_m1.json").write_text(json.dumps(source_interpolation_metadata(other)))
+    with pytest.raises(ValueError, match="sampler_m1.json"):
+        macro_producer.cli()
+    assert manifest_path.read_bytes() == preserved
+
+
+def test_macro_export_keeps_hermite_through_source_template_transition(
+    macro_producer, tmp_path, monkeypatch
+):
+    from TinyLensGpu.Inference import StagePosterior
+    from workspace.iteration import pt as iteration
+
+    for name, value in (
+        ("NSRC", 3), ("NSUB_PIX", 1), ("OUT_DIR", tmp_path),
+        ("SOURCE_INTERPOLATION", "cubic_hermite"),
+    ):
+        monkeypatch.setattr(macro_producer, name, value)
+    macro = dict(
+        theta_E=0.12, e1_mass=0.04, e2_mass=0.02,
+        center_x_mass=0.01, center_y_mass=-0.02, gamma1=0.01, gamma2=0.02,
+        center_x_src=0.0, center_y_src=0.0,
+    )
+    center = np.array(list(macro.values()))
+    stage_a = StagePosterior.from_schema(
+        np.stack([center - 0.001, center, center + 0.001]),
+        [0.25, 0.5, 0.25], param_names=list(macro), log_z=0.0,
+    )
+    image = np.full((7, 7), 0.2, dtype=np.float32)
+    noise = np.full_like(image, 0.1)
+    psf = np.ones((1, 1), dtype=np.float32)
+    mask = np.zeros_like(image, dtype=bool)
+    args = image, noise, psf, mask, stage_a, None
+    log_lambda = float(np.log(0.1))
+    with jax.experimental.enable_x64(False):
+        m0 = macro_producer.build_stage_m0_likelihood(*args)
+        assert m0.source_model.interpolation == "cubic_hermite"
+        m1 = macro_producer.build_stage_m1_likelihood(*args, log_lambda)
+        m1_params = {
+            param.name: float(param.value) for param in m1.get_dynamic_params()
+        }
+        s1 = macro_producer._solve_pixel_source_for_package(
+            m1, m1_params, list(m1_params),
+        )
+        assert s1["source_interpolation"] == "cubic_hermite"
+        s1.update(lambda_best=0.1, log_lambda_best=log_lambda)
+        m2 = macro_producer.build_stage_m2_likelihood(
+            image, noise, psf, mask, m1_params, None, s1,
+        )
+        assert m2.source_model.interpolation == "cubic_hermite"
+        regs = dict(log_lambda_reg=log_lambda, adaptive_reg_rho=0.5)
+        m3 = macro_producer.build_stage_m3_likelihood(
+            image, noise, psf, mask, stage_a, None, regs, s1,
+        )
+        assert m3.source_model.interpolation == "cubic_hermite"
+        m3_params = {
+            param.name: float(param.value) for param in m3.get_dynamic_params()
+        }
+        samples = np.array([list(m3_params.values())])
+        stage_m3 = StagePosterior.from_schema(
+            samples, [1.0], param_names=list(m3_params), log_z=0.0,
+        )
+        np.savez(tmp_path / "posterior_m3.npz", samples=samples, log_likelihood=[0.0])
+        macro_producer.export_m3_bundle(
+            image, image, noise, psf, mask, np.zeros_like(image), stage_a, stage_m3,
+            None, regs, s1, mask,
+        )
+    problem, record, arrays = iteration.load_problem(tmp_path)
+    assert record["source_interpolation"] == "cubic_hermite"
+    assert record["gradient_provenance"] == "cubic_hermite_derivative_of_new_M3_reconstruction"
+    assert problem.renderer.source_boundary == record["source_boundary"]
+    np.testing.assert_array_equal(arrays["source_bbox"], s1["source_bbox"])
+    assert arrays["source_values"].shape == (9,)
+    assert arrays["source_values"].dtype == np.float32
 
 
 @pytest.mark.parametrize(

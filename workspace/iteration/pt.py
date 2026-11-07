@@ -33,6 +33,7 @@ from scipy.optimize import direct, minimize
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import IterativePotentialCorrection
 from TinyLensGpu.PhysicalModel import EPL, PhysicalModel, Shear
+from TinyLensGpu.example_support import resolve_source_interpolation
 from examples.potential_correction.result_products import json_safe, write_json
 from lbfgs import EvidenceEngine
 
@@ -69,6 +70,7 @@ def load_handoff(macro_dir):
 
 def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, lambda_amplitude=1.0):
     metadata, arrays = load_handoff(macro_dir)
+    interpolation = resolve_source_interpolation(metadata=metadata, context="M3 handoff")
     p = metadata["macro_parameters"]
     # Preserve the saved native Float32 image sampling, then promote it. The
     # source bbox/node count and macro parameters are the frozen M3 definition.
@@ -83,8 +85,11 @@ def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, lambda_amplitu
             e2=p["e2_mass"], center_x=p["center_x_mass"], center_y=p["center_y_mass"]),
         Shear(gamma1=p["gamma1"], gamma2=p["gamma2"]),
     ], source_light=[], lens_light=[])
-    renderer = PotentialCorrectionRenderer(macro, config, metadata["source_n"],
-        tuple(arrays["source_bbox"]), potential_spacing=potential_spacing, dtype="float64")
+    renderer = PotentialCorrectionRenderer(
+        macro, config, metadata["source_n"], tuple(arrays["source_bbox"]),
+        potential_spacing=potential_spacing, dtype="float64",
+        source_interpolation=interpolation,
+    )
     problem = IterativePotentialCorrection(renderer, arrays["lens_subtracted_image"],
         arrays["noise_map"], arrays["source_values"], lambda_amplitude=lambda_amplitude,
         source_regularization=metadata["source_regularization"],
@@ -92,10 +97,13 @@ def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, lambda_amplitu
             representative=metadata["representative"], source_truth_used=False))
     # Workspace adapter for the constructor's absent source_scale keyword.
     # Set before any JIT tracing or dense prior construction, also in audits.
-    problem.source_scale = jnp.asarray(arrays["source_scale"], dtype=jnp.float64)
+    with jax.experimental.enable_x64():
+        problem.source_scale = jnp.asarray(arrays["source_scale"], dtype=jnp.float64)
     problem.initialization_provenance.update(
-        source_initialization="saved_M3_source", gradient_policy="JAX_autodiff_current_bilinear_source",
-        adaptive_scale="fixed_M1_template_and_M2_rho_as_used_in_M3")
+        source_initialization="saved_M3_source",
+        gradient_policy=f"JAX_autodiff_current_{interpolation}_source",
+        adaptive_scale="fixed_M1_template_and_M2_rho_as_used_in_M3",
+    )
     return problem, metadata, arrays
 
 
