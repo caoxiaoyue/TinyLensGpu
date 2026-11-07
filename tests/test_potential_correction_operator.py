@@ -11,11 +11,11 @@ from tests.test_potential_correction_dense import (
 )
 
 
-def _problem(dtype="float64", **kwargs):
+def _problem(dtype="float64", *, source_interpolation="bilinear", **kwargs):
     from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
 
     return SingleStepPotentialCorrection(
-        _small_renderer(dtype=dtype),
+        _small_renderer(dtype=dtype, source_interpolation=source_interpolation),
         np.array([[-1.4, -0.8, -1.1], [-0.3, -0.6, -0.2], [-0.9, -0.1, -0.5]]),
         np.linspace(0.2, 0.4, 9).reshape(3, 3),
         lambda bx, by: (jnp.full_like(bx, 1.2), jnp.full_like(by, -0.8)),
@@ -25,8 +25,17 @@ def _problem(dtype="float64", **kwargs):
     )
 
 
-def test_operator_fit_matches_full_coupled_dense_solution_at_fixed_strengths():
-    problem = _problem()
+@pytest.mark.parametrize(
+    "interpolation, boundary",
+    [
+        ("bilinear", "hard_zero_outside_bbox"),
+        ("cubic_hermite", "C1_cardinal_bicubic_fixed_zero_exterior_nodes"),
+    ],
+)
+def test_operator_fit_matches_full_coupled_dense_solution_at_fixed_strengths(
+    interpolation, boundary
+):
+    problem = _problem(source_interpolation=interpolation)
     dense = problem.fit(1.3, 0.3)
     fitted = problem.fit(
         1.3,
@@ -36,7 +45,12 @@ def test_operator_fit_matches_full_coupled_dense_solution_at_fixed_strengths():
         pcg_rtol=1e-11,
     )
 
-    assert fitted.success, fitted.failure_reason
+    for fit in (dense, fitted):
+        assert fit.success, fit.failure_reason
+        assert fit.configuration["source_interpolation"] == interpolation
+        assert fit.configuration["source_boundary"] == boundary
+        assert fit.configuration["gradient_policy"] == "frozen_source_gradient_callback"
+        np.testing.assert_array_equal(fit.source_bbox, problem.renderer.source_bbox)
     assert fitted.backend == "operator"
     assert fitted.determinant_method == "principal_block_cholesky"
     assert fitted.evidence_method == "conditional_linear_gaussian"

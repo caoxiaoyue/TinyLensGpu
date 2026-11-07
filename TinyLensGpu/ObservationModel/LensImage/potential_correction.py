@@ -97,8 +97,10 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
     source_gradient : callable
         Provider ``gradient(beta_x, beta_y) -> (gx, gy)`` at
         macro image-subpixel rays. Evaluated once and frozen for this problem.
-        Gradients outside the fixed source box are zero. No truth intensity
-        is fixed: the full signed source brightness is solved along with p.
+        The bilinear callback is masked outside the fitted source box.
+        Hermite uses callback values strictly inside its extended support and
+        zeros them at and beyond the outer edge. The fit solves the signed
+        source brightness and potential together.
     lambda_amplitude : float
         Explicit positive independent potential amplitude precision, fixed
         for all evaluations. It is never adjusted to rescue factorization.
@@ -161,8 +163,9 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
                 )
             if not bool(jnp.all(jnp.isfinite(gx)) & jnp.all(jnp.isfinite(gy))):
                 raise ValueError("Initial source gradients must be finite")
-            self.gradient_x = jnp.where(self.mapping.valid, gx, 0)
-            self.gradient_y = jnp.where(self.mapping.valid, gy, 0)
+            gradient_mask = renderer._frozen_source_gradient_mask(self.mapping)
+            self.gradient_x = jnp.where(gradient_mask, gx, 0)
+            self.gradient_y = jnp.where(gradient_mask, gy, 0)
             self.noise_logdet = 2 * jnp.sum(jnp.log(self.noise_active))
         self.initialization_provenance = {
             "gradient_coordinates": "fixed_macro_image_subpixel_rays",
@@ -171,6 +174,7 @@ class SingleStepPotentialCorrection(_PotentialCorrectionProblem):
             ),
             "potential_linearization": "zero_potential",
             **dict(initialization_provenance or {}),
+            "gradient_policy": "frozen_source_gradient_callback",
         }
         self._dense_design = None
         self._dense_source_prior = None

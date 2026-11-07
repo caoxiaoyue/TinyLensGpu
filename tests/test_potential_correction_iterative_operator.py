@@ -8,11 +8,36 @@ import pytest
 from tests.test_potential_correction_iterative import _coupled_problem, _renderer
 
 
-def test_operator_iteration_matches_dense_coupled_fields_images_and_objective():
-    problem = _coupled_problem()
+@pytest.mark.parametrize(
+    "interpolation, boundary, gradient_policy",
+    [
+        ("bilinear", "hard_zero_outside_bbox", "current_analytic_bilinear_branch"),
+        (
+            "cubic_hermite",
+            "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+            "current_analytic_cubic_hermite",
+        ),
+    ],
+)
+def test_operator_iteration_matches_dense_coupled_fields_images_and_objective(
+    interpolation, boundary, gradient_policy
+):
+    problem = _coupled_problem(source_interpolation=interpolation)
     dense = problem.fit(0.3, 0.02)
     result = problem.fit(0.3, 0.02, backend="operator", block_size=7, pcg_rtol=1e-12)
-    assert dense.success and result.success, result.termination_reason
+    for fit in (dense, result):
+        assert fit.success, fit.termination_reason
+        assert fit.configuration["source_interpolation"] == interpolation
+        assert fit.configuration["source_boundary"] == boundary
+        assert fit.configuration["gradient_policy"] == gradient_policy
+        assert fit.initialization_provenance["gradient_policy"] == gradient_policy
+        np.testing.assert_array_equal(fit.source_bbox, problem.renderer.source_bbox)
+        accepted = [item for item in fit.history if item["accepted"]]
+        assert len(accepted) > 1
+        assert all(
+            item["objective_after"] < item["objective_before"] for item in accepted
+        )
+        assert all(item["solver_info"]["relative_residual"] < 1e-8 for item in accepted)
     assert result.algorithm == "iterative" and result.backend == "operator"
     assert result.solver_info.method == "pcg"
     assert result.evidence_method == "local_gauss_newton"
@@ -34,10 +59,6 @@ def test_operator_iteration_matches_dense_coupled_fields_images_and_objective():
             atol=2e-8,
             rtol=2e-7,
         )
-    accepted = [item for item in result.history if item["accepted"]]
-    assert len(accepted) > 1
-    assert all(item["objective_after"] < item["objective_before"] for item in accepted)
-    assert all(item["solver_info"]["relative_residual"] < 1e-8 for item in accepted)
     assert np.linalg.norm(result.potential_values) > 1e-4
     assert np.linalg.norm(result.source_values - problem.initial_values[:4]) > 1e-3
 

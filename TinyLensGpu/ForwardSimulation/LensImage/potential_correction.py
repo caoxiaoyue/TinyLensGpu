@@ -20,9 +20,12 @@ from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
     _psf_convolve_full_jit,
 )
 from TinyLensGpu.utils.lensing.mapping import (
-    bilinear_source_spatial_gradient,
+    _hermite_axis_support,
     build_source_grid,
-    lens_mapping_operator_bilinear_from,
+    lens_mapping_operator_from,
+    source_boundary_for_interpolation,
+    source_spatial_gradient as evaluate_source_spatial_gradient,
+    validate_source_interpolation,
 )
 from TinyLensGpu.utils.lensing.potential import PotentialGrid
 
@@ -35,7 +38,7 @@ class MacroMapping(NamedTuple):
 
 
 class SourceMapping(NamedTuple):
-    """Current corrected rays and the established sparse source interpolation."""
+    """Current corrected rays, sparse source weights, and geometric support."""
 
     weights: Array
     indices: Array
@@ -95,6 +98,9 @@ class PotentialCorrectionRenderer:
         Explicit numerical precision. Calls use a scoped precision context;
         process defaults outside the call are unchanged. Caller-created input
         coordinates retain their original sampling precision when promoted.
+    source_interpolation : {"bilinear", "cubic_hermite"}
+        Fixed source interpolation, default "bilinear". Hermite uses the same
+        fitted grid with two spacings of support beyond each side.
     """
 
     def __init__(
@@ -107,7 +113,11 @@ class PotentialCorrectionRenderer:
         potential_spacing=None,
         potential_grid=None,
         dtype="float64",
+        source_interpolation="bilinear",
     ):
+        self._source_interpolation = validate_source_interpolation(
+            source_interpolation
+        )
         if dtype not in ("float32", "float64", jnp.float32, jnp.float64):
             raise ValueError("dtype must be float32 or float64")
         self.dtype = jnp.dtype(dtype)
@@ -227,6 +237,16 @@ class PotentialCorrectionRenderer:
             self.potential_grid = potential_grid
             self.macro_mapping = self.prepare_macro()
 
+    @property
+    def source_interpolation(self) -> str:
+        """Interpolation selected at construction."""
+        return getattr(self, "_source_interpolation", "bilinear")
+
+    @property
+    def source_boundary(self) -> str:
+        """Boundary convention for the selected interpolant."""
+        return source_boundary_for_interpolation(self.source_interpolation)
+
     def prepare_macro(self, macro_model=None) -> MacroMapping:
         """Rebuild macro-dependent rays without rebuilding fixed geometry.
 
@@ -260,12 +280,26 @@ class PotentialCorrectionRenderer:
             if potential_values is not None:
                 ax, ay = self.potential_grid.deflection(potential_values)
                 bx, by = bx - ax, by - ay
-            weights, indices, valid = lens_mapping_operator_bilinear_from(
+            weights, indices, valid = lens_mapping_operator_from(
                 jnp.stack((bx, by), axis=1),
                 *self.source_bbox,
                 self.source_n,
+                interpolation=self.source_interpolation,
             )
             return SourceMapping(weights, indices, valid, bx, by)
+
+    def _frozen_source_gradient_mask(self, mapping):
+        """Domain of a caller-supplied gradient evaluated on macro rays."""
+        if self.source_interpolation == "cubic_hermite":
+            xmin, xmax, ymin, ymax = self.source_bbox
+            _, _, inside_x = _hermite_axis_support(
+                mapping.beta_x, xmin, xmax, self.source_n
+            )
+            _, _, inside_y = _hermite_axis_support(
+                mapping.beta_y, ymin, ymax, self.source_n
+            )
+            return inside_x & inside_y
+        return mapping.valid
 
     def _source_values(self, source_values):
         values = jnp.asarray(source_values, dtype=self.dtype)
@@ -274,18 +308,19 @@ class PotentialCorrectionRenderer:
         return values
 
     def source_spatial_gradient(self, source_values, mapping=None):
-        """Current bilinear spatial derivatives at the supplied corrected rays.
+        """Spatial derivatives of the selected interpolant at corrected rays.
 
-        Uses exactly the brightness cells, clipping and out-of-bounds branches.
+        Uses the same cells and boundary convention as source brightness.
         The default mapping is the fixed macro mapping (zero potential).
         """
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             mapping = self.source_mapping() if mapping is None else mapping
-            return bilinear_source_spatial_gradient(
+            return evaluate_source_spatial_gradient(
                 self._source_values(source_values),
                 jnp.stack((mapping.beta_x, mapping.beta_y), axis=1),
                 *self.source_bbox,
                 self.source_n,
+                interpolation=self.source_interpolation,
             )
 
     def _source_image_full(self, source_values, mapping):
