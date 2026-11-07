@@ -5,7 +5,7 @@
 **Blocked by:** 01 — Fixed-strength dense L-BFGS-B fit.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,7 @@
 - [ ] The common exporter and reader round-trip the fitted fields, valid-domain metadata, strengths, evidence method, and `optimizer_info` with an empty `solver_info`. Numerical failure exports the available reason and diagnostics.
 - [ ] Existing single-step and GN/LM products still load through the shared reader, and their export regressions pass.
 - [ ] Example-suite checks exercise the matched run and persistence with regenerable inputs in a process separate from the library tests. The example configuration is reusable for ticket 05.
+
+## Comments
+
+Claimed by `codex/lbfgs-02-dense-mock` for integration into `codex/lbfgs-potential-correction`.
