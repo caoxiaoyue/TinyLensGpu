@@ -1,6 +1,8 @@
 """Basic operator pipelines retain sampling, cache and source-transfer contracts."""
 
 import importlib.util
+import pickle
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -73,6 +75,74 @@ def test_basic_sampling_and_cache_contract(
     restored = stage_from_payload(payload)
     np.testing.assert_array_equal(restored.samples, stage.samples)
     assert list(restored.param_names) == ["theta_E"]
+
+
+@pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
+def test_adaptive_pipeline_resumes_its_saved_source_model(
+    load_case, requested, tmp_path, monkeypatch,
+):
+    import jax.numpy as jnp
+
+    case = load_case("pipe/no_lens_light/model_adpt_reg.py")
+    for name, value in dict(
+        OUT_DIR=tmp_path, Sampler=_ControlledSampler, NSRC=3, NSUB=1,
+        NSUB_PIX=1, N_GAUSSIANS_SRC=2, DPIX=0.08,
+    ).items():
+        monkeypatch.setattr(case, name, value)
+    y, x = np.indices((8, 8))
+    image = 0.04 + 0.06 * np.exp(-((x - 5)**2 + (y - 3)**2) / 3)
+    noise, psf = np.full_like(image, 0.1), np.array([[1.0]])
+    mask = np.zeros_like(image, dtype=bool)
+    monkeypatch.setattr(case, "load_lens_data", lambda **kw: (image, noise, psf, None))
+    monkeypatch.setattr(case, "run_stage_b", lambda *a, **kw: mask)
+    monkeypatch.setattr(case, "_position_likelihood_from_stage_a", lambda *a: None)
+    monkeypatch.setattr(case, "plot_model_results", lambda *a, **kw: None)
+    reconstructions = {}
+
+    def reconstruct(tag, likelihood, medians, names, path):
+        result = likelihood.evaluate(jnp.asarray([medians[name] for name in names]))
+        assert result.solver_info.converged
+        reconstructions[tag] = (likelihood.source_model.interpolation, result)
+        Path(path).touch()
+
+    monkeypatch.setattr(case, "_plot_pix_stage", reconstruct)
+    case.main(source_interpolation=requested)
+    fresh = reconstructions.copy()
+    expected_mode = requested or "bilinear"
+    assert set(fresh) == {"stage-M0", "stage-M1", "stage-M2"}
+    assert all(mode == expected_mode for mode, _ in fresh.values())
+    for tag in ("a", "m0", "m1", "m2"):
+        path = tmp_path / f"stage_{tag}.pkl"
+        payload = pickle.loads(path.read_bytes())
+        assert "stage_schema" not in payload
+        records = [payload["extra"]]
+        if tag == "m0":
+            s0 = payload["extra"]["s0"]
+            records.append(s0)
+            np.testing.assert_allclose(s0["source_bbox"], fresh["stage-M2"][1].source_bbox)
+        for record in records:
+            assert record["source_interpolation"] == expected_mode
+            if requested is None:
+                record.pop("source_interpolation")
+                record.pop("source_boundary")
+        if requested is None:
+            path.write_bytes(pickle.dumps(payload))
+
+    checkpoint_bytes = {path: path.read_bytes() for path in tmp_path.glob("stage_*.pkl")}
+    for path in tmp_path.glob("stage_m*_model.png"):
+        path.unlink()
+    reconstructions.clear()
+    case.main(skip_done=True)
+    assert reconstructions.keys() == fresh.keys()
+    for tag, (mode, result) in reconstructions.items():
+        assert mode == expected_mode
+        np.testing.assert_allclose(result.model_image, fresh[tag][1].model_image, atol=1e-7)
+    assert all(path.read_bytes() == before for path, before in checkpoint_bytes.items())
+
+    conflicting = "bilinear" if requested else "cubic_hermite"
+    with pytest.raises(ValueError, match="Start a fresh run"):
+        case.main(skip_done=True, source_interpolation=conflicting)
+    assert all(path.read_bytes() == before for path, before in checkpoint_bytes.items())
 
 
 @pytest.mark.parametrize(
@@ -196,7 +266,10 @@ def test_adaptive_stage_a_writes_legacy_payload(load_case, tmp_path, monkeypatch
     assert _ControlledSampler.instances[-1].run_kwargs["n_eff"] == 2000
 
 
-def test_simple_fit_launch_and_legacy_artifacts(examples_dir, tmp_path, monkeypatch):
+@pytest.mark.parametrize("interpolation", [None, "cubic_hermite"])
+def test_simple_fit_launch_and_legacy_artifacts(
+    examples_dir, tmp_path, monkeypatch, interpolation,
+):
     import gzip
     import pickle
     import runpy
@@ -218,6 +291,10 @@ def test_simple_fit_launch_and_legacy_artifacts(examples_dir, tmp_path, monkeypa
         fits.writeto(data / (name + ".fits"), value)
     monkeypatch.setattr(nautilus, "Sampler", _ControlledSampler)
     monkeypatch.setattr(plt, "show", lambda: None)
+    if interpolation is None:
+        monkeypatch.delenv("TINYLENS_SOURCE_INTERPOLATION", raising=False)
+    else:
+        monkeypatch.setenv("TINYLENS_SOURCE_INTERPOLATION", interpolation)
     monkeypatch.chdir(tmp_path)
     namespace = runpy.run_path(str(script), run_name="__main__")
     assert isinstance(namespace["stage"], StagePosterior)
@@ -226,7 +303,16 @@ def test_simple_fit_launch_and_legacy_artifacts(examples_dir, tmp_path, monkeypa
     assert sampler.run_kwargs == {"n_eff": 800}
     with gzip.open(tmp_path / "output/fit_results.pkl.gz", "rb") as stream:
         payload = pickle.load(stream)
-    assert set(payload) == {"samples", "weights", "log_z", "param_names"}
+    assert set(payload) == {
+        "samples", "weights", "log_z", "param_names",
+        "source_interpolation", "source_boundary",
+    }
+    assert payload["source_interpolation"] == (interpolation or "bilinear")
+    assert namespace["prob_model"].source_model.interpolation == payload["source_interpolation"]
+    assert payload["source_boundary"] == (
+        "C1_cardinal_bicubic_fixed_zero_exterior_nodes"
+        if interpolation else "hard_zero_outside_bbox"
+    )
     assert len(payload["param_names"]) == 6
     assert payload["samples"].dtype == np.float64
     assert (tmp_path / "output/fit_map_visualization.png").stat().st_size > 0

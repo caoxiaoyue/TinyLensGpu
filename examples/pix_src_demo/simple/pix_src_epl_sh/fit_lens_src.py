@@ -37,6 +37,7 @@ from TinyLensGpu.example_support import (
     posterior_quantiles,
     run_sampling,
     require_valid_reconstruction,
+    source_interpolation_metadata,
 )
 from TinyLensGpu.utils import load_lens_data
 from TinyLensGpu.visualizer import overlay_critical_and_caustics
@@ -97,6 +98,7 @@ shear = Shear(
 
 # Pixelized source — lambda_reg sampled log-uniformly over [1e-3, 1e3]
 pix_src = PixelizedSourceModel(n=40,
+    interpolation=os.environ.get("TINYLENS_SOURCE_INTERPOLATION", "bilinear"),
     regularization_type="first-order",
     log_lambda_reg=ParamU("log_lambda_reg", 0.0,
                       prior_type="uniform", prior_settings=[jnp.log(1e-3), jnp.log(1e3)],
@@ -167,8 +169,16 @@ with open("output/fit_summary.csv", "w") as f:
         f.write(f"{name},{q50_list[i]:.6f},{q16_list[i]:.6f},{q84_list[i]:.6f}\n")
 
 with gzip.open("output/fit_results.pkl.gz", "wb") as f:
-    pickle.dump({"samples": samples, "weights": weights,
-                 "log_z": log_z, "param_names": param_names}, f)
+    pickle.dump(
+        {
+            "samples": samples,
+            "weights": weights,
+            "log_z": log_z,
+            "param_names": param_names,
+            **source_interpolation_metadata(pix_src.interpolation),
+        },
+        f,
+    )
 
 # ------------------------------------------------------------------ #
 # Visualization: MAP source reconstruction

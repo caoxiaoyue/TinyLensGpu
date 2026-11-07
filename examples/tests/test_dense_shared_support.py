@@ -94,16 +94,24 @@ def test_dense_stage_sampling_and_legacy_artifact(
     assert (tmp_path / "stage_a_model.png").exists()
 
 
-def test_dense_slacs_stage_transition_and_plot_data(examples_dir, tmp_path, monkeypatch):
+@pytest.mark.parametrize("interpolation", [None, "cubic_hermite"])
+def test_dense_slacs_stage_transition_and_plot_data(
+    examples_dir, tmp_path, monkeypatch, interpolation,
+):
     """A saved stage-A posterior feeds the actual pixelized M stage and figure."""
     module = import_pipeline(examples_dir / PIPELINES[0][0])
     configure(module, tmp_path, monkeypatch)
     monkeypatch.setattr(module, "NSUB_PIX", 1)
     monkeypatch.setattr(module, "NSRC", 3)
     image, noise, psf = small_data()
-    module.run_stage_a(image, noise, psf)
+    module.run_stage_a(image, noise, psf, source_interpolation=interpolation)
     payload_a = load_stage(StageStorageConfig(tmp_path, False), "a")
     recovered = stage_from_payload(payload_a)
+    feature_mask = np.zeros_like(image, dtype=bool)
+    feature_mask[3:5, 3:5] = True
+    *_, lens_light_model = module.run_stage_l(
+        image, noise, psf, feature_mask, source_interpolation=interpolation,
+    )
     recorded = []
     original_save = module.plt.savefig
 
@@ -114,14 +122,14 @@ def test_dense_slacs_stage_transition_and_plot_data(examples_dir, tmp_path, monk
 
     monkeypatch.setattr(module.plt, "savefig", save_figure)
     samples, weights, names, medians = module.run_stage_m(
-        image, noise, psf, np.zeros_like(image, dtype=bool),
-        payload_a["extra"]["lens_light_model"],
+        image, noise, psf, feature_mask, lens_light_model,
         recovered.samples, recovered.weights, recovered.param_names, None,
+        source_interpolation=interpolation,
     )
     assert ControlledSampler.instances[-1].kwargs == dict(n_live=300, vectorized=False)
     likelihood = module.build_stage_m_likelihood(
-        image - payload_a["extra"]["lens_light_model"], noise, psf,
-        np.zeros_like(image, dtype=bool), recovered, None,
+        image - lens_light_model, noise, psf, feature_mask, recovered, None,
+        source_interpolation=interpolation,
     )
     import jax.numpy as jnp
     inversion, diagnostics = likelihood.evaluate_with_diagnostics(
@@ -130,14 +138,35 @@ def test_dense_slacs_stage_transition_and_plot_data(examples_dir, tmp_path, monk
     assert diagnostics.valid
     assert len(recorded[-1]) == 4
     np.testing.assert_allclose(recorded[-1][1], inversion.model_image, rtol=1e-5, atol=1e-6)
-    np.testing.assert_allclose(recorded[-1][2], diagnostics.normalized_residuals,
-                               rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(
+        recorded[-1][2][~feature_mask],
+        np.asarray(diagnostics.normalized_residuals)[~feature_mask],
+        rtol=1e-5, atol=1e-6,
+    )
     np.testing.assert_allclose(recorded[-1][3], np.asarray(inversion.source_pixels).reshape(3, 3),
                                rtol=1e-5, atol=1e-6)
     payload_m = load_stage(StageStorageConfig(tmp_path, False), "m")
     assert set(payload_m) == {"samples", "weights", "param_names", "log_z", "extra"}
+    mode = interpolation or "bilinear"
+    assert likelihood.source_model.interpolation == mode
+    assert payload_a["extra"]["source_interpolation"] == mode
+    assert payload_m["extra"]["source_interpolation"] == mode
     np.testing.assert_array_equal(payload_m["samples"], samples)
-    assert (tmp_path / "stage_m_model.png").exists()
+    plot = tmp_path / "stage_m_model.png"
+    assert plot.exists()
+
+    monkeypatch.setattr(module, "load_lens_data", lambda **kwargs: (image, noise, psf, None))
+    monkeypatch.setattr(module, "run_stage_b", lambda *args, **kwargs: feature_mask)
+    monkeypatch.setattr(module, "_position_likelihood_from_stage_a", lambda *args: None)
+    stage_path = tmp_path / "stage_m.pkl"
+    original = stage_path.read_bytes()
+    sampler_count = len(ControlledSampler.instances)
+    plot.unlink()
+    module.main(skip_done=True)
+    assert plot.exists()
+    assert len(ControlledSampler.instances) == sampler_count
+    assert stage_path.read_bytes() == original
+    np.testing.assert_allclose(recorded[-1][1], inversion.model_image, rtol=1e-5, atol=1e-6)
 
 
 def test_dense_simple_script_artifacts(examples_dir, tmp_path, monkeypatch):
@@ -160,6 +189,7 @@ def test_dense_simple_script_artifacts(examples_dir, tmp_path, monkeypatch):
         fits.writeto(data_dir / f"{name}.fits", array)
     monkeypatch.setattr(nautilus, "Sampler", ControlledSampler)
     monkeypatch.setattr(plt, "show", lambda: None)
+    monkeypatch.delenv("TINYLENS_SOURCE_INTERPOLATION", raising=False)
     previous_cwd = Path.cwd()
     try:
         namespace = runpy.run_path(str(script), run_name="__main__")
@@ -174,7 +204,12 @@ def test_dense_simple_script_artifacts(examples_dir, tmp_path, monkeypatch):
     assert sampler.n_eff == 800
     with gzip.open(tmp_path / "output/fit_results.pkl.gz", "rb") as stream:
         payload = pickle.load(stream)
-    assert set(payload) == {"samples", "weights", "log_z", "param_names"}
+    assert set(payload) == {
+        "samples", "weights", "log_z", "param_names",
+        "source_interpolation", "source_boundary",
+    }
+    assert payload["source_interpolation"] == "bilinear"
+    assert payload["source_boundary"] == "hard_zero_outside_bbox"
     assert payload["param_names"] == stage.param_names
     np.testing.assert_array_equal(payload["samples"], stage.samples)
     np.testing.assert_array_equal(payload["weights"], stage.weights)

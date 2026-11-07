@@ -392,6 +392,10 @@ fitted grid and recomputes its evidence using the new run's selected
 interpolation. Current validation covers fixed-parameter reconstructions
 and gradient consistency.
 
+The other staged pixelized demos accept the same `--source-interpolation`
+option. In the basic fit and inversion scripts, select the mode with
+`TINYLENS_SOURCE_INTERPOLATION=cubic_hermite`.
+
 Pass sampling choices explicitly. For a case using 300 live points, batches of
 100 and vectorized likelihood evaluation, the adapter is:
 
