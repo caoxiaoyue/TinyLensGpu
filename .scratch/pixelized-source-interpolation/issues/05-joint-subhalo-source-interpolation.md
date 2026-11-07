@@ -5,7 +5,7 @@
 **Blocked by:** 03 — Save and resume a staged fit with its source interpolation.
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -19,3 +19,5 @@ B1938+666 is outside the implementation and acceptance scope. In shared example 
 ## Comments
 
 Scope clarified on 2026-11-07. This ticket covers the maintained joint examples and J0946. This clarification supersedes the earlier reference to B1938.
+
+Claimed for implementation on `codex/psi-05-joint-j0946`.
