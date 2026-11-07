@@ -40,22 +40,48 @@ def _configuration():
     }
 
 
-def test_matched_dense_mock_round_trips_fields_and_qualification(tmp_path):
+def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
     from examples.potential_correction.lbfgs_mock import run_lbfgs_mock
     from examples.potential_correction.result_products import load_result
 
     config = _configuration()
+    config["backends"] = ["dense", "operator"]
+    config["operator_options"] = {"block_size": 16, "pcg_max_iter": 1200}
     run = run_lbfgs_mock(config, output=tmp_path)
 
     assert run.record["success"]
-    assert set(run.results) == {"subhalo/dense", "control/dense"}
+    assert set(run.results) == {
+        "subhalo/dense",
+        "control/dense",
+        "subhalo/operator",
+        "control/operator",
+    }
     assert json.loads((tmp_path / "configuration.json").read_text()) == config
     for key, result in run.results.items():
         output = tmp_path / key
         record = json.loads((output / "result.json").read_text())
         assert record["algorithm"] == "lbfgs"
         assert record["evidence_method"] == "local_gauss_newton"
-        assert record["determinant_method"] == "full_data_space"
+        if result.backend == "dense":
+            assert record["determinant_method"] == "full_data_space"
+        else:
+            assert record["determinant_method"] == "principal_block_cholesky"
+            certificate = record["optimizer_info"]["diagnostics"]["stationarity_solver"]
+            assert certificate["converged"]
+            assert (
+                certificate["true_residual_norm"]
+                <= certificate["true_residual_threshold"]
+            )
+            controls = record["result_configuration"]
+            assert controls["block_size"] == 16
+            assert controls["pcg_max_iter"] == 1200
+            assert max(map(len, controls["block_indices"])) <= controls["block_size"]
+            indices = sorted(
+                index for block in controls["block_indices"] for index in block
+            )
+            assert indices == list(
+                range(controls["n_source"] + controls["n_potential"])
+            )
         assert record["evidence_image"] == "nonlinear_model_image"
         assert record["evidence_is_exact"] is False
         assert record["solver_info"] is None
@@ -129,6 +155,48 @@ def test_matched_dense_mock_round_trips_fields_and_qualification(tmp_path):
         )
         assert np.all(
             control["truth_discrete_convergence"][control["derivative_valid"]] == 0
+        )
+
+    comparisons = json.loads((tmp_path / "run.json").read_text())["comparisons"]
+    for case in ("subhalo", "control"):
+        dense = load_result(tmp_path / case / "dense")
+        operator = load_result(tmp_path / case / "operator")
+        comparison = comparisons[case]
+        assert comparison["both_successful"]
+        assert comparison["same_strengths"]
+        assert comparison["determinant_methods"] == [
+            "full_data_space",
+            "principal_block_cholesky",
+        ]
+        np.testing.assert_allclose(
+            dense.optimizer_info.initial_objective,
+            operator.optimizer_info.initial_objective,
+            rtol=1e-12,
+        )
+        np.testing.assert_array_equal(dense.data_active, operator.data_active)
+        np.testing.assert_array_equal(dense.noise_active, operator.noise_active)
+        np.testing.assert_array_equal(dense.derivative_valid, operator.derivative_valid)
+        valid = np.asarray(dense.derivative_valid)
+        delta_kappa = (
+            np.asarray(operator.convergence)[valid]
+            - np.asarray(dense.convergence)[valid]
+        )
+        np.testing.assert_allclose(
+            comparison["field_differences"]["convergence"]["max_absolute_difference"],
+            np.max(np.abs(delta_kappa)),
+        )
+        delta_image = (
+            np.asarray(operator.nonlinear_image_active)
+            - np.asarray(dense.nonlinear_image_active)
+        ) / np.asarray(dense.noise_active)
+        np.testing.assert_allclose(
+            comparison["nonlinear_image_rms_difference_noise"],
+            np.sqrt(np.mean(delta_image**2)),
+        )
+        assert comparison["reference_inference_objective"] == float(dense.objective)
+        assert comparison["candidate_inference_objective"] == float(operator.objective)
+        assert comparison["candidate_minus_reference_log_evidence"] == (
+            float(operator.log_evidence) - float(dense.log_evidence)
         )
 
 
