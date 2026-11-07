@@ -70,9 +70,11 @@ def test_potential_deflection_and_transpose_satisfy_inner_product_contract():
     np.testing.assert_allclose(lhs, rhs, rtol=2e-14, atol=3e-14)
 
 
+@pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
 @pytest.mark.parametrize("nsub", [1, 3])
-def test_zero_correction_preserves_existing_pixelized_imaging(nsub):
+def test_zero_correction_preserves_existing_pixelized_imaging(nsub, interpolation):
     from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
+    from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
     from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
         PixelizedLensOperator,
     )
@@ -81,6 +83,7 @@ def test_zero_correction_preserves_existing_pixelized_imaging(nsub):
     )
     from TinyLensGpu.PhysicalModel import PhysicalModel, Shear, PixelizedSourceModel
 
+    mode = interpolation or "bilinear"
     with jax.experimental.enable_x64():
         mask = np.ones((7, 7), dtype=bool)
         mask[1:6, 1:6] = False
@@ -93,20 +96,28 @@ def test_zero_correction_preserves_existing_pixelized_imaging(nsub):
         )
         physical = PhysicalModel(
             lens_mass=macro.lens_mass,
-            source_light=[PixelizedSourceModel(5)],
+            source_light=[PixelizedSourceModel(5, interpolation=mode)],
             lens_light=[],
         )
-        original = PixelizedLensOperator(physical, config)
+        original = PixelizedLensSimulator(physical, config)
         source = jnp.asarray(np.random.default_rng(7).normal(size=25))
-        bbox = (-0.6, 0.6, -0.6, 0.6)
-        expected = original.forward_model(source, *bbox)
-        renderer = PotentialCorrectionRenderer(macro, config, 5, bbox, dtype="float64")
+        bbox = (-0.18, 0.18, -0.18, 0.18)
+        design, _ = original.design_matrix(source_bbox=bbox)
+        expected = design @ source
+        if mode == "bilinear":
+            operator = PixelizedLensOperator(physical, config)
+            np.testing.assert_allclose(
+                operator.forward_model(source, *bbox), expected, rtol=2e-13, atol=1e-14
+            )
+        kwargs = {} if interpolation is None else {"source_interpolation": mode}
+        renderer = PotentialCorrectionRenderer(macro, config, 5, bbox, **kwargs)
         result = renderer.render(source, jnp.zeros(renderer.potential_grid.n_unknown))
 
     np.testing.assert_allclose(result.image_active, expected, rtol=2e-13, atol=1e-14)
     np.testing.assert_allclose(
         np.asarray(result.model_image)[~mask], expected, rtol=2e-13, atol=1e-14
     )
+    assert renderer.source_interpolation == mode
     assert result.image_active.shape == (np.count_nonzero(~mask),)
     assert renderer.potential_grid.spacing == pytest.approx(0.2)
     assert np.isnan(
@@ -115,7 +126,10 @@ def test_zero_correction_preserves_existing_pixelized_imaging(nsub):
 
 
 @pytest.mark.parametrize("field", ["source", "subpixel_image"])
-def test_corrected_source_and_imaging_actions_have_exact_transposes(field):
+@pytest.mark.parametrize("interpolation", ["bilinear", "cubic_hermite"])
+def test_corrected_source_and_imaging_actions_have_exact_transposes(
+    field, interpolation
+):
     from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
     from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import (
         PotentialCorrectionRenderer,
@@ -131,7 +145,10 @@ def test_corrected_source_and_imaging_actions_have_exact_transposes(field):
         macro = PhysicalModel(
             lens_mass=[Shear(gamma1=0.0, gamma2=0.0)], source_light=[], lens_light=[]
         )
-        renderer = PotentialCorrectionRenderer(macro, config, 4, (-0.5, 0.5, -0.5, 0.5))
+        renderer = PotentialCorrectionRenderer(
+            macro, config, 4, (-0.13, 0.13, -0.13, 0.13),
+            source_interpolation=interpolation,
+        )
         p = 0.003 * renderer.potential_grid.x**2
         mapping = renderer.source_mapping(p)
         y = jnp.asarray(rng.normal(size=renderer.n_active))

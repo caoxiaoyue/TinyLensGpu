@@ -8,7 +8,7 @@ import pytest
 from TinyLensGpu.utils.lensing.potential import PotentialGrid
 
 
-def _small_renderer(*, dtype="float64", nsub=1):
+def _small_renderer(*, dtype="float64", nsub=1, source_interpolation="bilinear"):
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
         SimulatorConfig,
@@ -26,7 +26,16 @@ def _small_renderer(*, dtype="float64", nsub=1):
             2,
             (-0.3, 0.3, -0.3, 0.3),
             dtype=dtype,
+            source_interpolation=source_interpolation,
         )
+
+
+def test_renderer_interpolation_is_validated_and_fixed():
+    with pytest.raises(ValueError, match="source interpolation"):
+        _small_renderer(source_interpolation="cubic")
+    renderer = _small_renderer(source_interpolation="cubic_hermite")
+    with pytest.raises(AttributeError):
+        renderer.source_interpolation = "bilinear"
 
 
 def _independent_design_and_prior(
@@ -183,6 +192,68 @@ def test_public_dense_fit_is_coupled_signed_and_has_normalized_gaussian_evidence
         )
         > 1e-3
     )
+
+
+@pytest.mark.parametrize(
+    "interpolation, expected_support",
+    [
+        ("bilinear", [True, False, False, False, False, True, False, False, False]),
+        ("cubic_hermite", [True, True, True, False, False, True, True, False, False]),
+    ],
+)
+def test_single_step_uses_frozen_callback_inside_selected_support(
+    interpolation, expected_support
+):
+    from TinyLensGpu.ForwardSimulation import (
+        PotentialCorrectionRenderer,
+        SimulatorConfig,
+    )
+    from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import (
+        MacroMapping,
+    )
+    from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
+    from TinyLensGpu.PhysicalModel import PhysicalModel, Shear
+
+    with jax.experimental.enable_x64():
+        renderer = PotentialCorrectionRenderer(
+            PhysicalModel(
+                lens_mass=[Shear(gamma1=0.0, gamma2=0.0)],
+                source_light=[],
+                lens_light=[],
+            ),
+            SimulatorConfig(0.1, 3, jnp.ones((1, 1))),
+            3,
+            (0.0, 1.0, 0.0, 1.0),
+            source_interpolation=interpolation,
+        )
+        # Hermite's first virtual line is x=-0.5. Its outer edges are -1 and 2.
+        bx = jnp.array([0.25, -0.25, -0.5, -1.0, -1.01, 1.0, 1.25, 2.0, 2.01])
+        by = jnp.full_like(bx, 0.5)
+        calls = []
+
+        def gradient(x, y):
+            calls.append((x, y))
+            return 3 + x, -2 + y
+
+        problem = SingleStepPotentialCorrection(
+            renderer,
+            np.zeros((3, 3)),
+            np.ones((3, 3)),
+            gradient,
+            lambda_amplitude=1.0,
+            macro_mapping=MacroMapping(bx, by),
+        )
+        grid = renderer.potential_grid
+        potential = 2 * grid.x - 3 * grid.y
+        joint = jnp.concatenate((jnp.zeros(renderer.n_source), potential))
+        image = problem.forward(joint)
+        problem.forward(2 * joint)
+
+    assert len(calls) == 1
+    np.testing.assert_array_equal(calls[0], (bx, by))
+    bx, by = np.asarray(bx), np.asarray(by)
+    expected = np.where(expected_support, -2 * (3 + bx) + 3 * (-2 + by), 0)
+    np.testing.assert_allclose(image, expected, atol=1e-13, rtol=1e-13)
 
 
 def test_frozen_response_has_lens_equation_sign_and_quadratic_linearization_error():
