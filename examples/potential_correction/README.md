@@ -493,12 +493,13 @@ globally weak prior or broad robustness, detection, mass intervals or performanc
 
 Run the matched Pseudo-Jaffe injection and no-subhalo control from the repository
 root. The driver uses the same noise draw, mask, PSF, fixed SIS plus shear macro,
-geometry, and prior strengths for both observations.
+geometry, and prior strengths for both observations. Choose a new output
+directory for each run.
 
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
-XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg \
-  python -m examples.potential_correction.lbfgs_mock \
+JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 \
+  NVIDIA_TF32_OVERRIDE=0 MPLBACKEND=Agg python -m examples.potential_correction.lbfgs_mock \
   --backend both --output output/potential_correction_lbfgs_mock
 ```
 
@@ -521,18 +522,20 @@ image pixels.
 
 | Observation | Backend | Objective | Local GN log evidence | Convergence RMSE vs discrete truth | Positive convergence peak | Residual RMS / noise |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Injection | Dense | 175.20734 | 1239.17316 | 0.05137 | 0.26035 | 0.72976 |
-| Injection | Operator | 175.20734 | 1152.05306 | 0.05137 | 0.26035 | 0.72976 |
-| Control | Dense | 156.24661 | 1261.08347 | 0.03568 | 0.09435 | 0.70969 |
-| Control | Operator | 156.24661 | 1177.98929 | 0.03568 | 0.09435 | 0.70969 |
+| Injection | Dense | 175.20734 | 1239.17317 | 0.05137 | 0.26035 | 0.72976 |
+| Injection | Operator | 175.20734 | 1152.05308 | 0.05137 | 0.26035 | 0.72976 |
+| Control | Dense | 156.24661 | 1261.08349 | 0.03568 | 0.09435 | 0.70969 |
+| Control | Operator | 156.24661 | 1177.98926 | 0.03568 | 0.09435 | 0.70969 |
 
-The largest backend difference in convergence is `2.09e-7` for the injection
-and `3.51e-7` for the control over the full valid fields. The objective
-differences were below `2e-11`. The nonlinear images differ by `2.89e-7` and
-`3.72e-7` noise units RMS on the selected pixels. Both recover the injection
-peak at `(0.75, 0.15)` arcsec, 0.05 arcsec from the injected position, and the control peak at `(-1.05, 0.6)` arcsec. Operator endpoint
-PCG took 341 and 349 iterations, with true residuals of `2.17e-13` and
-`2.09e-13` against thresholds of `2.17e-11` and `2.16e-11`, respectively.
+The largest backend difference in convergence is `1.81e-7` for the injection
+and `2.34e-7` for the control over the full valid fields. The objective
+differences were below `3e-11`. The nonlinear images differ by `3.24e-7` and
+`2.42e-7` noise units RMS on the selected pixels. Both recover the injection
+peak at `(0.75, 0.15)` arcsec, 0.05 arcsec from the injected position, and the
+control peak at `(-1.05, 0.6)` arcsec. Operator endpoint PCG took 340 and 349
+iterations, with true residuals of `1.78e-13` and `7.79e-14` against thresholds
+of `1.92e-11` and `9.96e-12`, respectively.
+[Retained comparison](../../.scratch/lbfgs-potential-correction/output/mock-comparison-final/run.json)
 
 The output contains reusable `configuration.json` and per-run summaries and
 backend differences in `run.json`. Load any successful result directory

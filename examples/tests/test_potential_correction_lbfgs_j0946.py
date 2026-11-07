@@ -41,6 +41,10 @@ def small_dense_refit():
         PotentialCorrectionStrengths,
     )
     from TinyLensGpu.PhysicalModel import PhysicalModel, Shear
+    from examples.potential_correction.validate_j0946_lbfgs import (
+        _fit_record,
+        _result_convergence_fields,
+    )
 
     macro = PhysicalModel(
         lens_mass=[Shear(gamma1=0.0, gamma2=0.0)],
@@ -59,7 +63,7 @@ def small_dense_refit():
     )
     refit = fitter.fit(PotentialCorrectionStrengths(0.1, 0.2, 1.0))
     assert refit.success, refit.failure_reason
-    return refit
+    return _fit_record(refit), _result_convergence_fields(refit)
 
 
 @pytest.mark.parametrize("offset, passed", [(-8e-5, True), (-2e-4, False)])
@@ -71,20 +75,13 @@ def test_j0946_compares_nonpeak_convergence_on_the_full_valid_domain(
         compare_dense_to_trial,
     )
 
-    fit = small_dense_refit
-    grid = fit.potential_grid
-    valid = np.asarray(fit.derivative_valid)
-    convergence = np.array(fit.convergence)
+    fit, fields = small_dense_refit
+    valid = fields["derivative_valid"]
+    convergence = fields["convergence"].copy()
     convergence[np.flatnonzero(valid)[-1]] += offset
-    trial_fields = {
-        "potential_node_indices": np.asarray(grid.node_indices),
-        "potential_x": np.asarray(grid.x),
-        "potential_y": np.asarray(grid.y),
-        "derivative_valid": valid,
-        "convergence": convergence,
-    }
-    trial = {"objective": 0.0002, "log_evidence": float(fit.log_evidence) + 0.005}
-    report = compare_dense_to_trial(fit, trial, trial_fields)
+    trial_fields = {**fields, "convergence": convergence}
+    trial = {"objective": 0.0002, "log_evidence": float(fit["log_evidence"]) + 0.005}
+    report = compare_dense_to_trial(fit, fields, trial, trial_fields)
     assert report["passed"] is passed
     assert report["absolute_differences"]["objective"] == pytest.approx(0.0002)
     assert report["absolute_differences"]["log_evidence"] == pytest.approx(0.005)
@@ -94,27 +91,22 @@ def test_j0946_compares_nonpeak_convergence_on_the_full_valid_domain(
 
 @pytest.mark.parametrize("field", ["potential_node_indices", "derivative_valid"])
 def test_j0946_rejects_an_unmatched_comparison_domain(small_dense_refit, field):
-    import numpy as np
     from examples.potential_correction.validate_j0946_lbfgs import (
         compare_dense_to_trial,
     )
 
-    fit = small_dense_refit
-    grid = fit.potential_grid
-    trial_fields = {
-        "potential_node_indices": np.array(grid.node_indices),
-        "potential_x": np.asarray(grid.x),
-        "potential_y": np.asarray(grid.y),
-        "derivative_valid": np.array(fit.derivative_valid),
-        "convergence": np.asarray(fit.convergence),
-    }
+    fit, fields = small_dense_refit
+    trial_fields = {**fields, field: fields[field].copy()}
     if field == "derivative_valid":
         trial_fields[field][0] = ~trial_fields[field][0]
     else:
         trial_fields[field][0, 0] += 1
-    trial = {"objective": float(fit.objective), "log_evidence": float(fit.log_evidence)}
+    trial = {
+        "objective": float(fit["objective"]),
+        "log_evidence": float(fit["log_evidence"]),
+    }
     with pytest.raises(ValueError, match=field):
-        compare_dense_to_trial(fit, trial, trial_fields)
+        compare_dense_to_trial(fit, fields, trial, trial_fields)
 
 
 def test_j0946_operator_requires_a_retained_dense_reference(tmp_path, capsys):

@@ -14,7 +14,8 @@ regression from `benchmarks/`.
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 cd benchmarks
-export JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1
+export JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false
+export OPENBLAS_NUM_THREADS=1 NVIDIA_TF32_OVERRIDE=0
 python lbfgs_operator_resources.py
 pytest -q test_lbfgs_operator_resources.py
 ```
@@ -29,22 +30,21 @@ shape and location. The successful fit must execute L-BFGS-B and endpoint PCG, r
 principal-block evidence, and expose bounded principal blocks in the compiled shapes.
 
 The RTX 5080 run inspected 196 compiled modules. It observed the `(273, 32, 32)` block
-stack and found zero prohibited shapes. The fit took 308 L-BFGS-B iterations and 47 PCG
-iterations. The recomputed residual was `2.44e-13` against a threshold of `4.11e-11`,
-with GN stationarity `7.99e-12` and local GN log evidence `84.770526`. [Retained
-resource
-record](../../.scratch/lbfgs-potential-correction/output/operator-resource-benchmark.json)
+stack and found zero prohibited shapes. The fit took 310 L-BFGS-B iterations and 47 PCG
+iterations. The recomputed residual was `1.48e-13` against a threshold of `1.61e-11`,
+with GN stationarity `2.37e-12` and local GN log evidence `84.770524`.
+[Retained resource record](../../.scratch/lbfgs-potential-correction/output/operator-resource-benchmark-final.json)
 
 | Stage | Seconds |
 | --- | ---: |
-| Preparation | 1.932 |
-| Fixed reference | 0.534 |
-| Initial objective | 0.184 |
+| Preparation | 1.914 |
+| Fixed reference | 0.538 |
+| Initial objective | 0.191 |
 | Whitening | 0.239 |
-| Optimizer | 0.852 |
-| Endpoint | 1.426 |
-| Result products | 0.972 |
-| Cold fit including compilation | 4.215 |
+| Optimizer | 0.853 |
+| Endpoint | 1.465 |
+| Result products | 0.966 |
+| Cold fit including compilation | 4.261 |
 
 The peak JAX allocator use was 26,216,704 bytes. Measurements include HLO capture
 overhead and used JAX 0.7.1, SciPy 1.17.1, and NumPy 2.4.6 with GPU preallocation

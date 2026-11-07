@@ -118,8 +118,11 @@ class _OperatorLBFGSBackend:
         def curvature(values, data, _spec):
             linearization, strengths = data
             image = problem._jacobian_forward(values, linearization)
+            # Keep both divisions explicit so squaring tiny noise cannot
+            # underflow before applying the weight to the image response.
+            whitened = jax.lax.optimization_barrier(image / problem.noise_active)
             return problem._jacobian_adjoint(
-                image / problem.noise_active**2, linearization
+                whitened / problem.noise_active, linearization
             ) + problem._apply_prior(values, *strengths)
 
         @partial(jax.jit, static_argnames=("max_iter", "rtol", "atol"))

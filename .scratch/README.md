@@ -14,7 +14,7 @@ This directory holds specs, tickets, research, and reproduction material. Follow
 | Stage posterior transfer | [Spec](stage-posterior-transfer/spec.md) | Requirements record; completion is not asserted by this index. |
 | Pixelized workflow structural refactor | [Overview](pixelized-workflow-refactor/README.md); [spec](pixelized-workflow-refactor/spec.md) | Three agreed P1 changes; the spec defines compatibility, diagnostic availability, test seams, and delivery order. |
 | Potential correction | [Overview and dependency index](potential-correction/README.md); [spec](potential-correction/spec.md); [tickets](potential-correction/issues/) | Implemented and independently reviewed on `codex/potential-correction-integration`; all 14 tickets and the parent are resolved. The linked numerical, scientific and performance records retain their configuration-specific limits. |
-| L-BFGS-B potential correction | [Spec](lbfgs-potential-correction/spec.md) · [Tickets](lbfgs-potential-correction/issues/) | Fixed-strength Hermite fits with dense and matrix-free operator backends. Includes mock and J0946 refit gates. Ticket 01 can start immediately. |
+| L-BFGS-B potential correction | [Spec](lbfgs-potential-correction/spec.md) · [Tickets](lbfgs-potential-correction/issues/) | Fixed-strength Hermite fits with dense and matrix-free operator backends. See the [usage guide](../docs/guides/potential-correction.md#fixed-strength-l-bfgs-b), [matched mock](../examples/potential_correction/README.md#fixed-strength-l-bfgs-b-mock), and [J0946 qualification](../docs/validation/potential-correction-lbfgs-j0946.md). |
 
 ## Research and reproduction records
 
