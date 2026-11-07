@@ -2,7 +2,9 @@
 
 from .mapping import (
     dense_mapping_from_weights_indices,
+    lens_mapping_operator_from,
     lens_mapping_operator_bilinear_from,
+    source_spatial_gradient,
     build_source_grid,
     build_lens_mapping_matrix,
     make_square_bbox,
@@ -29,7 +31,9 @@ from .critical_line import (
 
 __all__ = [
     'dense_mapping_from_weights_indices',
+    'lens_mapping_operator_from',
     'lens_mapping_operator_bilinear_from',
+    'source_spatial_gradient',
     'build_source_grid',
     'build_lens_mapping_matrix',
     'make_square_bbox',

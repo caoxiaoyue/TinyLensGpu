@@ -5,6 +5,27 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+_SOURCE_BOUNDARIES = {
+    "bilinear": "hard_zero_outside_bbox",
+    "cubic_hermite": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+}
+
+
+def validate_source_interpolation(interpolation: str) -> str:
+    """Validate the static source interpolation choice."""
+    if not isinstance(interpolation, str) or interpolation not in _SOURCE_BOUNDARIES:
+        raise ValueError(
+            f"Unsupported source interpolation {interpolation!r}. "
+            "Use 'bilinear' or 'cubic_hermite'."
+        )
+    return interpolation
+
+
+def source_boundary_for_interpolation(interpolation: str) -> str:
+    """Return the boundary convention for persisted source metadata."""
+    return _SOURCE_BOUNDARIES[validate_source_interpolation(interpolation)]
+
+
 @partial(jax.jit, static_argnames=("n_source",))
 def dense_mapping_from_weights_indices(
     weights: jnp.ndarray,
@@ -94,6 +115,84 @@ def lens_mapping_operator_bilinear_from(
     return weights, indices, valid
 
 
+def _hermite_axis(coordinates, lower, upper, n):
+    """Choose the four centered-difference stencil nodes in one dimension."""
+    step = (upper - lower) / (n - 1)
+    support_lower, support_upper = lower - 2 * step, upper + 2 * step
+    support = (coordinates >= support_lower) & (coordinates <= support_upper)
+    # At the final edges both brightness and its gradient are exactly zero.
+    interior = (coordinates > support_lower) & (coordinates < support_upper)
+    u = (jnp.where(interior, coordinates, lower) - lower) / step
+    cell = jnp.floor(u).astype(jnp.int32)
+    indices = cell[:, None] + jnp.arange(-1, 3, dtype=jnp.int32)
+    valid = interior[:, None] & (indices >= 0) & (indices < n)
+    return u - cell, jnp.clip(indices, 0, n - 1), valid, support, step
+
+
+def _hermite_weights(t):
+    """Catmull–Rom weights and derivatives on a unit cell."""
+    s = 1.0 - t
+    weights = jnp.stack(
+        (
+            -0.5 * t * s**2,
+            s * (1.0 + t - 1.5 * t**2),
+            t * (0.5 + t * (2.0 - 1.5 * t)),
+            -0.5 * t**2 * s,
+        ),
+        axis=1,
+    )
+    derivatives = jnp.stack(
+        (
+            s * (1.5 * t - 0.5),
+            t * (4.5 * t - 5.0),
+            0.5 + t * (4.0 - 4.5 * t),
+            t * (1.5 * t - 1.0),
+        ),
+        axis=1,
+    )
+    return weights, derivatives
+
+
+def _hermite_stencil(data_mesh_beta, x_min, x_max, y_min, y_max, n):
+    beta = jnp.asarray(data_mesh_beta)
+    tx, xs, valid_x, support_x, dx = _hermite_axis(beta[:, 0], x_min, x_max, n)
+    ty, ys, valid_y, support_y, dy = _hermite_axis(beta[:, 1], y_min, y_max, n)
+    wx, gx = _hermite_weights(tx)
+    wy, gy = _hermite_weights(ty)
+    indices = ys[:, :, None] * n + xs[:, None, :]
+    valid_nodes = valid_y[:, :, None] & valid_x[:, None, :]
+    return wx, wy, gx / dx, gy / dy, indices, valid_nodes, support_x & support_y
+
+
+@partial(jax.jit, static_argnames=("n",))
+def _lens_mapping_operator_hermite_from(
+    data_mesh_beta, x_min, x_max, y_min, y_max, n
+):
+    wx, wy, _, _, indices, valid_nodes, support = _hermite_stencil(
+        data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
+    weights = jnp.where(valid_nodes, wy[:, :, None] * wx[:, None, :], 0.0)
+    return weights.reshape(-1, 16), indices.reshape(-1, 16), support
+
+
+def lens_mapping_operator_from(
+    data_mesh_beta, x_min, x_max, y_min, y_max, n, *, interpolation
+):
+    """Build weights, original-node indices and geometric support for each ray.
+
+    The interpolation mode and source grid size are static when jitted. In
+    Hermite mode the support extends two grid spacings past the fitted nodes.
+    A supported ray can have zero brightness weights at a virtual grid line.
+    """
+    if validate_source_interpolation(interpolation) == "bilinear":
+        return lens_mapping_operator_bilinear_from(
+            data_mesh_beta, x_min, x_max, y_min, y_max, n
+        )
+    return _lens_mapping_operator_hermite_from(
+        data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
+
+
 @partial(jax.jit, static_argnames=("n",))
 def bilinear_source_spatial_gradient(
     source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n
@@ -112,6 +211,33 @@ def bilinear_source_spatial_gradient(
     gx = ((1 - fy) * (s10 - s00) + fy * (s11 - s01)) / dx
     gy = ((1 - fx) * (s01 - s00) + fx * (s11 - s10)) / dy
     return jnp.where(valid, gx, 0), jnp.where(valid, gy, 0)
+
+
+@partial(jax.jit, static_argnames=("n",))
+def _hermite_source_spatial_gradient(
+    source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n
+):
+    wx, wy, gx, gy, indices, valid_nodes, _ = _hermite_stencil(
+        data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
+    values = jnp.where(valid_nodes, jnp.asarray(source_values)[indices], 0.0)
+    return (
+        jnp.sum(values * wy[:, :, None] * gx[:, None, :], axis=(1, 2)),
+        jnp.sum(values * gy[:, :, None] * wx[:, None, :], axis=(1, 2)),
+    )
+
+
+def source_spatial_gradient(
+    source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n, *, interpolation
+):
+    """Differentiate brightness at each ray using the selected interpolant."""
+    if validate_source_interpolation(interpolation) == "bilinear":
+        return bilinear_source_spatial_gradient(
+            source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n
+        )
+    return _hermite_source_spatial_gradient(
+        source_values, data_mesh_beta, x_min, x_max, y_min, y_max, n
+    )
 
 
 def build_source_grid(n, xmin, xmax, ymin, ymax):
@@ -221,8 +347,10 @@ def infer_source_bbox(beta_x, beta_y, padding=0.05, outlier_frac=0.0):
     return xmin, xmax, ymin, ymax
 
 
-def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
-    """Build dense bilinear mapping matrix (N_d image pixels x N_s source pixels)."""
+def build_lens_mapping_matrix(
+    beta_x, beta_y, source_x_axis, source_y_axis, *, interpolation="bilinear"
+):
+    """Build the dense mapping matrix with one column per fitted source node."""
     beta_x = jnp.ravel(jnp.asarray(beta_x))
     beta_y = jnp.ravel(jnp.asarray(beta_y))
     data_mesh_beta = jnp.stack([beta_x, beta_y], axis=1)
@@ -231,19 +359,24 @@ def build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis):
     source_y_axis = jnp.asarray(source_y_axis)
     n = source_x_axis.shape[0]
 
-    weights, indices, _ = lens_mapping_operator_bilinear_from(
+    weights, indices, _ = lens_mapping_operator_from(
         data_mesh_beta,
         source_x_axis[0],
         source_x_axis[-1],
         source_y_axis[0],
         source_y_axis[-1],
         n,
+        interpolation=interpolation,
     )
     return dense_mapping_from_weights_indices(weights, indices, n * n)
 
 
 __all__ = [
+    "validate_source_interpolation",
+    "source_boundary_for_interpolation",
+    "lens_mapping_operator_from",
     "lens_mapping_operator_bilinear_from",
+    "source_spatial_gradient",
     "dense_mapping_from_weights_indices",
     "build_source_grid",
     "build_lens_mapping_matrix",

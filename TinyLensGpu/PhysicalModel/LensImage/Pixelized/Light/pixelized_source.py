@@ -15,6 +15,7 @@ from TinyLensGpu.utils.inversion.regularization import (
 from TinyLensGpu.utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
+    validate_source_interpolation,
 )
 
 
@@ -38,6 +39,10 @@ class PixelizedSourceModel(ck.Module):
         Galan-style adaptive regularization strength. ``0.0`` (default)
         disables adaptation and recovers uniform regularization. Larger
         values strengthen regularization in faint S0 source-template regions.
+    interpolation : str, optional
+        Fixed interpolation mode. ``"bilinear"`` (default) has hard-box
+        support. ``"cubic_hermite"`` extends two grid spacings past the fitted
+        nodes, with zero exterior node values and signed interpolation weights.
     """
 
     def __init__(
@@ -49,6 +54,7 @@ class PixelizedSourceModel(ck.Module):
         adaptive_reg_rho: float | ParamU = 0.0,
         adaptive_reg_alpha: float | ParamU | None = None,
         adaptive_reg_floor: float | ParamU | None = None,
+        interpolation: str = "bilinear",
     ) -> None:
         super().__init__()
 
@@ -73,6 +79,9 @@ class PixelizedSourceModel(ck.Module):
         object.__setattr__(self, "n", n_int)
         object.__setattr__(self, "regularization_type", regularization_type)
         object.__setattr__(self, "is_pixelized_source", True)
+        object.__setattr__(
+            self, "_interpolation", validate_source_interpolation(interpolation)
+        )
 
         self.log_lambda_reg = (
             log_lambda_reg if isinstance(log_lambda_reg, ParamU)
@@ -85,6 +94,11 @@ class PixelizedSourceModel(ck.Module):
             adaptive_reg_rho if isinstance(adaptive_reg_rho, ParamU)
             else float(adaptive_reg_rho)
         )
+
+    @property
+    def interpolation(self) -> str:
+        """Interpolation selected at construction; legacy models use bilinear."""
+        return getattr(self, "_interpolation", "bilinear")
 
     @staticmethod
     def _validate_adaptive_reg_rho(adaptive_reg_rho: float | ParamU) -> None:
@@ -136,21 +150,23 @@ class PixelizedSourceModel(ck.Module):
         source_values: Array,
         source_bbox: tuple,
     ) -> Array:
-        """Interpolate pixelized source brightness onto image-plane coordinates.
+        """Interpolate brightness at the supplied source-plane coordinates.
 
         Parameters
         ----------
         x, y : Array
-            Image-plane coordinates.
+            Source-plane coordinates.
         source_values : Array
             Source pixel intensities, shape (n * n,).
         source_bbox : tuple
-            Square (xmin, xmax, ymin, ymax) source-plane bounding box.
+            Bounds (xmin, xmax, ymin, ymax) of the fitted nodes.
         """
         xmin, xmax, ymin, ymax = source_bbox
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.n, xmin, xmax, ymin, ymax
         )
-        mapping_matrix = build_lens_mapping_matrix(x, y, source_x_axis, source_y_axis)
+        mapping_matrix = build_lens_mapping_matrix(
+            x, y, source_x_axis, source_y_axis, interpolation=self.interpolation
+        )
         brightness = mapping_matrix @ jnp.ravel(jnp.asarray(source_values))
         return brightness.reshape(jnp.shape(x))

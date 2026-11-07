@@ -64,9 +64,10 @@ class PixelizedLensSimulator:
     """Forward simulator for a single pixelized source and optional lens light.
 
     Ray-traces image-plane pixels to the source plane, builds the dense
-    bilinear mapping matrix, and convolves with PSF via FFT.  When
-    ``nsub > 1`` the ray-tracing uses a sub-sampled grid and aggregates
-    the mapping back to native resolution before PSF convolution.
+    mapping matrix using the source model's interpolation, and convolves
+    with the PSF via FFT. When ``nsub > 1`` the ray-tracing uses a sub-sampled
+    grid and aggregates the mapping back to native resolution before PSF
+    convolution.
 
     When ``lens_light`` is present, the simulator builds a joint design
     matrix ``M = [F | L]`` where ``F`` is the source mapping matrix and
@@ -82,7 +83,7 @@ class PixelizedLensSimulator:
     detach_bbox : bool, optional
         When ``True`` (default), ``stop_gradient`` is applied to the
         source-plane bounding-box bounds so that min/max operations do
-        not produce unstable gradients.  Beta ray-tracing and bilinear
+        not produce unstable gradients.  Beta ray-tracing and source
         interpolation weights remain differentiable.
 
     Raises
@@ -230,7 +231,7 @@ class PixelizedLensSimulator:
         source_bbox: tuple | None = None,
         use_subgrid: bool = False,
     ) -> Array:
-        """Build Nd x Ns lens mapping matrix via bilinear interpolation.
+        """Build Nd x Ns lens mapping matrix with the configured interpolation.
 
         Parameters
         ----------
@@ -261,7 +262,10 @@ class PixelizedLensSimulator:
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.source_n, xmin, xmax, ymin, ymax
         )
-        return build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+        return build_lens_mapping_matrix(
+            beta_x, beta_y, source_x_axis, source_y_axis,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
+        )
 
     def build_lens_light_matrix(
         self,
@@ -379,7 +383,10 @@ class PixelizedLensSimulator:
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.source_n, xmin, xmax, ymin, ymax
         )
-        mapping_matrix_sub = build_lens_mapping_matrix(beta_x, beta_y, source_x_axis, source_y_axis)
+        mapping_matrix_sub = build_lens_mapping_matrix(
+            beta_x, beta_y, source_x_axis, source_y_axis,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
+        )
 
         if self.nsub > 1:
             mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
