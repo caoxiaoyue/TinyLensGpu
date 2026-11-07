@@ -1,0 +1,290 @@
+{
+  "library_revision": "890d90e",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver_version": "615.71.09",
+    "memory.total [MiB]": "16303 MiB"
+  },
+  "runs": [
+    {
+      "environment": {
+        "device": "NVIDIA GeForce RTX 5080",
+        "python": "3.11.14",
+        "jax": "0.7.1",
+        "jaxlib": "0.7.1",
+        "numpy": "2.4.6",
+        "dtype": "float32",
+        "matmul_precision": "highest"
+      },
+      "configuration": {
+        "source_interpolation": "bilinear",
+        "npix": 100,
+        "n": 100,
+        "dpix": 0.05,
+        "nsub": 4,
+        "source_bbox": [
+          -1.2,
+          1.2,
+          -1.2,
+          1.2
+        ],
+        "active_pixels": 4008,
+        "mask_inner_outer_radius": [
+          0.2,
+          1.8
+        ],
+        "psf": [
+          [
+            0.009999999776482582,
+            0.10000000149011612,
+            0.019999999552965164
+          ],
+          [
+            0.09000000357627869,
+            0.5600000023841858,
+            0.03999999910593033
+          ],
+          [
+            0.009999999776482582,
+            0.12999999523162842,
+            0.03999999910593033
+          ]
+        ],
+        "lens": {
+          "theta_E": 0.8,
+          "e1": 0.08,
+          "e2": -0.04,
+          "center_x": 0.02,
+          "center_y": -0.03
+        },
+        "regularization": "first-order",
+        "lambda_reg": 0.08,
+        "block_size": 10,
+        "max_iter": 400,
+        "rtol": 1e-05,
+        "atol": 1e-12
+      },
+      "mapping": {
+        "lower_seconds": 0.03044532798230648,
+        "compile_seconds": 0.10867725103162229,
+        "first_execution_seconds": 0.001066403987351805,
+        "warm_seconds": [
+          7.119198562577367e-05,
+          6.110296817496419e-05,
+          5.291798152029514e-05,
+          4.404195351526141e-05,
+          3.7950987461954355e-05,
+          3.852101508527994e-05,
+          4.578504012897611e-05,
+          3.2900949008762836e-05,
+          3.906199708580971e-05,
+          3.480503801256418e-05
+        ],
+        "warm_median_seconds": 4.155197530053556e-05,
+        "allocator_peak_to_date_bytes": 9340672
+      },
+      "preconditioner": {
+        "lower_seconds": 0.19888794102007523,
+        "compile_seconds": 0.4063366209738888,
+        "first_execution_seconds": 0.014363866008352488,
+        "warm_seconds": [
+          0.010607265983708203,
+          0.010749430977739394,
+          0.010657700011506677,
+          0.010610051976982504,
+          0.010573563980869949,
+          0.010574736050330102,
+          0.01064690004568547,
+          0.010598139022476971,
+          0.010639095969963819,
+          0.010598218999803066
+        ],
+        "warm_median_seconds": 0.010608658980345353,
+        "allocator_peak_to_date_bytes": 27680000
+      },
+      "rhs_first_seconds": 0.10215710900956765,
+      "solve": {
+        "lower_seconds": 0.033084458962548524,
+        "compile_seconds": 0.2689491910277866,
+        "first_execution_seconds": 0.06398140703095123,
+        "warm_seconds": [
+          0.0020145680173300207,
+          0.0019834309932775795,
+          0.0019468419486656785,
+          0.0024129300145432353,
+          0.001971548015717417,
+          0.0019164049881510437,
+          0.001908099977299571,
+          0.0018816909869201481,
+          0.0019142520031891763,
+          0.0019615600467659533
+        ],
+        "warm_median_seconds": 0.001954200997715816,
+        "allocator_peak_to_date_bytes": 27680000
+      },
+      "reconstruction": {
+        "converged": true,
+        "failed": false,
+        "iterations": 12,
+        "true_relative_residual": 4.623721898497731e-06,
+        "recursive_relative_residual": 4.5635132742112865e-06
+      },
+      "storage": {
+        "source_nodes": 10000,
+        "stencil_shape": [
+          64128,
+          4
+        ],
+        "stencil_bytes": 2052096,
+        "block_factor_shape": [
+          100,
+          100,
+          100
+        ],
+        "block_factor_bytes": 4000000,
+        "hypothetical_dense_subpixel_bytes": 2565120000,
+        "allocator_peak_bytes": 27680000
+      }
+    },
+    {
+      "environment": {
+        "device": "NVIDIA GeForce RTX 5080",
+        "python": "3.11.14",
+        "jax": "0.7.1",
+        "jaxlib": "0.7.1",
+        "numpy": "2.4.6",
+        "dtype": "float32",
+        "matmul_precision": "highest"
+      },
+      "configuration": {
+        "source_interpolation": "cubic_hermite",
+        "npix": 100,
+        "n": 100,
+        "dpix": 0.05,
+        "nsub": 4,
+        "source_bbox": [
+          -1.2,
+          1.2,
+          -1.2,
+          1.2
+        ],
+        "active_pixels": 4008,
+        "mask_inner_outer_radius": [
+          0.2,
+          1.8
+        ],
+        "psf": [
+          [
+            0.009999999776482582,
+            0.10000000149011612,
+            0.019999999552965164
+          ],
+          [
+            0.09000000357627869,
+            0.5600000023841858,
+            0.03999999910593033
+          ],
+          [
+            0.009999999776482582,
+            0.12999999523162842,
+            0.03999999910593033
+          ]
+        ],
+        "lens": {
+          "theta_E": 0.8,
+          "e1": 0.08,
+          "e2": -0.04,
+          "center_x": 0.02,
+          "center_y": -0.03
+        },
+        "regularization": "first-order",
+        "lambda_reg": 0.08,
+        "block_size": 10,
+        "max_iter": 400,
+        "rtol": 1e-05,
+        "atol": 1e-12
+      },
+      "mapping": {
+        "lower_seconds": 0.03745084296679124,
+        "compile_seconds": 0.12696184200467542,
+        "first_execution_seconds": 0.001040737028233707,
+        "warm_seconds": [
+          9.069900261238217e-05,
+          0.00015173200517892838,
+          5.420099478214979e-05,
+          4.3601030483841896e-05,
+          5.601497832685709e-05,
+          5.840900121256709e-05,
+          4.648597678169608e-05,
+          5.9470999985933304e-05,
+          5.0223025027662516e-05,
+          5.2426999900490046e-05
+        ],
+        "warm_median_seconds": 5.510798655450344e-05,
+        "allocator_peak_to_date_bytes": 22346496
+      },
+      "preconditioner": {
+        "lower_seconds": 0.16416220902465284,
+        "compile_seconds": 0.41769569698954,
+        "first_execution_seconds": 0.13201390200993046,
+        "warm_seconds": [
+          0.12765453098108992,
+          0.12768539803801104,
+          0.12765104399295524,
+          0.12800440104911104,
+          0.12764170701848343,
+          0.1277646460221149,
+          0.12777091801399365,
+          0.12830563203897327,
+          0.127862537978217,
+          0.12794934900011867
+        ],
+        "warm_median_seconds": 0.12776778201805428,
+        "allocator_peak_to_date_bytes": 32139776
+      },
+      "rhs_first_seconds": 0.1143744210130535,
+      "solve": {
+        "lower_seconds": 0.03365871700225398,
+        "compile_seconds": 0.29362624703207985,
+        "first_execution_seconds": 0.07122768001863733,
+        "warm_seconds": [
+          0.002471337968017906,
+          0.002191447012592107,
+          0.002201084978878498,
+          0.002134330978151411,
+          0.002175376983359456,
+          0.0021871699718758464,
+          0.0020916519570164382,
+          0.0020600639982149005,
+          0.0020633790409192443,
+          0.002049623988568783
+        ],
+        "warm_median_seconds": 0.0021548539807554334,
+        "allocator_peak_to_date_bytes": 32139776
+      },
+      "reconstruction": {
+        "converged": true,
+        "failed": false,
+        "iterations": 12,
+        "true_relative_residual": 4.975171723190713e-06,
+        "recursive_relative_residual": 4.980693309141161e-06
+      },
+      "storage": {
+        "source_nodes": 10000,
+        "stencil_shape": [
+          64128,
+          16
+        ],
+        "stencil_bytes": 8208384,
+        "block_factor_shape": [
+          100,
+          100,
+          100
+        ],
+        "block_factor_bytes": 4000000,
+        "hypothetical_dense_subpixel_bytes": 2565120000,
+        "allocator_peak_bytes": 32139776
+      }
+    }
+  ]
+}
