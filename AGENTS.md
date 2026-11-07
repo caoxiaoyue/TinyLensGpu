@@ -25,9 +25,12 @@ From the repository root:
 pytest                         # core library tests
 pytest -m "not slow"           # core tests excluding slow cases
 pytest -m integration          # core integration tests
-pytest examples/tests          # example and pipeline regressions
 pytest benchmarks              # timing and scaling benchmarks
 ```
+
+B1938+666 is outside the scope of agent work, including its dedicated workflow,
+modeling, replays, and tests. For example regressions, select specific test files
+or pytest node IDs after checking shared modules for B1938 cases.
 
 Place library behavior tests in `tests/`, including cross-module integration
 and large-input correctness. Place example-specific assembly, exports,

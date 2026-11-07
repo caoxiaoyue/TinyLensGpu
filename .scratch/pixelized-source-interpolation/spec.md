@@ -83,6 +83,7 @@ Both backends use a shared calculation of each ray's neighbor indices and weight
 
 ## Out of Scope
 
+- B1938+666 workflow changes, modeling, replays, and validation. Select example test files or individual cases that exclude B1938, including when a module covers multiple systems.
 - Making Hermite the default at any source interpolation entry point.
 - Refitting the archived J0946 system, rerunning its outer regularization search, or establishing a scientific recovery or detection claim from the replay.
 - New interpolation families, monotonicity limiters, clipping interpolated brightness, or constraints on brightness between source nodes.
