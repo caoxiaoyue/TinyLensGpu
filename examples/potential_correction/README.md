@@ -228,8 +228,10 @@ arrays still describe the fitted nodes.
 Set `partition_file` to a saved run or calibration JSON, or to its extracted
 `block_partition` object. Automatic reuse checks the geometry hash,
 interpolation, boundary convention, vote rule, method, tile size, and block
-cap. The drivers generate a partition with their configured gradients when
-these checks fail and record the rejection in `block_partition.reuse_rejected`.
+cap. Source-incidence reuse also checks the traced macro rays and the
+initial gradients used for the votes. The drivers regenerate a partition
+when provenance differs and record the rejection in
+`block_partition.reuse_rejected`.
 For a controlled comparison, copy the saved `indices` into `block_indices`
 in the input configuration. This takes precedence over automatic reuse,
 validates the partition against the joint coefficients and cap, and records
@@ -429,8 +431,11 @@ dense iterative is the primary algorithm comparison. Each algorithm's
 operator-minus-dense comparison reports determinant contributions separately.
 The default scientific configuration requests the bundled historical
 single-step partition. A byte-identical copy is reusable with matching
-bilinear geometry, tile size, and cap. A geometry hash can differ when
-floating-point coordinates change across devices. The iterative example
+bilinear geometry, traced macro rays, tile size, and cap. The pinned
+gradient fingerprints come from the analytic gradient in
+`scientific_configuration.json` and the paired initial nodal derivative in
+`iterative_scientific_configuration.json`. Floating-point coordinates can
+produce different hashes across devices. The iterative example
 builds a partition from the initial pixelized-source gradient when automatic
 reuse fails. With `partition_source="initial_nodal"` and no `partition_file`,
 it directly builds that partition. Both paths keep the selected partition

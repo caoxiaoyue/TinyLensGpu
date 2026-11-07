@@ -4,15 +4,15 @@ The replay uses the M3 handoff at retained sample 21342 and the archived Hermite
 
 The trial supplies 10,000 Float64 source intensities on the original 100 × 100 fitted grid and 1,134 Float64 potential coefficients, including 802 core nodes. The fitted source bounds are `[-0.5641691088676453, 0.43583089113235474, -0.6536976099014282, 0.3463023602962494]` arcsec. The original Float32 native image geometry is promoted to Float64 before ray tracing, as in the archive. The 201 × 201 image has 0.05 arcsec pixels, a 15 × 15 PSF, 2,293 selected pixels, and `nsub=4`. The potential spacing is 0.1 arcsec.
 
-The replay verified the handoff checksums against the archived protocol and the experimental Hermite source checksum against the archived implementation. Both renderers used the same corrected rays and geometric support for all 36,688 subpixel queries. The image comparison uses the full source-only prediction after subpixel integration and PSF convolution. The replay ran on CPU with JAX 0.7.1, Float64 and highest matmul precision. The acceptance tolerance is 1e−11 absolute for each compared value. [Replay script](../../workspace/iteration/replay_source_interpolation.py) · [Experimental Hermite reference](../../workspace/iteration/source_cubic.py)
+The replay verified the handoff checksums against the archived protocol and the experimental Hermite source checksum against the archived implementation. Both renderers used the same corrected rays and geometric support for all 36,688 subpixel queries. The image comparison uses the full source-only prediction after subpixel integration and PSF convolution. The replay ran on CPU with the library at `ee1c67d`, JAX 0.7.1, Float64 and highest matmul precision. The acceptance tolerance is 1e−11 absolute for each compared value. [Replay script](../../workspace/iteration/replay_source_interpolation.py) · [Experimental Hermite reference](../../workspace/iteration/source_cubic.py)
 
 | Comparison | Maximum absolute difference | RMS difference |
 | --- | ---: | ---: |
-| Production versus experimental ray brightness | 6.66e−16 | 3.57e−17 |
-| Production versus experimental x derivative | 4.97e−14 | 2.45e−15 |
-| Production versus experimental y derivative | 5.51e−14 | 2.85e−15 |
-| Production versus experimental full source image | 2.22e−16 | 1.34e−17 |
-| Production versus archived full source image | 3.66e−15 | 7.21e−17 |
+| Production versus experimental ray brightness | 8.44e−15 | 4.58e−16 |
+| Production versus experimental x derivative | 1.10e−12 | 5.05e−14 |
+| Production versus experimental y derivative | 1.60e−12 | 6.65e−14 |
+| Production versus experimental full source image | 1.50e−15 | 4.61e−17 |
+| Production versus archived full source image | 2.33e−15 | 5.25e−17 |
 | Experimental versus archived full source image | 3.61e−15 | 7.22e−17 |
 
 Two controls used the same fixed handoff and their own recorded fields and boundaries. The hard-box control `fixed_boundary_v2/hard/single_step/repeat_02` reproduced its saved source image to 3.89e−15 maximum absolute error. The zero-ring control `cubic_source_v1/trials/0022` reproduced its saved source image to 3.66e−15 using the experimental one-cell zero extension. [Control records](../../.scratch/pixelized-source-interpolation/experiments/j0946-boundary-controls.json)

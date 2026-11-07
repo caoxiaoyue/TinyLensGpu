@@ -439,7 +439,9 @@ def _valid_log_evidence(values) -> np.ndarray:
 
 
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
-    return export_source_package(likelihood, medians, param_names, n=NSRC)
+    return export_source_package(
+        likelihood, medians, param_names, n=NSRC, record_source_interpolation=True,
+    )
 
 
 # ------------------------------------------------------------------ #

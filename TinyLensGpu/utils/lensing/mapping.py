@@ -117,7 +117,10 @@ def lens_mapping_operator_bilinear_from(
 
 def _hermite_axis_support(coordinates, lower, upper, n):
     """Return the spacing, closed support, and strict interior along one axis."""
-    step = (upper - lower) / (n - 1)
+    lower, upper = jnp.asarray(lower), jnp.asarray(upper)
+    # A rounded reciprocal would move a support edge by one ULP under JIT.
+    intervals = jax.lax.optimization_barrier(jnp.asarray(n - 1))
+    step = (upper - lower) / intervals
     support_lower, support_upper = lower - 2 * step, upper + 2 * step
     support = (coordinates >= support_lower) & (coordinates <= support_upper)
     # At the final edges both brightness and its gradient are exactly zero.

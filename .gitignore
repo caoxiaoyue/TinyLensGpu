@@ -2,6 +2,7 @@ mytest/
 **egg-info
 *yml
 /workspace/*
+!/workspace/_j0946_macro_provenance.py
 !/workspace/single_step/
 /workspace/single_step/*
 !/workspace/single_step/*.py

@@ -563,6 +563,7 @@ def run_calibration(configuration, *, output):
                         build_blocks,
                         source="calibration",
                         method=layout,
+                        incidence_gradients=(problem.gradient_x, problem.gradient_y),
                     )
                     options["block_indices"] = blocks
                     partition["version"] = 1

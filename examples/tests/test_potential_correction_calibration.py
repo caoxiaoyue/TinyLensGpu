@@ -63,6 +63,7 @@ def tiny_partition_renderer():
         source_y_axis=axis,
         source_interpolation="cubic_hermite",
         source_boundary="C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+        macro_mapping=(np.array([0.3]), np.array([0.4])),
         potential_grid=SimpleNamespace(
             n_unknown=3,
             node_indices=np.array([[0, 0], [0, 1], [1, 0]]),
@@ -81,33 +82,28 @@ def tiny_partition_renderer():
 def test_saved_partition_reuse_checks_provenance(
     tmp_path, tiny_partition_renderer, mismatch
 ):
-    from examples.potential_correction._scientific_partitions import (
-        geometry_fingerprint,
-        prepare_partition,
-    )
+    from examples.potential_correction._scientific_partitions import prepare_partition
 
     renderer = tiny_partition_renderer
     fresh = [[0, 1], [2, 3], [4, 5], [6]]
-    saved = {
-        "indices": [[0, 4], [1, 5], [2, 6], [3]],
-        "geometry_sha256": geometry_fingerprint(renderer),
-        "source_interpolation": "cubic_hermite",
-        "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
-        "method": "source_incidence",
-        "source_tile": 1,
-        "cap": 2,
-        "vote_rule": "absolute_source_neighbor_weight_v1",
-    }
+    controls = dict(
+        source="initial_nodal",
+        method="source_incidence",
+        incidence_gradients=(np.array([1.0]), np.array([0.0])),
+    )
+    config = {"source_tile": 1, "block_size": 2}
+    _, saved = prepare_partition(
+        renderer, config, lambda: [[0, 4], [1, 5], [2, 6], [3]], **controls,
+    )
     if mismatch is not None:
         saved[mismatch] = "unmatched"
     path = tmp_path / "run.json"
     path.write_text(json.dumps({"block_partition": saved}))
     blocks, provenance = prepare_partition(
         renderer,
-        {"partition_file": str(path), "source_tile": 1, "block_size": 2},
+        {**config, "partition_file": str(path)},
         lambda: fresh,
-        source="initial_nodal",
-        method="source_incidence",
+        **controls,
     )
     if mismatch is None:
         assert blocks == saved["indices"]
@@ -118,9 +114,63 @@ def test_saved_partition_reuse_checks_provenance(
         assert provenance["reuse_rejected"]["mismatched_fields"] == [mismatch]
 
 
+@pytest.mark.parametrize("changed", ["macro_rays", "incidence_gradient"])
+def test_source_incidence_partition_rechecks_inputs_on_the_same_grids(tmp_path, changed):
+    import jax
+    from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
+    from TinyLensGpu.PhysicalModel import PhysicalModel, SIS
+    from examples.potential_correction._scientific_partitions import (
+        geometry_fingerprint,
+        prepare_partition,
+    )
+    from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+
+    def renderer(theta_e):
+        macro = PhysicalModel(
+            lens_mass=[SIS(theta_E=theta_e, center_x=0.0, center_y=0.0)],
+            source_light=[], lens_light=[]
+        )
+        return PotentialCorrectionRenderer(
+            macro, sim, 4, (-0.4, 0.4, -0.4, 0.4),
+            source_interpolation="cubic_hermite",
+        )
+
+    def prepare(model, gx, gy, config):
+        return prepare_partition(
+            model, config,
+            lambda: source_incidence_blocks(
+                model, model.source_mapping(), gx, gy, source_tile=2, block_size=8
+            ),
+            source="initial_nodal", method="source_incidence",
+            incidence_gradients=(gx, gy),
+        )
+
+    with jax.experimental.enable_x64():
+        sim = SimulatorConfig(0.1, 6, np.ones((1, 1)))
+        base = renderer(0.10)
+        ones, zeros = np.ones(36), np.zeros(36)
+        config = {"source_tile": 2, "block_size": 8}
+        original, saved = prepare(base, ones, zeros, config)
+        path = tmp_path / "partition.json"
+        path.write_text(json.dumps(saved))
+
+        current = renderer(0.35) if changed == "macro_rays" else base
+        gx, gy = (ones, zeros) if changed == "macro_rays" else (zeros, ones)
+        assert geometry_fingerprint(base) == geometry_fingerprint(current)
+        rebuilt, _ = prepare(current, gx, gy, config)
+        assert rebuilt != original
+        chosen, provenance = prepare(
+            current, gx, gy, {**config, "partition_file": path}
+        )
+    assert chosen == rebuilt
+    assert provenance["origin"] == "generated"
+    assert provenance["reuse_rejected"]["mismatched_fields"] == [f"{changed}_sha256"]
+
+
 @pytest.mark.integration
 def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
     import jax
+    import jax.numpy as jnp
 
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
@@ -131,6 +181,7 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
         geometry_fingerprint,
         prepare_partition,
     )
+    from examples.potential_correction.calibrate_single_step import source_incidence_blocks
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
 
     directory = Path(iterative_scientific.__file__).parent
@@ -159,6 +210,12 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
     regenerated = [
         [index] for index in range(renderer.n_source + renderer.potential_grid.n_unknown)
     ]
+    # Reproduce the paired iterative initialization from its bundled config.
+    with jax.experimental.enable_x64():
+        mapping = renderer.source_mapping()
+        sx, sy = jnp.meshgrid(renderer.source_x_axis, renderer.source_y_axis)
+        initial = observation.source_truth.brightness(sx, sy).ravel()
+        gradients = renderer.source_spatial_gradient(initial, mapping)
     selected, provenance = prepare_partition(
         renderer,
         config,
@@ -166,6 +223,7 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
         source="initial_nodal",
         method="source_incidence",
         default_file=archive,
+        incidence_gradients=gradients,
     )
     # CUDA matches the archived hash. CPU can differ in floating-point
     # coordinates even though the physical configuration is unchanged.
@@ -173,9 +231,33 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
         assert selected == recorded["indices"]
         assert provenance["legacy_bilinear"] is True
         assert provenance["origin"] == "automatic_reuse"
+        with jax.experimental.enable_x64():
+            mapping = renderer.source_mapping()
+            frozen = observation.source_truth.gradient(mapping.beta_x, mapping.beta_y)
+            rebuilt, reference = prepare_partition(
+                renderer, config,
+                lambda: source_incidence_blocks(
+                    renderer, mapping, *frozen, source_tile=config["source_tile"],
+                    block_size=config["block_size"],
+                ),
+                source="frozen_macro", method="source_incidence",
+                incidence_gradients=frozen,
+            )
+        assert rebuilt == selected
+        for key in ("macro_rays_sha256", "incidence_gradient_sha256"):
+            assert provenance[key] == reference[key]
+        chosen, rejected = prepare_partition(
+            renderer, config, lambda: regenerated,
+            source="initial_nodal", method="source_incidence", default_file=archive,
+            incidence_gradients=(np.ones(renderer.query_x.shape), np.zeros(renderer.query_y.shape)),
+        )
+        assert chosen == regenerated
+        assert rejected["reuse_rejected"]["mismatched_fields"] == [
+            "incidence_gradient_sha256"
+        ]
     else:
         assert selected == regenerated
-        assert provenance["reuse_rejected"]["mismatched_fields"] == ["geometry_sha256"]
+        assert "geometry_sha256" in provenance["reuse_rejected"]["mismatched_fields"]
     selected, provenance = prepare_partition(
         hermite,
         config,
@@ -183,6 +265,7 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
         source="initial_nodal",
         method="source_incidence",
         default_file=archive,
+        incidence_gradients=gradients,
     )
     assert selected == regenerated
     assert "source_interpolation" in provenance["reuse_rejected"]["mismatched_fields"]

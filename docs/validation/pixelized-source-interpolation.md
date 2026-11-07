@@ -1,6 +1,6 @@
 # Pixelized source interpolation verification
 
-The verification uses the library at `890d90e`. Runs used the `tinylens_gpu` environment with Python 3.11.14, JAX and jaxlib 0.7.1, and NumPy 2.4.6. [Fixed-strength records](../../.scratch/pixelized-source-interpolation/experiments/evidence-comparison.json) · [GPU measurements](../../.scratch/pixelized-source-interpolation/experiments/gpu-costs.json)
+The verification uses the library at `ee1c67d`. Runs used the `tinylens_gpu` environment with Python 3.11.14, JAX and jaxlib 0.7.1, and NumPy 2.4.6. [Fixed-strength records](../../.scratch/pixelized-source-interpolation/experiments/evidence-comparison.json) · [GPU measurements](../../.scratch/pixelized-source-interpolation/experiments/gpu-costs.json)
 
 ## Fixed-strength evidence
 
@@ -38,7 +38,7 @@ The dense and operator reconstructions succeeded in all 12 comparisons. The obje
 | Single-step | Bilinear | 2.006936 | 0 | 9.88e−14 | 3.32e−13 | 8.10e−15 | 4.11e−14 |
 | Single-step | Hermite | 1.989033 | 4.45e−16 | 3.62e−13 | 6.87e−13 | 4.03e−13 | 1.97e−13 |
 | Iterative | Bilinear | 0.446380 | 2.22e−16 | 6.67e−16 | 2.23e−16 | 4.45e−16 | 7.68e−11 |
-| Iterative | Hermite | 0.289446 | 1.67e−16 | 1.00e−15 | 1.67e−16 | 6.67e−16 | 8.92e−10 |
+| Iterative | Hermite | 0.289446 | 1.11e−16 | 8.88e−16 | 2.21e−16 | 4.44e−16 | 8.92e−10 |
 
 The residual is evaluated independently from the image response and complete prior, normalized by the norm of the data right-hand side. The iterative rows use the final stationarity residual. In both backends, every accepted iterative solve had a true relative residual below 2e−12. These measurements characterize the reported fixed-strength configurations.
 
@@ -46,21 +46,21 @@ The residual is evaluated independently from the image response and complete pri
 
 The benchmark uses a 100 × 100 fitted source grid with bounds [−1.2, 1.2] arcsec on each axis, a 100 × 100 image at 0.05 arcsec per pixel, and `nsub=4`. The fixed SIE has Einstein radius 0.8 arcsec, ellipticity components (0.08, -0.04), and center (0.02, -0.03) arcsec. The selected annulus retains 4,008 pixels and 64,128 rays. Both runs use the same deterministic ring data, spatially varying noise, asymmetric PSF, first-order source prior of strength 0.08, and 10 × 10 source tiles. The script specifies the input formulas and PSF. [Benchmark](../../benchmarks/pixelized_source_interpolation.py)
 
-Each mode ran in a fresh process on an NVIDIA GeForce RTX 5080 with 16,303 MiB and driver 615.71.09. Float32 ran with highest matmul precision, preallocation disabled, and the persistent compilation cache disabled. The native preconditioner includes constructing and factoring the data and regularization blocks. The right-hand-side preparation is outside the solve timing and took 102.2 ms for bilinear and 114.4 ms for Hermite on first execution. Executions were synchronized and warm times are medians of ten runs.
+Each mode ran in a fresh process on an NVIDIA GeForce RTX 5080 with 16,303 MiB and driver 615.71.09. Float32 ran with highest matmul precision, preallocation disabled, and the persistent compilation cache disabled. The native preconditioner includes constructing and factoring the data and regularization blocks. The right-hand-side preparation is outside the solve timing and took 128.9 ms for bilinear and 134.9 ms for Hermite on first execution. Executions were synchronized and warm times are medians of ten runs.
 
 | Interpolation | Phase | Lower (ms) | Compile (ms) | First execution (ms) | Warm (ms) |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Bilinear | Mapping | 30.45 | 108.68 | 1.07 | 0.042 |
-| Hermite | Mapping | 37.45 | 126.96 | 1.04 | 0.055 |
-| Bilinear | Native preconditioner | 198.89 | 406.34 | 14.36 | 10.61 |
-| Hermite | Native preconditioner | 164.16 | 417.70 | 132.01 | 127.77 |
-| Bilinear | PCG solve | 33.08 | 268.95 | 63.98 | 1.95 |
-| Hermite | PCG solve | 33.66 | 293.63 | 71.23 | 2.15 |
+| Bilinear | Mapping | 30.81 | 107.16 | 1.16 | 0.081 |
+| Hermite | Mapping | 43.47 | 138.98 | 4.25 | 0.057 |
+| Bilinear | Native preconditioner | 190.78 | 424.69 | 14.55 | 10.65 |
+| Hermite | Native preconditioner | 211.07 | 450.19 | 138.82 | 127.79 |
+| Bilinear | PCG solve | 33.79 | 280.83 | 56.18 | 1.95 |
+| Hermite | PCG solve | 34.78 | 303.68 | 63.18 | 2.16 |
 
 | Interpolation | Stencil shape | Stencil storage (MiB) | Peak allocated on device (MiB) | PCG iterations | True relative residual |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Bilinear | 64,128 × 4 | 1.96 | 26.40 | 12 | 4.62e−6 |
-| Hermite | 64,128 × 16 | 7.83 | 30.65 | 12 | 4.98e−6 |
+| Bilinear | 64,128 × 4 | 1.96 | 26.40 | 12 | 4.63e−6 |
+| Hermite | 64,128 × 16 | 7.83 | 30.65 | 12 | 4.97e−6 |
 
 The peak is cumulative bytes in use from the process's JAX CUDA allocator and excludes driver context memory. Both modes keep 10,000 source coefficients and 100 preconditioner factors of size 100 × 100. A dense subpixel mapping would require 2,446 MiB in Float32. PCG completed with its relative tolerance of 1e−5, absolute tolerance of 1e−12, and limit of 400 iterations. Hermite increases warm preconditioner time by about 12× and warm solve time by about 1.1× in this setup.
 
@@ -73,12 +73,18 @@ source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 export XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1
 ```
 
-From `tests/`, the following CPU run passed 22 tests. The JUnit `comparisons` properties hold the fixed-strength results.
+From `tests/`, the following CPU run passed 25 tests. The JUnit `comparisons` properties hold the fixed-strength results.
 
 ```bash
 JAX_PLATFORMS=cpu pytest -xq -o junit_family=legacy \
   --junitxml=/tmp/interpolation-evidence.xml test_pixelized_interpolation_evidence.py \
   test_pixelized_source_interpolation.py test_operator_source_interpolation.py
+```
+
+A separate CUDA process passed all six evidence cases from `tests/`.
+
+```bash
+JAX_PLATFORMS=cuda pytest -xq test_pixelized_interpolation_evidence.py
 ```
 
 From the repository root, run both modes with exclusive GPU access.

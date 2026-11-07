@@ -150,9 +150,10 @@ def run_scientific(configuration, *, output):
             source_interpolation=config.get("source_interpolation", "bilinear"),
         )
 
+        mapping = renderer.source_mapping()
+        gx, gy = pair.control.source_truth.gradient(mapping.beta_x, mapping.beta_y)
+
         def build_blocks():
-            mapping = renderer.source_mapping()
-            gx, gy = pair.control.source_truth.gradient(mapping.beta_x, mapping.beta_y)
             return source_incidence_blocks(
                 renderer,
                 mapping,
@@ -168,6 +169,7 @@ def run_scientific(configuration, *, output):
             build_blocks,
             source="frozen_macro",
             method="source_incidence",
+            incidence_gradients=(gx, gy),
         )
         options = {
             "block_size": config["block_size"],

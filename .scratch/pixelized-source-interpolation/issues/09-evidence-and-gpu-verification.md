@@ -26,3 +26,10 @@ records the separate core, example and benchmark commands (22 CPU core,
 fresh 100 × 100, `nsub=4` RTX 5080 runs converged in 12 PCG iterations.
 Independent block log determinants agreed within `8.53e-14` across the
 reported controlled comparisons. [Raw evidence and GPU records](../experiments/).
+
+The six-case CUDA evidence command ran from `tests/` in `tinylens_gpu`.
+
+```bash
+JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 \
+  pytest -xq test_pixelized_interpolation_evidence.py
+```

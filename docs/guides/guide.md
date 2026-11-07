@@ -429,9 +429,10 @@ In interpolation-aware workflows, `StageStorageConfig` records the selected
 mode and boundary in the existing `extra` dictionary.
 
 `export_source_package` consumes the public diagnostic result and returns the
-raw dictionary with source pixels/image, fitted square `source_bbox`, axes,
-`n`, `source_interpolation` and `source_boundary`. A prepared template also
-carries `lambda_best` and `log_lambda_best`.
+raw dictionary with source pixels/image, fitted square `source_bbox`, axes and
+`n`. Interpolation-aware workflows pass `record_source_interpolation=True`
+to include `source_interpolation` and `source_boundary`. A prepared template
+also carries `lambda_best` and `log_lambda_best`.
 `validate_source_package(package, expected_n=..., rho=...)` validates that
 contract, generates or coerces the float32 scale map in place, and returns the
 same dictionary. The Galan variants additionally request bbox normalization,

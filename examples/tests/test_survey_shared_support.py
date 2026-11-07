@@ -275,7 +275,9 @@ def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch, i
     initial = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, package)
     names = [p.name for p in initial.get_dynamic_params()]
     values = {p.name: float(np.asarray(p.value)) for p in initial.get_dynamic_params()}
-    exported = export_source_package(initial, values, names, n=3)
+    exported = export_source_package(
+        initial, values, names, n=3, record_source_interpolation=True,
+    )
     assert exported["source_interpolation"] == (interpolation or "bilinear")
     exported.update(lambda_best=1., log_lambda_best=0.)
     prepared = validate_source_package(exported, expected_n=3, rho=module.ADAPTIVE_REG_RHO)
