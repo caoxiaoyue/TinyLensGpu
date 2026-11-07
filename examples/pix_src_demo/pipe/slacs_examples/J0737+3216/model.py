@@ -32,5 +32,6 @@ if __name__ == "__main__":
         "--skip-done", action="store_true",
         help="Re-use cached posteriors in output/stage_*.pkl",
     )
+    parser.add_argument("--source-interpolation", choices=("bilinear", "cubic_hermite"))
     args = parser.parse_args()
-    main(skip_done=args.skip_done)
+    main(skip_done=args.skip_done, source_interpolation=args.source_interpolation)

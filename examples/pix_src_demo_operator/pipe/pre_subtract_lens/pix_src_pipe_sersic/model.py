@@ -54,6 +54,8 @@ from TinyLensGpu.example_support import (
     export_source_package,
     require_valid_reconstruction,
     validate_source_package,
+    resolve_source_interpolation,
+    resolve_stage_source_interpolation,
 )
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel import PointSourceProbModel
@@ -104,13 +106,16 @@ def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool
     )
 
 
-def _dump_stage(tag: str, samples, weights, param_names, log_z, extra=None, stage=None):
-    save_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True),
+def _dump_stage(
+    tag: str, samples, weights, param_names, log_z, extra=None, stage=None,
+    *, source_interpolation=None,
+):
+    save_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True, source_interpolation=source_interpolation),
                tag, samples, weights, param_names, log_z, extra=extra, stage=stage)
 
 
-def _load_stage(tag: str):
-    return load_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True), tag)
+def _load_stage(tag: str, *, source_interpolation=None):
+    return load_stage(StageStorageConfig(output_dir=OUT_DIR, include_schema=True, source_interpolation=source_interpolation), tag)
 
 
 def _stage_from_payload(payload):
@@ -235,7 +240,7 @@ def build_stage_a_likelihood(image_data, noise_map, psf_kernel, mask=None):
                            dpix=DPIX, nsub=NSUB, phys_model=phys, use_linear=True, solver_type="nnls", mask=mask)
 
 
-def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
+def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None, *, source_interpolation=None):
     OUT_DIR.mkdir(exist_ok=True)
     print("\n" + "=" * 60)
     print(" Stage A : SIE + shear + single-Sersic lens light + single-Sersic source light")
@@ -253,7 +258,7 @@ def run_stage_a(image_data, noise_map, psf_kernel, circular_mask=None):
                                     image_map=likelihood.image_data, noise_map=likelihood.noise_map)
     lens_image_model = np.asarray(fwd[1])
     _dump_stage("a", samples, weights, names, logz,
-                extra=dict(medians=medians, lens_light_model=lens_image_model, time_taken=t1 - t0), stage=stage)
+                extra=dict(medians=medians, lens_light_model=lens_image_model, time_taken=t1 - t0), stage=stage, source_interpolation=resolve_source_interpolation(source_interpolation))
     try:
         plot_model_results(likelihood, jnp.asarray(q50), save_path=str(OUT_DIR / "stage_a_model.png"),
                           title="Stage A : Sersic lens+source", show_critical_lines=True, show_caustics=True)
@@ -311,7 +316,7 @@ def build_stage_l_likelihood(image_data, noise_map, psf_kernel, feature_mask,
 
 
 def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
-                stage_a: StagePosterior, circular_mask=None):
+                stage_a: StagePosterior, circular_mask=None, *, source_interpolation=None):
     print("\n" + "=" * 60)
     print(" Stage L : arc-masked single-Sersic lens light refinement")
     print("=" * 60)
@@ -331,7 +336,7 @@ def run_stage_l(image_data, noise_map, psf_kernel, feature_mask,
                                     image_map=likelihood.image_data, noise_map=likelihood.noise_map)
     lens_image_model = np.asarray(fwd[1])
     _dump_stage("l", samples, weights, names, logz,
-                extra=dict(medians=medians, lens_light_model=lens_image_model, time_taken=t1 - t0), stage=stage)
+                extra=dict(medians=medians, lens_light_model=lens_image_model, time_taken=t1 - t0), stage=stage, source_interpolation=resolve_source_interpolation(source_interpolation))
     try:
         plot_model_results(likelihood, jnp.asarray(q50), save_path=str(OUT_DIR / "stage_l_model.png"),
                           title="Stage L : arc-masked Sersic lens light")
@@ -489,12 +494,18 @@ def _plot_pix_stage(tag, likelihood, medians, param_names, save_path):
 # Stage M0-M3 (identical structure to slacs, adapted for Sersic pipeline)
 # ------------------------------------------------------------------ #
 def build_stage_m0_likelihood(lens_subtracted_image, noise_map, psf_kernel, feature_mask,
-                                stage_a, position_likelihood, circular_mask=None):
+                                stage_a, position_likelihood, circular_mask=None, *, source_interpolation=None):
     sie, shear = _sie_mass_from_stage_a(stage_a)
     log_lam = ParamU("log_lambda_reg", 0.0, prior_type="uniform",
                      prior_settings=[-13.815510557964274, 13.815510557964274], limits=[-13.815510557964274, 13.815510557964274])
     log_lam.to_dynamic()
-    phys = PhysicalModel(lens_mass=[sie, shear], source_light=[PixelizedSourceModel(n=NSRC, log_lambda_reg=log_lam, regularization_type=PIXEL_REGULARIZATION_TYPE)], lens_light=[])
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
+        log_lambda_reg=log_lam,
+        regularization_type=PIXEL_REGULARIZATION_TYPE,
+        interpolation=resolve_source_interpolation(source_interpolation),
+    )
+    phys = PhysicalModel(lens_mass=[sie, shear], source_light=[pix_src], lens_light=[])
     cm = feature_mask;
     if circular_mask is not None: cm = cm | circular_mask
     return PixelizedImageProbModelOperator(image_data=lens_subtracted_image, noise_map=noise_map, psf_kernel=psf_kernel,
@@ -503,10 +514,10 @@ def build_stage_m0_likelihood(lens_subtracted_image, noise_map, psf_kernel, feat
                                             source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs())
 
 def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask, lens_light_model,
-                  stage_a, position_likelihood, circular_mask=None):
+                  stage_a, position_likelihood, circular_mask=None, *, source_interpolation=None):
     print("\n" + "=" * 60); print(" Stage M0 : fixed SIE + shear + uniform pix source "); print("=" * 60)
     t0 = time.time(); ls = image_data - lens_light_model
-    likelihood = build_stage_m0_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, circular_mask=circular_mask)
+    likelihood = build_stage_m0_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, circular_mask=circular_mask, source_interpolation=source_interpolation)
     loglike_batch = make_likelihood(likelihood, vectorized=True); n_grid = 200
     log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
     log_lam_grid_coarse = jnp.linspace(log_lam_min, log_lam_max, n_grid)
@@ -532,7 +543,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
                            lambda_grid_coarse=np.asarray(log_lam_grid_coarse, dtype=np.float64),
                            log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
                            lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
-                           log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64)))
+                           log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64)), source_interpolation=likelihood.source_model.interpolation)
     try: _plot_pix_stage("stage-M0", likelihood, {**medians_a, "log_lambda_reg": log_lam_best}, ["log_lambda_reg"], str(OUT_DIR / "stage_m0_model.png"))
     except Exception as err:
         if isinstance(err, InvalidReconstructionError):
@@ -540,12 +551,18 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
         print(f"[stage-M0] plotting failed (non-fatal): {err}")
     return log_lam_best
 
-def build_stage_m1_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_fixed, circular_mask=None):
+def build_stage_m1_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_fixed, circular_mask=None, *, source_interpolation=None):
     epl, shear = _epl_mass_from_stage(stage_a)
     log_lam = ParamU("log_lambda_reg", float(log_lam_fixed), prior_type="truncated_gaussian",
                      prior_settings=[float(log_lam_fixed), 0.15], limits=[float(log_lam_fixed)-0.5, float(log_lam_fixed)+0.5])
     log_lam.to_dynamic()
-    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[PixelizedSourceModel(n=NSRC, log_lambda_reg=log_lam, regularization_type=PIXEL_REGULARIZATION_TYPE)], lens_light=[])
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
+        log_lambda_reg=log_lam,
+        regularization_type=PIXEL_REGULARIZATION_TYPE,
+        interpolation=resolve_source_interpolation(source_interpolation),
+    )
+    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])
     cm = feature_mask;
     if circular_mask is not None: cm = cm | circular_mask
     return PixelizedImageProbModelOperator(image_data=ls_img, noise_map=noise_map, psf_kernel=psf_kernel,
@@ -553,10 +570,10 @@ def build_stage_m1_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage
                                             position_likelihood=position_likelihood, solver_type=SOLVER_TYPE,
                                             source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs())
 
-def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_fixed, circular_mask=None):
+def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_fixed, circular_mask=None, *, source_interpolation=None):
     print("\n" + "=" * 60); print(" Stage M1 : EPL + shear + non-adaptive pix source (mass fit)"); print("=" * 60)
     t0 = time.time(); ls = image_data - lens_light_model
-    likelihood = build_stage_m1_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_fixed, circular_mask=circular_mask)
+    likelihood = build_stage_m1_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_fixed, circular_mask=circular_mask, source_interpolation=source_interpolation)
     stage = _run_sampler(likelihood, n_live=300, n_eff=600, tag="stage-M1", vectorized=True)
     t1 = time.time(); samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M1", samples, weights, names); print(f"[stage-M1] time taken: {t1-t0:.2f} seconds")
@@ -568,7 +585,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
                 extra=dict(medians=medians, m1_mass_model="EPL+Shear", lambda_prior_center=float(log_lam_fixed),
                            lambda_prior_sigma=0.15,
                            lambda_prior_limits=[float(log_lam_fixed - 0.5), float(log_lam_fixed + 0.5)],
-                           s1=s1_package, time_taken=t1-t0), stage=stage)
+                           s1=s1_package, time_taken=t1-t0), stage=stage, source_interpolation=likelihood.source_model.interpolation)
     try: _plot_pix_stage("stage-M1", likelihood, medians, names, str(OUT_DIR / "stage_m1_model.png"))
     except Exception as err:
         if isinstance(err, InvalidReconstructionError):
@@ -576,12 +593,22 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
         print(f"[stage-M1] plot failed (non-fatal): {err}")
     return stage, medians, s1_package
 
-def build_stage_m2_likelihood(ls_img, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=None):
+def build_stage_m2_likelihood(ls_img, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=None, *, source_interpolation=None):
+    source_interpolation = resolve_source_interpolation(
+        source_interpolation, metadata=s1_package, context="S1 source package"
+    )
     epl, shear = _epl_mass_from_medians(medians_m1)
     log_lam = ParamU("log_lambda_reg", float(s1_package["log_lambda_best"]), prior_type="uniform",
                      prior_settings=[-13.815510557964274, 13.815510557964274], limits=[-13.815510557964274, 13.815510557964274]); log_lam.to_dynamic()
     rho = ParamU("adaptive_reg_rho", ADAPTIVE_REG_RHO, prior_type="uniform", prior_settings=[0.0, ADAPTIVE_REG_RHO_PRIOR_MAX], limits=[0.0, ADAPTIVE_REG_RHO_PRIOR_MAX]); rho.to_dynamic()
-    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[PixelizedSourceModel(n=NSRC, log_lambda_reg=log_lam, regularization_type=PIXEL_REGULARIZATION_TYPE, adaptive_reg_rho=rho)], lens_light=[])
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
+        log_lambda_reg=log_lam,
+        regularization_type=PIXEL_REGULARIZATION_TYPE,
+        adaptive_reg_rho=rho,
+        interpolation=source_interpolation,
+    )
+    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])
     cm = feature_mask;
     if circular_mask is not None: cm = cm | circular_mask
     return PixelizedImageProbModelOperator(image_data=ls_img, noise_map=noise_map, psf_kernel=psf_kernel,
@@ -589,17 +616,17 @@ def build_stage_m2_likelihood(ls_img, noise_map, psf_kernel, feature_mask, media
                                             position_likelihood=position_likelihood, solver_type=SOLVER_TYPE,
                                             source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs(), **_fixed_source_kwargs(s1_package))
 
-def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, medians_m1, position_likelihood, s1_package, circular_mask=None):
+def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, medians_m1, position_likelihood, s1_package, circular_mask=None, *, source_interpolation=None):
     print("\n" + "=" * 60); print(" Stage M2 : fixed EPL + shear + adaptive pix source (fit λ, rho)"); print("=" * 60)
     t0 = time.time(); ls = image_data - lens_light_model
-    likelihood = build_stage_m2_likelihood(ls, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask)
+    likelihood = build_stage_m2_likelihood(ls, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask, source_interpolation=source_interpolation)
     stage = _run_sampler(likelihood, n_live=250, n_eff=600, tag="stage-M2", vectorized=True)
     t1 = time.time(); samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M2", samples, weights, names); print(f"[stage-M2] time taken: {t1-t0:.2f} seconds")
     medians = stage.medians()
     rhm2 = {"log_lambda_reg": float(medians["log_lambda_reg"]), "adaptive_reg_rho": float(medians["adaptive_reg_rho"])}
     print(f"[stage-M2] median source reg: {_format_reg_hyperparams(rhm2)}")
-    _dump_stage("m2", samples, weights, names, logz, extra=dict(medians=medians, m2_mass_model="fixed-EPL+Shear", mass_medians_fixed=dict(medians_m1), reg_hyperparams=rhm2, time_taken=t1-t0), stage=stage)
+    _dump_stage("m2", samples, weights, names, logz, extra=dict(medians=medians, m2_mass_model="fixed-EPL+Shear", mass_medians_fixed=dict(medians_m1), reg_hyperparams=rhm2, time_taken=t1-t0), stage=stage, source_interpolation=likelihood.source_model.interpolation)
     try: _plot_pix_stage("stage-M2", likelihood, medians, names, str(OUT_DIR / "stage_m2_model.png"))
     except Exception as err:
         if isinstance(err, InvalidReconstructionError):
@@ -607,11 +634,21 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
         print(f"[stage-M2] plot failed (non-fatal): {err}")
     return stage, medians, rhm2
 
-def build_stage_m3_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=None):
+def build_stage_m3_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=None, *, source_interpolation=None):
+    source_interpolation = resolve_source_interpolation(
+        source_interpolation, metadata=s1_package, context="S1 source package"
+    )
     epl, shear = _epl_mass_from_stage(stage_m1)
     log_lam = ParamU("log_lambda_reg", float(rh_fixed["log_lambda_reg"])); log_lam.to_static()
     rho = ParamU("adaptive_reg_rho", float(rh_fixed["adaptive_reg_rho"])); rho.to_static()
-    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[PixelizedSourceModel(n=NSRC, log_lambda_reg=log_lam, regularization_type=PIXEL_REGULARIZATION_TYPE, adaptive_reg_rho=rho)], lens_light=[])
+    pix_src = PixelizedSourceModel(
+        n=NSRC,
+        log_lambda_reg=log_lam,
+        regularization_type=PIXEL_REGULARIZATION_TYPE,
+        adaptive_reg_rho=rho,
+        interpolation=source_interpolation,
+    )
+    phys = PhysicalModel(lens_mass=[epl, shear], source_light=[pix_src], lens_light=[])
     cm = feature_mask;
     if circular_mask is not None: cm = cm | circular_mask
     return PixelizedImageProbModelOperator(image_data=ls_img, noise_map=noise_map, psf_kernel=psf_kernel,
@@ -619,16 +656,16 @@ def build_stage_m3_likelihood(ls_img, noise_map, psf_kernel, feature_mask, stage
                                             position_likelihood=position_likelihood, solver_type=SOLVER_TYPE,
                                             source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs(), **_fixed_source_kwargs(s1_package))
 
-def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=None):
+def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=None, *, source_interpolation=None):
     print("\n" + "=" * 60); print(" Stage M3 : EPL + shear + adaptive pix source (final mass fit)"); print("=" * 60)
     print(f"[stage-M3] fixed source reg: {_format_reg_hyperparams(rh_fixed)}")
     t0 = time.time(); ls = image_data - lens_light_model
-    likelihood = build_stage_m3_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=circular_mask)
+    likelihood = build_stage_m3_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rh_fixed, s1_package, circular_mask=circular_mask, source_interpolation=source_interpolation)
     stage = _run_sampler(likelihood, n_live=300, n_eff=600, tag="stage-M3", vectorized=True)
     t1 = time.time(); samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     _print_summary("stage-M3", samples, weights, names); print(f"[stage-M3] time taken: {t1-t0:.2f} seconds")
     medians = stage.medians()
-    _dump_stage("m3", samples, weights, names, logz, extra=dict(medians=medians, m3_mass_model="EPL+Shear", reg_hyperparams_fixed=dict(rh_fixed), time_taken=t1-t0), stage=stage)
+    _dump_stage("m3", samples, weights, names, logz, extra=dict(medians=medians, m3_mass_model="EPL+Shear", reg_hyperparams_fixed=dict(rh_fixed), time_taken=t1-t0), stage=stage, source_interpolation=likelihood.source_model.interpolation)
     try: _plot_pix_stage("stage-M3", likelihood, medians, names, str(OUT_DIR / "stage_m3_model.png"))
     except Exception as err:
         if isinstance(err, InvalidReconstructionError):
@@ -640,33 +677,38 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask, lens_light_mod
 # ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
-def main(skip_done=False, out_dir=None):
+def main(skip_done=False, out_dir=None, *, source_interpolation=None):
     global OUT_DIR
     if out_dir is not None: OUT_DIR = Path(out_dir)
+    source_interpolation = resolve_stage_source_interpolation(
+        OUT_DIR, ("a", "l", "m0", "m1", "m2", "m3"),
+        requested=source_interpolation, resume=skip_done,
+    )
+    source_options = dict(source_interpolation=source_interpolation)
     image_data, noise_map, psf_kernel, _ = load_lens_data(image_path=str(DATA_DIR/"image.fits"), noise_path=str(DATA_DIR/"noise.fits"), psf_path=str(DATA_DIR/"psf.fits"))
     circular_mask = _make_circular_mask(image_data.shape, DPIX, radius_arcsec=MASK_RADIUS)
     print(f"[circular mask] excluded {int(circular_mask.sum())} / {circular_mask.size} pixels (> {MASK_RADIUS} arcsec)")
 
     ta=0.0
     if skip_done and (OUT_DIR/"stage_a.pkl").exists():
-        print(f"[stage-A] loading cached {OUT_DIR}/stage_a.pkl"); d=_load_stage("a"); stage_a=_stage_from_payload(d); medians_a=d["extra"]["medians"]; lens_light_model=d["extra"]["lens_light_model"]; ta=d["extra"].get("time_taken",0.0)
-    else: stage_a, medians_a, lens_light_model = run_stage_a(image_data, noise_map, psf_kernel, circular_mask=circular_mask); ta=_load_stage("a")["extra"].get("time_taken",0.0)
+        print(f"[stage-A] loading cached {OUT_DIR}/stage_a.pkl"); d=_load_stage("a", **source_options); stage_a=_stage_from_payload(d); medians_a=d["extra"]["medians"]; lens_light_model=d["extra"]["lens_light_model"]; ta=d["extra"].get("time_taken",0.0)
+    else: stage_a, medians_a, lens_light_model = run_stage_a(image_data, noise_map, psf_kernel, circular_mask=circular_mask, **source_options); ta=_load_stage("a", **source_options)["extra"].get("time_taken",0.0)
 
     feature_mask = run_stage_b(image_data, noise_map, lens_light_model, circular_mask=circular_mask)
 
     tl=0.0
     if skip_done and (OUT_DIR/"stage_l.pkl").exists():
-        print(f"[stage-L] loading cached {OUT_DIR}/stage_l.pkl"); d=_load_stage("l"); stage_l=_stage_from_payload(d); medians_l=d["extra"]["medians"]; lens_light_model=d["extra"]["lens_light_model"]; tl=d["extra"].get("time_taken",0.0)
-    else: stage_l, medians_l, lens_light_model = run_stage_l(image_data, noise_map, psf_kernel, feature_mask, stage_a, circular_mask=circular_mask); tl=_load_stage("l")["extra"].get("time_taken",0.0)
+        print(f"[stage-L] loading cached {OUT_DIR}/stage_l.pkl"); d=_load_stage("l", **source_options); stage_l=_stage_from_payload(d); medians_l=d["extra"]["medians"]; lens_light_model=d["extra"]["lens_light_model"]; tl=d["extra"].get("time_taken",0.0)
+    else: stage_l, medians_l, lens_light_model = run_stage_l(image_data, noise_map, psf_kernel, feature_mask, stage_a, circular_mask=circular_mask, **source_options); tl=_load_stage("l", **source_options)["extra"].get("time_taken",0.0)
 
     ls = image_data - lens_light_model; position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
     tm0=0.0
     if skip_done and (OUT_DIR/"stage_m0.pkl").exists():
-        print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl"); d=_load_stage("m0"); log_lam_m0=d["extra"]["log_lambda_best"]; tm0=d["extra"].get("time_taken",0.0)
-    else: log_lam_m0 = run_stage_m0(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, circular_mask=circular_mask); tm0=_load_stage("m0")["extra"].get("time_taken",0.0)
+        print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl"); d=_load_stage("m0", **source_options); log_lam_m0=d["extra"]["log_lambda_best"]; tm0=d["extra"].get("time_taken",0.0)
+    else: log_lam_m0 = run_stage_m0(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, circular_mask=circular_mask, **source_options); tm0=_load_stage("m0", **source_options)["extra"].get("time_taken",0.0)
     if (OUT_DIR/"stage_m0.pkl").exists() and not (OUT_DIR/"stage_m0_model.png").exists():
-        lkl=build_stage_m0_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, circular_mask=circular_mask)
+        lkl=build_stage_m0_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, circular_mask=circular_mask, **source_options)
         try: _plot_pix_stage("stage-M0", lkl, {**medians_a, "log_lambda_reg": float(log_lam_m0)}, ["log_lambda_reg"], str(OUT_DIR/"stage_m0_model.png"))
         except Exception as err:
             if isinstance(err, InvalidReconstructionError):
@@ -675,16 +717,16 @@ def main(skip_done=False, out_dir=None):
 
     tm1=0.0; s1_package=None
     if skip_done and (OUT_DIR/"stage_m1.pkl").exists():
-        print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl"); d=_load_stage("m1")
+        print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl"); d=_load_stage("m1", **source_options)
         try: names_m1=d["param_names"]; stage_m1=_stage_from_payload(d); medians_m1=d["extra"]["medians"]; s1_package=_validate_source_package(d["extra"]["s1"]); tm1=d["extra"].get("time_taken",0.0)
         except KeyError as err:
             print(f"[stage-M1] old format ({err}); recomputing.")
-            stage_m1, medians_m1, s1_package = run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask)
-            names_m1=stage_m1.param_names; tm1=_load_stage("m1")["extra"].get("time_taken",0.0)
-    else: stage_m1, medians_m1, s1_package = run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask); names_m1=stage_m1.param_names; tm1=_load_stage("m1")["extra"].get("time_taken",0.0)
+            stage_m1, medians_m1, s1_package = run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask, **source_options)
+            names_m1=stage_m1.param_names; tm1=_load_stage("m1", **source_options)["extra"].get("time_taken",0.0)
+    else: stage_m1, medians_m1, s1_package = run_stage_m1(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask, **source_options); names_m1=stage_m1.param_names; tm1=_load_stage("m1", **source_options)["extra"].get("time_taken",0.0)
     if s1_package is None: raise RuntimeError("[stage-M1] Failed to determine S1 source package.")
     if (OUT_DIR/"stage_m1.pkl").exists() and not (OUT_DIR/"stage_m1_model.png").exists():
-        lkl=build_stage_m1_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask)
+        lkl=build_stage_m1_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_a, position_likelihood, log_lam_m0, circular_mask=circular_mask, **source_options)
         try: _plot_pix_stage("stage-M1", lkl, medians_m1, names_m1, str(OUT_DIR/"stage_m1_model.png"))
         except Exception as err:
             if isinstance(err, InvalidReconstructionError):
@@ -693,10 +735,10 @@ def main(skip_done=False, out_dir=None):
 
     tm2=0.0; rhm2=None
     if skip_done and (OUT_DIR/"stage_m2.pkl").exists():
-        print(f"[stage-M2] loading cached {OUT_DIR}/stage_m2.pkl"); d=_load_stage("m2"); stage_m2=_stage_from_payload(d); names_m2=stage_m2.param_names; medians_m2=d["extra"]["medians"]; rhm2=_reg_hyperparams_from_m2_payload(d); tm2=d["extra"].get("time_taken",0.0)
-    else: stage_m2, medians_m2, rhm2 = run_stage_m2(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask); names_m2=stage_m2.param_names; tm2=_load_stage("m2")["extra"].get("time_taken",0.0)
+        print(f"[stage-M2] loading cached {OUT_DIR}/stage_m2.pkl"); d=_load_stage("m2", **source_options); stage_m2=_stage_from_payload(d); names_m2=stage_m2.param_names; medians_m2=d["extra"]["medians"]; rhm2=_reg_hyperparams_from_m2_payload(d); tm2=d["extra"].get("time_taken",0.0)
+    else: stage_m2, medians_m2, rhm2 = run_stage_m2(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask, **source_options); names_m2=stage_m2.param_names; tm2=_load_stage("m2", **source_options)["extra"].get("time_taken",0.0)
     if not (OUT_DIR/"stage_m2_model.png").exists():
-        lkl=build_stage_m2_likelihood(ls, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask)
+        lkl=build_stage_m2_likelihood(ls, noise_map, psf_kernel, feature_mask, medians_m1, position_likelihood, s1_package, circular_mask=circular_mask, **source_options)
         try: _plot_pix_stage("stage-M2", lkl, medians_m2, names_m2, str(OUT_DIR/"stage_m2_model.png"))
         except Exception as err:
             if isinstance(err, InvalidReconstructionError):
@@ -706,10 +748,10 @@ def main(skip_done=False, out_dir=None):
 
     tm3=0.0
     if skip_done and (OUT_DIR/"stage_m3.pkl").exists():
-        print(f"[stage-M3] loading cached {OUT_DIR}/stage_m3.pkl"); d=_load_stage("m3"); stage_m3=_stage_from_payload(d); names_m3=stage_m3.param_names; medians_m3=d["extra"]["medians"]; tm3=d["extra"].get("time_taken",0.0)
-    else: stage_m3, medians_m3 = run_stage_m3(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_m1, position_likelihood, rhm2, s1_package, circular_mask=circular_mask); names_m3=stage_m3.param_names; tm3=_load_stage("m3")["extra"].get("time_taken",0.0)
+        print(f"[stage-M3] loading cached {OUT_DIR}/stage_m3.pkl"); d=_load_stage("m3", **source_options); stage_m3=_stage_from_payload(d); names_m3=stage_m3.param_names; medians_m3=d["extra"]["medians"]; tm3=d["extra"].get("time_taken",0.0)
+    else: stage_m3, medians_m3 = run_stage_m3(image_data, noise_map, psf_kernel, feature_mask, lens_light_model, stage_m1, position_likelihood, rhm2, s1_package, circular_mask=circular_mask, **source_options); names_m3=stage_m3.param_names; tm3=_load_stage("m3", **source_options)["extra"].get("time_taken",0.0)
     if not (OUT_DIR/"stage_m3_model.png").exists():
-        lkl=build_stage_m3_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rhm2, s1_package, circular_mask=circular_mask)
+        lkl=build_stage_m3_likelihood(ls, noise_map, psf_kernel, feature_mask, stage_m1, position_likelihood, rhm2, s1_package, circular_mask=circular_mask, **source_options)
         try: _plot_pix_stage("stage-M3", lkl, medians_m3, names_m3, str(OUT_DIR/"stage_m3_model.png"))
         except Exception as err:
             if isinstance(err, InvalidReconstructionError):
@@ -730,4 +772,7 @@ def main(skip_done=False, out_dir=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-done", action="store_true"); parser.add_argument("--out-dir", default=None)
-    main(skip_done=parser.parse_args().skip_done, out_dir=parser.parse_args().out_dir)
+    parser.add_argument("--source-interpolation", choices=("bilinear", "cubic_hermite"))
+    args = parser.parse_args()
+    main(skip_done=args.skip_done, out_dir=args.out_dir,
+         source_interpolation=args.source_interpolation)
