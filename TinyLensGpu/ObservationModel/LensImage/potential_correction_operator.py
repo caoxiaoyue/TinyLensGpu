@@ -11,7 +11,6 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 
 from TinyLensGpu.utils.cg_solver import (
     PCGInfo,
@@ -24,6 +23,7 @@ from ._potential_correction_operator_common import (
     _assemble_prior_blocks,
     _block_basis,
     _factor_blocks,
+    _inverse_lower_factors,
     _padded_partition,
     _partition,
     _pcg_controls,
@@ -159,7 +159,6 @@ class _SingleStepOperator:
 
     def _principal_determinants(self, lambda_source, lambda_potential):
         data, source, potential = self.components
-        width = self.indices.shape[1]
         prior = _assemble_prior_blocks(
             self.problem,
             source,
@@ -168,15 +167,12 @@ class _SingleStepOperator:
             self.valid,
             lambda_source,
             lambda_potential,
+            self.problem.lambda_amplitude,
         )
         posterior = data + prior
         _, prior_logdet, prior_ok = _factor_blocks(prior)
         chols, posterior_logdet, posterior_ok = _factor_blocks(posterior)
-        inverse_chols = jax.vmap(
-            lambda chol: jsl.solve_triangular(
-                chol, jnp.eye(width, dtype=chols.dtype), lower=True
-            )
-        )(chols)
+        inverse_chols = _inverse_lower_factors(chols)
         return (
             PrincipalBlockPreconditioner(
                 chols, self.indices, self.valid, inverse_chols

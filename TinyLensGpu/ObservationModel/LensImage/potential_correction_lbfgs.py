@@ -359,6 +359,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         self._objective_kernel = jax.jit(self._objective)
         self._value_and_grad = jax.jit(jax.value_and_grad(self._objective))
         self._dense_backend = _DenseLBFGSBackend(self)
+        self._operator_backends = {}
 
     def _zero_potential_start(self, source, name):
         source = jnp.asarray(source, dtype=self.dtype)
@@ -370,14 +371,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
 
     def _forward_for(self, values, interpolation):
         source, potential = self._joint(values)
-        if interpolation == self.renderer.source_interpolation:
-            mapping = self.renderer.source_mapping(
-                potential, macro_mapping=self.macro_mapping
-            )
-        else:
-            mapping = self.renderer._source_mapping_for(
-                interpolation, potential, macro_mapping=self.macro_mapping
-            )
+        mapping = self._source_mapping(potential, interpolation)
         return self.renderer.source_forward(source, mapping)
 
     def _forward(self, values):
@@ -439,8 +433,19 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         backend="dense",
         max_iter=3000,
         gn_stationarity_tol=1e-3,
+        block_size=64,
+        block_indices=None,
+        pcg_max_iter=400,
+        pcg_rtol=None,
+        pcg_atol=0.0,
     ) -> PotentialCorrectionResult:
-        """Fit and qualify the endpoint at one fixed physical strength triple."""
+        """Fit and qualify the endpoint at one fixed physical strength triple.
+
+        Operator fits use bounded principal blocks for whitening,
+        preconditioning, and determinants. PCG applies the full coupled
+        undamped GN curvature at the final fields. Its recomputed residual
+        must pass the constructor's independent solve tolerances.
+        """
         if not isinstance(strengths, PotentialCorrectionStrengths):
             raise TypeError("strengths must be a PotentialCorrectionStrengths")
         strengths = PotentialCorrectionStrengths(
@@ -450,12 +455,22 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         )
         max_iter = _integer(max_iter, "max_iter")
         tolerance = _nonnegative(gn_stationarity_tol, "gn_stationarity_tol")
-        if backend != "dense":
-            raise ValueError("backend must be 'dense'")
+        if backend not in ("dense", "operator"):
+            raise ValueError("backend must be 'dense' or 'operator'")
         with jax.experimental.enable_x64(), jax.default_matmul_precision("highest"):
-            return self._fit(self._dense_backend, strengths, max_iter, tolerance)
+            numerical = self._dense_backend
+            endpoint_controls = {}
+            if backend == "operator":
+                from .potential_correction_lbfgs_operator import lbfgs_operator_backend
 
-    def _fit(self, numerical, strengths, max_iter, tolerance):
+                numerical, endpoint_controls = lbfgs_operator_backend(
+                    self, block_size, block_indices, pcg_max_iter, pcg_rtol, pcg_atol
+                )
+            return self._fit(
+                numerical, strengths, max_iter, tolerance, endpoint_controls
+            )
+
+    def _fit(self, numerical, strengths, max_iter, tolerance, endpoint_controls):
         weights = jnp.array(
             [
                 strengths.lambda_source,
@@ -496,7 +511,9 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
             gradient_inf = float(jnp.max(jnp.abs(gradient)))
             if not (np.isfinite(gradient_inf) and bool(jnp.isfinite(objective))):
                 raise FloatingPointError("nonfinite_endpoint")
-            endpoint = numerical.endpoint(values, gradient, weights, coordinates)
+            endpoint = numerical.endpoint(
+                values, gradient, weights, coordinates, **endpoint_controls
+            )
             evidence = -objective - 0.5 * (
                 endpoint.logdet_ratio
                 + self.noise_logdet
@@ -578,6 +595,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
             configuration={
                 **self._configuration(),
                 **numerical.configuration,
+                **endpoint_controls,
                 "max_iter": max_iter,
                 "optimizer_options": {**_LBFGSB_OPTIONS, "maxiter": max_iter},
                 "gn_stationarity_tol": tolerance,

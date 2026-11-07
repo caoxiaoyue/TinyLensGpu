@@ -9,6 +9,7 @@ import hashlib
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import numpy as np
 
 
@@ -117,7 +118,14 @@ def _unit_prior_blocks(problem, basis, indices, valid):
 
 
 def _assemble_prior_blocks(
-    problem, source, potential, indices, valid, lambda_source, lambda_potential
+    problem,
+    source,
+    potential,
+    indices,
+    valid,
+    lambda_source,
+    lambda_potential,
+    lambda_amplitude,
 ):
     """Complete physical priors on valid coefficients; identity on padding."""
     identity = jnp.eye(indices.shape[1], dtype=problem.dtype)[None, :, :]
@@ -125,10 +133,24 @@ def _assemble_prior_blocks(
     return (
         lambda_source * source
         + lambda_potential * potential
-        + jnp.asarray(problem.lambda_amplitude, dtype=problem.dtype)
+        + jnp.asarray(lambda_amplitude, dtype=problem.dtype)
         * amplitude[:, :, None]
         * identity
         + (~valid)[:, :, None] * identity
+    )
+
+
+def _data_curvature_block(problem, basis, jacobian_action):
+    """Noise-weighted Gram of one bounded response panel."""
+    panel = jax.vmap(jacobian_action)(basis) / problem.noise_active[None, :]
+    return panel @ panel.T
+
+
+def _inverse_lower_factors(chols):
+    """Prepare batched inverse lower factors for repeated block matvecs."""
+    identity = jnp.eye(chols.shape[-1], dtype=chols.dtype)
+    return jax.vmap(lambda chol: jsl.solve_triangular(chol, identity, lower=True))(
+        chols
     )
 
 

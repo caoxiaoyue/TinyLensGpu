@@ -321,14 +321,19 @@ class PotentialCorrectionRenderer:
         Uses the same cells and boundary convention as source brightness.
         The default mapping is the fixed macro mapping (zero potential).
         """
+        mapping = self.source_mapping() if mapping is None else mapping
+        return self._source_spatial_gradient_for(
+            self.source_interpolation, source_values, mapping
+        )
+
+    def _source_spatial_gradient_for(self, interpolation, source_values, mapping):
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            mapping = self.source_mapping() if mapping is None else mapping
             return evaluate_source_spatial_gradient(
                 self._source_values(source_values),
                 jnp.stack((mapping.beta_x, mapping.beta_y), axis=1),
                 *self.source_bbox,
                 self.source_n,
-                interpolation=self.source_interpolation,
+                interpolation=interpolation,
             )
 
     def _source_image_full(self, source_values, mapping):
