@@ -88,9 +88,17 @@ def load_handoff(macro_dir):
     return metadata, arrays
 
 
-def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, solve_rtol=1e-5):
+def load_problem(
+    macro_dir=HERE / "macro",
+    potential_spacing=0.1,
+    solve_rtol=1e-5,
+    *,
+    expected_source_interpolation=None,
+):
     metadata, arrays = load_handoff(macro_dir)
-    interpolation = resolve_source_interpolation(metadata=metadata, context="M3 handoff")
+    interpolation = resolve_source_interpolation(
+        expected_source_interpolation, metadata=metadata, context="M3 handoff"
+    )
     p = metadata["macro_parameters"]
     macro = PhysicalModel(
         lens_mass=[
@@ -774,12 +782,15 @@ def plot_posterior(points, weights, median, output):
     plt.close(fig)
 
 
-def plot_saved_outputs(output, macro_dir):
+def plot_saved_outputs(output, macro_dir, *, expected_source_interpolation=None):
     """Replot saved numerical results without rebuilding or solving matrices."""
     from types import SimpleNamespace
 
     manifest = json.loads((output / "manifest.json").read_text())
     metadata, context = load_handoff(macro_dir)
+    resolve_source_interpolation(
+        expected_source_interpolation, metadata=metadata, context="M3 handoff"
+    )
     if manifest.get("fixed_macro") != json_safe(metadata):
         raise RuntimeError("Potential-correction fixed macro handoff differs")
     for name in ("maximum_evidence", "posterior_median"):
@@ -947,6 +958,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--macro-dir", type=Path, default=HERE / "macro")
     parser.add_argument("--output", type=Path, default=HERE / "potential")
+    parser.add_argument(
+        "--source-interpolation",
+        choices=("bilinear", "cubic_hermite"),
+        help="Require this source interpolation in the M3 handoff (default: use its recorded mode)",
+    )
     parser.add_argument("--potential-spacing", type=float, default=0.1)
     parser.add_argument("--n-live", type=int, default=300)
     parser.add_argument("--n-eff", type=int, default=1000)
@@ -970,11 +986,18 @@ def main():
     ):
         raise RuntimeError("Existing potential-correction run: use --resume")
     if args.plot_only:
-        plot_saved_outputs(args.output, args.macro_dir)
+        plot_saved_outputs(
+            args.output,
+            args.macro_dir,
+            expected_source_interpolation=args.source_interpolation,
+        )
         return
     jax.config.update("jax_enable_x64", False)
     problem, metadata, context = load_problem(
-        args.macro_dir, args.potential_spacing, args.solve_rtol
+        args.macro_dir,
+        args.potential_spacing,
+        args.solve_rtol,
+        expected_source_interpolation=args.source_interpolation,
     )
     manifest_path = args.output / "manifest.json"
     saved_manifest = (
