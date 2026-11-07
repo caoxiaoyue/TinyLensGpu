@@ -488,3 +488,47 @@ is useful with substantial peak suppression. Potential/deflection low modes
 remain strongly prior-sensitive, and lower-side convergence is unverified.
 The prior choice is specific to this model. The results do not establish a
 globally weak prior or broad robustness, detection, mass intervals or performance.
+
+## Fixed-strength L-BFGS-B mock
+
+Run the matched Pseudo-Jaffe injection and no-subhalo control from the repository
+root. The driver uses the same noise draw, mask, PSF, fixed SIS plus shear macro,
+geometry, and prior strengths for both observations.
+
+```bash
+source ~/anaconda3/bin/activate && conda activate tinylens_gpu
+XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg \
+  python -m examples.potential_correction.lbfgs_mock \
+  --output output/potential_correction_lbfgs_mock
+```
+
+The [default configuration](lbfgs_mock_configuration.json) records the 32 × 32
+observation with seed 17 and 2 × 2 subpixel integration, the 17 × 17 cubic
+Hermite source, and the 0.15 arcsec potential grid. Each fit starts at
+analytic mock brightness sampled on the fixed source nodes and zero
+potential. The same Hermite source initializes the whitening metric. The
+first-order source, fourth-difference, and all-node amplitude strengths are
+`0.001`, `10000`, and `10000`.
+
+The dense runs on the RTX 5080 selected 568 image pixels and qualified at the
+common GN stationarity tolerance of `0.001`. Convergence metrics use all 200
+derivative-valid nodes, and the residual RMS is in noise units on selected
+image pixels.
+
+| Observation | Objective | Local GN log evidence | Convergence RMSE vs discrete truth | Positive convergence peak | Residual RMS / noise |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Injection | 175.20734 | 1239.17317 | 0.05137 | 0.26035 | 0.72976 |
+| Control | 156.24661 | 1261.08347 | 0.03568 | 0.09435 | 0.70969 |
+
+The injection peak is at `(0.75, 0.15)` arcsec, 0.05 arcsec from the injected
+position. The control has zero injected convergence and its largest positive
+recovered value is at `(-1.05, 0.6)` arcsec. These values describe the
+recorded mock and prior settings.
+
+The output contains the reusable `configuration.json` and the per-case
+`run.json` summary. Read `subhalo/dense` or `control/dense` with
+`examples.potential_correction.result_products.load_result` to inspect the
+raw fields, nonlinear images, and `optimizer_info`. Dense local GN evidence
+uses `full_data_space` determinants and carries `evidence_is_exact=False`.
+An unqualified run writes `failure.json` with native optimizer and
+stationarity diagnostics and null evidence.

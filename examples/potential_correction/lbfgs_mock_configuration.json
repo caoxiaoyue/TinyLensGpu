@@ -1,0 +1,47 @@
+{
+  "mock": {
+    "npix": 32,
+    "dpix": 0.075,
+    "nsub": 2,
+    "theta_E": 0.8,
+    "macro_center_x": 0.0,
+    "macro_center_y": 0.0,
+    "gamma1": 0.05,
+    "gamma2": 0.02,
+    "b_sub": 0.04,
+    "subhalo_x": 0.75,
+    "subhalo_y": 0.1,
+    "noise_sigma": 0.01,
+    "seed": 17,
+    "psf_sigma": 0.05,
+    "psf_size": 5,
+    "mask_inner": 0.45,
+    "mask_outer": 1.1,
+    "dtype": "float64",
+    "source": {
+      "center_x": 0.05,
+      "center_y": 0.03,
+      "sigma_x": 0.16,
+      "sigma_y": 0.12,
+      "amplitude": 1.0,
+      "clump_fraction": 0.35,
+      "clump_dx": -0.13,
+      "clump_dy": 0.1,
+      "clump_scale": 0.7
+    }
+  },
+  "source_n": 17,
+  "source_bbox": [-0.4, 0.4, -0.4, 0.4],
+  "potential_spacing": 0.15,
+  "source_regularization": "first-order",
+  "strengths": {
+    "lambda_source": 0.001,
+    "lambda_potential": 10000.0,
+    "lambda_amplitude": 10000.0
+  },
+  "fit_options": {
+    "max_iter": 3000,
+    "gn_stationarity_tol": 0.001
+  },
+  "make_plots": true
+}

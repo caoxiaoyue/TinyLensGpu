@@ -204,8 +204,8 @@ def export_result(
 ):
     """Persist a public result, or a failure record without success artifacts.
 
-    Iterative callers may use the same exporter: absent linear products are
-    omitted and their evidence image is explicitly the final nonlinear image.
+    Nonlinear fits omit absent linear products and record their final image
+    as the evidence image.
     """
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -233,7 +233,9 @@ def export_result(
         "posterior_logdet": result.posterior_logdet,
         "noise_logdet": result.noise_logdet,
         "strengths": asdict(result.strengths),
-        "solver_info": asdict(result.solver_info),
+        "solver_info": (
+            None if result.solver_info is None else asdict(result.solver_info)
+        ),
         "initialization_provenance": result.initialization_provenance,
         "configuration": configuration,
         "result_configuration": result.configuration,
@@ -270,6 +272,8 @@ def export_result(
         "history": result.history,
         "scope": "fixed true macro reconstruction; no detection significance or mass confidence intervals",
     }
+    if result.optimizer_info is not None:
+        metadata["optimizer_info"] = asdict(result.optimizer_info)
     if not result.success:
         export_failure(metadata, output)
         if make_plots and result.history:
@@ -331,6 +335,7 @@ def load_result(output):
     from TinyLensGpu.ObservationModel import (
         PotentialCorrectionResult,
         PotentialCorrectionStrengths,
+        PotentialOptimizerInfo,
         PotentialSolverInfo,
     )
     from TinyLensGpu.utils.lensing.mapping import source_boundary_for_interpolation
@@ -409,6 +414,8 @@ def load_result(output):
                 "evidence_is_exact",
                 "initialization_provenance",
             )
+            solver_info = metadata.get("solver_info")
+            optimizer_info = metadata.get("optimizer_info")
             return PotentialCorrectionResult(
                 **arrays,
                 **scalars,
@@ -416,7 +423,14 @@ def load_result(output):
                 source_bbox=tuple(metadata["source_bbox"]),
                 potential_grid=grid,
                 strengths=PotentialCorrectionStrengths(**metadata["strengths"]),
-                solver_info=PotentialSolverInfo(**metadata["solver_info"]),
+                solver_info=(
+                    None if solver_info is None else PotentialSolverInfo(**solver_info)
+                ),
+                optimizer_info=(
+                    None
+                    if optimizer_info is None
+                    else PotentialOptimizerInfo(**optimizer_info)
+                ),
                 configuration=configuration,
                 history=tuple(metadata["history"]),
             )
