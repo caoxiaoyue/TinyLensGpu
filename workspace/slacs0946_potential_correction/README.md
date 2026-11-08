@@ -47,6 +47,12 @@ python -u workspace/slacs0946_potential_correction/pt_iter_lbfgs.py \
   --output workspace/slacs0946_potential_correction/potential_lbfgs_new
 ```
 
+J0946 的 L-BFGS-B 入口默认使用 `--gn-stationarity-tol 10000`。这个有限上限远高于
+J0946 Float32 DIRECT 对照中放宽组的最大合格 GN 值 `0.04445`，因此常规拟合等效关闭
+GN 数值门槛。结果继续记录 GN，并检查优化器退出状态、结果有限性和
+operator 的 PCG 残差。指定 `--gn-stationarity-tol 0.01` 可复跑原门槛。
+[J0946 阈值对照](../../.scratch/lbfgs-potential-correction/research/j0946-gn-threshold.md)
+
 ## 宏观模型
 
 科学设置沿用原流程，包括原有 operator/PCG 像素源 likelihood；本次要求的

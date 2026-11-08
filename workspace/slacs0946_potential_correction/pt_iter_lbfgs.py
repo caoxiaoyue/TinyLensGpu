@@ -38,6 +38,9 @@ from TinyLensGpu.ObservationModel import (
     PotentialCorrectionStrengths,
     PotentialCorrectionWhiteningReference,
 )
+from TinyLensGpu.ObservationModel.LensImage.potential_correction_lbfgs import (
+    DEFAULT_GN_STATIONARITY_TOL,
+)
 from TinyLensGpu.PhysicalModel import EPL, PhysicalModel, Shear
 from TinyLensGpu.example_support import resolve_source_interpolation
 from examples.potential_correction.result_products import (
@@ -60,6 +63,26 @@ DIRECT_OPTIONS = {
     "len_tol": 0.002,
     "vol_tol": 1e-16,
 }
+
+
+def add_gn_stationarity_argument(parser):
+    def tolerance(value):
+        threshold = float(value)
+        if not np.isfinite(threshold) or threshold < 0:
+            raise argparse.ArgumentTypeError(
+                "GN tolerance must be finite and nonnegative"
+            )
+        return threshold
+
+    parser.add_argument(
+        "--gn-stationarity-tol",
+        type=tolerance,
+        default=DEFAULT_GN_STATIONARITY_TOL,
+        help=(
+            "Maximum endpoint GN stationarity statistic. The default %(default)g "
+            "effectively disables rejection by GN magnitude for typical fits."
+        ),
+    )
 
 
 def prepare_problem(macro_dir, potential_spacing):
@@ -552,6 +575,7 @@ def main(argv=None):
     parser.add_argument(
         "--max-iter", type=int, default=3000, help="L-BFGS-B iterations per candidate"
     )
+    add_gn_stationarity_argument(parser)
     parser.add_argument(
         "--plot-only", action="store_true", help="Plot a completed output"
     )
@@ -568,7 +592,10 @@ def main(argv=None):
     if output.exists() or output.is_relative_to(macro_dir):
         parser.error("Use a new output directory outside the M3 handoff")
 
-    fit_options = {"max_iter": args.max_iter, "gn_stationarity_tol": 1e-2}
+    fit_options = {
+        "max_iter": args.max_iter,
+        "gn_stationarity_tol": args.gn_stationarity_tol,
+    }
     with jax.experimental.enable_x64(), jax.default_matmul_precision("highest"):
         problem, metadata, observation = prepare_problem(
             macro_dir, args.potential_spacing

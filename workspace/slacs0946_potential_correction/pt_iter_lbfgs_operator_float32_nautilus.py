@@ -36,6 +36,7 @@ from TinyLensGpu.ObservationModel import PotentialCorrectionStrengths
 from examples.potential_correction.result_products import json_safe, write_json
 from workspace.slacs0946_potential_correction.pt_iter_lbfgs import (
     STRENGTH_ORDER,
+    add_gn_stationarity_argument,
     log10_bounds,
     plot_saved_diagnostics,
     save_reconstruction,
@@ -187,6 +188,7 @@ def main(argv=None):
     parser.add_argument(
         "--max-iter", type=int, default=3000, help="L-BFGS-B iterations per candidate"
     )
+    add_gn_stationarity_argument(parser)
     parser.add_argument(
         "--plot-only", action="store_true", help="Plot a saved reconstruction"
     )
@@ -213,7 +215,7 @@ def main(argv=None):
     fit_options = {
         "backend": "operator",
         "max_iter": args.max_iter,
-        "gn_stationarity_tol": 1e-2,
+        "gn_stationarity_tol": args.gn_stationarity_tol,
         "pcg_max_iter": 2000,
     }
     with jax.experimental.enable_x64(False), jax.default_matmul_precision("highest"):

@@ -515,10 +515,10 @@ field-separated contiguous partition capped at 64 coefficients, a PCG limit
 of 2000 iterations and a recursive relative tolerance of `1e-10`.
 Set `operator_options.block_indices` in JSON to supply an explicit partition.
 
-All four runs on the RTX 5080 selected 568 image pixels and qualified at the
-common GN stationarity tolerance of `0.001`. Convergence metrics use all 200
-derivative-valid nodes, and the residual RMS is in noise units on selected
-image pixels.
+The mock validation configuration explicitly sets `gn_stationarity_tol=0.001`.
+All four runs on the RTX 5080 selected 568 image pixels and qualified at that
+cutoff. Convergence metrics use all 200 derivative-valid nodes, and the
+residual RMS is in noise units on selected image pixels.
 
 | Observation | Backend | Objective | Local GN log evidence | Convergence RMSE vs discrete truth | Positive convergence peak | Residual RMS / noise |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |

@@ -3,6 +3,12 @@
 **Status:** ready-for-agent
 **State:** resolved
 
+> **Current GN tolerance.** The public default is `10000`, after earlier
+> defaults of `0.001` and `0.01`. The large finite cutoff effectively disables
+> rejection by GN magnitude for typical fits while retaining the diagnostic.
+> The fixed-strength validation runs below explicitly use `0.001`.
+> [J0946 threshold comparison](research/j0946-gn-threshold.md)
+
 ## Problem Statement
 
 TinyLensGpu users can reconstruct a pixelized source and a lens-potential perturbation with the single-step and Gauss–Newton/Levenberg–Marquardt (GN/LM) interfaces. The J0946 experiments demonstrate another route that jointly optimizes the source and accumulated potential with L-BFGS-B and a continuously differentiable cubic Hermite source. Researchers currently access that route through experiment scripts that combine the fit, archived-input loading, strength search, and reporting.
@@ -73,7 +79,7 @@ Validate both backends on independent small references, a matched injection and 
 
    Here \(R_s\) is the existing source precision shape, including the optional adaptive scale, and \(D_4\) uses the existing complete horizontal and vertical fourth-difference windows. The amplitude term applies to every fitted potential coefficient. Share the objective and its JAX gradient across backends. Use SciPy L-BFGS-B on the whitened coordinates to fit the signed fields.
 4. **Whitening reference.** A public `whitening_reference` supplies reference source values on the same fitted grid and their interpolation mode. Use zero potential and the same fixed geometry and macro rays for this reference. Default to the Hermite initial source. Keep the reference metric fixed within each fit. The actual fit and endpoint always use the Hermite forward model, including when the supplied reference uses hard-box bilinear interpolation.
-5. **Backend selection.** `fit` selects `dense` or `operator` and defaults to `dense`. Expose `max_iter` with default 3000 and `gn_stationarity_tol` with default \(10^{-3}\). Follow the established operator controls `block_size`, `block_indices`, `pcg_max_iter`, `pcg_rtol`, and `pcg_atol` at fit time, with `solve_rtol` and `solve_atol` at construction for the endpoint linear-residual check.
+5. **Backend selection.** `fit` selects `dense` or `operator` and defaults to `dense`. Expose `max_iter` with default 3000 and `gn_stationarity_tol` with default `10000`. Follow the established operator controls `block_size`, `block_indices`, `pcg_max_iter`, `pcg_rtol`, and `pcg_atol` at fit time, with `solve_rtol` and `solve_atol` at construction for the endpoint linear-residual check.
 6. **Dense backend.** Port the prototype's scaled prior factors and data-space whitening. Evaluate the full coupled, undamped GN determinant ratio in data space at the final fields. Preserve the prototype's mathematical path as the reference for the fixed-strength J0946 refit.
 7. **Operator backend.** Apply the complete coupled \(H_{\mathrm{GN}}=J^\mathsf T W J+R\) through current Jacobian and transpose actions, noise precision \(W\), and prior actions. Assemble bounded principal blocks for the reference whitening and for terminal preconditioning and determinants. The default partition uses separate contiguous source and potential blocks with a cap of 64. Explicit joint partitions obey the existing coverage and size rules. Record the selected partition. The operator fit uses only operator actions and bounded blocks for whitening, endpoint certification, and evidence.
 8. **Endpoint qualification.** Both backends require native optimizer success, finite fitted coefficients and endpoint quantities, and the same undamped GN stationarity statistic \(\tfrac12 g^\mathsf T H_{\mathrm{GN}}^{-1}g\) at or below the configured tolerance. Here \(g\) is the physical objective gradient at the returned fields. The operator backend obtains the inverse action by coupled PCG and checks the recomputed residual against the absolute and relative solve tolerances. Use the existing convention of raising for invalid configuration and returning a failed result for numerical failure, with available fields, a reason, and `log_evidence=None`.

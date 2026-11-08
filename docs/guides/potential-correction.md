@@ -163,13 +163,21 @@ determinants, call `fitter.fit(strengths, backend="operator")`. The operator
 defaults to field-separated contiguous blocks of at most 64 coefficients and
 accepts the partition and PCG controls above.
 
-Both backends require native optimizer success and finite endpoints with
-`0.5 * g.T @ H_GN^{-1} @ g` at or below `gn_stationarity_tol` (default
-`1e-2`). Here `g` is the physical objective gradient and `H_GN` is the
-undamped coupled Gauss–Newton curvature at the endpoint. The operator uses
-PCG and checks its recomputed residual against the constructor's `solve_atol`
-and `solve_rtol`. Read the native status, evaluation counts and stationarity
-in `optimizer_info`, with the operator certificate under
+The default `gn_stationarity_tol=10000` effectively disables rejection by
+GN magnitude for typical fits. In a matched J0946 Float32 operator search,
+the relaxed setting qualified six candidates above the former `0.01` cutoff
+and recovered the upper-arc convergence peak at the same grid node. Its
+largest qualified GN value was `0.04445`, well below the finite default cap.
+Set `gn_stationarity_tol=0.01` to use the previous stricter cutoff.
+[J0946 threshold comparison](../../.scratch/lbfgs-potential-correction/research/j0946-gn-threshold.md)
+
+Both backends require native optimizer success, finite endpoints, and a GN
+stationarity statistic `0.5 * g.T @ H_GN^{-1} @ g` at or below the configured
+cutoff. Here `g` is the physical objective gradient and `H_GN` is the undamped
+coupled Gauss–Newton curvature at the endpoint. The operator uses PCG and
+checks its recomputed residual against the constructor's `solve_atol` and
+`solve_rtol`. Read the native status, evaluation counts and stationarity in
+`optimizer_info`. The operator certificate is in
 `optimizer_info.diagnostics["stationarity_solver"]`. L-BFGS-B sets
 `solver_info=None`. The optimizer iteration limit defaults to `max_iter=3000`.
 

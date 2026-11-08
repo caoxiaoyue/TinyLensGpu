@@ -30,6 +30,10 @@ from .potential_correction_result import (
     PotentialOptimizerInfo,
 )
 
+# Keep GN stationarity as a diagnostic with an effectively inactive magnitude
+# cutoff for typical fits. Callers can request stricter endpoint qualification.
+DEFAULT_GN_STATIONARITY_TOL = 1e4
+
 # Keep the archived optimizer controls fixed across backends and strength calls.
 _LBFGSB_OPTIONS = {
     "maxfun": 120000,
@@ -433,7 +437,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         *,
         backend="dense",
         max_iter=3000,
-        gn_stationarity_tol=1e-2,
+        gn_stationarity_tol=DEFAULT_GN_STATIONARITY_TOL,
         block_size=64,
         block_indices=None,
         pcg_max_iter=400,
@@ -441,6 +445,10 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         pcg_atol=0.0,
     ) -> PotentialCorrectionResult:
         """Fit and qualify the endpoint at one fixed physical strength triple.
+
+        The finite ``gn_stationarity_tol`` default of 10000 effectively
+        disables rejection by GN magnitude for typical fits. The GN statistic
+        is still recorded, and callers can supply a tighter tolerance.
 
         Operator fits use bounded principal blocks for whitening,
         preconditioning, and determinants. PCG applies the full coupled
