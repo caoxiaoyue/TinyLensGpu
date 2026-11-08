@@ -82,7 +82,10 @@ def main():
             source_initialization="fixed_M3_lambda_conditional_source_MAP",
             source_reference="saved_M3_for_whitening_only")
     before={name:pt.sha256(args.macro_dir/name) for name in ("m3_handoff.json","m3_handoff.npz")}
-    single_path=HERE.parent/"single_step/potential_qr_v2/maximum_evidence/result.json"
+    single_path = (
+        HERE.parent / "slacs0946_potential_correction"
+        / "potential_qr_v2/maximum_evidence/result.json"
+    )
     previous_path=HERE/"direct_powell/maximum_evidence/result.json"
     single=json.loads(single_path.read_text())["strengths"]
     previous=json.loads(previous_path.read_text())["strengths"]

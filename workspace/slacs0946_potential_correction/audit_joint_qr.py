@@ -23,7 +23,8 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
-ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
 import numpy as np  # noqa: E402
@@ -34,7 +35,7 @@ def digest(path):
 
 
 def load_driver():
-    path = ROOT / "workspace/single_step/pt.py"
+    path = HERE / "pt.py"
     spec = importlib.util.spec_from_file_location("j0946_qr_driver", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -99,7 +100,7 @@ def evaluate(args):
     output.mkdir(parents=True, exist_ok=True)
     original = json.loads((run / "manifest.json").read_text())
     identity = dict(
-        driver_sha256=digest(ROOT / "workspace/single_step/pt.py"),
+        driver_sha256=digest(HERE / "pt.py"),
         run=str(run),
         run_manifest_sha256=digest(run / "manifest.json"),
         posterior_sha256=digest(run / "posterior.npz"),
@@ -109,8 +110,13 @@ def evaluate(args):
     )
     manifest_path = output / "audit_manifest.json"
     if manifest_path.exists():
-        saved = json.loads(manifest_path.read_text())
-        if not args.resume or saved["inputs"] != identity:
+        saved_inputs = json.loads(manifest_path.read_text())["inputs"]
+        # Recognize the previous workspace path while still requiring every hash.
+        if run.is_relative_to(HERE):
+            previous_run = HERE.with_name("single_step") / run.relative_to(HERE)
+            if saved_inputs["run"] == str(previous_run):
+                saved_inputs["run"] = str(run)
+        if not args.resume or saved_inputs != identity:
             raise ValueError("Use --resume with unchanged code and campaign inputs")
     else:
         driver.write_json(
@@ -459,12 +465,8 @@ def reference(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--run", type=Path, default=ROOT / "workspace/single_step/potential"
-    )
-    parser.add_argument(
-        "--macro", type=Path, default=ROOT / "workspace/single_step/macro"
-    )
+    parser.add_argument("--run", type=Path, default=HERE / "potential")
+    parser.add_argument("--macro", type=Path, default=HERE / "macro")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--phase", choices=("evaluate", "reference"), default="evaluate"

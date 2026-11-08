@@ -105,9 +105,9 @@ This reuses the existing edge-weighted adaptive finite differences in both
 the penalty and the normalized prior determinant; only `lambda_source`
 changes during strength selection. Preserve the macro fit's template and
 adaptive parameters when exporting that scale, rather than recalculating it
-from each new jointly reconstructed source. The standalone J0946 drivers in
-`workspace/single_step/` illustrate the M3 handoff and a three-strength
-Nautilus search with the Dense Float32 backend.
+from each new jointly reconstructed source. The [SLACS J0946 workspace](../../workspace/slacs0946_potential_correction/)
+illustrates the M3 handoff, a single-step three-strength Nautilus search with
+the dense Float32 backend, and an iterative L-BFGS-B fit.
 
 For the operator backend, add `backend="operator"`, `block_size`, optional
 `block_indices`, `pcg_max_iter`, `pcg_rtol` and `pcg_atol`. An explicit partition

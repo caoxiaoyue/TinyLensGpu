@@ -20,7 +20,8 @@
 ## 早期双线性实验说明
 
 入口为 `pt.py`。只读取这里已复制的 M3 handoff，不导入或自动执行
-`macro_model.py`。后者及 `macro/`、`data/` 是 `../single_step/` 的逐字节副本；
+`macro_model.py`。最初从 [SLACS J0946 工作目录](../slacs0946_potential_correction/)
+逐字节复制了该脚本以及 `macro/` 和 `data/`。
 `copied_smooth_manifest.json` 记录了 37 个文件的 SHA256。生成数据及输出被 Git
 忽略，Python/Markdown 保留为可审查文件。请保留本地 handoff 才能复现实验。
 

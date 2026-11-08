@@ -4,11 +4,11 @@
 
 ## 交接数据与冻结项
 
-只读核验 [原 m3_handoff.json](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/single_step/macro/m3_handoff.json) 和 NPZ，SHA256 与记录的 `d09a1102a64f74dc…` 一致。M3 代表点是保留样本中 likelihood 最大的样本 #21342，不是 posterior median；[export_m3_bundle](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/single_step/macro_model.py:2060) 是来源。已有 smooth fit 不应重跑。
+只读核验 [原 m3_handoff.json](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/slacs0946_potential_correction/macro/m3_handoff.json) 和 NPZ，SHA256 与记录的 `d09a1102a64f74dc…` 一致。M3 代表点是保留样本中 likelihood 最大的样本 #21342，不是 posterior median；[export_m3_bundle](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/slacs0946_potential_correction/macro_model.py:2060) 是来源。已有 smooth fit 不应重跑。
 
 - 原生图像 201×201、dpix=0.05 arcsec、nsub=4，15×15 PSF 和为 1。`mask=True` 排除，共保留 2293 个像素；同一真实数据和 PSF/mask 应直接复制、校验。其中 8 个保留像素的 noise=\(10^8\)，应沿用而非自动删除，Gaussian normalization 仍包含全部 2293 个像素。
 - source 为 100×100，signed intensities，row-major；x/y 轴均递增。bbox 按 `(xmin,xmax,ymin,ymax)` 为 `[-0.5641691089,0.4358308911,-0.6536976099,0.3463023603]` arcsec。原 handoff 全部数值数组为 Float32，推广到 Float64不代表重新拟合宏参数；重建坐标与网格的舍入/边界差异应记录。
-- NPZ 的 `lens_subtracted_image` 在 Float32 下严格等于 `image_data-lens_light_model`。新问题应直接使用这一保存的 datum，forward 的 `lens_light=[]`，不再次减光，也不悄悄用 Float64重新相减替换原数据。noise 沿用保存值；这是条件于固定透镜光的推断，没有传播透镜光拟合不确定度。[旧 PT load_problem](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/single_step/pt.py:90) 同样如此。
+- NPZ 的 `lens_subtracted_image` 在 Float32 下严格等于 `image_data-lens_light_model`。新问题应直接使用这一保存的 datum，forward 的 `lens_light=[]`，不再次减光，也不悄悄用 Float64重新相减替换原数据。noise 沿用保存值；这是条件于固定透镜光的推断，没有传播透镜光拟合不确定度。[旧 PT load_problem](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/slacs0946_potential_correction/pt.py:90) 同样如此。
 - M1 template、M2 的 rho=5.530494995 和 adaptive source scale 固定。保存的 10000 个 scale 均有限正值，范围 `[1,252.2687988]`；禁止随迭代 source 再估计权重。first-order source prior 的边权、边界锚定、penalty 和 determinant 必须使用同一 scale。[原 source matvec](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/TinyLensGpu/utils/inversion/regularization.py:325) 的外边界 zero-order 行使正权图的 prior proper/SPD，不能当作无边界的奇异 Laplacian。
 - M3 source 是观测拟合的 reference/可选初始化，不能标为 truth source；实际 frozen 实验采用下述 conditional-source 初态，potential 均从 0 开始。`IterativePotentialCorrection` 当前构造器硬编码 truth provenance，实验实例需显式覆盖。它暂不接收 `source_scale` 参数，若实例赋值则必须在任何 prior 构造或首次 JIT tracing 前完成，并对独立 audit 实例同样设置。
 
@@ -16,7 +16,7 @@
 
 ## 规模与数值方法
 
-[现有单步结果](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/single_step/potential_qr_v2/maximum_evidence/result.json) 的 geometry 为 \(N_d=2293,N_s=10000,N_p=1134,N_{\rm core}=802\)，potential spacing=0.1 arcsec。Float64独立构造后的实际计数须再核对。仅 \(11134^2\) 的 Float64矩阵约 992 MB，直接复用 mock 的 full joint Gram/Q/H/Cholesky 会放大显存和每候选分解成本；不得为省资源静默改成较粗 source 网格。
+[现有单步结果](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/slacs0946_potential_correction/potential_qr_v2/maximum_evidence/result.json) 的 geometry 为 \(N_d=2293,N_s=10000,N_p=1134,N_{\rm core}=802\)，potential spacing=0.1 arcsec。Float64独立构造后的实际计数须再核对。仅 \(11134^2\) 的 Float64矩阵约 992 MB，直接复用 mock 的 full joint Gram/Q/H/Cholesky 会放大显存和每候选分解成本；不得为省资源静默改成较粗 source 网格。
 
 可保持完整 GN target 而利用 \(N_d\ll N_q\)：AD 按 data 行构造 \(J_w\)，其约 204 MB；若 \(Q=AA^T\)，令 \(V=A^{-1}J_w^T\)，则
 
@@ -25,7 +25,7 @@ H_{\rm GN}=Q+J_w^TJ_w,\qquad
 \log\det H_{\rm GN}-\log\det Q=\log\det(I+V^TV).
 \]
 
-这是完整 determinant lemma，保留全部 source–potential cross terms；[旧 PT 的 data-space/augmented-QR 实现](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/single_step/pt.py:230) 提供本地依据。若采用该形式，终点 \(J_w\) 和 prior root 都必须匹配当前 fields/三强度；不能复用 single-step 的冻结响应作为 iterative endpoint curvature。
+这是完整 determinant lemma，保留全部 source–potential cross terms；[旧 PT 的 data-space/augmented-QR 实现](/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/workspace/slacs0946_potential_correction/pt.py:230) 提供本地依据。若采用该形式，终点 \(J_w\) 和 prior root 都必须匹配当前 fields/三强度；不能复用 single-step 的冻结响应作为 iterative endpoint curvature。
 
 如仍要求初始 GN 白化，可用 prior root 与低秩 \((I+VV^T)^{-1/2}\) 的作用避免每候选 full-joint 分解；若改用仅 prior/diagonal 白化，也应明示预条件算法变化、独立核对坐标梯度，物理目标保持一致。source prior 的基矩阵/基 factor 可固定准备，候选 \(\lambda_s\) 只缩放。不能通过 jitter 或改 amplitude prior 来掩盖分解失败。
 

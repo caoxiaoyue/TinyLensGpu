@@ -14,9 +14,13 @@ import numpy as np
 import pytest
 
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
+SLACS0946_WORKSPACE = "slacs0946_potential_correction"
+
+
 @pytest.fixture
 def driver():
-    path = Path(__file__).resolve().parents[2] / "workspace/single_step/pt.py"
+    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "pt.py"
     spec = importlib.util.spec_from_file_location("j0946_single_step_pt", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -63,7 +67,7 @@ def _handoff(path):
     (path / "m3_handoff.json").write_text(json.dumps(record))
 
 
-@pytest.mark.parametrize("workspace", ["single_step", "iteration"])
+@pytest.mark.parametrize("workspace", [SLACS0946_WORKSPACE, "iteration"])
 @pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
 def test_j0946_consumers_use_the_handoff_interpolation(
     tmp_path, monkeypatch, workspace, interpolation
@@ -71,7 +75,7 @@ def test_j0946_consumers_use_the_handoff_interpolation(
     from TinyLensGpu.example_support import source_interpolation_metadata
 
     monkeypatch.setattr(sys, "path", sys.path.copy())
-    path = Path(__file__).resolve().parents[2] / "workspace" / workspace / "pt.py"
+    path = WORKSPACE_ROOT / workspace / "pt.py"
     spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_handoff_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -94,7 +98,7 @@ def test_j0946_consumers_use_the_handoff_interpolation(
     )
     assert arrays["source_values"].shape == (4,)
     provenance = problem.initialization_provenance
-    if workspace == "single_step":
+    if workspace == SLACS0946_WORKSPACE:
         assert provenance["gradient"] == f"frozen_{mode}_derivative_of_M3_source"
         gx, gy = problem.renderer.source_spatial_gradient(arrays["source_values"])
         np.testing.assert_array_equal(problem.gradient_x, gx)
@@ -152,11 +156,11 @@ def test_archive_replay_keeps_distinct_source_boundaries(
     np.testing.assert_allclose(brightness, expected, rtol=0, atol=1e-14)
 
 
-@pytest.fixture(params=["single_step", "iteration"])
+@pytest.fixture(params=[SLACS0946_WORKSPACE, "iteration"])
 def macro_producer(request, monkeypatch):
     workspace = request.param
     monkeypatch.setattr(sys, "path", sys.path.copy())
-    path = Path(__file__).resolve().parents[2] / "workspace" / workspace / "macro_model.py"
+    path = WORKSPACE_ROOT / workspace / "macro_model.py"
     spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_macro_test", path)
     module = importlib.util.module_from_spec(spec)
     precision = jax.config.jax_default_matmul_precision
@@ -551,9 +555,7 @@ def test_plot_only_validates_handoff_before_overwriting_figures(
 def test_qr_audit_rejects_original_run_as_output_before_preparation(
     tmp_path, monkeypatch, symlink
 ):
-    path = (
-        Path(__file__).resolve().parents[2] / "workspace/single_step/audit_joint_qr.py"
-    )
+    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "audit_joint_qr.py"
     spec = importlib.util.spec_from_file_location("j0946_qr_auditor", path)
     auditor = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(auditor)
@@ -700,7 +702,7 @@ def test_macro_source_plot_centers_match_nodes_and_physical_overlays(
         overlays.append(source_ax)
 
     # Load the actual plot functions without importing the CLI's runtime policy.
-    path = Path(__file__).resolve().parents[2] / "workspace/single_step/macro_model.py"
+    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "macro_model.py"
     functions = [
         node
         for node in ast.parse(path.read_text(), filename=str(path)).body

@@ -150,17 +150,18 @@ delta-kappa 峰分别为 0.213663 和 0.211201，位置均为 (-0.6,1.1) arcsec�
 在 RTX 5080 上，代表点单次 warm QR 约为 0.0475 秒，默认路径约为
 0.0043 秒；这些是复算前的同步单次测量，未作为多进程 benchmark 结论。
 
-从仓库根目录、`tinylens_gpu` 环境运行：
+在 `tinylens_gpu` 环境中从仓库根目录运行。
 
 ```bash
-python -u workspace/single_step/audit_joint_qr.py \
-  --output workspace/single_step/joint_qr_impact_20261102
+python -u workspace/slacs0946_potential_correction/audit_joint_qr.py \
+  --output workspace/slacs0946_potential_correction/joint_qr_replay
 JAX_PLATFORMS=cpu OPENBLAS_NUM_THREADS=1 \
-python -u workspace/single_step/audit_joint_qr.py \
-  --output workspace/single_step/joint_qr_impact_20261102 --phase reference
+python -u workspace/slacs0946_potential_correction/audit_joint_qr.py \
+  --output workspace/slacs0946_potential_correction/joint_qr_replay --phase reference
 ```
 
-已有复算使用 `--resume`，或选择新目录。数值记录包括 `posterior_impact.json`、
+续跑使用 `--resume`，需匹配 manifest 中的 driver 和输入校验值。归档的复算位于
+`joint_qr_impact_20261102/`，数值记录包括 `posterior_impact.json`、
 `candidate_impact.json`、`map_impact.json`、`float64_reference.json`、
 所有逐点评分及新旧输入 hash。12 个原输入/结果文件的 SHA256 复核保持一致。
 

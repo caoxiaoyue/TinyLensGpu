@@ -70,7 +70,10 @@ def main():
     m3_log_source = np.log10(metadata["lambda_source"])
     previous_summary = json.loads((args.previous_run/"summary.json").read_text())
     previous_best = previous_summary["best"]["strengths"]
-    single_path = HERE.parent/"single_step/potential_qr_v2/maximum_evidence/result.json"
+    single_path = (
+        HERE.parent / "slacs0946_potential_correction"
+        / "potential_qr_v2/maximum_evidence/result.json"
+    )
     single = json.loads(single_path.read_text())["strengths"]
     profiles = dict(
         strong_anchor=np.array([m3_log_source, 7.5, 6.5]),

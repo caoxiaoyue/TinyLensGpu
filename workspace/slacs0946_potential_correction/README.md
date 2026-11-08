@@ -1,23 +1,24 @@
-# J0946：从头拟合宏观模型，再做单步 potential correction
+# SLACS J0946+1006 势校正
 
-两个独立入口，均使用当前 TinyLensGpu-potential-correction checkout 的代码。
-原始 FITS 从原 J0946 目录复制到本目录 `data/`；不导入旧 posterior、M3
-重建或 feature mask。`macro_model.py` 重新构建 arc mask，并完成 A、B、M0、M1、M2、M3。
-M4/M5 的模型、搜索与结果不参与本实验。
+两种势校正共用 `macro_model.py` 导出的 M3 handoff。
 
-本次完成结果与数值限制见 [analysis.md](analysis.md)。
-联合求解器的 QR 修复及对已保存 J0946 结果的复算见
-[joint_qr_impact.md](joint_qr_impact.md)。
+- [`macro_model.py`](macro_model.py) 从原始 FITS 重新构建 arc mask，并完成 A、B、M0、M1、M2、M3。
+- [`pt.py`](pt.py) 在固定 M3 源梯度下执行单步势校正，用 Nautilus 采样三个正则化强度。
+- [`pt_iter_lbfgs.py`](pt_iter_lbfgs.py) 用 L-BFGS-B 迭代联合优化源亮度和势校正，用 DIRECT 搜索三个正则化强度。
+
+原始 FITS 从原 J0946 目录复制到本目录 `data/`。单步结果见 [analysis.md](analysis.md)，
+联合 QR 复算见 [joint_qr_impact.md](joint_qr_impact.md)，L-BFGS-B 收敛结果见
+[lbfgs_regularization_convergence.md](lbfgs_regularization_convergence.md)。
 
 ## 运行
 
-从仓库根目录：
+从仓库根目录运行宏模型和单步校正。
 
 ```bash
 source ~/anaconda3/bin/activate
 conda activate tinylens_gpu
-python -u workspace/single_step/macro_model.py
-python -u workspace/single_step/pt.py
+python -u workspace/slacs0946_potential_correction/macro_model.py
+python -u workspace/slacs0946_potential_correction/pt.py
 ```
 
 已有本次实验的 manifest 或 checkpoint 时，加 `--resume`；此选项只续跑本目录的新实验，
@@ -29,15 +30,22 @@ PT 续跑会同时核对 NPZ 校验值和 manifest 中保存的完整 handoff JS
 checkpoint 不可直接续跑新评分。重新采样时指定新 `--output` 目录；旧结果保持原样。
 
 ```bash
-python -u workspace/single_step/macro_model.py --resume
-python -u workspace/single_step/pt.py --output workspace/single_step/potential_qr_v2
+python -u workspace/slacs0946_potential_correction/macro_model.py --resume
+python -u workspace/slacs0946_potential_correction/pt.py --output workspace/slacs0946_potential_correction/potential_qr_v2
 # 此目录已有新版本 checkpoint 后才使用 --resume：
-python -u workspace/single_step/pt.py --output workspace/single_step/potential_qr_v2 --resume
+python -u workspace/slacs0946_potential_correction/pt.py --output workspace/slacs0946_potential_correction/potential_qr_v2 --resume
 ```
 
 `macro_model.py --prepare-only` 只复制 raw inputs 并记录 manifest，不拟合。
 `pt.py --validate-only` 检查矩阵、数值和公开 Dense API 的一致性，不采样。
 `pt.py --plot-only` 直接读取保存的数组重新出图；`pt.py --audit-only` 复算保留样本和数值失败候选。
+
+迭代校正使用已有 M3 handoff，新的搜索需要指定新输出目录。
+
+```bash
+python -u workspace/slacs0946_potential_correction/pt_iter_lbfgs.py \
+  --output workspace/slacs0946_potential_correction/potential_lbfgs_new
+```
 
 ## 宏观模型
 
@@ -53,7 +61,7 @@ M3 拟合 EPL/shear，固定 M2 的 source 正则化超参数。
 - M3 handoff 使用**保留样本中 likelihood 最大的质量参数点**，重新求解该点的 source；
   同时记录 posterior medians，避免把中位数和最佳样本混为一谈。
 
-`macro/m3_handoff.npz` + `macro/m3_handoff.json` 是两个脚本之间的完整接口。
+`macro/m3_handoff.npz` 和 `macro/m3_handoff.json` 组成宏模型与势校正之间的接口。
 包含 raw/subtracted image、lens light、noise、PSF、mask、source 网格和亮度、
 adaptive 权重、template、质量参数和 SHA256。
 
@@ -119,13 +127,14 @@ pytest test_j0946_single_step_workflow.py -q
 对旧 J0946 campaign 的只读复算：
 
 ```bash
-python -u workspace/single_step/audit_joint_qr.py \
-  --output workspace/single_step/joint_qr_impact_20261102
-python -u workspace/single_step/audit_joint_qr.py \
-  --output workspace/single_step/joint_qr_impact_20261102 --phase reference
+python -u workspace/slacs0946_potential_correction/audit_joint_qr.py \
+  --output workspace/slacs0946_potential_correction/joint_qr_replay
+python -u workspace/slacs0946_potential_correction/audit_joint_qr.py \
+  --output workspace/slacs0946_potential_correction/joint_qr_replay --phase reference
 ```
 
-首次复算要求新 audit 输出，已有进度用 `--resume`。第二步在同一冻结 Float32
+首次复算使用新输出目录。已有进度可用 `--resume`，需匹配 manifest 中的 driver 和输入校验值。
+第二步在同一冻结 Float32
 响应/网格上用独立 SciPy Float64 线性代数检查代表点；不调用 Float64 likelihood
 作为生产 fallback，也不改变原 sampler、后验、图像或失败记录。
 

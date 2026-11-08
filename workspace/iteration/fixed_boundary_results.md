@@ -8,7 +8,7 @@
 
 ## 固定条件
 
-使用真实 J0946 单步结果 `../single_step/potential_qr_v2/maximum_evidence/` 的 λ，
+使用真实 J0946 单步结果 `../slacs0946_potential_correction/potential_qr_v2/maximum_evidence/` 的 λ，
 不是早先小型 Mock 的 λ：
 
 | 参数 | 本次固定值 |

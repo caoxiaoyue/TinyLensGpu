@@ -40,7 +40,7 @@ python workspace/iteration/replay_source_interpolation.py \
 
 ## New handoffs
 
-Both macro producer entry points accept `--source-interpolation cubic_hermite` for a fresh output directory. To use the completed handoff, point the corresponding correction driver at that directory with `--macro-dir`. Resuming the macro fit uses the recorded mode when the option is omitted. A conflicting explicit mode requires a fresh run. [Iterative macro producer](../../workspace/iteration/macro_model.py) · [Single-step macro producer](../../workspace/single_step/macro_model.py)
+Both macro producer entry points accept `--source-interpolation cubic_hermite` for a fresh output directory. To use the completed handoff, point the corresponding correction driver at that directory with `--macro-dir`. Resuming the macro fit uses the recorded mode when the option is omitted. A conflicting explicit mode requires a fresh run. [Iterative experiment macro producer](../../workspace/iteration/macro_model.py) · [SLACS J0946 workspace macro producer](../../workspace/slacs0946_potential_correction/macro_model.py)
 
 The CUDA example suite passed 43 J0946 cases, including both producers, legacy and Hermite consumers, and the archive boundary selection. The CPU workspace suite passed 13 numerical cases for the iterative handoff, experimental Hermite, and zero-ring workflows.
 

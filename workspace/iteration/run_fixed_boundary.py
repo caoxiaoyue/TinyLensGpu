@@ -151,7 +151,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=HERE / "fixed_boundary_v1")
     parser.add_argument("--macro-dir", type=Path, default=HERE / "macro")
-    parser.add_argument("--single-step-dir", type=Path, default=HERE.parent / "single_step/potential_qr_v2/maximum_evidence")
+    parser.add_argument(
+        "--single-step-dir",
+        type=Path,
+        default=HERE.parent / "slacs0946_potential_correction"
+        / "potential_qr_v2/maximum_evidence",
+    )
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--maxiter", type=int, default=3000)
     args = parser.parse_args()

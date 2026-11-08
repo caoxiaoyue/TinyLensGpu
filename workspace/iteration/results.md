@@ -5,7 +5,8 @@
 
 ## 数据与算法核验
 
-复制了 `single_step` 的 `macro_model.py`、全部 `macro/`、`data/`，37 文件、
+从 [SLACS J0946 工作目录](../slacs0946_potential_correction/) 复制了当时的
+`macro_model.py`、全部 `macro/`、`data/`，共 37 个文件、
 154796984 bytes，逐文件 SHA256 一致。Handoff NPZ SHA256 为
 `d09a1102a64f74dcf540530d850ed633430313009d44bc0f5b5b551e18b10bda`。
 保留 2293 data pixels、10000 source、1134 potential / 802 derivative-valid nodes。

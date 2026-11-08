@@ -45,7 +45,7 @@ from examples.potential_correction.result_products import (
     json_safe,
     write_json,
 )
-from workspace.single_step.pt import load_handoff
+from workspace.slacs0946_potential_correction.pt import load_handoff
 
 
 STRENGTH_ORDER = ("lambda_s", "lambda_4", "lambda_0")

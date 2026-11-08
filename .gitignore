@@ -3,10 +3,10 @@ mytest/
 *yml
 /workspace/*
 !/workspace/_j0946_macro_provenance.py
-!/workspace/single_step/
-/workspace/single_step/*
-!/workspace/single_step/*.py
-!/workspace/single_step/*.md
+!/workspace/slacs0946_potential_correction/
+/workspace/slacs0946_potential_correction/*
+!/workspace/slacs0946_potential_correction/*.py
+!/workspace/slacs0946_potential_correction/*.md
 !/workspace/pt_new_algorithm/
 /workspace/pt_new_algorithm/*
 !/workspace/pt_new_algorithm/*.py

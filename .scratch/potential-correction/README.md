@@ -70,7 +70,7 @@ precision checks, then exports the conditional source/subhalo reconstruction
 at the three marginal medians. Its [validation report](../../docs/validation/potential-correction-three-strength-float32-nautilus.md)
 retains both the localized peak improvement and the remaining background bias.
 
-The separate [J0946 joint-QR correction](../../workspace/single_step/joint_qr_impact.md)
+The separate [J0946 joint-QR correction](../../workspace/slacs0946_potential_correction/joint_qr_impact.md)
 fixes the standalone 100×100-source driver's joint/fallback evidence, retaining
 the complete coupled Gaussian target through a prior-whitened augmented QR.
 Its [compact numerical record](research/j0946-joint-qr-20261102/summary.json)

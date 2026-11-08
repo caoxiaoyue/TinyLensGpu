@@ -102,14 +102,15 @@ source 相对 L2 差约 0.0100%，delta-kappa 相对 L2 差约 0.0219%。
 
 ## 运行与检查
 
-读取原结果或按新 numerical policy 复算：
+读取原结果，或将 QR 复算写入新目录。
 
 ```bash
 source ~/anaconda3/bin/activate
 conda activate tinylens_gpu
-python workspace/single_step/macro_model.py --resume
-python workspace/single_step/pt.py --plot-only
-python workspace/single_step/audit_joint_qr.py --output workspace/single_step/joint_qr_impact_20261102 --resume
+python workspace/slacs0946_potential_correction/macro_model.py --resume
+python workspace/slacs0946_potential_correction/pt.py --plot-only
+python workspace/slacs0946_potential_correction/audit_joint_qr.py \
+  --output workspace/slacs0946_potential_correction/joint_qr_replay
 ```
 
 23 项核心测试通过，4 项流程/代数/QR/fallback 测试通过；Black、Ruff 与 diff whitespace 检查通过。
