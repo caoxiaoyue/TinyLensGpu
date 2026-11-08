@@ -42,6 +42,7 @@ def small_dense_refit():
     )
     from TinyLensGpu.PhysicalModel import PhysicalModel, Shear
     from examples.potential_correction.validate_j0946_lbfgs import (
+        _GN_STATIONARITY_TOL,
         _fit_record,
         _result_convergence_fields,
     )
@@ -61,7 +62,10 @@ def small_dense_refit():
     fitter = LBFGSPotentialCorrection(
         renderer, np.zeros((4, 4)), np.ones((4, 4)), np.zeros(9)
     )
-    refit = fitter.fit(PotentialCorrectionStrengths(0.1, 0.2, 1.0))
+    refit = fitter.fit(
+        PotentialCorrectionStrengths(0.1, 0.2, 1.0),
+        gn_stationarity_tol=_GN_STATIONARITY_TOL,
+    )
     assert refit.success, refit.failure_reason
     return _fit_record(refit), _result_convergence_fields(refit)
 

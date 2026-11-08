@@ -14,7 +14,7 @@ subhalo detection significance, mass intervals or posterior-sampling results.
 | --- | --- | --- |
 | `SingleStepPotentialCorrection` | A source-gradient callable evaluated once at macro image-subpixel rays, then frozen; scientific mocks use analytic truth gradients | A linear source–potential prediction, plus a separate nonlinear re-render |
 | `IterativePotentialCorrection` | Truth brightness sampled at the fixed **source nodes**, with zero initial potential | A nonlinear image; mappings and gradients of the selected interpolant refresh after accepted updates |
-| `LBFGSPotentialCorrection` | Supplied signed intensities on the fixed source nodes, with zero initial potential | A Float64 cubic Hermite image optimized with L-BFGS-B at fixed strengths |
+| `LBFGSPotentialCorrection` | Supplied signed intensities on the fixed source nodes, with zero initial potential | A cubic Hermite image optimized with L-BFGS-B at fixed strengths |
 
 A documented small-step derivative of the truth can also supply the single-step
 gradient callable. All three fit the complete signed source and potential
@@ -128,9 +128,11 @@ bilinear kinks can return an explicit stall.
 
 ## Fixed-strength L-BFGS-B
 
-Use the preceding example's observation, macro and initial source with a Float64
-renderer configured for `cubic_hermite`. Supply all three physical strengths
-with each fit.
+Use the preceding example's observation, macro and initial source with a
+renderer configured for `cubic_hermite`. Both backends use the renderer's
+`float32` or `float64` dtype for JAX computations, including the objective,
+whitening and evidence. SciPy keeps its optimizer state in Float64. Supply all
+three physical strengths with each fit.
 
 ```python
 from TinyLensGpu.ObservationModel import (
@@ -163,7 +165,7 @@ accepts the partition and PCG controls above.
 
 Both backends require native optimizer success and finite endpoints with
 `0.5 * g.T @ H_GN^{-1} @ g` at or below `gn_stationarity_tol` (default
-`1e-3`). Here `g` is the physical objective gradient and `H_GN` is the
+`1e-2`). Here `g` is the physical objective gradient and `H_GN` is the
 undamped coupled Gauss–Newton curvature at the endpoint. The operator uses
 PCG and checks its recomputed residual against the constructor's `solve_atol`
 and `solve_rtol`. Read the native status, evaluation counts and stationarity

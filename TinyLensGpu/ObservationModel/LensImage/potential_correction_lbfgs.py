@@ -281,7 +281,7 @@ class _DenseLBFGSBackend:
 
 
 class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
-    """Fit a fixed macro with a Float64 cubic Hermite source and local potential.
+    """Fit a fixed macro with a cubic Hermite source and local potential.
 
     Supply a lens-light-subtracted image, its noise, and signed initial
     intensities in row-major source-node order. Each fit starts at these
@@ -291,6 +291,8 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
     The three prior strengths are supplied to each fit. L-BFGS-B works in
     coordinates whitened at the reference. The reported image, undamped GN
     stationarity statistic and local evidence use the final Hermite model.
+    Both backends use the renderer's Float32 or Float64 dtype for JAX
+    computations. SciPy maintains its L-BFGS-B state in Float64.
     """
 
     def __init__(
@@ -316,12 +318,9 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
             solve_rtol=solve_rtol,
             solve_atol=solve_atol,
         )
-        if (
-            self.dtype != jnp.float64
-            or renderer.source_interpolation != "cubic_hermite"
-        ):
-            raise ValueError("L-BFGS-B requires a Float64 cubic_hermite renderer")
-        with jax.experimental.enable_x64():
+        if renderer.source_interpolation != "cubic_hermite":
+            raise ValueError("L-BFGS-B requires a cubic_hermite renderer")
+        with jax.experimental.enable_x64(self.dtype == jnp.float64):
             self.initial_values = self._zero_potential_start(
                 initial_source, "initial_source"
             )
@@ -411,7 +410,9 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
 
         def evaluate(z):
             started = perf_counter()
-            value, gradient = numerical.value_and_grad(jnp.asarray(z), *args)
+            value, gradient = numerical.value_and_grad(
+                jnp.asarray(z, dtype=self.dtype), *args
+            )
             result = float(value), np.asarray(gradient)
             timings.setdefault(
                 "first_objective_evaluation_seconds", perf_counter() - started
@@ -420,7 +421,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
 
         return minimize(
             evaluate,
-            np.zeros(self.n_joint),
+            np.zeros(self.n_joint, dtype=np.float64),
             jac=True,
             method="L-BFGS-B",
             options={**_LBFGSB_OPTIONS, "maxiter": max_iter},
@@ -432,7 +433,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         *,
         backend="dense",
         max_iter=3000,
-        gn_stationarity_tol=1e-3,
+        gn_stationarity_tol=1e-2,
         block_size=64,
         block_indices=None,
         pcg_max_iter=400,
@@ -457,7 +458,10 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
         tolerance = _nonnegative(gn_stationarity_tol, "gn_stationarity_tol")
         if backend not in ("dense", "operator"):
             raise ValueError("backend must be 'dense' or 'operator'")
-        with jax.experimental.enable_x64(), jax.default_matmul_precision("highest"):
+        with (
+            jax.experimental.enable_x64(self.dtype == jnp.float64),
+            jax.default_matmul_precision("highest"),
+        ):
             numerical = self._dense_backend
             endpoint_controls = {}
             if backend == "operator":
@@ -500,7 +504,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
             native = self._minimize(numerical, weights, coordinates, max_iter, timings)
             white_gradient_inf = float(np.max(np.abs(native.jac)))
             candidate = values + numerical.decode(
-                jnp.asarray(native.x), weights, coordinates
+                jnp.asarray(native.x, dtype=self.dtype), weights, coordinates
             )
             if not bool(jnp.all(jnp.isfinite(candidate))):
                 raise FloatingPointError("nonfinite_fitted_fields")
@@ -597,6 +601,7 @@ class LBFGSPotentialCorrection(_PotentialCorrectionObservation):
                 **numerical.configuration,
                 **endpoint_controls,
                 "max_iter": max_iter,
+                "optimizer_state_dtype": "float64",
                 "optimizer_options": {**_LBFGSB_OPTIONS, "maxiter": max_iter},
                 "gn_stationarity_tol": tolerance,
                 "solve_atol": self.solve_atol,

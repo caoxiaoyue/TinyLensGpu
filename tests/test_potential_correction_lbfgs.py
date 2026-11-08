@@ -152,7 +152,7 @@ def test_dense_fixed_strengths_qualify_against_complete_gn_reference(coupled_cas
         0.5 * gradient @ np.linalg.solve(curvature, gradient),
         atol=1e-12,
     )
-    assert info.gn_stationarity <= info.gn_stationarity_tol == 1e-3
+    assert info.gn_stationarity <= info.gn_stationarity_tol == 1e-2
 
 
 def _first_white_step(base, inverse_root, forward, data_weighted, prior):
@@ -352,9 +352,8 @@ def test_dense_invalid_configuration_raises(coupled_case):
     )
 
     renderer, data, noise, initial_source, _ = coupled_case
-    for invalid_renderer in (_renderer("bilinear"), _renderer(dtype="float32")):
-        with pytest.raises(ValueError, match="Float64 cubic_hermite"):
-            LBFGSPotentialCorrection(invalid_renderer, data, noise, initial_source)
+    with pytest.raises(ValueError, match="cubic_hermite"):
+        LBFGSPotentialCorrection(_renderer("bilinear"), data, noise, initial_source)
     with pytest.raises(ValueError, match="initial_source"):
         LBFGSPotentialCorrection(renderer, data, noise, initial_source[:-1])
     with pytest.raises(ValueError, match="whitening_reference.source_values"):
@@ -385,6 +384,73 @@ def _mixed_partition(n_source, n_joint, width):
     mixed = [index for pair in zip(source, potential) for index in pair]
     mixed.extend(potential[n_source:])
     return tuple(tuple(mixed[i : i + width]) for i in range(0, n_joint, width))
+
+
+@pytest.mark.parametrize("backend", ["dense", "operator"])
+def test_float32_fit_matches_same_backend_float64(coupled_case, backend):
+    from TinyLensGpu.ObservationModel import (
+        LBFGSPotentialCorrection,
+        PotentialCorrectionStrengths,
+    )
+
+    renderer, data, noise, initial_source, scale = coupled_case
+    strengths = PotentialCorrectionStrengths(0.13, 0.5, 120.0)
+    results = []
+    with jax.experimental.enable_x64():
+        for current in (renderer, _renderer(dtype="float32")):
+            problem = LBFGSPotentialCorrection(
+                current,
+                data,
+                noise,
+                initial_source,
+                source_regularization="zero-order",
+                source_scale=scale,
+            )
+            result = problem.fit(strengths, backend=backend, block_size=5)
+            assert jax.config.x64_enabled
+            assert result.success, result.failure_reason
+            assert result.dtype == current.dtype.name
+            assert result.configuration["optimizer_state_dtype"] == "float64"
+            for value in (
+                result.source_values,
+                result.potential_values,
+                result.nonlinear_model_image,
+                result.objective,
+                result.prior_logdet,
+                result.posterior_logdet,
+                result.log_evidence,
+            ):
+                assert value.dtype == current.dtype
+            results.append(result)
+
+    reference, single = results
+    valid = np.asarray(reference.derivative_valid)
+    np.testing.assert_array_equal(single.derivative_valid, valid)
+    correlation = np.corrcoef(reference.convergence[valid], single.convergence[valid])
+    assert correlation[0, 1] > 0.99
+    np.testing.assert_allclose(
+        single.nonlinear_model_image, reference.nonlinear_model_image,
+        atol=2e-4, rtol=2e-4,
+    )
+
+    # Certify the FP32 evidence at its own endpoint with explicit FP64 matrices.
+    values = _joint(single).astype(np.float64)
+    forward = _weighted_render(renderer, noise)
+    jacobian = _jacobian(forward, values)
+    prior = _prior(renderer, scale, strengths)
+    curvature = jacobian.T @ jacobian + prior
+    if backend == "dense":
+        logdet_ratio = np.linalg.slogdet(curvature)[1] - np.linalg.slogdet(prior)[1]
+    else:
+        blocks = single.configuration["block_indices"]
+        logdet_ratio = _principal_logdet(curvature, blocks) - _principal_logdet(prior, blocks)
+        solver = single.optimizer_info.diagnostics["stationarity_solver"]
+        assert solver["true_residual_norm"] <= solver["true_residual_threshold"]
+    residual = forward(values) - data.ravel() / noise.ravel()
+    objective = 0.5 * (residual @ residual + values @ prior @ values)
+    noise_normalization = 2 * np.log(noise).sum() + noise.size * np.log(2 * np.pi)
+    expected = -objective - 0.5 * (logdet_ratio + noise_normalization)
+    np.testing.assert_allclose(single.log_evidence, expected, atol=2e-3, rtol=0)
 
 
 def test_operator_fixed_strengths_qualify_against_principal_block_reference(

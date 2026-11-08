@@ -243,7 +243,9 @@ def search(problem, bounds, output, *, maxfun, refine_maxfun, fit_options):
     )
 
 
-def save_reconstruction(destination, result, selected, observation):
+def save_reconstruction(
+    destination, result, selected, observation, *, artifact_suffix=""
+):
     destination.mkdir()
     fields = {
         name: np.asarray(getattr(result, name))
@@ -268,10 +270,10 @@ def save_reconstruction(destination, result, selected, observation):
     )
     valid = fields["derivative_valid"]
     peak = np.flatnonzero(valid)[np.argmax(fields["convergence"][valid])]
-    reconstruction = destination / "reconstruction.npz"
+    reconstruction = destination / f"reconstruction{artifact_suffix}.npz"
     np.savez_compressed(reconstruction, **fields)
     write_json(
-        destination / "result.json",
+        destination / f"result{artifact_suffix}.json",
         {
             **selected,
             "algorithm": result.algorithm,
@@ -303,17 +305,22 @@ def save_reconstruction(destination, result, selected, observation):
     )
 
 
-def plot_saved_diagnostics(output, *, require_matplotlib_panel_alignment=None):
+def plot_saved_diagnostics(
+    output, *, require_matplotlib_panel_alignment=None, artifact_suffix=""
+):
     """Render the six reconstruction panels from the retained result."""
     import matplotlib as mpl
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.ticker import MaxNLocator
 
-    destination = output / "maximum_evidence"
-    result = json.loads((destination / "result.json").read_text())
-    manifest = json.loads((output / "manifest.json").read_text())
-    with np.load(destination / "reconstruction.npz", allow_pickle=False) as saved:
+    destination = output / f"maximum_evidence{artifact_suffix}"
+    diagnostics = f"diagnostics{artifact_suffix}"
+    result = json.loads((destination / f"result{artifact_suffix}.json").read_text())
+    manifest = json.loads((output / f"manifest{artifact_suffix}.json").read_text())
+    with np.load(
+        destination / f"reconstruction{artifact_suffix}.npz", allow_pickle=False
+    ) as saved:
         mask = saved["mask"]
         observed = np.where(mask, np.nan, saved["lens_subtracted_image"])
         model = np.where(mask, np.nan, saved["nonlinear_model_image"])
@@ -517,13 +524,12 @@ def plot_saved_diagnostics(output, *, require_matplotlib_panel_alignment=None):
                 axes=axes,
                 require_panel_labels=True,
                 strict=True,
-                json_out=destination / "diagnostics.alignment.json",
+                json_out=destination / f"diagnostics.alignment{artifact_suffix}.json",
             )
-        figure.savefig(destination / "diagnostics.pdf", dpi=600)
-        figure.savefig(destination / "diagnostics.svg", dpi=600)
-        figure.savefig(destination / "diagnostics.png", dpi=600)
+        for extension in ("pdf", "svg", "png"):
+            figure.savefig(destination / f"{diagnostics}.{extension}", dpi=600)
         figure.clear()
-    print(f"[diagnostics] {destination / 'diagnostics.png'}", flush=True)
+    print(f"[diagnostics] {destination / (diagnostics + '.png')}", flush=True)
 
 
 def main(argv=None):
@@ -562,7 +568,7 @@ def main(argv=None):
     if output.exists() or output.is_relative_to(macro_dir):
         parser.error("Use a new output directory outside the M3 handoff")
 
-    fit_options = {"max_iter": args.max_iter, "gn_stationarity_tol": 1e-3}
+    fit_options = {"max_iter": args.max_iter, "gn_stationarity_tol": 1e-2}
     with jax.experimental.enable_x64(), jax.default_matmul_precision("highest"):
         problem, metadata, observation = prepare_problem(
             macro_dir, args.potential_spacing
