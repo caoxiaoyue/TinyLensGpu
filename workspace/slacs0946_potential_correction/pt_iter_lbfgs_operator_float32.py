@@ -1,7 +1,8 @@
-"""Search J0946 strengths with the Float32 operator L-BFGS-B fitter.
+"""Search J0946 strengths with SciPy differential evolution.
 
-Use the local M3 handoff and rank qualified candidates by local GN evidence
-with principal-block determinants. Use --plot-only to redraw a completed run.
+Fit each candidate with Float32 operator L-BFGS-B from the local M3 handoff
+and rank qualified fits by local GN evidence with principal-block determinants.
+Use --plot-only to redraw a completed run.
 """
 
 from __future__ import annotations
@@ -38,10 +39,10 @@ from TinyLensGpu.example_support import resolve_source_interpolation
 from examples.potential_correction.result_products import write_json
 from workspace.slacs0946_potential_correction.pt import load_handoff
 from workspace.slacs0946_potential_correction.pt_iter_lbfgs import (
-    DIRECT_OPTIONS,
-    REFINE_RADIUS_DEX,
     STRENGTH_ORDER,
+    add_de_arguments,
     add_gn_stationarity_argument,
+    de_search_configuration,
     log10_bounds,
     plot_saved_diagnostics,
     save_reconstruction,
@@ -115,22 +116,14 @@ def main(argv=None):
     parser.add_argument(
         "--output",
         type=Path,
-        default=HERE / "potential_lbfgs_operator_float32",
-        help="Directory for the Float32 operator results",
+        default=HERE / "potential_lbfgs_operator_float32_de",
+        help="Directory for the Float32 operator differential evolution results",
     )
     parser.add_argument("--potential-spacing", type=float, default=0.1)
     parser.add_argument("--log10-lambda-s", type=float, nargs=2)
     parser.add_argument("--log10-lambda4", type=float, nargs=2)
     parser.add_argument("--log10-lambda0", type=float, nargs=2)
-    parser.add_argument(
-        "--maxfun", type=int, default=160, help="Nominal global DIRECT budget"
-    )
-    parser.add_argument(
-        "--refine-maxfun",
-        type=int,
-        default=90,
-        help="Nominal refinement budget (0 skips it)",
-    )
+    add_de_arguments(parser)
     parser.add_argument(
         "--max-iter", type=int, default=3000, help="L-BFGS-B iterations per candidate"
     )
@@ -143,10 +136,9 @@ def main(argv=None):
     if args.plot_only:
         plot_saved_diagnostics(output)
         return
-    if args.maxfun < 1 or args.refine_maxfun < 0 or args.max_iter < 1:
-        parser.error(
-            "Use positive global and inner budgets and a nonnegative refinement budget"
-        )
+    if args.max_iter < 1:
+        parser.error("Use --max-iter >= 1")
+    search_config = de_search_configuration(parser, args)
     macro_dir = args.macro_dir.resolve()
     if output.exists() or output.is_relative_to(macro_dir):
         parser.error("Use a new output directory outside the M3 handoff")
@@ -161,7 +153,10 @@ def main(argv=None):
         problem, metadata, observation = prepare_problem(
             macro_dir, args.potential_spacing
         )
-        bounds = log10_bounds(args, metadata)
+        try:
+            bounds = log10_bounds(args, metadata)
+        except ValueError as exc:
+            parser.error(str(exc))
         with np.errstate(over="ignore", under="ignore"):
             strengths = np.asarray(10.0**bounds, dtype=np.float32)
         if not np.all(np.isfinite(strengths) & (strengths > 0)):
@@ -184,10 +179,7 @@ def main(argv=None):
                 "determinant_method": "principal_block_cholesky",
                 "strength_order": STRENGTH_ORDER,
                 "log10_bounds": bounds,
-                "direct_options": DIRECT_OPTIONS,
-                "global_maxfun": args.maxfun,
-                "refine_maxfun": args.refine_maxfun,
-                "refine_radius_dex": REFINE_RADIUS_DEX,
+                **search_config,
                 "fit_options": fit_options,
                 "selection": "Highest qualified operator local GN evidence among visited candidates",
                 "versions": {
@@ -202,8 +194,7 @@ def main(argv=None):
             problem,
             bounds,
             output,
-            maxfun=args.maxfun,
-            refine_maxfun=args.refine_maxfun,
+            de_options=search_config["de_options"],
             fit_options=fit_options,
         )
 
@@ -219,7 +210,8 @@ def main(argv=None):
     write_json(output / "completion.json", summary)
     if result is None:
         raise SystemExit(
-            "DIRECT found no qualified L-BFGS-B candidate; see evaluations.jsonl"
+            "Differential evolution found no qualified L-BFGS-B candidate. "
+            "See evaluations.jsonl."
         )
     plot_saved_diagnostics(output)
     print(

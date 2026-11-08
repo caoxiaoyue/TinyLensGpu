@@ -1,8 +1,7 @@
-"""Select three J0946 source–potential strengths with DIRECT and L-BFGS-B.
+"""Select three J0946 source–potential strengths with differential evolution.
 
-Run with the local M3 handoff in the tinylens_gpu environment. The fitted
-image uses Float64 Hermite interpolation. DIRECT maximizes the dense local
-GN evidence over log10 strengths, using a fixed start for every candidate.
+Fit each candidate with Float64 dense L-BFGS-B and Hermite interpolation
+from the local M3 handoff. Rank qualified fits by local GN evidence.
 Use --plot-only to redraw the diagnostic panels from a completed run.
 """
 
@@ -30,7 +29,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy
-from scipy.optimize import direct
+from scipy.optimize import differential_evolution
 
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import (
@@ -55,14 +54,53 @@ STRENGTH_ORDER = ("lambda_s", "lambda_4", "lambda_0")
 # Potential bounds from the archived J0946 three-strength Hermite search.
 J0946_LOG10_LAMBDA4 = (-1.2051919733248864, 7.794808026675113)
 J0946_LOG10_LAMBDA0 = (0.9378228269292088, 6.937822826929208)
-REFINE_RADIUS_DEX = 0.3
-DIRECT_OPTIONS = {
-    "maxiter": 100,
-    "eps": 1e-4,
-    "locally_biased": False,
-    "len_tol": 0.002,
-    "vol_tol": 1e-16,
-}
+
+
+def add_de_arguments(parser):
+    parser.add_argument(
+        "--de-popsize",
+        type=int,
+        default=8,
+        help="DE population multiplier (3 members per unit, minimum 2)",
+    )
+    parser.add_argument(
+        "--de-maxiter",
+        type=int,
+        default=10,
+        help="Maximum DE generations after the initial population",
+    )
+    parser.add_argument("--seed", type=int, default=947, help="DE random seed")
+    parser.add_argument(
+        "--polish",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run SciPy's local optimization after differential evolution",
+    )
+
+
+def de_search_configuration(parser, args):
+    if args.de_popsize < 2 or args.de_maxiter < 0:
+        parser.error("Use --de-popsize >= 2 and --de-maxiter >= 0")
+    if not 0 <= args.seed < 2**32:
+        parser.error("--seed must be an unsigned 32-bit integer")
+    de_budget = (args.de_maxiter + 1) * args.de_popsize * len(STRENGTH_ORDER)
+    return {
+        "search_algorithm": "differential_evolution",
+        "de_options": {
+            "strategy": "best1bin",
+            "init": "latinhypercube",
+            "maxiter": args.de_maxiter,
+            "popsize": args.de_popsize,
+            "seed": args.seed,
+            # Use the generation budget rather than a relative tolerance on log evidence.
+            "tol": 0.0,
+            "atol": 0.0,
+            "workers": 1,
+            "polish": args.polish,
+        },
+        "max_de_candidate_fits": de_budget,
+        "max_candidate_fits": None if args.polish else de_budget,
+    }
 
 
 def add_gn_stationarity_argument(parser):
@@ -167,103 +205,87 @@ def log10_bounds(args, metadata):
     return bounds
 
 
-def search(problem, bounds, output, *, maxfun, refine_maxfun, fit_options):
-    """Retain the highest-evidence qualified result visited by either DIRECT pass."""
-    scores = {}
-    best = best_result = None
-    qualified_count = 0
-    passes = []
+class CandidateFits:
+    """Score strength triples and retain the best qualified reconstruction."""
+
+    def __init__(self, problem, fit_options, stream):
+        self.problem = problem
+        self.fit_options = fit_options
+        self.stream = stream
+        self.scores = {}
+        self.best = self.best_result = None
+        self.qualified_count = 0
+
+    def evaluate(self, log_strengths, *, phase):
+        key = tuple(map(float, log_strengths))
+        if key in self.scores:
+            return self.scores[key]
+        strengths = PotentialCorrectionStrengths(*map(float, 10.0 ** np.asarray(key)))
+        result = self.problem.fit(strengths, **self.fit_options)
+        evidence = None if result.log_evidence is None else float(result.log_evidence)
+        qualified = result.success and evidence is not None and np.isfinite(evidence)
+        row = {
+            "index": len(self.scores),
+            "phase": phase,
+            "log10_strengths": key,
+            "strengths": asdict(strengths),
+            "qualified": qualified,
+            "failure_reason": result.failure_reason,
+            "objective": result.objective,
+            "log_evidence": evidence,
+            "optimizer_info": asdict(result.optimizer_info),
+            "timings": result.configuration["timings"],
+        }
+        self.scores[key] = -evidence if qualified else np.inf
+        self.stream.write(json.dumps(json_safe(row), allow_nan=False) + "\n")
+        self.qualified_count += int(qualified)
+        if qualified and (self.best is None or evidence > self.best["log_evidence"]):
+            self.best, self.best_result = row, result
+            print(
+                f"[{phase}] fit {row['index']} best log evidence {evidence:.8f}",
+                flush=True,
+            )
+        elif len(self.scores) % 10 == 0:
+            print(
+                f"[{phase}] {len(self.scores)} fits, {self.qualified_count} qualified",
+                flush=True,
+            )
+        return self.scores[key]
+
+
+def search(problem, bounds, output, *, de_options, fit_options):
+    """Retain the highest-evidence qualified result visited by SciPy DE."""
     with (output / "evaluations.jsonl").open("x", buffering=1) as stream:
+        candidates = CandidateFits(problem, fit_options, stream)
 
         def evaluate(log_strengths):
-            nonlocal best, best_result, qualified_count
-            key = tuple(map(float, log_strengths))
-            if key in scores:
-                return scores[key]
-            strengths = PotentialCorrectionStrengths(
-                *map(float, 10.0 ** np.asarray(key))
-            )
-            result = problem.fit(strengths, **fit_options)
-            evidence = (
-                None if result.log_evidence is None else float(result.log_evidence)
-            )
-            qualified = (
-                result.success and evidence is not None and np.isfinite(evidence)
-            )
-            row = {
-                "index": len(scores),
-                "phase": phase,
-                "log10_strengths": key,
-                "strengths": asdict(strengths),
-                "qualified": qualified,
-                "failure_reason": result.failure_reason,
-                "objective": result.objective,
-                "log_evidence": evidence,
-                "optimizer_info": asdict(result.optimizer_info),
-                "timings": result.configuration["timings"],
-            }
-            scores[key] = -evidence if qualified else np.inf
-            stream.write(json.dumps(json_safe(row), allow_nan=False) + "\n")
-            qualified_count += int(qualified)
-            if qualified and (best is None or evidence > best["log_evidence"]):
-                best, best_result = row, result
-                print(
-                    f"[{phase}] fit {row['index']} best log evidence {evidence:.8f}",
-                    flush=True,
-                )
-            elif len(scores) % 10 == 0:
-                print(
-                    f"[{phase}] {len(scores)} fits, {qualified_count} qualified",
-                    flush=True,
-                )
-            return scores[key]
+            # Failed fits can produce nonfinite trial points during polishing.
+            if not np.all(np.isfinite(log_strengths)):
+                return np.inf
+            return candidates.evaluate(log_strengths, phase="de")
 
-        for phase, budget in (("global", maxfun), ("refine", refine_maxfun)):
-            if phase == "global":
-                phase_bounds = bounds
-            elif budget and best is not None:
-                center = np.asarray(best["log10_strengths"])
-                phase_bounds = np.column_stack(
-                    (
-                        np.maximum(bounds[:, 0], center - REFINE_RADIUS_DEX),
-                        np.minimum(bounds[:, 1], center + REFINE_RADIUS_DEX),
-                    )
-                )
-            else:
-                continue
-            before = len(scores)
-            started = perf_counter()
-            native = direct(
-                evaluate, phase_bounds.tolist(), maxfun=budget, **DIRECT_OPTIONS
-            )
-            passes.append(
-                {
-                    "phase": phase,
-                    "log10_bounds": phase_bounds,
-                    "maxfun": budget,
-                    "success": bool(native.success),
-                    "status": int(native.status),
-                    "message": str(native.message),
-                    "nfev": int(native.nfev),
-                    "nit": int(native.nit),
-                    "x": native.x,
-                    "negative_log_evidence": native.fun,
-                    "new_fits": len(scores) - before,
-                    "elapsed_seconds": perf_counter() - started,
-                }
-            )
-            print(f"[{phase}] {native.message}", flush=True)
+        started = perf_counter()
+        native = differential_evolution(evaluate, bounds.tolist(), **de_options)
+        elapsed = perf_counter() - started
 
-    return (
-        best,
-        best_result,
-        {
-            "success": best is not None,
-            "evaluations": len(scores),
-            "qualified": qualified_count,
-            "passes": passes,
+    print(f"[de] {native.message}", flush=True)
+    summary = {
+        "success": candidates.best is not None,
+        "evaluations": len(candidates.scores),
+        "qualified": candidates.qualified_count,
+        "optimizer": {
+            "success": bool(native.success),
+            "message": str(native.message),
+            "nfev": int(native.nfev),
+            "nit": int(native.nit),
+            "x": native.x,
+            "negative_log_evidence": native.fun,
+            "elapsed_seconds": elapsed,
         },
-    )
+    }
+    if candidates.best is None:
+        summary["failure_reason"] = "no_qualified_fit"
+    return candidates.best, candidates.best_result, summary
 
 
 def save_reconstruction(
@@ -556,22 +578,21 @@ def plot_saved_diagnostics(
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument("--macro-dir", type=Path, default=HERE / "macro")
-    parser.add_argument("--output", type=Path, default=HERE / "potential_lbfgs")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=HERE / "potential_lbfgs_de",
+        help="Directory for the Float64 dense differential evolution results",
+    )
     parser.add_argument("--potential-spacing", type=float, default=0.1)
     parser.add_argument("--log10-lambda-s", type=float, nargs=2)
     parser.add_argument("--log10-lambda4", type=float, nargs=2)
     parser.add_argument("--log10-lambda0", type=float, nargs=2)
-    parser.add_argument(
-        "--maxfun", type=int, default=160, help="Nominal global DIRECT budget"
-    )
-    parser.add_argument(
-        "--refine-maxfun",
-        type=int,
-        default=90,
-        help="Nominal refinement budget (0 skips it)",
-    )
+    add_de_arguments(parser)
     parser.add_argument(
         "--max-iter", type=int, default=3000, help="L-BFGS-B iterations per candidate"
     )
@@ -584,10 +605,9 @@ def main(argv=None):
     if args.plot_only:
         plot_saved_diagnostics(output)
         return
-    if args.maxfun < 1 or args.refine_maxfun < 0 or args.max_iter < 1:
-        parser.error(
-            "Use positive global and inner budgets and a nonnegative refinement budget"
-        )
+    if args.max_iter < 1:
+        parser.error("Use --max-iter >= 1")
+    search_config = de_search_configuration(parser, args)
     macro_dir = args.macro_dir.resolve()
     if output.exists() or output.is_relative_to(macro_dir):
         parser.error("Use a new output directory outside the M3 handoff")
@@ -600,7 +620,10 @@ def main(argv=None):
         problem, metadata, observation = prepare_problem(
             macro_dir, args.potential_spacing
         )
-        bounds = log10_bounds(args, metadata)
+        try:
+            bounds = log10_bounds(args, metadata)
+        except ValueError as exc:
+            parser.error(str(exc))
         output.mkdir(parents=True, exist_ok=False)
         write_json(
             output / "manifest.json",
@@ -617,10 +640,7 @@ def main(argv=None):
                 "backend": "dense",
                 "strength_order": STRENGTH_ORDER,
                 "log10_bounds": bounds,
-                "direct_options": DIRECT_OPTIONS,
-                "global_maxfun": args.maxfun,
-                "refine_maxfun": args.refine_maxfun,
-                "refine_radius_dex": REFINE_RADIUS_DEX,
+                **search_config,
                 "fit_options": fit_options,
                 "selection": "Highest qualified dense local GN evidence among visited candidates",
                 "versions": {
@@ -635,8 +655,7 @@ def main(argv=None):
             problem,
             bounds,
             output,
-            maxfun=args.maxfun,
-            refine_maxfun=args.refine_maxfun,
+            de_options=search_config["de_options"],
             fit_options=fit_options,
         )
 
@@ -652,7 +671,8 @@ def main(argv=None):
     write_json(output / "completion.json", summary)
     if result is None:
         raise SystemExit(
-            "DIRECT found no qualified L-BFGS-B candidate; see evaluations.jsonl"
+            "Differential evolution found no qualified L-BFGS-B candidate. "
+            "See evaluations.jsonl."
         )
     plot_saved_diagnostics(output)
     print(

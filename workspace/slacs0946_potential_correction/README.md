@@ -4,7 +4,7 @@
 
 - [`macro_model.py`](macro_model.py) 从原始 FITS 重新构建 arc mask，并完成 A、B、M0、M1、M2、M3。
 - [`pt.py`](pt.py) 在固定 M3 源梯度下执行单步势校正，用 Nautilus 采样三个正则化强度。
-- [`pt_iter_lbfgs.py`](pt_iter_lbfgs.py) 用 L-BFGS-B 迭代联合优化源亮度和势校正，用 DIRECT 搜索三个正则化强度。
+- [`pt_iter_lbfgs.py`](pt_iter_lbfgs.py) 用 Float64 dense L-BFGS-B 联合拟合源亮度和势校正，用 SciPy 差分进化搜索三个正则化强度。
 
 原始 FITS 从原 J0946 目录复制到本目录 `data/`。单步结果见 [analysis.md](analysis.md)，
 联合 QR 复算见 [joint_qr_impact.md](joint_qr_impact.md)，L-BFGS-B 收敛结果见
@@ -46,6 +46,9 @@ python -u workspace/slacs0946_potential_correction/pt.py --output workspace/slac
 python -u workspace/slacs0946_potential_correction/pt_iter_lbfgs.py \
   --output workspace/slacs0946_potential_correction/potential_lbfgs_new
 ```
+
+差分进化默认使用 24 个种群成员和最多 10 代。用 `--de-popsize` 调整种群倍数，
+用 `--de-maxiter` 调整代数。添加 `--polish` 可启用 SciPy 的局部精修。
 
 J0946 的 L-BFGS-B 入口默认使用 `--gn-stationarity-tol 10000`。这个有限上限远高于
 J0946 Float32 DIRECT 对照中放宽组的最大合格 GN 值 `0.04445`，因此常规拟合等效关闭
