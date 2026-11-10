@@ -1,0 +1,2291 @@
+{
+  "command": [
+    "/home/xycao/anaconda3/envs/tinylens_gpu/bin/python",
+    "benchmarks/overlap_evidence_resources.py",
+    "--archive",
+    "/home/xycao/workspace/tinylens_dev/TinyLensGpu/workspace/euclid_mock",
+    "--output",
+    "/home/xycao/workspace/tinylens_dev/TinyLensGpu-potential-correction/.scratch/adaptive-image-overlap-evidence/output/gpu"
+  ],
+  "utc_start": "2026-11-10T18:20:42.787543+00:00",
+  "library_revision": "2a3b93dd39bd6285af41a6f18979d3978039c059",
+  "gpu": "NVIDIA GeForce RTX 5080, GPU-ac918a23-87e1-1661-d5dd-7c6faa5d714c, 615.71.09, 16303 MiB",
+  "outer_batch": 23,
+  "warm_repeats": 3,
+  "mock_input_sha256": {
+    "data_no_noise/image.fits": "5552cbf2042884005c33b9031757341f3c0e8994d2f9dad0c987a4765894998f",
+    "data_no_noise/noise.fits": "7b22eed82add733becaddf77244165c315bfbe0976fd107656b2834e8e93ff69",
+    "data_no_noise/psf.fits": "07009d5da7f8b0c7c22ef3fd4c17d0ad211160ced513bdd4b4a135fb14dc190a",
+    "pix_src_fit_no_noise_upstream/feature_mask.fits": "ad7d70a7a510eec66e5de79fcae56889836907db30a7b51b8fc7fdf639d3dd85",
+    "pix_src_fit_no_noise_upstream/source_grid_spec.json": "f33558ba671fe394a071ffa11d518c4f47df6f58534087f0730816cb0b9ee76b",
+    "pix_src_fit_no_noise_upstream/stage_a.pkl": "3dc1602d4281cd06a235eac7cb0c1535873e6f0a170f102d488af028458107e3",
+    "pix_src_fit_no_noise_upstream/stage_m1.pkl": "b3ed5b673a9781964731320881de1080a3f7e9c88e3d2b9bd0124ae1ac5da420",
+    "m3_ablation/no_noise_default_overlap_output/m1_psf_arc.npy": "b0dee1cd5f242c0be8562bc780f155dba6934112b1113d1dd43c45596a9782bd"
+  },
+  "fixed_strengths": {
+    "log_lambda_reg": -9.685380417074992,
+    "adaptive_reg_rho": 5.623951902964207
+  },
+  "source_grid": [
+    -0.7892771671160294,
+    0.7907228328839707,
+    -0.5452274445502338,
+    1.0347725554497664
+  ],
+  "source_grid_side": 80,
+  "subpixels_per_side": 4,
+  "position_likelihood": {
+    "positions": [
+      [
+        0.13170798122882843,
+        -1.1799838542938232
+      ],
+      [
+        0.9214922785758972,
+        1.4811217784881592
+      ]
+    ],
+    "threshold_arcsec": 0.1,
+    "min_log_like": -10000000000.0
+  },
+  "hermite_coverage_offset": 0.0001,
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "joint_mask_radius_arcsec": 2.5,
+  "max_allowed_absolute_score_difference": 2e-06,
+  "runs": [
+    {
+      "case": "source",
+      "method": "block",
+      "phase": "score",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.387084231013432,
+      "first_compilation_seconds": 1.8845991028938442,
+      "first_execution_seconds": 0.12300748494453728,
+      "warm_seconds": [
+        0.06402860896196216,
+        0.06393533595837653,
+        0.06396881700493395
+      ],
+      "median_warm_seconds": 0.06396881700493395,
+      "preparation_allocator_peak_bytes": 51243264,
+      "allocator_peak_bytes": 56198912,
+      "allocator_pool_peak_bytes": 69206016,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 25365232,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 136,
+          "optimized": 119,
+          "live": 16
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 1024,
+        "violations": []
+      },
+      "scores": 1442.654321967076,
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "source",
+      "method": "block",
+      "phase": "gradient",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.419271963997744,
+      "first_compilation_seconds": 5.129614044912159,
+      "first_execution_seconds": 0.2992219660663977,
+      "warm_seconds": [
+        0.11935163103044033,
+        0.12012889003381133,
+        0.11974728794302791
+      ],
+      "median_warm_seconds": 0.11974728794302791,
+      "preparation_allocator_peak_bytes": 51243264,
+      "allocator_peak_bytes": 306201088,
+      "allocator_pool_peak_bytes": 606076928,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 283555664,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 180,
+          "optimized": 191,
+          "live": 16
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 10240000,
+        "violations": []
+      },
+      "scores": 1442.654321967076,
+      "gradient": [
+        25.908031577474073,
+        -146.17029936817346,
+        -186.50570103303184,
+        9.830297069670653,
+        568.7270518126384,
+        -23.160294810337007
+      ],
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "source",
+      "method": "block",
+      "phase": "batch",
+      "requested_chunk": "1",
+      "effective_chunk": 1,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.383770863059908,
+      "first_compilation_seconds": 1.9407095520291477,
+      "first_execution_seconds": 1.5201951781054959,
+      "warm_seconds": [
+        1.4607440460240468,
+        1.4630695349769667,
+        1.4631866110721603
+      ],
+      "median_warm_seconds": 1.4630695349769667,
+      "preparation_allocator_peak_bytes": 51243008,
+      "allocator_peak_bytes": 56199936,
+      "allocator_pool_peak_bytes": 69206016,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 25364720,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 139,
+          "optimized": 123,
+          "live": 18
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 1024,
+        "violations": []
+      },
+      "scores": [
+        1442.654321967076,
+        1442.7348659434113,
+        1442.811676872797,
+        1442.884852222099,
+        1442.9542252061558,
+        1443.0195006474507,
+        1443.0805951747654,
+        1443.1371625275617,
+        1443.1890295556198,
+        1443.2361056490165,
+        1443.2781024708213,
+        1443.3148175565486,
+        1443.3464000959696,
+        1443.373215620789,
+        1443.3957437402762,
+        1443.414684161323,
+        1443.4310355112295,
+        1443.44538783551,
+        1443.4586548487034,
+        1443.4720535245335,
+        1443.4863035223218,
+        1443.5019614614478,
+        1443.5196236085296
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "source",
+      "method": "block",
+      "phase": "batch",
+      "requested_chunk": "5",
+      "effective_chunk": 5,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.384304699022323,
+      "first_compilation_seconds": 4.358222002978437,
+      "first_execution_seconds": 0.4406408700160682,
+      "warm_seconds": [
+        0.3823675309540704,
+        0.38210692489519715,
+        0.3823958809953183
+      ],
+      "median_warm_seconds": 0.3823675309540704,
+      "preparation_allocator_peak_bytes": 51243264,
+      "allocator_peak_bytes": 160239104,
+      "allocator_pool_peak_bytes": 203423744,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 114102272,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 287,
+          "optimized": 298,
+          "live": 18
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            79,
+            400
+          ],
+          [
+            80,
+            400
+          ],
+          [
+            400,
+            79
+          ],
+          [
+            400,
+            80
+          ]
+        ],
+        "largest_optimized_byte_workspace": 5120,
+        "violations": []
+      },
+      "scores": [
+        1442.654321967076,
+        1442.7348659434113,
+        1442.811676872797,
+        1442.884852222099,
+        1442.9542252061558,
+        1443.0195006474507,
+        1443.0805951747654,
+        1443.1371625275617,
+        1443.1890295556198,
+        1443.2361056490165,
+        1443.2781024708286,
+        1443.314817556534,
+        1443.3464000959696,
+        1443.3732156208036,
+        1443.395743740269,
+        1443.4146841613303,
+        1443.4310355112368,
+        1443.44538783551,
+        1443.4586548486889,
+        1443.4720535245335,
+        1443.4863035223218,
+        1443.5019614614478,
+        1443.5196236085442
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "source",
+      "method": "overlap",
+      "phase": "score",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.523656541015953,
+      "first_compilation_seconds": 2.075438441010192,
+      "first_execution_seconds": 0.3923633940285072,
+      "warm_seconds": [
+        0.32774176506791264,
+        0.32796775503084064,
+        0.3277794140158221
+      ],
+      "median_warm_seconds": 0.3277794140158221,
+      "preparation_allocator_peak_bytes": 51243264,
+      "allocator_peak_bytes": 76983808,
+      "allocator_pool_peak_bytes": 136314880,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 30849520,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 179,
+          "optimized": 173,
+          "live": 22
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1339
+          ],
+          [
+            400,
+            3240
+          ],
+          [
+            1339,
+            1,
+            400
+          ],
+          [
+            1339,
+            400
+          ],
+          [
+            3240,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 8569600,
+        "violations": []
+      },
+      "scores": 1509.2564094886245,
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "source",
+      "method": "overlap",
+      "phase": "gradient",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.757513860007748,
+      "first_compilation_seconds": 6.099744287901558,
+      "first_execution_seconds": 1.2100184600567445,
+      "warm_seconds": [
+        0.9862516850698739,
+        0.9855948439799249,
+        0.9853567549725994
+      ],
+      "median_warm_seconds": 0.9855948439799249,
+      "preparation_allocator_peak_bytes": 51243264,
+      "allocator_peak_bytes": 177647872,
+      "allocator_pool_peak_bytes": 203423744,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 111094720,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 211,
+          "optimized": 225,
+          "live": 22
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            2,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1339
+          ],
+          [
+            400,
+            3240
+          ],
+          [
+            1339,
+            1,
+            400
+          ],
+          [
+            1339,
+            400
+          ],
+          [
+            3240,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 9849600,
+        "violations": []
+      },
+      "scores": 1509.2564094886245,
+      "gradient": [
+        -125.8675541111166,
+        -56.67616392651811,
+        -239.07332156653365,
+        -47.26210836796481,
+        567.4745789599226,
+        -102.7701903728834
+      ],
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "source",
+      "method": "overlap",
+      "phase": "batch",
+      "requested_chunk": "auto",
+      "effective_chunk": 1,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 3.07669191097375,
+      "first_compilation_seconds": 2.4446490190457553,
+      "first_execution_seconds": 7.648885663016699,
+      "warm_seconds": [
+        7.529233165085316,
+        7.541200187057257,
+        7.528579420992173
+      ],
+      "median_warm_seconds": 7.529233165085316,
+      "preparation_allocator_peak_bytes": 51243008,
+      "allocator_peak_bytes": 76984064,
+      "allocator_pool_peak_bytes": 136314880,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 27105264,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 182,
+          "optimized": 177,
+          "live": 24
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1339
+          ],
+          [
+            400,
+            3240
+          ],
+          [
+            1339,
+            1,
+            400
+          ],
+          [
+            1339,
+            400
+          ],
+          [
+            3240,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 8569600,
+        "violations": []
+      },
+      "scores": [
+        1509.2564094886245,
+        1509.306103015329,
+        1509.3531518902712,
+        1509.3977751709701,
+        1509.440084939926,
+        1509.480027536016,
+        1509.5174762814074,
+        1509.55226924919,
+        1509.584356537824,
+        1509.6138482950644,
+        1509.640726914951,
+        1509.6649536541886,
+        1509.686548848399,
+        1509.7053394061331,
+        1509.72116010668,
+        1509.734016371503,
+        1509.7440700327154,
+        1509.7513713563342,
+        1509.7559385493057,
+        1509.757709235924,
+        1509.7565833616777,
+        1509.7525137896785,
+        1509.7455905423467
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "source",
+      "method": "overlap",
+      "phase": "batch",
+      "requested_chunk": "5",
+      "effective_chunk": 5,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1339,
+      "lens_basis_count": 0,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "56d42f98c407e0e0cbfb6f17fba707f7cc52a80bc998052bf50b878509dd9413",
+      "mask_sha256": "b017d7d9991adc5a00e9a69c5af9d108cf63433ba4b4eba4825338d663381abc",
+      "preparation_seconds": 2.488352661021054,
+      "first_compilation_seconds": 5.090818385942839,
+      "first_execution_seconds": 2.4520192130003124,
+      "warm_seconds": [
+        2.2842688580276445,
+        2.2836110040079802,
+        2.2838175520300865
+      ],
+      "median_warm_seconds": 2.2838175520300865,
+      "preparation_allocator_peak_bytes": 51243008,
+      "allocator_peak_bytes": 397573888,
+      "allocator_pool_peak_bytes": 606076928,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 159956480,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 345,
+          "optimized": 400,
+          "live": 24
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1339,
+            1339
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1339,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            3,
+            400,
+            1339
+          ],
+          [
+            1,
+            5,
+            400,
+            1339
+          ],
+          [
+            1,
+            400
+          ],
+          [
+            3,
+            400
+          ],
+          [
+            3,
+            400,
+            400
+          ],
+          [
+            3,
+            400,
+            1339
+          ],
+          [
+            3,
+            400,
+            3240
+          ],
+          [
+            3,
+            1339,
+            400
+          ],
+          [
+            5,
+            400
+          ],
+          [
+            5,
+            400,
+            400
+          ],
+          [
+            5,
+            400,
+            1339
+          ],
+          [
+            5,
+            400,
+            3240
+          ],
+          [
+            5,
+            1339,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            78,
+            400
+          ],
+          [
+            79,
+            400
+          ],
+          [
+            80,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            3
+          ],
+          [
+            400,
+            5
+          ],
+          [
+            400,
+            78
+          ],
+          [
+            400,
+            79
+          ],
+          [
+            400,
+            80
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            400,
+            3
+          ],
+          [
+            400,
+            400,
+            5
+          ],
+          [
+            1339,
+            1,
+            3,
+            400
+          ],
+          [
+            1339,
+            1,
+            5,
+            400
+          ],
+          [
+            1339,
+            3,
+            400
+          ],
+          [
+            1339,
+            5,
+            400
+          ],
+          [
+            3240,
+            3,
+            400
+          ],
+          [
+            3240,
+            5,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 33554432,
+        "violations": []
+      },
+      "scores": [
+        1509.2564094886243,
+        1509.3061030153292,
+        1509.3531518902712,
+        1509.3977751709701,
+        1509.4400849399258,
+        1509.4800275360158,
+        1509.5174762814074,
+        1509.55226924919,
+        1509.584356537824,
+        1509.6138482950644,
+        1509.640726914951,
+        1509.6649536541886,
+        1509.686548848399,
+        1509.705339406133,
+        1509.7211601066801,
+        1509.734016371503,
+        1509.7440700327156,
+        1509.7513713563342,
+        1509.7559385493055,
+        1509.7577092359243,
+        1509.7565833616777,
+        1509.7525137896785,
+        1509.7455905423467
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "joint",
+      "method": "block",
+      "phase": "score",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.4363071920815855,
+      "first_compilation_seconds": 2.7575545239960775,
+      "first_execution_seconds": 0.27008648694027215,
+      "warm_seconds": [
+        0.15418268798384815,
+        0.15396746795158833,
+        0.15272294799797237
+      ],
+      "median_warm_seconds": 0.15396746795158833,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 61889536,
+      "allocator_pool_peak_bytes": 69206016,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 31510240,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 174,
+          "optimized": 153,
+          "live": 16
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 819200,
+        "violations": []
+      },
+      "scores": 2242.322939050742,
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "joint",
+      "method": "block",
+      "phase": "gradient",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.6183391760569066,
+      "first_compilation_seconds": 7.714286272996105,
+      "first_execution_seconds": 0.5288185100071132,
+      "warm_seconds": [
+        0.3164389500161633,
+        0.30895898200105876,
+        0.3082818790571764
+      ],
+      "median_warm_seconds": 0.30895898200105876,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 425966336,
+      "allocator_pool_peak_bytes": 606076928,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 397630304,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 229,
+          "optimized": 237,
+          "live": 16
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 10240000,
+        "violations": []
+      },
+      "scores": 2242.322939050772,
+      "gradient": [
+        316.8397248331575,
+        -111.81840946108053,
+        -210.77303044978441,
+        -38.80281273314243,
+        472.52372489107273,
+        212.80920120455812
+      ],
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "joint",
+      "method": "block",
+      "phase": "batch",
+      "requested_chunk": "1",
+      "effective_chunk": 1,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.96688700793311,
+      "first_compilation_seconds": 3.3594921990297735,
+      "first_execution_seconds": 3.6746803410351276,
+      "warm_seconds": [
+        3.562439267989248,
+        3.5345608920324594,
+        3.547399642993696
+      ],
+      "median_warm_seconds": 3.547399642993696,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 61890816,
+      "allocator_pool_peak_bytes": 69206016,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 32520160,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 177,
+          "optimized": 157,
+          "live": 18
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [],
+        "largest_optimized_byte_workspace": 819200,
+        "violations": []
+      },
+      "scores": [
+        2242.322939050742,
+        2242.375684208876,
+        2242.4252960995227,
+        2242.471728782889,
+        2242.514694646522,
+        2242.5538791231656,
+        2242.589240724068,
+        2242.6204753901666,
+        2242.647322913056,
+        2242.6695808672466,
+        2242.686899952122,
+        2242.6989615343828,
+        2242.7057667479185,
+        2242.7076164665523,
+        2242.7050174969027,
+        2242.698792242886,
+        2242.6899225874085,
+        2242.6789557836128,
+        2242.6668910899944,
+        2242.655137775574,
+        2242.644661562559,
+        2242.636124246528,
+        2242.630194661705
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "joint",
+      "method": "block",
+      "phase": "batch",
+      "requested_chunk": "5",
+      "effective_chunk": 5,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.751906299032271,
+      "first_compilation_seconds": 7.765587389003485,
+      "first_execution_seconds": 1.5644594100303948,
+      "warm_seconds": [
+        1.1096448139287531,
+        1.1233139759860933,
+        1.1231296570040286
+      ],
+      "median_warm_seconds": 1.1231296570040286,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 296771840,
+      "allocator_pool_peak_bytes": 337641472,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 136983576,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 361,
+          "optimized": 380,
+          "live": 18
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            79,
+            400
+          ],
+          [
+            80,
+            400
+          ],
+          [
+            400,
+            79
+          ],
+          [
+            400,
+            80
+          ]
+        ],
+        "largest_optimized_byte_workspace": 4096000,
+        "violations": []
+      },
+      "scores": [
+        2242.3229390507286,
+        2242.375684208898,
+        2242.4252960995036,
+        2242.4717287829253,
+        2242.5146946465893,
+        2242.5538791231656,
+        2242.5892407241827,
+        2242.6204753901866,
+        2242.6473229130434,
+        2242.669580867143,
+        2242.6868999520293,
+        2242.698961534419,
+        2242.7057667478903,
+        2242.7076164666187,
+        2242.7050174968954,
+        2242.6987922429225,
+        2242.6899225874595,
+        2242.678955783633,
+        2242.666891089987,
+        2242.655137775624,
+        2242.644661562531,
+        2242.636124246492,
+        2242.6301946617123
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "joint",
+      "method": "overlap",
+      "phase": "score",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 3.0559933530166745,
+      "first_compilation_seconds": 4.1644175560213625,
+      "first_execution_seconds": 0.659508142969571,
+      "warm_seconds": [
+        0.5191485779359937,
+        0.5201670730020851,
+        0.5169782419689
+      ],
+      "median_warm_seconds": 0.5191485779359937,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 113766144,
+      "allocator_pool_peak_bytes": 136314880,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 39381392,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 244,
+          "optimized": 239,
+          "live": 22
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            128,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1976
+          ],
+          [
+            400,
+            3600
+          ],
+          [
+            1976,
+            1,
+            400
+          ],
+          [
+            1976,
+            400
+          ],
+          [
+            3600,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 12646400,
+        "violations": []
+      },
+      "scores": 2310.810370844508,
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "joint",
+      "method": "overlap",
+      "phase": "gradient",
+      "requested_chunk": null,
+      "effective_chunk": null,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.5175895830616355,
+      "first_compilation_seconds": 7.982824948965572,
+      "first_execution_seconds": 1.6050618370063603,
+      "warm_seconds": [
+        1.37970851699356,
+        1.3798439109232277,
+        1.3807957250392064
+      ],
+      "median_warm_seconds": 1.3798439109232277,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 315092480,
+      "allocator_pool_peak_bytes": 337641472,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 168368144,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 296,
+          "optimized": 319,
+          "live": 22
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            2,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            128,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1976
+          ],
+          [
+            400,
+            3600
+          ],
+          [
+            1976,
+            1,
+            400
+          ],
+          [
+            1976,
+            400
+          ],
+          [
+            3600,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 13926400,
+        "violations": []
+      },
+      "scores": 2310.810370844507,
+      "gradient": [
+        134.67504782717543,
+        10.12722869182522,
+        -256.65454909242766,
+        -84.55308073210027,
+        426.68952996896707,
+        91.22566020831371
+      ],
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "84df774e5ac4c06917d7c8277ead9d16e7b2ca4c469e31f70c3639d04c701fe4"
+    },
+    {
+      "case": "joint",
+      "method": "overlap",
+      "phase": "batch",
+      "requested_chunk": "auto",
+      "effective_chunk": 1,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.807704191072844,
+      "first_compilation_seconds": 4.100996416993439,
+      "first_execution_seconds": 12.09992565808352,
+      "warm_seconds": [
+        11.96831560996361,
+        11.980827567982487,
+        11.975178519031033
+      ],
+      "median_warm_seconds": 11.975178519031033,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 113767424,
+      "allocator_pool_peak_bytes": 136314880,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 37794688,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 247,
+          "optimized": 243,
+          "live": 24
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            128,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            1976
+          ],
+          [
+            400,
+            3600
+          ],
+          [
+            1976,
+            1,
+            400
+          ],
+          [
+            1976,
+            400
+          ],
+          [
+            3600,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 12646400,
+        "violations": []
+      },
+      "scores": [
+        2310.8103708445087,
+        2310.8136351179855,
+        2310.8144511631917,
+        2310.812957033706,
+        2310.8091946272107,
+        2310.8031896099246,
+        2310.794967841315,
+        2310.784524378506,
+        2310.7717818305837,
+        2310.7567634183006,
+        2310.739457603703,
+        2310.7198256851534,
+        2310.6978345236184,
+        2310.6732506928547,
+        2310.645884955139,
+        2310.6157708174633,
+        2310.5830747781665,
+        2310.547840211507,
+        2310.5100414061026,
+        2310.4696374571768,
+        2310.426677456354,
+        2310.3810870310226,
+        2310.3329180763612
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    },
+    {
+      "case": "joint",
+      "method": "overlap",
+      "phase": "batch",
+      "requested_chunk": "5",
+      "effective_chunk": 5,
+      "device": "NVIDIA GeForce RTX 5080",
+      "jax_version": "0.7.1",
+      "numpy_version": "2.4.6",
+      "dtype": "float64",
+      "active_pixels": 1976,
+      "lens_basis_count": 8,
+      "lens_light_regularization": 1e-06,
+      "block_size": 10,
+      "evidence_block_size": 10,
+      "pcg_max_iter": 1200,
+      "pcg_rtol": 1e-10,
+      "image_sha256": "a48c26ba4fe218f2963f496a85c1ee5197aaa71c0c2a5cfa9558f84ae6f38891",
+      "mask_sha256": "90a9bdefefefd83f9467d165703b5e17f31412ea4dda41d60d7245a3e1edc773",
+      "preparation_seconds": 2.5149999420391396,
+      "first_compilation_seconds": 8.632105417083949,
+      "first_execution_seconds": 4.9843910980271176,
+      "warm_seconds": [
+        4.735517691005953,
+        4.738073838991113,
+        4.732365333009511
+      ],
+      "median_warm_seconds": 4.735517691005953,
+      "preparation_allocator_peak_bytes": 51243520,
+      "allocator_peak_bytes": 411211264,
+      "allocator_pool_peak_bytes": 606076928,
+      "allocator_limit_bytes": 12527960064,
+      "compiled_temporary_bytes": 269655472,
+      "workspace_audit": {
+        "shape_counts": {
+          "lowered": 489,
+          "optimized": 573,
+          "live": 24
+        },
+        "prohibited_matrix_shapes": {
+          "full_native_psf": [
+            40000,
+            40000
+          ],
+          "full_active_psf": [
+            1976,
+            1976
+          ],
+          "full_native_design": [
+            40000,
+            6400
+          ],
+          "full_active_design": [
+            1976,
+            6400
+          ],
+          "full_source_curvature": [
+            6400,
+            6400
+          ],
+          "full_joint_curvature": [
+            6408,
+            6408
+          ],
+          "full_joint_design": [
+            1976,
+            6408
+          ],
+          "full_native_joint_design": [
+            40000,
+            6408
+          ]
+        },
+        "observed_shapes_with_window_axis": [
+          [
+            1,
+            3,
+            400,
+            1976
+          ],
+          [
+            1,
+            5,
+            400,
+            1976
+          ],
+          [
+            1,
+            400
+          ],
+          [
+            3,
+            128,
+            400
+          ],
+          [
+            3,
+            400
+          ],
+          [
+            3,
+            400,
+            400
+          ],
+          [
+            3,
+            400,
+            1976
+          ],
+          [
+            3,
+            400,
+            3600
+          ],
+          [
+            3,
+            1976,
+            400
+          ],
+          [
+            5,
+            128,
+            400
+          ],
+          [
+            5,
+            400
+          ],
+          [
+            5,
+            400,
+            400
+          ],
+          [
+            5,
+            400,
+            1976
+          ],
+          [
+            5,
+            400,
+            3600
+          ],
+          [
+            5,
+            1976,
+            400
+          ],
+          [
+            49,
+            400
+          ],
+          [
+            78,
+            400
+          ],
+          [
+            79,
+            400
+          ],
+          [
+            80,
+            400
+          ],
+          [
+            400,
+            1
+          ],
+          [
+            400,
+            2
+          ],
+          [
+            400,
+            3
+          ],
+          [
+            400,
+            5
+          ],
+          [
+            400,
+            78
+          ],
+          [
+            400,
+            79
+          ],
+          [
+            400,
+            80
+          ],
+          [
+            400,
+            400
+          ],
+          [
+            400,
+            400,
+            1
+          ],
+          [
+            400,
+            400,
+            3
+          ],
+          [
+            400,
+            400,
+            5
+          ],
+          [
+            1976,
+            1,
+            3,
+            400
+          ],
+          [
+            1976,
+            1,
+            5,
+            400
+          ],
+          [
+            1976,
+            3,
+            400
+          ],
+          [
+            1976,
+            5,
+            400
+          ],
+          [
+            3600,
+            3,
+            400
+          ],
+          [
+            3600,
+            5,
+            400
+          ]
+        ],
+        "largest_optimized_byte_workspace": 33554432,
+        "violations": []
+      },
+      "scores": [
+        2310.810370844507,
+        2310.8136351179855,
+        2310.8144511631926,
+        2310.8129570337087,
+        2310.8091946272107,
+        2310.8031896099246,
+        2310.794967841315,
+        2310.784524378507,
+        2310.7717818305864,
+        2310.756763418298,
+        2310.739457603706,
+        2310.719825685167,
+        2310.6978345236284,
+        2310.6732506928547,
+        2310.6458849551373,
+        2310.615770817478,
+        2310.5830747781647,
+        2310.547840211517,
+        2310.5100414061026,
+        2310.469637457172,
+        2310.426677456355,
+        2310.3810870310217,
+        2310.3329180763594
+      ],
+      "gradient": null,
+      "parameter_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2"
+      ],
+      "proposal_sha256": "b14806073811d985d63ea8fc80b8f425a4eb5573ba7a8fa232de0c704f17d6dd"
+    }
+  ],
+  "score_agreement": {
+    "source/block": {
+      "max_absolute_difference_between_chunks": 1.4551915228366852e-11,
+      "max_absolute_difference_from_first_scalar": 0.0
+    },
+    "source/overlap": {
+      "max_absolute_difference_between_chunks": 2.2737367544323206e-13,
+      "max_absolute_difference_from_first_scalar": 2.2737367544323206e-13
+    },
+    "joint/block": {
+      "max_absolute_difference_between_chunks": 1.1459633242338896e-10,
+      "max_absolute_difference_from_first_scalar": 3.001332515850663e-11
+    },
+    "joint/overlap": {
+      "max_absolute_difference_between_chunks": 1.4551915228366852e-11,
+      "max_absolute_difference_from_first_scalar": 9.094947017729282e-13
+    }
+  }
+}

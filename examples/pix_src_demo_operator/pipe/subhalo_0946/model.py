@@ -6,7 +6,7 @@ Stage m0 : SIE + shear + uniform pixelized source — GPU grid search for
             evidence-best lambda_reg on lens-subtracted image
 Stage m1 : SIE + shear + non-adaptive pixelized source — Nautilus sampling
             of mass parameters on lens-subtracted image with lambda_reg constrained around stage-M0,
-            then builds the fixed S1 source template
+            then exports the fitted native S1 reference arc
 Stage m2 : fixed SIE + shear + adaptive pixelized source — Nautilus sampling
             of log_lambda_reg and adaptive_reg_rho only, on lens-subtracted image
 Stage m3 : EPL + shear + adaptive pixelized source — Nautilus nested sampling
@@ -42,7 +42,7 @@ Usage::
 
 from __future__ import annotations
 
-import hashlib
+from functools import partial
 import json
 import os
 import time
@@ -85,7 +85,6 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import (
 )
 from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils import load_lens_data
-from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
@@ -100,10 +99,20 @@ from TinyLensGpu.example_support import (
     resolve_stage_source_interpolation,
     source_interpolation_metadata,
     stage_from_payload,
-    validate_source_package,
+    adapt_image_kwargs,
+    artifact_fingerprint,
+    pixelized_objective_provenance,
     export_source_package,
     require_valid_reconstruction,
     draw_image_panel,
+)
+
+from TinyLensGpu.example_support.pixelized_stage_cache import (
+    load_pixelized_checkpoint,
+    matching_pixelized_checkpoint,
+    pixelized_stage_identity,
+    plot_cached_pixelized_stage,
+    recover_pixelized_producer,
 )
 
 import caskade as ck
@@ -122,6 +131,8 @@ PIXEL_REGULARIZATION_TYPE = "first-order"
 SOURCE_BBOX_PADDING = 0.0
 SOURCE_BBOX_HALF_WIDTH = 0.5  # arcsec about the stage-A source center
 SOLVER_TYPE = "pcg"
+EVIDENCE_LOGDET = "overlap"
+EVIDENCE_BLOCK_SIZE = 10
 VECTORIZED_CHUNK_SIZE = 8  # Bound peak GPU memory during batched FFTs/solves.
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUT_DIR = SCRIPT_DIR / "output"
@@ -213,87 +224,46 @@ SOLUTION_DRIFT_WARN_SIGMA = 5.0
 
 
 # ------------------------------------------------------------------ #
+def _sampling_config(n_live, n_eff, vectorized=True):
+    return SamplingConfig(
+        n_live=n_live, n_eff=n_eff, vectorized=vectorized,
+        n_batch=100 if vectorized else None,
+        vectorized_chunk_size=VECTORIZED_CHUNK_SIZE if vectorized else None,
+    )
+
+
 def _run_sampler(likelihood, n_live: int, n_eff: int, tag: str, vectorized: bool = True):
     start_time = time.time()
     stage = run_sampling(
-        likelihood,
-        SamplingConfig(
-            n_live=n_live, n_eff=n_eff, vectorized=vectorized,
-            n_batch=100 if vectorized else None,
-            vectorized_chunk_size=VECTORIZED_CHUNK_SIZE if vectorized else None,
-        ),
+        likelihood, _sampling_config(n_live, n_eff, vectorized),
         tag=tag, sampler_factory=Sampler,
     )
     print(f"[{tag}] Sampling finished in {time.time() - start_time:.2f} seconds.")
     return stage
 
 
-def _comparison_cache_schema(
-    stage_m2, stage_m3, lens_subtracted_image, noise_map, psf_kernel,
-    feature_mask, position_likelihood, s1_package, circular_mask=None,
-) -> str:
-    """Identify the M4/M5 likelihood, its priors, and sampling settings."""
-    mode = resolve_source_interpolation(metadata=s1_package, context="S1 source package")
-    position_config = None
-    if COMPARISON_USE_POSITION_LIKELIHOOD and position_likelihood is not None:
-        positions = position_likelihood.get("positions")
-        if positions is not None and len(positions) >= 2:
-            position_config = (
-                np.asarray(positions, dtype=np.float32).tolist(),
-                float(position_likelihood.get(
-                    "threshold_arcsec", position_likelihood.get("position_threshold", 0.0)
-                )),
-                float(position_likelihood.get(
-                    "min_log_like", position_likelihood.get("min_position_likelihood", 0.0)
-                )),
-            )
-
-    values = (
-        [(name, _smooth_mass_prior_bounds(stage_m3, name))
-         for name in SMOOTH_MASS_PRIOR_LIMITS],
-        float(stage_m2.median("log_lambda_reg")),
-        LAMBDA_PRIOR_HALF_WIDTH_DEX,
-        float(stage_m2.median("adaptive_reg_rho")),
-        SUBHALO_B_RANGE,
-        _subhalo_position_bounds(lens_subtracted_image.shape, DPIX),
-        position_config,
-        NSRC, DPIX, NSUB_PIX, PIXEL_REGULARIZATION_TYPE,
-        SOLVER_TYPE, SOURCE_BBOX_PADDING,
-        tuple(float(v) for v in s1_package["source_bbox"]),
-        (M4_N_LIVE, M4_N_EFF, M5_N_LIVE, M5_N_EFF),
-    )
-    if mode != "bilinear":
-        # Preserve the digest of existing bilinear comparison checkpoints.
-        values += (source_interpolation_metadata(mode),)
-    digest = hashlib.sha256(
-        json.dumps(values, allow_nan=False, sort_keys=True).encode("utf-8")
-    )
-    combined_mask = np.asarray(feature_mask, dtype=bool)
-    if circular_mask is not None:
-        combined_mask = combined_mask | circular_mask
-    for name, value in (
-        ("image", lens_subtracted_image),
-        ("noise", noise_map),
-        ("psf", psf_kernel),
-        ("mask", combined_mask),
-        ("source_template", np.asarray(s1_package["source_pixels"], dtype=np.float32)),
-    ):
-        array = np.ascontiguousarray(np.asarray(value))
-        digest.update(json.dumps((name, array.dtype.str, array.shape)).encode("utf-8"))
-        digest.update(memoryview(array).cast("B"))
-    return digest.hexdigest()
+def _comparison_cache_schema(objective):
+    """Fingerprint the likelihood and nuisance priors shared by both arms."""
+    shared = {
+        key: value for key, value in objective.items()
+        if key not in ("fingerprint", "sampling")
+    }
+    shared["lens_mass"] = shared["lens_mass"][:2]
+    # M5 links theta_E to the tidal radius, which changes its traversal order.
+    shared["priors"] = {
+        prior["name"]: prior for prior in shared["priors"]
+        if prior["name"] in SMOOTH_MASS_PRIOR_LIMITS or prior["name"] == "log_lambda_reg"
+    }
+    return artifact_fingerprint(shared)
 
 
-def _comparison_cache_matches(
-    payload: dict,
-    schema: str,
-    expected_role: str,
-) -> bool:
-    """Return whether a stage cache matches the current settings and model role."""
-    extra = payload.get("extra", {})
+def _comparison_cache_matches(payload, objective, role):
+    """Require the current objective and the saved arm's own identity."""
+    extra = payload.get("extra") or {}
     return (
-        extra.get("pipeline_schema") == schema
-        and extra.get("comparison_role") == expected_role
+        extra.get("objective") == objective
+        and extra.get("pipeline_schema") == _comparison_cache_schema(objective)
+        and extra.get("comparison_role") == role
     )
 
 
@@ -354,29 +324,8 @@ def _stage_a_source_bbox(stage_a: StagePosterior):
 
 
 
-def _make_source_scale(source_package, rho: float = ADAPTIVE_REG_RHO):
-    """Build the fixed adaptive scale map from the stage-M0 source template."""
-    return source_template_scale_map(
-        source_package["source_pixels"],
-        int(source_package["n"]),
-        rho=rho,
-    )
-
-
-def _validate_source_package(source_package, *, source_interpolation=None):
-    return validate_source_package(
-        source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO,
-        source_interpolation=source_interpolation,
-    )
-
-
 def _fixed_source_kwargs(source_package):
-    source_package = _validate_source_package(source_package)
-    return dict(
-        fixed_source_bbox=tuple(float(v) for v in source_package["source_bbox"]),
-        fixed_reg_template=jnp.asarray(source_package["source_pixels"], dtype=jnp.float32),
-    )
-
+    return adapt_image_kwargs(source_package, expected_n=NSRC)
 
 
 def _reg_hyperparams_from_payload(stage_payload, tag):
@@ -412,8 +361,8 @@ def _valid_log_evidence(values) -> np.ndarray:
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
     return export_source_package(
         likelihood, medians, param_names, n=NSRC,
-        context="exporting the stage source template",
-        record_source_interpolation=True,
+        context="exporting the stage source reference",
+        record_adapt_image=True,
     )
 
 
@@ -1198,6 +1147,7 @@ def build_stage_m0_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_a: StagePosterior, position_likelihood, circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
 ):
     """Build M0 on the fixed stage-A-centered grid with SIE+shear fixed."""
     sie, shear = _sie_mass_from_stage_a(stage_a)
@@ -1235,16 +1185,22 @@ def build_stage_m0_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         source_bbox_padding=SOURCE_BBOX_PADDING,
         fixed_source_bbox=source_bbox,
     )
 
 
-def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
-                  lens_light_model, stage_a: StagePosterior,
-                  position_likelihood, circular_mask=None,
-                  *, source_interpolation=None):
-    """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
+def run_stage_m0(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, stage_a: StagePosterior,
+    position_likelihood, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
+    """Stage M0: calibrate the uniform source regularization strength."""
     print("\n" + "=" * 60)
     print(" Stage M0 : fixed SIE + shear + uniform pix source ")
     print("=" * 60)
@@ -1255,11 +1211,25 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
         lens_subtracted, noise_map, psf_kernel, feature_mask,
         stage_a, position_likelihood, circular_mask=circular_mask,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
     )
+    n_grid = 200
+    objective = pixelized_objective_provenance(
+        likelihood, upstream=upstream,
+        sampling=dict(method="grid_search", vectorized=True, n_grid=n_grid,
+                      vectorized_chunk_size=VECTORIZED_CHUNK_SIZE),
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m0")
+    if checkpoint is not None:
+        log_lambda = checkpoint["extra"]["log_lambda_best"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m0", likelihood,
+            {**stage_a.medians(), "log_lambda_reg": log_lambda}, ["log_lambda_reg"],
+        )
+        return log_lambda
     loglike_batch = make_likelihood(
         likelihood, vectorized=True, vectorized_chunk_size=VECTORIZED_CHUNK_SIZE,
     )
-    n_grid = 200
 
     log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
     print(f"[stage-M0] Running coarse grid (200 pts, λ in [{float(jnp.exp(log_lam_min)):.1e}, {float(jnp.exp(log_lam_max)):.1e}]) ...")
@@ -1316,6 +1286,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
             log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
             lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
             log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+            objective=objective,
             time_taken=t1 - t0,
         ),
         source_interpolation=likelihood.source_model.interpolation,
@@ -1340,6 +1311,7 @@ def build_stage_m1_likelihood(
     stage_a: StagePosterior, position_likelihood, log_lambda_fixed: float,
     circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
 ):
     """Build M1: SIE+shear free, source lambda constrained around M0."""
     sie, shear = _sie_mass_from_stage(stage_a)
@@ -1376,15 +1348,21 @@ def build_stage_m1_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         source_bbox_padding=SOURCE_BBOX_PADDING,
         fixed_source_bbox=source_bbox,
     )
 
 
-def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
-                  lens_light_model, stage_a: StagePosterior,
-                  position_likelihood, log_lambda_fixed: float, circular_mask=None,
-                  *, source_interpolation=None):
+def run_stage_m1(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, stage_a: StagePosterior,
+    position_likelihood, log_lambda_fixed: float, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
     """Stage M1: fit SIE+shear with source lambda constrained around M0."""
     print("\n" + "=" * 60)
     print(" Stage M1 : SIE + shear + non-adaptive pix source (mass fit)")
@@ -1398,12 +1376,40 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
     t0 = time.time()
 
     lens_subtracted = image_data - lens_light_model
-    likelihood = build_stage_m1_likelihood(
+    build = partial(
+        build_stage_m1_likelihood,
         lens_subtracted, noise_map, psf_kernel, feature_mask,
         stage_a, position_likelihood, log_lambda_fixed,
         circular_mask=circular_mask,
         source_interpolation=source_interpolation,
     )
+    likelihood = build(evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size)
+    objective = pixelized_objective_provenance(
+        likelihood, sampling=_sampling_config(300, 600), upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m1", producer=True)
+    if checkpoint is not None:
+        try:
+            stage = _stage_from_payload(checkpoint)
+            extra = checkpoint["extra"]
+            medians = extra["medians"]
+            package = recover_pixelized_producer(
+                likelihood, checkpoint, "s1", medians, stage.param_names,
+            )
+        except (KeyError, TypeError, ValueError) as err:
+            print(f"[stage-M1] cannot verify cached source reference ({err}); recomputing.")
+        else:
+            if package is not extra["s1"]:
+                _dump_stage(
+                    "m1", stage.samples, stage.weights, stage.param_names, stage.log_z,
+                    stage=stage, extra={**extra, "s1": package},
+                    source_interpolation=likelihood.source_model.interpolation,
+                )
+            plot_cached_pixelized_stage(
+                _plot_pix_stage, OUT_DIR, "m1", likelihood, medians, stage.param_names,
+                producer=(package, build),
+            )
+            return stage, medians, package
     stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M1", vectorized=True,
     )
@@ -1421,8 +1427,6 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
         log_lambda_best=log_lambda_m1,
         stage_m1_medians=dict(medians),
     )
-    s1_package["scale_map"] = np.asarray(_make_source_scale(s1_package), dtype=np.float32)
-    _validate_source_package(s1_package)
 
     _dump_stage(
         "m1", samples, weights, names, logz,
@@ -1433,6 +1437,7 @@ def run_stage_m1(image_data, noise_map, psf_kernel, feature_mask,
             lambda_prior_sigma=0.15,
             lambda_prior_limits=[float(log_lambda_fixed - 0.5), float(log_lambda_fixed + 0.5)],
             s1=s1_package,
+            objective=objective,
             time_taken=t1 - t0,
         ),
         stage=stage,
@@ -1574,6 +1579,7 @@ def build_stage_m2_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     medians_m1: dict, position_likelihood, s1_package, circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
 ):
     """Build M2: mass fixed from M1, source-reg hyperparameters free."""
     source_interpolation = resolve_source_interpolation(
@@ -1621,15 +1627,21 @@ def build_stage_m2_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         source_bbox_padding=SOURCE_BBOX_PADDING,
         **_fixed_source_kwargs(s1_package),
     )
 
 
-def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
-                  lens_light_model, medians_m1, position_likelihood,
-                  s1_package, circular_mask=None,
-                  *, source_interpolation=None):
+def run_stage_m2(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, medians_m1, position_likelihood,
+    s1_package, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
     """Stage M2: fit adaptive source-regularization hyperparameters."""
     print("\n" + "=" * 60)
     print(" Stage M2 : fixed SIE + shear + adaptive pix source (fit λ, rho)")
@@ -1641,7 +1653,20 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         medians_m1, position_likelihood, s1_package,
         circular_mask=circular_mask,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
     )
+    objective = pixelized_objective_provenance(
+        likelihood, reference=s1_package, sampling=_sampling_config(250, 600),
+        upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m2")
+    if checkpoint is not None:
+        stage = _stage_from_payload(checkpoint)
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m2", likelihood, medians, stage.param_names,
+        )
+        return stage, medians, _reg_hyperparams_from_m2_payload(checkpoint)
     stage = _run_sampler(
         likelihood, n_live=250, n_eff=600, tag="stage-M2", vectorized=True,
     )
@@ -1660,6 +1685,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         m2_mass_model="fixed-SIE+Shear",
         mass_medians_fixed=dict(medians_m1),
         reg_hyperparams=reg_hyperparams_m2,
+        objective=objective,
         time_taken=t1 - t0,
     )
     _dump_stage(
@@ -1684,6 +1710,7 @@ def build_stage_m3_likelihood(
     stage_m1: StagePosterior, position_likelihood, reg_hyperparams_fixed: dict,
     s1_package, circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
 ):
     """Build M3: EPL+shear free, adaptive source-reg fixed from M2."""
     source_interpolation = resolve_source_interpolation(
@@ -1719,16 +1746,22 @@ def build_stage_m3_likelihood(
         mask=combined_mask,
         position_likelihood=position_likelihood,
         solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         source_bbox_padding=SOURCE_BBOX_PADDING,
         **_fixed_source_kwargs(s1_package),
     )
 
 
-def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
-                  lens_light_model, stage_m1: StagePosterior,
-                  position_likelihood, reg_hyperparams_fixed: dict,
-                  s1_package, circular_mask=None,
-                  *, source_interpolation=None):
+def run_stage_m3(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, stage_m1: StagePosterior,
+    position_likelihood, reg_hyperparams_fixed: dict,
+    s1_package, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
     """Stage M3: final EPL+shear sampling with source-reg fixed from M2."""
     print("\n" + "=" * 60)
     print(" Stage M3 : EPL + shear + adaptive pix source (final mass fit)")
@@ -1741,7 +1774,20 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
         stage_m1, position_likelihood, reg_hyperparams_fixed,
         s1_package, circular_mask=circular_mask,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
     )
+    objective = pixelized_objective_provenance(
+        likelihood, reference=s1_package, sampling=_sampling_config(300, 600),
+        upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m3")
+    if checkpoint is not None:
+        stage = _stage_from_payload(checkpoint)
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m3", likelihood, medians, stage.param_names,
+        )
+        return stage, medians
     stage = _run_sampler(
         likelihood, n_live=300, n_eff=600, tag="stage-M3", vectorized=True,
     )
@@ -1756,6 +1802,7 @@ def run_stage_m3(image_data, noise_map, psf_kernel, feature_mask,
             medians=medians,
             m3_mass_model="EPL+Shear",
             reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
+            objective=objective,
             time_taken=t1 - t0,
         ),
         stage=stage,
@@ -1778,12 +1825,13 @@ def build_comparison_likelihood(
     lens_subtracted_image, noise_map, psf_kernel, feature_mask,
     stage_m2: StagePosterior, stage_m3: StagePosterior, position_likelihood, s1_package,
     circular_mask=None, with_subhalo: bool = False, *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
 ):
     """Build the M4 (``with_subhalo=False``) or M5 (``True``) likelihood.
 
     Both models use the same globals and stage-M2/M3 posteriors, so
     every shared ingredient — smooth-mass top-hats, the source-regularization
-    strength prior, ``adaptive_reg_rho``, the fixed source grid/template/bbox,
+    strength prior, ``adaptive_reg_rho``, the fixed source grid and reference arc,
     the mask, PSF, noise map and solver settings — is identical by construction.
     Only the subhalo component differs, which is what makes
     ``logZ(M5) - logZ(M4)`` a subhalo Bayes factor.
@@ -1827,6 +1875,8 @@ def build_comparison_likelihood(
             position_likelihood if COMPARISON_USE_POSITION_LIKELIHOOD else None
         ),
         solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         source_bbox_padding=SOURCE_BBOX_PADDING,
         **_fixed_source_kwargs(s1_package),
     )
@@ -1837,6 +1887,8 @@ def _run_comparison_stage(
     image_data, noise_map, psf_kernel, feature_mask, lens_light_model,
     stage_m2, stage_m3, position_likelihood, s1_package, circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
 ):
     """Sample one arm of the M4/M5 subhalo comparison."""
     tag = f"stage-{stage_id.upper()}"
@@ -1854,7 +1906,26 @@ def _run_comparison_stage(
         stage_m2, stage_m3, position_likelihood, s1_package,
         circular_mask=circular_mask, with_subhalo=with_subhalo,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
     )
+    objective = pixelized_objective_provenance(
+        likelihood, reference=s1_package, sampling=_sampling_config(n_live, n_eff),
+        upstream=upstream,
+    )
+    role = "subhalo" if with_subhalo else "null"
+    if cached is not None:
+        if _comparison_cache_matches(cached, objective, role):
+            stage = _stage_from_payload(cached)
+            medians = cached["extra"]["medians"]
+            print(f"[{tag}] reusing the matched {role} objective")
+            _refresh_cached_boundary_reports(
+                stage_id, cached, stage, source_interpolation=source_interpolation,
+            )
+            plot_cached_pixelized_stage(
+                _plot_pix_stage, OUT_DIR, stage_id, likelihood, medians, stage.param_names,
+            )
+            return stage, medians
+        print(f"[{tag}] cached {role} objective differs; recomputing.")
     stage = _run_sampler(
         likelihood, n_live=n_live, n_eff=n_eff, tag=tag, vectorized=True,
     )
@@ -1874,12 +1945,9 @@ def _run_comparison_stage(
         stage_id, samples, weights, names, logz,
         extra=dict(
             medians=medians,
-            pipeline_schema=_comparison_cache_schema(
-                stage_m2, stage_m3, lens_subtracted, noise_map, psf_kernel,
-                feature_mask, position_likelihood, s1_package,
-                circular_mask=circular_mask,
-            ),
-            comparison_role="subhalo" if with_subhalo else "null",
+            pipeline_schema=_comparison_cache_schema(objective),
+            objective=objective,
+            comparison_role=role,
             mass_model="EPL+Shear+PseudoJaffeSubhalo" if with_subhalo else "EPL+Shear",
             subhalo_position=(
                 _subhalo_position_bounds(image_data.shape, DPIX) if with_subhalo else None
@@ -1905,10 +1973,14 @@ def _run_comparison_stage(
     return stage, medians
 
 
-def run_stage_m4(image_data, noise_map, psf_kernel, feature_mask,
-                 lens_light_model, stage_m2: StagePosterior, stage_m3: StagePosterior,
-                 position_likelihood, s1_package, circular_mask=None,
-                 *, source_interpolation=None):
+def run_stage_m4(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, stage_m2: StagePosterior, stage_m3: StagePosterior,
+    position_likelihood, s1_package, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
     """Stage M4: the smooth null model of the subhalo comparison."""
     return _run_comparison_stage(
         "m4", "Stage M4 : smooth EPL + shear + adaptive pix source (null model)",
@@ -1917,13 +1989,19 @@ def run_stage_m4(image_data, noise_map, psf_kernel, feature_mask,
         stage_m2, stage_m3, position_likelihood, s1_package,
         circular_mask=circular_mask,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        cached=cached, upstream=upstream,
     )
 
 
-def run_stage_m5(image_data, noise_map, psf_kernel, feature_mask,
-                 lens_light_model, stage_m2: StagePosterior, stage_m3: StagePosterior,
-                 position_likelihood, s1_package, circular_mask=None,
-                 *, source_interpolation=None):
+def run_stage_m5(
+    image_data, noise_map, psf_kernel, feature_mask,
+    lens_light_model, stage_m2: StagePosterior, stage_m3: StagePosterior,
+    position_likelihood, s1_package, circular_mask=None,
+    *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+    cached=None, upstream=None,
+):
     """Stage M5: add a Pseudo-Jaffe subhalo with free strength and position.
 
     The adopted approximate tidal radius is derived from ``b_subhalo`` and the
@@ -1937,10 +2015,30 @@ def run_stage_m5(image_data, noise_map, psf_kernel, feature_mask,
         stage_m2, stage_m3, position_likelihood, s1_package,
         circular_mask=circular_mask,
         source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        cached=cached, upstream=upstream,
     )
 
 
-def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None):
+def _require_m5_cache_objective(payload, likelihood, reference, upstream, stage, *, role=None):
+    """Verify the saved objective using its original sampler settings."""
+    extra = payload.get("extra") or {}
+    recorded = extra.get("objective") or {}
+    current = pixelized_objective_provenance(
+        likelihood, reference=reference, sampling=recorded.get("sampling"), upstream=upstream,
+    )
+    matches = (
+        recorded == current if role is None else _comparison_cache_matches(payload, current, role)
+    )
+    if not matches:
+        raise ValueError(f"{stage} objective differs. Run the full pipeline to refit the matched stages.")
+    return current
+
+
+def run_m5_from_cache(
+    cache_dir: str, out_dir: str, *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+):
     """Run M5 alone, reusing the earlier stages and M4 null from a prior run."""
     global OUT_DIR
     cache_dir = Path(cache_dir).expanduser().resolve()
@@ -1960,11 +2058,13 @@ def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None
     def cached(tag):
         return load_stage(storage, tag)
 
-    a, m1, m2, m3, m4, reference_m5 = (
-        cached(tag) for tag in ("a", "m1", "m2", "m3", "m4", "m5")
-    )
-    if m4["extra"].get("pipeline_schema") != reference_m5["extra"].get("pipeline_schema"):
-        raise ValueError("Reference M4 and M5 caches have different comparison schemas.")
+    a, m1, m2, m3, m4 = (cached(tag) for tag in ("a", "m1", "m2", "m3", "m4"))
+    for stage, payload in (("M2", m2), ("M3", m3), ("M4", m4)):
+        if not (payload.get("extra") or {}).get("objective"):
+            raise ValueError(
+                f"{stage} lacks an adaptive objective record. Run the full pipeline to refit."
+            )
+    reference_m5 = cached("m5") if (cache_dir / "stage_m5.pkl").exists() else None
 
     image_data, noise_map, psf_kernel, _ = load_lens_data(
         image_path=str(DATA_DIR / "image.fits"),
@@ -1973,42 +2073,73 @@ def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None
     )
     circular_mask = _make_circular_mask(image_data.shape, DPIX, MASK_RADIUS)
     lens_light_model = a["extra"]["lens_light_model"]
-    snr_map = (image_data - lens_light_model) / noise_map
+    lens_subtracted = image_data - lens_light_model
     feature_mask = arc_mask_from(
-        snr_map, threshold=3.0, ignor_size=25, ext_size=5, close_size=3,
+        lens_subtracted / noise_map, threshold=3.0, ignor_size=25, ext_size=5, close_size=3,
     ) | circular_mask
-    stage_m2, stage_m3 = _stage_from_payload(m2), _stage_from_payload(m3)
-    s1_package = _validate_source_package(
-        m1["extra"]["s1"], source_interpolation=source_interpolation,
-    )
+    observations = (lens_subtracted, noise_map, psf_kernel, feature_mask)
     position_likelihood = _position_likelihood_from_stage_a(a["extra"]["medians"])
-
-    # The null likelihood does not depend on the subhalo position prior. Verify
-    # that the cached null used the same data and shared priors as this run.
-    current_mode = SUBHALO_POSITION_MODE
-    current_m4_counts = (M4_N_LIVE, M4_N_EFF)
-    current_m5_counts = (M5_N_LIVE, M5_N_EFF)
+    options = dict(
+        circular_mask=circular_mask, source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    stage_a, stage_m1, stage_m2, stage_m3 = map(_stage_from_payload, (a, m1, m2, m3))
+    medians_m1 = m1["extra"]["medians"]
     try:
-        globals()["SUBHALO_POSITION_MODE"] = "gaussian_local"
-        m4_settings = m4["extra"]["sampler_settings"]
-        m5_settings = reference_m5["extra"]["sampler_settings"]
-        globals()["M4_N_LIVE"] = int(m4_settings["n_live"])
-        globals()["M4_N_EFF"] = int(m4_settings["n_eff"])
-        globals()["M5_N_LIVE"] = int(m5_settings["n_live"])
-        globals()["M5_N_EFF"] = int(m5_settings["n_eff"])
-        reference_schema = _comparison_cache_schema(
-            stage_m2, stage_m3, image_data - lens_light_model, noise_map,
-            psf_kernel, feature_mask, position_likelihood, s1_package,
-            circular_mask=circular_mask,
+        producer = build_stage_m1_likelihood(
+            *observations, stage_a, position_likelihood,
+            m1["extra"]["lambda_prior_center"], **options,
         )
-    finally:
-        globals()["SUBHALO_POSITION_MODE"] = current_mode
-        globals()["M4_N_LIVE"], globals()["M4_N_EFF"] = current_m4_counts
-        globals()["M5_N_LIVE"], globals()["M5_N_EFF"] = current_m5_counts
-    null_schema_matches = reference_schema == m4["extra"].get("pipeline_schema")
-    if not null_schema_matches:
-        print("[M5-only] WARNING: the reference M4 cache has a different pipeline "
-              "schema. Its logZ is not a valid Bayes-factor denominator for this run.")
+        s1_package = recover_pixelized_producer(
+            producer, m1, "s1", medians_m1, stage_m1.param_names,
+        )
+    except (KeyError, TypeError, ValueError) as err:
+        raise ValueError(
+            "Cannot verify the M1 reference arc. Run the full pipeline to refit the producer."
+        ) from err
+    del producer
+
+    a_id, m1_id, m2_id, m3_id = map(pixelized_stage_identity, (a, m1, m2, m3))
+    m2_upstream = {"m1": m1_id}
+    m3_upstream = {"a": a_id, "m1": m1_id, "m2": m2_id}
+    comparison_upstream = {"m2": m2_id, "m3": m3_id}
+    calibration = build_stage_m2_likelihood(
+        *observations, medians_m1, position_likelihood, s1_package, **options,
+    )
+    _require_m5_cache_objective(m2, calibration, s1_package, m2_upstream, "M2")
+    del calibration
+    macro = build_stage_m3_likelihood(
+        *observations, stage_m1, position_likelihood, _reg_hyperparams_from_m2_payload(m2),
+        s1_package, **options,
+    )
+    _require_m5_cache_objective(m3, macro, s1_package, m3_upstream, "M3")
+    del macro
+    null = build_comparison_likelihood(
+        *observations, stage_m2, stage_m3, position_likelihood, s1_package, **options,
+    )
+    null_objective = _require_m5_cache_objective(
+        m4, null, s1_package, comparison_upstream, "M4", role="null",
+    )
+    del null
+    if m4["log_z"] is None or not np.isfinite(m4["log_z"]):
+        raise ValueError("M4 has no finite evidence. Run the full pipeline to refit.")
+
+    comparison_schema = _comparison_cache_schema(null_objective)
+    # Candidate-specific priors can differ from the archived M5. Only include
+    # its evidence and position summaries when the shared objective matches.
+    reference = None
+    if reference_m5 is not None:
+        extra = reference_m5["extra"]
+        recorded = extra.get("objective")
+        if (
+            recorded and extra.get("comparison_role") == "subhalo"
+            and extra.get("pipeline_schema") == comparison_schema
+            and recorded.get("fingerprint") == artifact_fingerprint({
+                key: value for key, value in recorded.items() if key != "fingerprint"
+            })
+            and _comparison_cache_schema(recorded) == comparison_schema
+        ):
+            reference = _stage_from_payload(reference_m5)
 
     OUT_DIR = out_dir
     print(f"[M5-only] reference cache: {cache_dir}")
@@ -2017,14 +2148,17 @@ def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None
     stage_m5, medians_m5 = run_stage_m5(
         image_data, noise_map, psf_kernel, feature_mask, lens_light_model,
         stage_m2, stage_m3, position_likelihood, s1_package,
-        circular_mask=circular_mask,
-        source_interpolation=source_interpolation,
+        upstream=comparison_upstream, **options,
     )
+    if stage_m5.log_z is None or not np.isfinite(stage_m5.log_z):
+        raise RuntimeError("M5 returned no finite evidence.")
+    candidate = _load_stage("m5", source_interpolation=source_interpolation)["extra"]
+    if candidate["pipeline_schema"] != comparison_schema:
+        raise RuntimeError("M4 and M5 used different objectives. Refit the comparison pair.")
     mass_report = _subhalo_mass_report(stage_m5)
     with (OUT_DIR / "stage_m5_mass.json").open("w", encoding="utf-8") as f:
         json.dump(mass_report, f, indent=2)
         f.write("\n")
-    reference = _stage_from_payload(reference_m5)
     position_names = ("center_x_subhalo", "center_y_subhalo")
     position_quantiles = {}
     for name in position_names:
@@ -2033,40 +2167,46 @@ def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None
             stage_m5.samples[:, index], stage_m5.weights, [0.16, 0.5, 0.84]
         )
         position_quantiles[name] = dict(q16=float(q16), q50=float(q50), q84=float(q84))
-    reference_xy = np.array([reference.median(name) for name in position_names])
-    sample_xy = stage_m5.samples[
-        :, [stage_m5.param_names.index(name) for name in position_names]
-    ]
-    distance_from_reference = np.linalg.norm(sample_xy - reference_xy, axis=1)
     summary = dict(
         position_prior=_subhalo_position_bounds(image_data.shape, DPIX),
         sampler_settings=dict(n_live=M5_N_LIVE, n_eff=M5_N_EFF),
         reference_cache=str(cache_dir),
         **source_interpolation_metadata(source_interpolation),
-        reference_log_z_m4=float(m4["log_z"]),
-        reference_log_z_m5=float(reference.log_z),
-        log_z_m5=float(stage_m5.log_z),
-        reference_m4_schema_matches=bool(null_schema_matches),
-        delta_log_z_m5_m4=(
-            float(stage_m5.log_z - m4["log_z"]) if null_schema_matches else None
-        ),
-        reference_medians={
-            name: float(reference.median(name))
-            for name in ("b_subhalo", "center_x_subhalo", "center_y_subhalo")
+        evidence_logdet={
+            "m4": null_objective["evidence_logdet"],
+            "m5": candidate["objective"]["evidence_logdet"],
         },
+        pipeline_schema=candidate["pipeline_schema"],
+        reference_log_z_m4=float(m4["log_z"]),
+        log_z_m5=float(stage_m5.log_z),
+        reference_m4_schema_matches=True,
+        delta_log_z_m5_m4=float(stage_m5.log_z - m4["log_z"]),
         medians={
             name: float(medians_m5[name])
-            for name in ("b_subhalo", "center_x_subhalo", "center_y_subhalo")
+            for name in ("b_subhalo", *position_names)
         },
         position_quantiles=position_quantiles,
-        position_offset_from_reference_arcsec=float(np.linalg.norm(
-            np.array([medians_m5[name] for name in position_names]) - reference_xy
-        )),
-        posterior_weight_within_0p1_arcsec_of_reference=float(
-            stage_m5.weights[distance_from_reference < 0.1].sum()
-        ),
         mass_msun=mass_report["mass_msun"],
     )
+    if reference is not None:
+        reference_xy = np.array([reference.median(name) for name in position_names])
+        sample_xy = stage_m5.samples[
+            :, [stage_m5.param_names.index(name) for name in position_names]
+        ]
+        distance_from_reference = np.linalg.norm(sample_xy - reference_xy, axis=1)
+        summary.update(
+            reference_log_z_m5=float(reference.log_z),
+            reference_medians={
+                name: float(reference.median(name))
+                for name in ("b_subhalo", *position_names)
+            },
+            position_offset_from_reference_arcsec=float(np.linalg.norm(
+                np.array([medians_m5[name] for name in position_names]) - reference_xy
+            )),
+            posterior_weight_within_0p1_arcsec_of_reference=float(
+                stage_m5.weights[distance_from_reference < 0.1].sum()
+            ),
+        )
     with (OUT_DIR / "blind_search_summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
         f.write("\n")
@@ -2077,7 +2217,10 @@ def run_m5_from_cache(cache_dir: str, out_dir: str, *, source_interpolation=None
 # ------------------------------------------------------------------ #
 # Main entry point
 # ------------------------------------------------------------------ #
-def main(skip_done: bool = False, out_dir: str | None = None, *, source_interpolation=None):
+def main(
+    skip_done: bool = False, out_dir: str | None = None, *, source_interpolation=None,
+    evidence_logdet=EVIDENCE_LOGDET, evidence_block_size=EVIDENCE_BLOCK_SIZE,
+):
     global OUT_DIR
     if out_dir is not None:
         requested_out_dir = Path(out_dir).expanduser()
@@ -2121,181 +2264,42 @@ def main(skip_done: bool = False, out_dir: str | None = None, *, source_interpol
     # ---- stage B ---------------------------------------------------- #
     feature_mask = run_stage_b(image_data, noise_map, lens_light_model, circular_mask=circular_mask)
 
-    lens_subtracted = image_data - lens_light_model
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
     source_bbox = _stage_a_source_bbox(stage_a)
     print(f"[stage-A] pixelized stages will use fixed source bbox {source_bbox}")
 
-    # ---- stage M0 --------------------------------------------------- #
-    time_m0 = 0.0
-    if skip_done and (OUT_DIR / "stage_m0.pkl").exists():
-        print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl")
-        d = _load_stage("m0", **source_options)
-        log_lambda_m0 = d["extra"]["log_lambda_best"]
-        time_m0 = d["extra"].get("time_taken", 0.0)
-    else:
-        log_lambda_m0 = run_stage_m0(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, stage_a, position_likelihood,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        time_m0 = _load_stage("m0", **source_options)["extra"].get("time_taken", 0.0)
+    def checkpoint(tag):
+        return load_pixelized_checkpoint(_load_stage, OUT_DIR, tag, resume=skip_done)
 
-    if (OUT_DIR / "stage_m0.pkl").exists() and not (OUT_DIR / "stage_m0_model.png").exists():
-        print("[stage-M0] stage_m0_model.png missing — re-plotting")
-        lkl_m0_replot = build_stage_m0_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            stage_a, position_likelihood, circular_mask=circular_mask,
-            **source_options,
-        )
-        medians_m0_replot = {
-            **medians_a,
-            "log_lambda_reg": float(log_lambda_m0),
-        }
-        try:
-            _plot_pix_stage("stage-M0", lkl_m0_replot, medians_m0_replot, ["log_lambda_reg"],
-                            str(OUT_DIR / "stage_m0_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M0] re-plotting failed (non-fatal): {err}")
+    def identity(tag):
+        return pixelized_stage_identity(_load_stage(tag, **source_options))
 
-    # ---- stage M1 --------------------------------------------------- #
-    time_m1 = 0.0
-    s1_package = None
-    if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
-        print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl")
-        d = _load_stage("m1", **source_options)
-        try:
-            names_m1 = d["param_names"]
-            stage_m1 = _stage_from_payload(d)
-            medians_m1 = d["extra"]["medians"]
-            s1_package = _validate_source_package(d["extra"]["s1"], **source_options)
-            time_m1 = d["extra"].get("time_taken", 0.0)
-        except KeyError as err:
-            print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
-            stage_m1, medians_m1, s1_package = run_stage_m1(
-                image_data, noise_map, psf_kernel, feature_mask,
-                lens_light_model, stage_a, position_likelihood,
-                log_lambda_m0, circular_mask=circular_mask,
-                **source_options,
-            )
-            names_m1 = stage_m1.param_names
-            time_m1 = _load_stage("m1", **source_options)["extra"].get("time_taken", 0.0)
-    else:
-        stage_m1, medians_m1, s1_package = run_stage_m1(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, stage_a, position_likelihood,
-            log_lambda_m0, circular_mask=circular_mask,
-            **source_options,
-        )
-        names_m1 = stage_m1.param_names
-        time_m1 = _load_stage("m1", **source_options)["extra"].get("time_taken", 0.0)
-
-    if s1_package is None:
-        raise RuntimeError(
-            "[stage-M1] Failed to determine S1 source package — "
-            "stage_m1.pkl may be corrupted."
-        )
-
-    if (OUT_DIR / "stage_m1.pkl").exists() and not (OUT_DIR / "stage_m1_model.png").exists():
-        print("[stage-M1] stage_m1_model.png missing — re-plotting")
-        lkl_m1_replot = build_stage_m1_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            stage_a, position_likelihood, log_lambda_m0,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage("stage-M1", lkl_m1_replot, medians_m1, names_m1,
-                            str(OUT_DIR / "stage_m1_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M1] re-plotting failed (non-fatal): {err}")
-
-    # ---- stage M2 --------------------------------------------------- #
-    time_m2 = 0.0
-    reg_hyperparams_m2 = None
-    if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
-        print(f"[stage-M2] loading cached {OUT_DIR}/stage_m2.pkl")
-        d = _load_stage("m2", **source_options)
-        stage_m2 = _stage_from_payload(d)
-        names_m2 = stage_m2.param_names
-        medians_m2 = d["extra"]["medians"]
-        reg_hyperparams_m2 = _reg_hyperparams_from_m2_payload(d)
-        time_m2 = d["extra"].get("time_taken", 0.0)
-    else:
-        stage_m2, medians_m2, reg_hyperparams_m2 = run_stage_m2(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, medians_m1, position_likelihood,
-            s1_package, circular_mask=circular_mask,
-            **source_options,
-        )
-        names_m2 = stage_m2.param_names
-        time_m2 = _load_stage("m2", **source_options)["extra"].get("time_taken", 0.0)
-
-    if not (OUT_DIR / "stage_m2_model.png").exists():
-        lkl_m2 = build_stage_m2_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            medians_m1, position_likelihood, s1_package,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage("stage-M2", lkl_m2, medians_m2, names_m2,
-                            str(OUT_DIR / "stage_m2_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M2] plotting failed (non-fatal): {err}")
-
-    if reg_hyperparams_m2 is None:
-        raise RuntimeError(
-            "[stage-M2] Failed to determine source regularization hyperparameters."
-        )
-
-    # ---- stage M3 --------------------------------------------------- #
-    time_m3 = 0.0
-    if skip_done and (OUT_DIR / "stage_m3.pkl").exists():
-        print(f"[stage-M3] loading cached {OUT_DIR}/stage_m3.pkl")
-        d = _load_stage("m3", **source_options)
-        stage_m3 = _stage_from_payload(d)
-        names_m3 = stage_m3.param_names
-        medians_m3 = d["extra"]["medians"]
-        time_m3 = d["extra"].get("time_taken", 0.0)
-    else:
-        stage_m3, medians_m3 = run_stage_m3(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, stage_m1, position_likelihood,
-            reg_hyperparams_m2, s1_package, circular_mask=circular_mask,
-            **source_options,
-        )
-        names_m3 = stage_m3.param_names
-        time_m3 = _load_stage("m3", **source_options)["extra"].get("time_taken", 0.0)
-
-    if not (OUT_DIR / "stage_m3_model.png").exists():
-        lkl_m3 = build_stage_m3_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            stage_m1, position_likelihood, reg_hyperparams_m2, s1_package,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage("stage-M3", lkl_m3, medians_m3, names_m3,
-                            str(OUT_DIR / "stage_m3_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M3] plotting failed (non-fatal): {err}")
-
-    # Both arms read the same global settings; prior_specs are saved by the sampler.
-    comparison_schema = _comparison_cache_schema(
-        stage_m2, stage_m3, lens_subtracted, noise_map, psf_kernel,
-        feature_mask, position_likelihood, s1_package,
-        circular_mask=circular_mask,
+    data = (image_data, noise_map, psf_kernel, feature_mask, lens_light_model)
+    options = dict(
+        circular_mask=circular_mask, **source_options,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
     )
+    a_id = identity("a")
+    log_lambda_m0 = run_stage_m0(
+        *data, stage_a, position_likelihood,
+        cached=checkpoint("m0"), upstream={"a": a_id}, **options,
+    )
+    stage_m1, medians_m1, s1_package = run_stage_m1(
+        *data, stage_a, position_likelihood, log_lambda_m0,
+        cached=checkpoint("m1"), upstream={"a": a_id, "m0": identity("m0")}, **options,
+    )
+    m1_id = identity("m1")
+    stage_m2, _, reg_hyperparams_m2 = run_stage_m2(
+        *data, medians_m1, position_likelihood, s1_package,
+        cached=checkpoint("m2"), upstream={"m1": m1_id}, **options,
+    )
+    m2_id = identity("m2")
+    stage_m3, medians_m3 = run_stage_m3(
+        *data, stage_m1, position_likelihood, reg_hyperparams_m2, s1_package,
+        cached=checkpoint("m3"), upstream={"a": a_id, "m1": m1_id, "m2": m2_id}, **options,
+    )
+    comparison_upstream = {"m2": m2_id, "m3": identity("m3")}
+
     print("\n[M4/M5] Vegetti-style Pseudo-Jaffe with the adopted Einstein-radius "
           "approximation rt = sqrt(b_sub * theta_E_host), not an exact "
           "reproduction of Vegetti et al. (2010).")
@@ -2305,112 +2309,26 @@ def main(skip_done: bool = False, out_dir: str | None = None, *, source_interpol
               "from the smooth stage-A model. Set "
               "COMPARISON_USE_POSITION_LIKELIHOOD=False for the robustness check.")
 
-    # ---- stage M4 (smooth null model) -------------------------------- #
-    time_m4 = 0.0
-    stage_m4 = None
-    medians_m4 = None
-    names_m4 = None
-    cached_m4 = False
-    if skip_done and (OUT_DIR / "stage_m4.pkl").exists():
-        d = _load_stage("m4", **source_options)
-        if _comparison_cache_matches(d, comparison_schema, expected_role="null"):
-            print(f"[stage-M4] loading cached {OUT_DIR}/stage_m4.pkl")
-            stage_m4 = _stage_from_payload(d)
-            names_m4 = stage_m4.param_names
-            medians_m4 = d["extra"]["medians"]
-            time_m4 = d["extra"].get("time_taken", 0.0)
-            cached_m4 = True
-            _refresh_cached_boundary_reports("m4", d, stage_m4, **source_options)
-        else:
-            print(
-                "[stage-M4] cached stage_m4.pkl does not match the exact null "
-                f"model schema (expected {comparison_schema}); recomputing."
-            )
-    if stage_m4 is None:
-        stage_m4, medians_m4 = run_stage_m4(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, stage_m2, stage_m3, position_likelihood,
-            s1_package, circular_mask=circular_mask,
-            **source_options,
-        )
-        names_m4 = stage_m4.param_names
-        time_m4 = _load_stage("m4", **source_options)["extra"].get("time_taken", 0.0)
-
-    if medians_m4 is None or names_m4 is None:
-        raise RuntimeError("[stage-M4] posterior medians or parameter names missing.")
-
-    if cached_m4 and not (OUT_DIR / "stage_m4_model.png").exists():
-        print("[stage-M4] stage_m4_model.png missing — re-plotting")
-        lkl_m4 = build_comparison_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            stage_m2, stage_m3, position_likelihood, s1_package,
-            circular_mask=circular_mask, with_subhalo=False,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage(
-                "stage-M4", lkl_m4, medians_m4, names_m4,
-                str(OUT_DIR / "stage_m4_model.png"),
-            )
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M4] re-plotting failed (non-fatal): {err}")
-
-    # ---- stage M5 (same model + Pseudo-Jaffe subhalo) ------------------------- #
-    time_m5 = 0.0
-    stage_m5 = None
-    medians_m5 = None
-    names_m5 = None
-    cached_m5 = False
-    if skip_done and (OUT_DIR / "stage_m5.pkl").exists():
-        d = _load_stage("m5", **source_options)
-        if _comparison_cache_matches(d, comparison_schema, expected_role="subhalo"):
-            print(f"[stage-M5] loading cached {OUT_DIR}/stage_m5.pkl")
-            stage_m5 = _stage_from_payload(d)
-            names_m5 = stage_m5.param_names
-            medians_m5 = d["extra"]["medians"]
-            time_m5 = d["extra"].get("time_taken", 0.0)
-            cached_m5 = True
-            _refresh_cached_boundary_reports("m5", d, stage_m5, **source_options)
-        else:
-            print(
-                "[stage-M5] cached stage_m5.pkl does not match the exact subhalo "
-                f"model schema (expected {comparison_schema}); recomputing."
-            )
-    if stage_m5 is None:
-        stage_m5, medians_m5 = run_stage_m5(
-            image_data, noise_map, psf_kernel, feature_mask,
-            lens_light_model, stage_m2, stage_m3, position_likelihood,
-            s1_package, circular_mask=circular_mask,
-            **source_options,
-        )
-        names_m5 = stage_m5.param_names
-        time_m5 = _load_stage("m5", **source_options)["extra"].get("time_taken", 0.0)
-
-    if medians_m5 is None or names_m5 is None:
-        raise RuntimeError("[stage-M5] posterior medians or parameter names missing.")
-
-    if cached_m5 and not (OUT_DIR / "stage_m5_model.png").exists():
-        print("[stage-M5] stage_m5_model.png missing — re-plotting")
-        lkl_m5 = build_comparison_likelihood(
-            lens_subtracted, noise_map, psf_kernel, feature_mask,
-            stage_m2, stage_m3, position_likelihood, s1_package,
-            circular_mask=circular_mask, with_subhalo=True,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage(
-                "stage-M5", lkl_m5, medians_m5, names_m5,
-                str(OUT_DIR / "stage_m5_model.png"),
-            )
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M5] re-plotting failed (non-fatal): {err}")
+    stage_m4, medians_m4 = run_stage_m4(
+        *data, stage_m2, stage_m3, position_likelihood, s1_package,
+        cached=checkpoint("m4"), upstream=comparison_upstream, **options,
+    )
+    stage_m5, medians_m5 = run_stage_m5(
+        *data, stage_m2, stage_m3, position_likelihood, s1_package,
+        cached=checkpoint("m5"), upstream=comparison_upstream, **options,
+    )
+    null = _load_stage("m4", **source_options)["extra"]
+    candidate = _load_stage("m5", **source_options)["extra"]
+    if null["pipeline_schema"] != candidate["pipeline_schema"]:
+        raise RuntimeError("M4 and M5 used different objectives. Refit the comparison pair.")
+    time_m0, time_m1, time_m2, time_m3, time_m4, time_m5 = (
+        _load_stage(tag, **source_options)["extra"].get("time_taken", 0.0)
+        for tag in ("m0", "m1", "m2", "m3", "m4", "m5")
+    )
 
     # ---- evidence comparison ---------------------------------------- #
-
+    if any(stage.log_z is None or not np.isfinite(stage.log_z) for stage in (stage_m4, stage_m5)):
+        raise RuntimeError("M4 and M5 must both return finite evidence.")
     logz_m3 = float(stage_m3.log_z)
     logz_m4 = float(stage_m4.log_z)
     logz_m5 = float(stage_m5.log_z)
@@ -2502,6 +2420,14 @@ if __name__ == "__main__":
         help="Source interpolation for a fresh run or an explicit resume check.",
     )
     parser.add_argument(
+        "--evidence-logdet", choices=("overlap", "block"), default=EVIDENCE_LOGDET,
+        help="Evidence method shared by the pixelized stages.",
+    )
+    parser.add_argument(
+        "--evidence-block-size", type=int, default=EVIDENCE_BLOCK_SIZE,
+        help="Source-plane tile width for Overlap evidence.",
+    )
+    parser.add_argument(
         "--m5-only-from",
         default=None,
         help="Run only M5 using A/M1/M2/M3 and M4 caches from this directory; "
@@ -2555,8 +2481,6 @@ if __name__ == "__main__":
     if args.m5_only_from is not None:
         if args.out_dir is None:
             parser.error("--m5-only-from requires --out-dir")
-        # The cache check inside run_m5_from_cache temporarily restores the
-        # reference sampler counts, so pilot overrides do not invalidate it.
         if args.m5_n_live is not None or args.m5_n_eff is not None:
             if min(v for v in (args.m5_n_live, args.m5_n_eff) if v is not None) <= 0:
                 parser.error("M5 sampler counts must be positive")
@@ -2565,6 +2489,7 @@ if __name__ == "__main__":
         run_m5_from_cache(
             args.m5_only_from, args.out_dir,
             source_interpolation=args.source_interpolation,
+            evidence_logdet=args.evidence_logdet, evidence_block_size=args.evidence_block_size,
         )
     else:
         if args.m5_n_live is not None or args.m5_n_eff is not None:
@@ -2572,4 +2497,5 @@ if __name__ == "__main__":
         main(
             skip_done=args.skip_done, out_dir=args.out_dir,
             source_interpolation=args.source_interpolation,
+            evidence_logdet=args.evidence_logdet, evidence_block_size=args.evidence_block_size,
         )
