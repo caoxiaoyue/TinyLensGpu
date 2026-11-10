@@ -215,6 +215,7 @@ def _small_joint_operator(
     phys = PhysicalModel(lens_mass=[mass], source_light=[source], lens_light=[light])
     yy, xx = np.mgrid[:10, :10]
     data = 0.05 + 0.2 * np.exp(-((xx - 4.5)**2 + (yy - 4.5)**2) / 5.0)
+    adapt_image = data.copy() if adaptive else None
     if failure == "nonfinite":
         data[:] = np.nan
     mask = np.zeros((10, 10), dtype=bool)
@@ -224,7 +225,7 @@ def _small_joint_operator(
         psf_kernel=np.ones((1, 1)), dpix=0.08, phys_model=phys,
         mask=mask, nsub=1, solver_type="pcg",
         fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3) if adaptive else None,
-        fixed_reg_template=np.abs(np.linspace(-1, 1, 25)) if adaptive else None,
+        adapt_image=adapt_image,
         position_likelihood=(
             dict(positions=[[-0.2, 0.0], [0.2, 0.0]],
                  threshold_arcsec=0.1, min_log_like=-10.0)
@@ -453,7 +454,13 @@ def test_subhalo_exports_keep_raw_package_contract_with_unsupported_joint_stats(
         "source_x_axis", "source_y_axis", "n",
     }
     if "subhalo_0946" in relative_path:
-        keys.update(("source_interpolation", "source_boundary"))
+        keys.update((
+            "source_interpolation", "source_boundary", "adapt_image",
+            "reference_provenance", "lens_light_intensities",
+        ))
+        _, components = likelihood.evaluate_with_diagnostics(theta, include_components=True)
+        np.testing.assert_allclose(package["adapt_image"], components.source_image, atol=1e-6)
+        np.testing.assert_allclose(package["lens_light_intensities"], result.lens_amplitudes, atol=1e-6)
     assert set(package) == keys
     assert package["n"] == 5
     assert isinstance(package["source_bbox"], tuple)
