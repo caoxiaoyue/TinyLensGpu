@@ -55,7 +55,7 @@ class InversionDiagnostics:
     ones for uniform regularization. Optional effective-degrees-of-freedom and
     component-image fields stay ``None`` unless requested; an invalid
     reconstruction keeps the three statistics ``None`` and explains why in
-    ``effective_dof_reason``. Operator diagnostics report score validity and
+    ``effective_dof_reason``. Both backends report score validity and
     any evidence failure separately from reconstruction validity.
     """
 

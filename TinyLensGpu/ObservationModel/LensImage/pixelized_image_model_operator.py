@@ -42,7 +42,8 @@ from TinyLensGpu.utils.inversion.regularization import (
     RegData,
 )
 from .inversion_result import InversionDiagnostics, InversionResult
-from ._inversion_diagnostics import reconstruction_diagnostics
+from ._inversion_diagnostics import evidence_diagnostics, reconstruction_diagnostics
+from ._inversion_score import penalize_invalid_evidence
 from ._overlap_logdet import OverlapLogdet
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
@@ -73,25 +74,6 @@ class _EvaluationDetails(NamedTuple):
     scale: Array | None
     evidence_valid: Array | None
     schur_solved: Array | None
-
-
-@jax.custom_vjp
-def _penalize_invalid_evidence(score: Array, valid: Array, penalty: Array) -> Array:
-    """Return a finite sampling score and reject gradients of invalid scores."""
-    return jnp.where(valid, score, penalty)
-
-
-def _penalize_invalid_evidence_fwd(score, valid, penalty):
-    return jnp.where(valid, score, penalty), valid
-
-
-def _penalize_invalid_evidence_bwd(valid, cotangent):
-    return jnp.where(valid, cotangent, jnp.full_like(cotangent, jnp.nan)), None, None
-
-
-_penalize_invalid_evidence.defvjp(
-    _penalize_invalid_evidence_fwd, _penalize_invalid_evidence_bwd,
-)
 
 
 class PixelizedImageProbModelOperator(ck.Module):
@@ -272,7 +254,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 raise ValueError("initial_source must contain n² finite node intensities.")
             self._initial_linear = jnp.pad(initial, (0, self.n_lens_light))
         self._adapt_brightness = prepare_adapt_image(
-            adapt_image, self.image_data, self.sim_obj,
+            adapt_image, self.image_data, self.noise_map, self.sim_obj,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
 
@@ -861,7 +843,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                     ~solver_info.converged & jnp.isfinite(primary_penalty),
                     primary_penalty, penalty,
                 )
-            log_evidence = _penalize_invalid_evidence(log_evidence, evidence_valid, penalty)
+            log_evidence = penalize_invalid_evidence(log_evidence, evidence_valid, penalty)
 
         # Preserve forward_model's failure contract for every reconstruction output.
         source = jnp.where(solver_info.converged, source, jnp.zeros_like(source))
@@ -921,20 +903,9 @@ class PixelizedImageProbModelOperator(ck.Module):
             compute_evidence=True, include_position=True, return_details=True,
         )
         diagnostics = reconstruction_diagnostics(self, result, details.scale)
-        evidence_valid = bool(details.evidence_valid)
-        evidence_reason = None
-        if not evidence_valid:
-            if not diagnostics.valid:
-                evidence_reason = "Evidence requires a valid primary reconstruction."
-            elif details.schur_solved is not None and not bool(details.schur_solved):
-                evidence_reason = "Overlap auxiliary source-curvature solve failed."
-            else:
-                evidence_reason = "Evidence calculation returned a nonfinite value."
-        diagnostics = replace(
-            diagnostics,
-            evidence_logdet=self.evidence_logdet,
-            evidence_valid=evidence_valid,
-            evidence_invalid_reason=evidence_reason,
+        diagnostics = evidence_diagnostics(
+            diagnostics, self.evidence_logdet, details.evidence_valid,
+            schur_solved=details.schur_solved,
         )
         if include_effective_dof:
             if self.has_lens_light:

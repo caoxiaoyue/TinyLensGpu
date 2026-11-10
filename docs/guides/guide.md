@@ -215,6 +215,15 @@ Run the complete example from its own directory so its relative data paths resol
     score. Both choices share the same reconstruction solve and use
     unconstrained curvature for the determinants, including with PNPG.
     Dense fits use complete determinants. [Matched mock score comparison](../validation/adaptive-image-overlap-euclid-mock.md)
+  - For a tile width of `b`, each Overlap window spans at most `2*b`
+    nodes per axis. A window of `k` nodes uses `k × k` local Gram, prior
+    and posterior matrices for its determinant calculation. Fixed geometry
+    can cache the individual window Grams. When a single window spans the
+    source grid, the exact window matrices are full source size and the
+    Gram is assembled by applying the normal operator to small batches of
+    source basis vectors. The image workspace uses the column batch size
+    in that path. The GPU resource measurements used tile width 10 on an
+    80×80 source grid. [Workspace audit](../validation/adaptive-image-overlap-gpu.md)
   - The retired `fixed_reg_template` and `fixed_reg_scale` observation-model
     keywords raise `TypeError`. Generate a native reference arc from the
     producer reconstruction and use `adapt_image` with its fitted grid to
@@ -295,7 +304,7 @@ Run the complete example from its own directory so its relative data paths resol
     statistics/component work; unrequested fields stay `None`. Basic
     diagnostics always include `normalized_residuals`, `chi2`, `lambda_reg`,
     `adaptive_reg_rho`, the applied `regularization_scale`, and an enabled
-    position record. Operator diagnostics report `evidence_logdet`,
+    position record. Both backends report `evidence_logdet`,
     `evidence_valid` and `evidence_invalid_reason` separately from
     reconstruction validity. An auxiliary evidence failure retains a valid
     primary reconstruction and returns the finite sampling penalty. The dense

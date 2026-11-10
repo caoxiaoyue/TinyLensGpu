@@ -20,3 +20,9 @@
 - Claimed on `codex/overlap-06-euclid-stages`.
 - Implemented in `1c2ee7e`. From `examples/tests/` in `tinylens_gpu` on CPU, `pytest -q test_euclid_adapt_image_stages.py` passed all 4 dedicated cases. Coverage includes fresh M1/M2/M3, matching and changed score recovery, a compatible Block archive replay with its separately recorded provenance, and a rebuild when provenance is missing.
 - The final targeted Euclid regression run across `test_euclid_adapt_image_stages.py`, `test_survey_shared_support.py`, `test_pipeline_source_export.py`, and `test_source_compatibility.py` passed 21 cases, with 125 deselected.
+
+Verification ran from `examples/tests/` in `tinylens_gpu` with the checkout on `PYTHONPATH`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `JAX_PLATFORMS=cpu`, and `MPLBACKEND=Agg`.
+
+```bash
+pytest -q test_euclid_adapt_image_stages.py test_survey_shared_support.py test_pipeline_source_export.py test_source_compatibility.py -k 'euclid or source_export_helper_preserves_legacy_default_schema'
+```

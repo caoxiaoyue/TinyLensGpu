@@ -111,6 +111,7 @@ from workspace._j0946_macro_provenance import (
     require_current_handoff_schema,
     require_sampler_objective,
     resolve_run_source_interpolation,
+    restore_adaptive_stage,
     source_settings_match,
     write_macro_handoff,
 )
@@ -275,19 +276,6 @@ def _load_stage(tag):
         StageStorageConfig(OUT_DIR, include_schema=True, source_interpolation=SOURCE_INTERPOLATION),
         tag,
     )
-
-
-def _cached_adaptive_stage(tag, cached, objective, likelihood):
-    cached = matching_pixelized_checkpoint(cached, objective, tag)
-    if cached is None:
-        return None
-    require_sampler_objective(OUT_DIR, tag, objective)
-    stage = _stage_from_payload(cached)
-    medians = cached["extra"]["medians"]
-    plot_cached_pixelized_stage(
-        _plot_pix_stage, OUT_DIR, tag, likelihood, medians, stage.param_names,
-    )
-    return stage, medians
 
 
 def _print_summary(tag: str, samples, weights, param_names):
@@ -1571,9 +1559,12 @@ def run_stage_m2(
     objective = pixelized_objective_provenance(
         likelihood, reference=s1_package, sampling=_pixelized_sampling("m2"), upstream=upstream,
     )
-    restored = _cached_adaptive_stage("m2", cached, objective, likelihood)
+    restored = restore_adaptive_stage(OUT_DIR, "m2", cached, objective)
     if restored is not None:
         stage, medians = restored
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m2", likelihood, medians, stage.param_names,
+        )
         return stage, medians, _reg_hyperparams_from_m2_payload(cached)
     stage = _run_sampler(
         likelihood, *PIXELIZED_SAMPLING["m2"], tag="stage-M2", objective=objective,
@@ -1706,9 +1697,13 @@ def run_stage_m3(
     objective = pixelized_objective_provenance(
         likelihood, reference=s1_package, sampling=_pixelized_sampling("m3"), upstream=upstream,
     )
-    restored = _cached_adaptive_stage("m3", cached, objective, likelihood)
+    restored = restore_adaptive_stage(OUT_DIR, "m3", cached, objective)
     if restored is not None:
-        return restored
+        stage, medians = restored
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m3", likelihood, medians, stage.param_names,
+        )
+        return stage, medians
     stage = _run_sampler(
         likelihood, *PIXELIZED_SAMPLING["m3"], tag="stage-M3", objective=objective,
     )

@@ -138,35 +138,6 @@ class OverlapLogdet:
         )
         return 0.5 * (columns + columns.T)
 
-    def _prior_off_diagonals(self, reg_data, strength):
-        """Return global stencil bands indexed by their lower flat node."""
-        reg_type = self._builder.regularization_type
-        if reg_type == "zero-order":
-            return ()
-
-        n = self._builder.n
-        scale = self._builder._scale_to_2d(reg_data.scale)
-        factor = strength * reg_data.scale_factor
-        if reg_type == "first-order":
-            wx, wy = self._builder._edge_weights_first_order(scale)
-            return (
-                (1, (-factor * jnp.pad(wx, ((0, 0), (0, 1)))).ravel()),
-                (n, (-factor * jnp.pad(wy, ((0, 1), (0, 0)))).ravel()),
-            )
-
-        wx, wy, wx_near, wy_near = self._builder._edge_weights_second_order(scale)
-        # Uniform weights include a dummy curvature row on a two-node axis.
-        wx, wy = wx[:, :n - 2], wy[:n - 2, :]
-        x2 = jnp.pad(wx, ((0, 0), (0, 2)))
-        y2 = jnp.pad(wy, ((0, 2), (0, 0)))
-        x1 = -2.0 * (x2 + jnp.pad(wx, ((0, 0), (1, 1))))
-        y1 = -2.0 * (y2 + jnp.pad(wy, ((1, 1), (0, 0))))
-        x1 = x1.at[:, -2].add(-wx_near)
-        y1 = y1.at[-2, :].add(-wy_near)
-        return tuple((offset, (factor * band).ravel()) for offset, band in (
-            (1, x1), (n, y1), (2, x2), (2 * n, y2),
-        ))
-
     @staticmethod
     def _principal_prior(pixels, diagonal, off_diagonals):
         row, col = pixels[:, None], pixels[None, :]
@@ -217,7 +188,7 @@ class OverlapLogdet:
 
     def __call__(self, mapping, bbox, reg_data, strength: Array) -> Array:
         diagonal = strength * self._builder.diag_R(*bbox, scale=reg_data.scale)
-        bands = self._prior_off_diagonals(reg_data, strength)
+        bands = self._builder.scaled_off_diagonal_bands(reg_data, strength)
         if not self._windows:
             gram = (
                 self._full_gram(bbox, mapping)

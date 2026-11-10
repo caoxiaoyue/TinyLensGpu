@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import jax.numpy as jnp
 import numpy as np
 
@@ -60,4 +62,23 @@ def reconstruction_diagnostics(model, result, scale) -> InversionDiagnostics:
         ),
         regularization_scale=scale,
         position=position,
+    )
+
+
+def evidence_diagnostics(
+    diagnostics: InversionDiagnostics, method: str, valid, *, schur_solved=None,
+) -> InversionDiagnostics:
+    """Attach the score status while retaining the primary reconstruction status."""
+    valid = bool(valid)
+    reason = None
+    if not valid:
+        if not diagnostics.valid:
+            reason = "Evidence requires a valid primary reconstruction."
+        elif schur_solved is not None and not bool(schur_solved):
+            reason = "Overlap auxiliary source-curvature solve failed."
+        else:
+            reason = "Evidence calculation returned a nonfinite value."
+    return replace(
+        diagnostics, evidence_logdet=method, evidence_valid=valid,
+        evidence_invalid_reason=reason,
     )

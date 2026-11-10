@@ -82,6 +82,7 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
     load_case, requested, tmp_path, monkeypatch,
 ):
     import jax.numpy as jnp
+    from TinyLensGpu.example_support import export_source_package
 
     case = load_case("pipe/no_lens_light/model_adpt_reg.py")
     for name, value in dict(
@@ -98,11 +99,13 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
     monkeypatch.setattr(case, "_position_likelihood_from_stage_a", lambda *a: None)
     monkeypatch.setattr(case, "plot_model_results", lambda *a, **kw: None)
     reconstructions = {}
+    plot_evidence = {}
 
     def reconstruct(tag, likelihood, medians, names, path):
         result = likelihood.evaluate(jnp.asarray([medians[name] for name in names]))
         assert result.solver_info.converged
         reconstructions[tag] = (likelihood.source_model.interpolation, result)
+        plot_evidence[tag] = likelihood.evidence_logdet, likelihood.evidence_block_size
         Path(path).touch()
 
     monkeypatch.setattr(case, "_plot_pix_stage", reconstruct)
@@ -148,7 +151,17 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
         m0_path = tmp_path / "stage_m0.pkl"
         archived = pickle.loads(m0_path.read_bytes())
         extra = archived["extra"]
-        producer = extra["s0"]
+        medians_a = case._load_stage("a")["extra"]["medians"]
+        historical = case.build_stage_m0_likelihood(
+            image, noise, psf, mask, medians_a, None,
+            evidence_logdet="block", evidence_block_size=4,
+        )
+        log_lambda = extra["lambda_best"]
+        producer = export_source_package(
+            historical, {"log_lambda_reg": log_lambda}, ["log_lambda_reg"],
+            n=3, record_adapt_image=True,
+        )
+        producer.update(log_lambda_best=log_lambda, lambda_best=np.exp(log_lambda))
         proof = producer["reference_provenance"].copy()
         proof.pop("adapt_image")
         extra["s0"] = {key: value for key, value in producer.items()
@@ -162,9 +175,12 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
             old_stage["extra"].pop("objective")
             path.write_bytes(pickle.dumps(old_stage))
 
+        plot = tmp_path / "stage_m0_model.png"
+        plot.unlink()
         before = len(_ControlledSampler.instances)
         case.main(skip_done=True)
         assert len(_ControlledSampler.instances) == before + 2
+        assert plot.exists() and plot_evidence["stage-M0"] == ("block", 4)
         replayed = case._load_stage("m0")["extra"]
         np.testing.assert_allclose(replayed["s0"]["adapt_image"], producer["adapt_image"], atol=1e-7)
         assert "objective" not in replayed

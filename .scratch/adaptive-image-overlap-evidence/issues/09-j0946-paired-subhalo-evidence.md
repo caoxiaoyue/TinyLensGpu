@@ -18,3 +18,19 @@
 
 - Claimed on `codex/overlap-09-j0946-evidence`.
 - Implemented in `a9f0007`. From `examples/tests/` in `tinylens_gpu` on CPU, 14 targeted J0946 cases passed, including eight stage cases in `test_joint_shared_support.py` and six diagnostic cases in `test_operator_diagnostics_plotting.py`. The driver passed `--help` and Python compilation checks. The tests cover matched M4/M5 reference and score settings, M5-only rejection of a stale fixed-template denominator or an actual Block denominator for Overlap before writing output, and a matched refit through the maintained entry point.
+
+Verification ran from `examples/tests/` in `tinylens_gpu` with the checkout on `PYTHONPATH`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `JAX_PLATFORMS=cpu`, and `MPLBACKEND=Agg`.
+
+```bash
+pytest -q \
+  test_joint_shared_support.py::test_j0946_resumes_before_and_after_source_package \
+  test_joint_shared_support.py::test_j0946_rejects_incompatible_comparison_caches_before_reuse \
+  'test_joint_shared_support.py::test_joint_sampling_and_cache_contract[pipe/subhalo_0946/model.py-100-True]' \
+  'test_joint_shared_support.py::test_subhalo_source_package_normalization_and_identity[pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_reject_failed_reconstruction_before_output[unconverged-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_reject_failed_reconstruction_before_output[nonfinite-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_reject_failed_reconstruction[unconverged-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_reject_failed_reconstruction[nonfinite-pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_exports_keep_raw_package_contract_with_unsupported_joint_stats[pix_src_demo_operator/pipe/subhalo_0946/model.py]' \
+  'test_operator_diagnostics_plotting.py::test_subhalo_plots_preserve_position_scale_and_subhalo_overlays[pix_src_demo_operator/pipe/subhalo_0946/model.py]'
+```

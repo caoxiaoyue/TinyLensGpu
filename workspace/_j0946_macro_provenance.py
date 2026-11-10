@@ -13,7 +13,9 @@ from TinyLensGpu.example_support import (
     resolve_source_interpolation,
     resolve_stage_source_interpolation,
     source_interpolation_metadata,
+    stage_from_payload,
 )
+from TinyLensGpu.example_support.pixelized_stage_cache import matching_pixelized_checkpoint
 
 
 _STAGE_TAGS = ("a", "m0", "m1", "m2", "m3")
@@ -61,6 +63,15 @@ def require_sampler_objective(output_dir, tag, objective):
     path = output_dir / f"sampler_{tag}.json"
     if path.exists() and json.loads(path.read_text()).get("objective") != objective["fingerprint"]:
         raise RuntimeError(f"Incompatible existing sampler: {path}. Start a fresh run.")
+
+
+def restore_adaptive_stage(output_dir, tag, cached, objective):
+    """Restore the stage after validating its fit and sampler objectives."""
+    cached = matching_pixelized_checkpoint(cached, objective, tag)
+    if cached is None:
+        return None
+    require_sampler_objective(output_dir, tag, objective)
+    return stage_from_payload(cached), cached["extra"]["medians"]
 
 
 def require_current_handoff_schema(output_dir):
