@@ -12,6 +12,9 @@ import jax.numpy as jnp
 from jax import jit
 
 
+DEFAULT_OVERLAP_CHUNK_SIZE = 1
+
+
 def make_likelihood(
     likelihood_obj,
     *,
@@ -40,6 +43,7 @@ def make_likelihood(
         Maximum number of samples evaluated by one internal ``vmap``. The
         sampler still submits and receives the original batch as a whole, but
         JAX executes it in chunks via ``lax.map`` to cap accelerator memory.
+        By default Overlap evidence uses bounded chunks of one proposal.
     
     Returns
     -------
@@ -91,8 +95,15 @@ def make_likelihood(
 
     batch_loglike = None
     if vectorized:
+        if (
+            vectorized_chunk_size is None
+            and getattr(likelihood_obj, "evidence_logdet", None) == "overlap"
+        ):
+            vectorized_chunk_size = DEFAULT_OVERLAP_CHUNK_SIZE
         if vectorized_chunk_size is None:
             batch_loglike = jit(jax.vmap(loglike_fn))
+        elif vectorized_chunk_size == 1:
+            batch_loglike = jit(lambda theta: jax.lax.map(loglike_fn, theta))
         else:
             # lax.map with batch_size performs a vmap over bounded chunks and
             # concatenates the results without materialising the full batch's

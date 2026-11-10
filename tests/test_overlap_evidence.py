@@ -11,6 +11,7 @@ import pytest
 from scipy.optimize import nnls
 from scipy.signal import convolve2d
 
+from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.param_u import ParamU
 from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
     PixelizedImageProbModelOperator,
@@ -165,28 +166,53 @@ def test_overlap_score_uses_exact_partial_windows_on_the_block_solution(order, i
         )
 
 
-@pytest.mark.integration
-def test_overlap_compiled_score_keeps_only_window_sized_design_panels():
-    n, tile, size = 11, 2, 13
+@pytest.fixture
+def overlap_workspace_problem():
+    n, tile, size = 11, 3, 13
     y, x = np.indices((size, size))
     image = np.full((size, size), 0.3, dtype=np.float32)
     noise = np.full_like(image, 0.08)
     mask = (x < 3) | (x > 8) | (y < 3) | (y > 9) | ((x == 5) & (y == 5))
     psf = np.array([[0.0, 0.04, 0.0], [0.09, 0.65, 0.12], [0.06, 0.04, 0.0]], dtype=np.float32)
+    reference = (0.2 + 0.6 * np.cos(x / 3 + 0.7 * y)).astype(image.dtype)
     shift = ParamU("shift_x", 0.01)
     shift.to_dynamic()
     physical = PhysicalModel(
         lens_mass=[_Translation(shift, 0.0)],
-        source_light=[PixelizedSourceModel(n, log_lambda_reg=-1.3, interpolation="cubic_hermite")],
+        source_light=[PixelizedSourceModel(
+            n, log_lambda_reg=-1.3, adaptive_reg_rho=0.7, interpolation="cubic_hermite",
+        )],
     )
     model = PixelizedImageProbModelOperator(
         image, noise, psf, 0.125, physical, mask=mask, nsub=2,
-        fixed_source_bbox=(-0.625, 0.625, -0.625, 0.625),
+        fixed_source_bbox=(-0.625, 0.625, -0.625, 0.625), adapt_image=reference,
         block_size=3, evidence_logdet="overlap", evidence_block_size=tile,
     )
+    return model, image, mask, n, tile
+
+
+def _real_ir_shapes(lowered):
+    return {
+        tuple(int(axis) for axis in dims.rstrip("x").split("x"))
+        for dims in re.findall(r"tensor<((?:[1-9]\d*x)+)(?:f\d+|complex<)", lowered.as_text())
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("differentiate", [False, True], ids=["score", "score-and-gradient"])
+def test_overlap_compiled_score_keeps_only_window_sized_design_panels(
+    overlap_workspace_problem, differentiate,
+):
+    model, image, mask, n, tile = overlap_workspace_problem
     theta = jnp.array([0.013], dtype=jnp.float32)
-    lowered = jax.jit(model).lower(theta)
-    score = float(lowered.compile()(theta))
+    evaluate = jax.value_and_grad(model) if differentiate else model
+    lowered = jax.jit(evaluate).lower(theta)
+    output = lowered.compile()(theta)
+    if differentiate:
+        score, gradient = output
+        assert np.all(np.isfinite(gradient))
+    else:
+        score = output
     assert np.isfinite(score) and score > -1e10
 
     # Audit the public score's allocation shapes, including flattened forms.
@@ -196,17 +222,39 @@ def test_overlap_compiled_score_keeps_only_window_sized_design_panels():
         tuple(sorted((active, source))), tuple(sorted((native, source))),
     }
     forbidden_sizes = {prod(shape) for shape in forbidden}
-    ir = lowered.as_text()
-    shapes = {
-        tuple(int(axis) for axis in dims.rstrip("x").split("x"))
-        for dims in re.findall(r"tensor<((?:[1-9]\d*x)+)(?:f\d+|complex<)", ir)
-    }
-    assert any(shape[-2:] == ((2 * tile)**2, (2 * tile)**2) for shape in shapes)
+    shapes = _real_ir_shapes(lowered)
+    window = (2 * tile)**2
+    assert max(prod(shape[:-2]) for shape in shapes if shape[-2:] == (window, window)) == 1
     assert not any(
         prod(shape) in forbidden_sizes
         or any(tuple(sorted(pair)) in forbidden for pair in combinations(shape, 2))
         for shape in shapes
     )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("chunk_size,width", [(None, 1), (2, 2)])
+def test_overlap_sampler_preserves_batch_shape_with_bounded_chunks(
+    overlap_workspace_problem, chunk_size, width,
+):
+    model, _, _, _, tile = overlap_workspace_problem
+    likelihood = make_likelihood(model, vectorized=True, vectorized_chunk_size=chunk_size)
+    points = jnp.linspace(0.007, 0.019, 5, dtype=jnp.float32)[:, None]
+    lowered = jax.jit(likelihood).lower(points)
+
+    # Count how many maximal window curvatures are assembled at once. A
+    # vectorized call over the whole sampler batch would use five here.
+    window = (2 * tile)**2
+    assert max(
+        prod(shape[:-2]) for shape in _real_ir_shapes(lowered) if shape[-2:] == (window, window)
+    ) == width
+
+    actual = np.asarray(lowered.compile()(points))
+    expected = [likelihood(point) for point in points]
+    assert actual.shape == (5,)
+    assert all(isinstance(score, float) for score in expected)
+    assert np.all(actual > -1e10)
+    np.testing.assert_allclose(actual, expected, atol=3e-4, rtol=0)
 
 
 def _joint_problem(
@@ -341,7 +389,8 @@ def test_joint_overlap_distinguishes_auxiliary_failure_from_primary_failure():
             result.model_image, diagnostics.source_image + diagnostics.lens_light_image,
             atol=1e-12, rtol=0,
         )
-        score, gradient = jax.jit(jax.value_and_grad(model))(theta)
+        value_and_grad = jax.jit(jax.value_and_grad(model))
+        score, gradient = value_and_grad(theta)
         assert score == -1e10
         assert np.all(np.isnan(gradient))
 
@@ -353,6 +402,9 @@ def test_joint_overlap_distinguishes_auxiliary_failure_from_primary_failure():
         assert np.all(result.model_image == 0)
         assert np.all(result.source_pixels == 0)
         assert np.all(result.lens_amplitudes == 0)
+        score, gradient = value_and_grad(theta + 0.1)
+        assert score == result.log_evidence
+        assert np.all(np.isnan(gradient))
 
 
 @pytest.mark.integration
