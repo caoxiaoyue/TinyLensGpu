@@ -19,3 +19,4 @@
 
 - Claimed on `codex/overlap-01-bilinear`.
 - Implemented in `69916b5`. From `tests/` in the `tinylens_gpu` environment, CUDA `pytest -q test_adapt_image.py` passed all 8 cases.
+- Broader CUDA regression on the RTX 5080 from `tests/` passed 108 cases, with 259 deselected. Command `pytest -q test_adapt_image.py test_pixelized_inversion.py test_pixelized_operator.py test_regularization.py -k 'adapt or cache or diagnostic or reconstruction_skips'`.
