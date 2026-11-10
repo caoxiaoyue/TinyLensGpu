@@ -110,22 +110,28 @@ def allocation_audit(lowered, compiled, live_shapes, *, native, data, source, le
     by_axes = {tuple(sorted(shape)): name for name, shape in forbidden.items()}
     by_elements = {prod(shape): name for name, shape in forbidden.items()}
     panel_shapes = set()
+    byte_workspaces = set()
     counts = {}
     for phase, shapes in (
-        ("lowered", {tuple(map(int, dimensions.split(","))) for _, dimensions
+        ("lowered", {(dtype, tuple(map(int, dimensions.split(",")))) for dtype, dimensions
                      in _HLO_ARRAY.findall(lowered.compiler_ir("hlo").as_hlo_text())}),
-        ("optimized", {tuple(map(int, dimensions.split(","))) for _, dimensions
+        ("optimized", {(dtype, tuple(map(int, dimensions.split(",")))) for dtype, dimensions
                        in _HLO_ARRAY.findall(compiled.as_text())}),
         ("live", live_shapes),
     ):
         counts[phase] = len(shapes)
-        for shape in shapes:
+        for dtype, shape in shapes:
             for axes in combinations(shape, 2):
                 name = by_axes.get(tuple(sorted(axes)))
                 if name is not None:
                     raise AssertionError(f"{phase} contains {name} {shape}.")
+            if phase == "optimized" and dtype in {"s8", "u8"} and len(shape) == 1:
+                # cuBLAS and cuFFT custom calls return byte workspace. Byte
+                # counts can coincide with the element counts of full matrices.
+                byte_workspaces.add(shape[0])
+                continue
             if prod(shape) in by_elements or any(axis in by_elements for axis in shape):
-                raise AssertionError(f"{phase} contains a flattened complete matrix {shape}.")
+                raise AssertionError(f"{phase} contains a flattened complete matrix {dtype}{shape}.")
             if len(shape) >= 2 and window in shape[-2:]:
                 panel_shapes.add(shape)
     if counts["lowered"] == 0 or counts["optimized"] == 0:
@@ -134,6 +140,7 @@ def allocation_audit(lowered, compiled, live_shapes, *, native, data, source, le
         "shape_counts": counts,
         "prohibited_matrix_shapes": forbidden,
         "observed_shapes_with_window_axis": sorted(panel_shapes),
+        "largest_optimized_byte_workspace": max(byte_workspaces, default=0),
         "violations": [],
     }
 
@@ -214,7 +221,7 @@ def worker(args):
         warm_seconds.append(perf_counter() - started)
     allocator = device.memory_stats()
     memory = compiled.memory_analysis()
-    live_shapes = {tuple(array.shape) for array in jax.live_arrays()}
+    live_shapes = {(str(array.dtype), tuple(array.shape)) for array in jax.live_arrays()}
     audit = allocation_audit(
         lowered, compiled, live_shapes, native=mock.image.size,
         data=int((~mock.mask).sum()), source=mock.n**2, lens=model.n_lens_light,
