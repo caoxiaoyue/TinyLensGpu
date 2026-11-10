@@ -5,7 +5,7 @@
 **Blocked by:** [01 — Fit bilinear pixelized sources with an adapt image](01-bilinear-adapt-image.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Use an internal coverage offset starting at 10⁻⁴ and the fixed reference normalization from ticket 01. Zero and weak coverage produce finite scales, and diagnostics record the scale used by each backend.
 - [ ] Matched dense and operator fits agree on the projected scale and reconstruction in a controlled Hermite case. Fixed and changing mass cases retain the specified cache behavior and preserve the configured numerical precision.
 - [ ] A Float64 conditional-prior derivative check across a controlled ray crossing verifies the continuous Hermite projection. Include a weak-coverage probe and retain the tested parameters and tolerances.
+
+## Comments
+
+- Claimed on `codex/overlap-02-hermite`.
