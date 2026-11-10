@@ -1,0 +1,28 @@
+{
+  "sha256": {
+    "data_no_noise/image.fits": "5552cbf2042884005c33b9031757341f3c0e8994d2f9dad0c987a4765894998f",
+    "data_no_noise/noise.fits": "7b22eed82add733becaddf77244165c315bfbe0976fd107656b2834e8e93ff69",
+    "data_no_noise/psf.fits": "07009d5da7f8b0c7c22ef3fd4c17d0ad211160ced513bdd4b4a135fb14dc190a",
+    "pix_src_fit_no_noise_upstream/feature_mask.fits": "ad7d70a7a510eec66e5de79fcae56889836907db30a7b51b8fc7fdf639d3dd85",
+    "pix_src_fit_no_noise_upstream/source_grid_spec.json": "f33558ba671fe394a071ffa11d518c4f47df6f58534087f0730816cb0b9ee76b",
+    "pix_src_fit_no_noise_upstream/stage_a.pkl": "3dc1602d4281cd06a235eac7cb0c1535873e6f0a170f102d488af028458107e3",
+    "pix_src_fit_no_noise_upstream/stage_m1.pkl": "b3ed5b673a9781964731320881de1080a3f7e9c88e3d2b9bd0124ae1ac5da420",
+    "m3_ablation/no_noise_default_overlap_output/m1_psf_arc.npy": "b0dee1cd5f242c0be8562bc780f155dba6934112b1113d1dd43c45596a9782bd"
+  },
+  "position_likelihood": {
+    "positions": [
+      [0.13170798122882843, -1.1799838542938232],
+      [0.9214922785758972, 1.4811217784881592]
+    ],
+    "threshold_arcsec": 0.1,
+    "min_log_like": -10000000000.0
+  },
+  "injected_mass": {
+    "theta_E": 1.5,
+    "gamma": 2.2,
+    "e1_mass": -0.05263157933950424,
+    "e2_mass": -4.601198977383092e-09,
+    "gamma1": 0.05,
+    "gamma2": 0.05
+  }
+}
