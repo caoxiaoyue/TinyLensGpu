@@ -5,7 +5,7 @@
 **Blocked by:** None (can start immediately).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -14,3 +14,7 @@
 - [ ] Matched dense and operator fits agree on the applied scale and reconstruction within the declared numerical tolerance. The scale reaches the finite-difference prior, reconstruction and score for the same proposal.
 - [ ] Fixed mass reuses invariant geometry and projected brightness. Changing mass, rho or their registered dependencies produces the correct new prior under repeated, compiled and batched calls.
 - [ ] Public diagnostics report the actual scale from one primary solve. The fixed-template path remains available during caller migration, with a clear validation error for ambiguous mixed adaptive inputs.
+
+## Comments
+
+- Claimed on `codex/overlap-01-bilinear`.
