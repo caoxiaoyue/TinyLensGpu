@@ -64,6 +64,36 @@ class _PreparedData(NamedTuple):
     mapping: tuple | None = None
 
 
+class _EvaluationDetails(NamedTuple):
+    block_chols: Array | list[Array]
+    reg_blocks: Array | list[Array]
+    lambda_reg: Array
+    model_source: Array
+    model_lens: Array | None
+    scale: Array | None
+    evidence_valid: Array | None
+    schur_solved: Array | None
+
+
+@jax.custom_vjp
+def _penalize_invalid_evidence(score: Array, valid: Array, penalty: Array) -> Array:
+    """Return a finite sampling score and reject gradients of invalid scores."""
+    return jnp.where(valid, score, penalty)
+
+
+def _penalize_invalid_evidence_fwd(score, valid, penalty):
+    return jnp.where(valid, score, penalty), valid
+
+
+def _penalize_invalid_evidence_bwd(valid, cotangent):
+    return jnp.where(valid, cotangent, jnp.full_like(cotangent, jnp.nan)), None, None
+
+
+_penalize_invalid_evidence.defvjp(
+    _penalize_invalid_evidence_fwd, _penalize_invalid_evidence_bwd,
+)
+
+
 class PixelizedImageProbModelOperator(ck.Module):
     """Operator evidence model for a pixelized source and optional lens light.
 
@@ -83,9 +113,10 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     With ``fixed_source_bbox``, PCG and PNPG support first-order reverse-mode
     derivatives of reconstructions and evidence via implicit differentiation.
-    PNPG requires a locally stable active set. Failed forward/adjoint solves
-    or invalid active sets yield NaN gradients; the existing finite evidence
-    penalty and zero reconstruction on forward failure are unchanged.
+    PNPG requires a locally stable active set. Failed solves or invalid
+    active sets yield NaN gradients. A failed primary solve returns zero
+    reconstruction arrays, and an evidence failure retains any valid primary
+    reconstruction. Both failures yield a finite sampling penalty.
 
     Parameters
     ----------
@@ -113,7 +144,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         constrained to be non-negative.
     evidence_logdet : {"block", "overlap"}, optional
         Use the historical preconditioner blocks or overlapping exact
-        principal windows for the evidence determinant ratio.
+        principal windows for the evidence determinant ratio. Joint Overlap
+        adds a lens-light Schur correction from the full source curvature.
     evidence_block_size : int, optional
         Source tile width for Overlap (default: 10), independent of
         the solver preconditioner block size.
@@ -219,8 +251,6 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.sim_obj = PixelizedLensOperator(self.phys_model, sim_config)
         self.n_lens_light = self.sim_obj.n_lens_light
         self.has_lens_light = self.sim_obj.has_lens_light
-        if self.has_lens_light and evidence_logdet == "overlap":
-            raise ValueError("Overlap evidence currently requires a source-only inversion.")
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
         self.data_1d = self.image_data[self.unmask]
         self.noise_1d = self.noise_map[self.unmask]
@@ -500,8 +530,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     def _build_block_schur_preconditioner(
         self, source_chols: Array, source_masks: Array,
         source_data: SourceCurvatureData, lens_matrix: Array,
-    ) -> BlockSchurPreconditioner:
-        """Build the coupled source/lens-light block-Schur preconditioner."""
+    ) -> tuple[BlockSchurPreconditioner, Array]:
+        """Build the preconditioner and return the physical cross curvature."""
         noise_var = source_data.noise_variance
 
         def cross_column(_, lens_column):
@@ -548,15 +578,14 @@ class PixelizedImageProbModelOperator(ck.Module):
             1.0,
             jnp.sqrt((1.0 - margin) / jnp.maximum(max_coupling, margin)),
         )
-        cross = cross_scale * cross
         schur = stabilized_lens_block - (cross_scale ** 2) * cross_curvature
         schur = 0.5 * (schur + schur.T)
         schur_chol, _ = self._equilibrated_cholesky(
             schur
         )
         return BlockSchurPreconditioner(
-            source_chols, source_masks, cross, schur_chol,
-        )
+            source_chols, source_masks, cross_scale * cross, schur_chol,
+        ), cross
 
     @staticmethod
     def _logdet_block_schur(preconditioner: BlockSchurPreconditioner) -> Array:
@@ -564,6 +593,37 @@ class PixelizedImageProbModelOperator(ck.Module):
             PixelizedLensOperator.logdet_block_diag(preconditioner.source_chols)
             + 2.0 * jnp.sum(jnp.log(jnp.diag(preconditioner.schur_chol)))
         )
+
+    def _logdet_lens_schur(
+        self, source_operator, source_preconditioner, cross, lens_matrix, op_data, bbox,
+    ) -> tuple[Array, Array]:
+        """Compute the joint determinant correction from the physical cross block."""
+        def solve_column(rhs):
+            return pcg_solve_with_implicit_grad(
+                source_operator, rhs, source_preconditioner,
+                max_iter=2 * self.pcg_max_iter, rtol=min(self.pcg_rtol, 1e-6),
+            )
+
+        response, info = jax.vmap(solve_column, in_axes=1, out_axes=(1, 0))(cross)
+        source_image = jax.vmap(
+            lambda pixels: self.sim_obj.forward_model(pixels, *bbox, op_data=op_data),
+            in_axes=1, out_axes=1,
+        )(response)
+        data = source_operator.data
+        residual = (lens_matrix - source_image) / self.noise_1d[:, None]
+        source_factor = jnp.sqrt(data.lambda_reg) * self.reg_builder.apply_factor_free(
+            response, data.regularization,
+        )
+        lens_strength = jnp.asarray(self.lens_light_regularization, dtype=residual.dtype)
+        lens_factor = jnp.sqrt(lens_strength) * jnp.eye(self.n_lens_light, dtype=residual.dtype)
+
+        # With A X = B, this augmented residual has Gram D - B.T @ X.
+        # QR avoids explicitly subtracting nearly equal curvature blocks.
+        factor = jnp.concatenate((residual, source_factor, lens_factor), axis=0)
+        _, triangular = jnp.linalg.qr(factor, mode="reduced")
+        logdet = 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(triangular))))
+        solved = jnp.all(info.converged & ~info.failed) & jnp.all(jnp.isfinite(response))
+        return logdet, solved
 
     def _solve_source(
         self,
@@ -689,8 +749,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         return self.reg_builder.logdet_blocks(blocks)
 
     def _evaluate(
-        self, *, compute_evidence, return_details: bool = False
-    ) -> InversionResult | tuple[InversionResult, tuple]:
+        self, *, compute_evidence: bool, include_position: bool = False,
+        return_details: bool = False,
+    ) -> InversionResult | tuple[InversionResult, _EvaluationDetails]:
         """Prepare, solve and reconstruct once; optionally compute evidence."""
         log_lambda = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda)
@@ -724,7 +785,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 reg_data,
                 op_data=op_data,
             )
-            preconditioner = self._build_block_schur_preconditioner(
+            preconditioner, cross = self._build_block_schur_preconditioner(
                 block_chols,
                 block_masks,
                 operator.data,
@@ -748,7 +809,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         model_lens = lens_matrix @ lens if lens is not None else None
         model = model_source + model_lens if model_lens is not None else model_source
 
-        log_evidence = None
+        log_evidence = evidence_valid = schur_solved = None
         if compute_evidence:
             e_d = 0.5 * jnp.sum(((self.data_1d - model) / self.noise_1d) ** 2)
             e_s = 0.5 * jnp.dot(
@@ -769,6 +830,11 @@ class PixelizedImageProbModelOperator(ck.Module):
                 )
             else:
                 ratio = self._overlap_logdet(op_data, bbox, reg_data, lambda_reg)
+                if lens is not None:
+                    schur_logdet, schur_solved = self._logdet_lens_schur(
+                        operator, (block_chols, block_masks), cross, lens_matrix, op_data, bbox,
+                    )
+                    ratio = ratio + schur_logdet
                 log_evidence = log_evidence - 0.5 * ratio
             log_evidence = (
                 log_evidence
@@ -781,8 +847,23 @@ class PixelizedImageProbModelOperator(ck.Module):
                     - 0.5 * self.lens_light_regularization * jnp.sum(lens**2)
                     + 0.5 * self.n_lens_light * jnp.log(self.lens_light_regularization)
                 )
-            valid = solver_info.converged & jnp.isfinite(log_evidence)
-            log_evidence = jnp.where(valid, log_evidence, -1.0e10)
+            evidence_valid = solver_info.converged & jnp.isfinite(log_evidence)
+            if schur_solved is not None:
+                evidence_valid = evidence_valid & schur_solved
+
+            penalty = jnp.full_like(log_evidence, -1.0e10)
+            if include_position and self._has_pos_penalty:
+                position_penalty = self._position_likelihood_penalty_jax()
+                log_evidence = log_evidence + position_penalty
+                evidence_valid = evidence_valid & jnp.isfinite(log_evidence)
+                # Historically the primary failure score also included the
+                # position penalty whenever their sum was finite.
+                primary_penalty = penalty + position_penalty
+                penalty = jnp.where(
+                    ~solver_info.converged & jnp.isfinite(primary_penalty),
+                    primary_penalty, penalty,
+                )
+            log_evidence = _penalize_invalid_evidence(log_evidence, evidence_valid, penalty)
 
         # Preserve forward_model's failure contract for every reconstruction output.
         source = jnp.where(solver_info.converged, source, jnp.zeros_like(source))
@@ -798,7 +879,10 @@ class PixelizedImageProbModelOperator(ck.Module):
         result = InversionResult(log_evidence, image, source, lens, bbox, solver_info)
         if not return_details:
             return result
-        return result, (block_chols, reg_blocks, lambda_reg, model_source, model_lens, scale)
+        return result, _EvaluationDetails(
+            block_chols, reg_blocks, lambda_reg, model_source, model_lens,
+            scale, evidence_valid, schur_solved,
+        )
 
     def _log_evidence(self) -> Array:
         """Evidence with the selected curvature determinant approximation.
@@ -816,13 +900,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         evidence penalty and zero reconstruction arrays as the legacy methods.
         This method is JIT/vmap compatible and keeps no last-result cache.
         """
-        result = self._evaluate(compute_evidence=True)
-        log_ev = result.log_evidence
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        return result._replace(
-            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
-        )
+        return self._evaluate(compute_evidence=True, include_position=True)
 
     @ck.forward
     def evaluate_with_diagnostics(
@@ -841,15 +919,25 @@ class PixelizedImageProbModelOperator(ck.Module):
         invalid. ``include_components`` returns the source and lens-light
         images from the same solve. Unrequested fields stay ``None``.
         """
-        result, details = self._evaluate(compute_evidence=True, return_details=True)
-        log_ev = result.log_evidence
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        result = result._replace(
-            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        result, details = self._evaluate(
+            compute_evidence=True, include_position=True, return_details=True,
         )
-        block_chols, reg_blocks, lambda_reg, model_source, model_lens, scale = details
-        diagnostics = reconstruction_diagnostics(self, result, scale)
+        diagnostics = reconstruction_diagnostics(self, result, details.scale)
+        evidence_valid = bool(details.evidence_valid)
+        evidence_reason = None
+        if not evidence_valid:
+            if not diagnostics.valid:
+                evidence_reason = "Evidence requires a valid primary reconstruction."
+            elif details.schur_solved is not None and not bool(details.schur_solved):
+                evidence_reason = "Overlap auxiliary source-curvature solve failed."
+            else:
+                evidence_reason = "Evidence calculation returned a nonfinite value."
+        diagnostics = replace(
+            diagnostics,
+            evidence_logdet=self.evidence_logdet,
+            evidence_valid=evidence_valid,
+            evidence_invalid_reason=evidence_reason,
+        )
         if include_effective_dof:
             if self.has_lens_light:
                 diagnostics = replace(
@@ -863,10 +951,10 @@ class PixelizedImageProbModelOperator(ck.Module):
             elif diagnostics.valid:
                 trace_inv_pr = sum(
                     jnp.trace(jsl.cho_solve((chol, True), rblock))
-                    for chol, rblock in zip(block_chols, reg_blocks)
+                    for chol, rblock in zip(details.block_chols, details.reg_blocks)
                 )
                 effective = float(
-                    self.sim_obj.n_source_pixels - lambda_reg * trace_inv_pr
+                    self.sim_obj.n_source_pixels - details.lambda_reg * trace_inv_pr
                 )
                 dof = int(self.data_1d.size) - effective
                 diagnostics = replace(
@@ -881,6 +969,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                     diagnostics, effective_dof_reason=diagnostics.invalid_reason
                 )
         if include_components:
+            model_source, model_lens = details.model_source, details.model_lens
             zeros_active = jnp.zeros_like(model_source)
             source_component = jnp.where(
                 result.solver_info.converged, model_source, zeros_active

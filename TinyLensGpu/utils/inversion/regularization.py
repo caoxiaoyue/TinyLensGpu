@@ -487,6 +487,32 @@ class FiniteDifferenceRegularization:
             return self._weighted_second_order_matvec(s, scale_2d, scale_factor)
         raise RuntimeError(f"Unhandled regularization type: {self.regularization_type!r}")
 
+    def apply_factor_free(self, columns: "jax.Array", reg_data: RegData) -> "jax.Array":
+        """Apply a rectangular square root of the prior to source columns."""
+        scale = reg_data.scale
+        if self.regularization_type == "zero-order":
+            return columns if scale is None else jnp.sqrt(scale[:, None]) * columns
+
+        values = columns.reshape(self.n, self.n, -1)
+        scale_2d = self._scale_to_2d(scale)
+        dx = jnp.diff(values, axis=1)
+        dy = jnp.diff(values, axis=0)
+        if self.regularization_type == "first-order":
+            wx, wy = self._edge_weights_first_order(scale_2d)
+            rows = [jnp.sqrt(wx[..., None]) * dx, jnp.sqrt(wy[..., None]) * dy]
+        else:
+            wx, wy, wx_near, wy_near = self._edge_weights_second_order(scale_2d)
+            rows = [
+                jnp.sqrt(wx[:, :self.n - 2, None]) * jnp.diff(dx, axis=1),
+                jnp.sqrt(wy[:self.n - 2, :, None]) * jnp.diff(dy, axis=0),
+                jnp.sqrt(wx_near[:, None]) * dx[:, -1],
+                jnp.sqrt(wy_near[:, None]) * dy[-1, :],
+            ]
+        # Each upper boundary has an unweighted difference to zero.
+        rows.extend((values[:, -1], values[-1, :]))
+        factors = jnp.concatenate([row.reshape(-1, columns.shape[1]) for row in rows])
+        return jnp.sqrt(reg_data.scale_factor) * factors
+
     def _weighted_first_order_block(
         self,
         x_s: int, x_e: int, y_s: int, y_e: int,
