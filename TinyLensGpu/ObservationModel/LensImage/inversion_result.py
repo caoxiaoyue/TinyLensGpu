@@ -55,7 +55,8 @@ class InversionDiagnostics:
     ones for uniform regularization. Optional effective-degrees-of-freedom and
     component-image fields stay ``None`` unless requested; an invalid
     reconstruction keeps the three statistics ``None`` and explains why in
-    ``effective_dof_reason``.
+    ``effective_dof_reason``. Operator diagnostics report score validity and
+    any evidence failure separately from reconstruction validity.
     """
 
     valid: bool
@@ -73,6 +74,9 @@ class InversionDiagnostics:
     effective_dof_reason: str | None = None
     source_image: Array | None = None
     lens_light_image: Array | None = None
+    evidence_logdet: str | None = None
+    evidence_valid: bool | None = None
+    evidence_invalid_reason: str | None = None
 
 
 __all__ = [
