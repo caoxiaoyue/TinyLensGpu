@@ -207,6 +207,16 @@ def _source_data_adjoint(
 # ==================================================================
 
 
+def _prepare_psf_fft(kernel: Array, image_shape: tuple[int, int]) -> Array:
+    """Center and transform the PSF for circular native-image convolution."""
+    psf_pad = jnp.zeros(image_shape, dtype=kernel.dtype)
+    psf_pad = psf_pad.at[:kernel.shape[0], :kernel.shape[1]].set(kernel)
+    psf_shifted = jnp.roll(
+        psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1),
+    )
+    return jnp.fft.rfft2(psf_shifted)
+
+
 @partial(jax.jit, static_argnames=("H", "W"))
 def _psf_convolve_full_jit(img_flat: Array, psf_fft: Array, H: int, W: int) -> Array:
     """PSF convolution on a full native image via FFT."""
@@ -540,16 +550,7 @@ class PixelizedLensOperator:
             self._agg_segment_ids = None
             self._agg_n_active = 0
 
-        # Precompute PSF FFT once
-        kernel = self.psf_kernel
-        psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
-        psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
-        psf_shifted = jnp.roll(
-            psf_pad,
-            (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)),
-            axis=(0, 1),
-        )
-        self._psf_fft = jnp.fft.rfft2(psf_shifted)
+        self._psf_fft = _prepare_psf_fft(self.psf_kernel, self.image_shape)
         self._psf_fft_conj = jnp.conj(self._psf_fft)
 
         self._source_curvature_spec = SourceCurvatureSpec(
