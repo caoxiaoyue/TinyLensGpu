@@ -26,6 +26,15 @@ _PIPE_PACKAGE_HELPERS = (
     "galan24_test/model_predefine_src_box.py",
 )
 
+_ADAPT_IMAGE_PACKAGE_HELPERS = {
+    "slacs_examples/pipeline.py",
+    "euclid_examples/pipeline.py",
+    "no_lens_light/model.py",
+    "no_lens_light/model_adpt_reg.py",
+    "galan24_test/model.py",
+    "galan24_test/model_predefine_src_box.py",
+}
+
 
 def _load_source_package_helper(path):
     """Execute only the two source-package helpers, not pipeline side effects."""
@@ -82,7 +91,7 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
     )
 
     calls = []
-    records_arc = relative_path == "euclid_examples/pipeline.py"
+    records_arc = relative_path in _ADAPT_IMAGE_PACKAGE_HELPERS
 
     class ProbeLikelihood(ck.Module):
         solver_type = "pcg"
@@ -252,7 +261,7 @@ def test_source_package_matches_legacy_real_operator(
         "source_pixels", "source_image", "source_bbox",
         "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
-    if relative_path == "euclid_examples/pipeline.py":
+    if relative_path in _ADAPT_IMAGE_PACKAGE_HELPERS:
         expected_keys.update(("adapt_image", "reference_provenance"))
         with ck.ActiveContext(model):
             model.fill_params(theta)
@@ -573,6 +582,7 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
     """run_stage_m1 raises InvalidReconstructionError and keeps prior artifacts."""
     import pickle
     import time
+    from functools import partial
 
     import caskade as ck
     import jax.numpy as jnp
@@ -594,7 +604,11 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
     from TinyLensGpu.PhysicalModel import (
         EPL, PhysicalModel, Shear, PixelizedSourceModel,
     )
-    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
+    from TinyLensGpu.example_support.pixelized_stage_cache import (
+        matching_pixelized_checkpoint,
+        plot_cached_pixelized_stage,
+        recover_pixelized_producer,
+    )
     from TinyLensGpu.utils.misc import weighted_quantile
     from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
@@ -616,7 +630,7 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
     selected_names = {
         "_run_sampler", "_dump_stage", "_load_stage", "_stage_from_payload",
         "_print_summary",
-        "_make_source_scale", "_validate_source_package", "_pnpg_kwargs",
+        "_validate_source_package", "_pnpg_kwargs",
         "_epl_mass_from_stage",
         "_solve_pixel_source_for_package", "_plot_pix_stage",
         "build_stage_m1_likelihood", "run_stage_m1",
@@ -635,7 +649,9 @@ def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
         PixelizedImageProbModelOperator=PixelizedImageProbModelOperator,
         PhysicalModel=PhysicalModel, PixelizedSourceModel=PixelizedSourceModel,
         EPL=EPL, Shear=Shear,
-        source_template_scale_map=source_template_scale_map,
+        partial=partial, matching_pixelized_checkpoint=matching_pixelized_checkpoint,
+        plot_cached_pixelized_stage=plot_cached_pixelized_stage,
+        recover_pixelized_producer=recover_pixelized_producer,
         overlay_critical_and_caustics=overlay_critical_and_caustics,
         InvalidReconstructionError=InvalidReconstructionError,
         Sampler=ControlledSampler, OUT_DIR=tmp_path / "output",

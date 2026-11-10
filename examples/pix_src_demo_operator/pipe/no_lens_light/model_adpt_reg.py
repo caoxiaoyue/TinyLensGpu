@@ -27,8 +27,8 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
+from functools import partial
 import time
 from pathlib import Path
 
@@ -55,6 +55,9 @@ from astropy.io import fits
 from nautilus import Sampler
 
 from TinyLensGpu.example_support import (
+    adapt_image_kwargs,
+    pixelized_objective_provenance,
+    require_reference_observation,
     SamplingConfig,
     StageStorageConfig,
     draw_image_panel,
@@ -68,6 +71,13 @@ from TinyLensGpu.example_support import (
     resolve_stage_source_interpolation,
 )
 from TinyLensGpu.Inference import ParamU
+from TinyLensGpu.example_support.pixelized_stage_cache import (
+    load_pixelized_checkpoint,
+    matching_pixelized_checkpoint,
+    pixelized_stage_identity,
+    plot_cached_pixelized_stage,
+    recover_pixelized_producer,
+)
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel import PointSourceProbModel
 from TinyLensGpu.ObservationModel.LensImage.parametric_image_model import ImageProbModel
@@ -84,7 +94,6 @@ from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import GaussianEllipse
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import generate_radial_basis_knots
 from TinyLensGpu.utils import load_lens_data
-from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
@@ -159,54 +168,15 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
     return (xx ** 2 + yy ** 2) > radius_arcsec ** 2
 
 
-def _make_source_scale(
-    source_package,
-    rho: float = ADAPTIVE_REG_RHO,
-):
-    """Build the fixed adaptive scale map from the stage-M0 source template."""
-    return source_template_scale_map(
-        source_package["source_pixels"],
-        int(source_package["n"]),
-        rho=rho,
-    )
-
-
 def _validate_source_package(source_package):
     return validate_source_package(
         source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO,
+        require_regularization=False, check_axes=True,
     )
-
-
-def _s0_fingerprint(source_package):
-    """Stable fingerprint for cache entries tied to a specific Source package."""
-    source_package = _validate_source_package(source_package)
-    h = hashlib.sha256()
-    h.update(str(int(source_package["n"])).encode("ascii"))
-    for key in ("source_pixels", "source_bbox"):
-        arr = np.ascontiguousarray(np.asarray(source_package[key], dtype=np.float64))
-        h.update(str(arr.shape).encode("ascii"))
-        h.update(arr.tobytes())
-    return h.hexdigest()
-
-
-def _cache_matches_s0(stage_payload, source_package, tag):
-    expected = _s0_fingerprint(source_package)
-    actual = stage_payload.get("extra", {}).get("s0_fingerprint")
-    if actual == expected:
-        return True
-    print(
-        f"[stage-{tag.upper()}] cached output is stale or missing S0 fingerprint; "
-        "recomputing."
-    )
-    return False
 
 
 def _fixed_source_kwargs(source_package):
-    source_package = _validate_source_package(source_package)
-    return dict(
-        fixed_source_bbox=tuple(float(v) for v in source_package["source_bbox"]),
-        fixed_reg_template=jnp.asarray(source_package["source_pixels"], dtype=jnp.float32),
-    )
+    return adapt_image_kwargs(source_package, expected_n=NSRC)
 
 
 def _reg_hyperparams_from_m1_payload(stage_payload):
@@ -227,27 +197,9 @@ def _format_reg_hyperparams(reg_hyperparams):
     )
 
 
-def _cache_matches_reg_hyperparams(stage_payload, reg_hyperparams, tag, rtol=1.0e-8):
-    actual = stage_payload.get("extra", {}).get("reg_hyperparams_fixed")
-    if actual is None:
-        actual = {
-            "log_lambda_reg": stage_payload.get("extra", {}).get("lambda_fixed"),
-            "adaptive_reg_rho": stage_payload.get("extra", {}).get("adaptive_reg_rho_fixed"),
-        }
-    for name, expected in reg_hyperparams.items():
-        value = actual.get(name) if isinstance(actual, dict) else None
-        if value is None or not np.isclose(float(value), float(expected), rtol=rtol, atol=rtol):
-            print(
-                f"[stage-{tag.upper()}] cached output uses stale fixed "
-                f"{name}; recomputing."
-            )
-            return False
-    return True
-
-
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
     return export_source_package(
-        likelihood, medians, param_names, n=NSRC, record_source_interpolation=True,
+        likelihood, medians, param_names, n=NSRC, record_adapt_image=True,
     )
 
 
@@ -579,6 +531,7 @@ def build_stage_m0_likelihood(
     image_data, noise_map, psf_kernel, feature_mask,
     medians_a, position_likelihood, circular_mask=None,
     *, source_interpolation=None,
+    evidence_logdet="overlap", evidence_block_size=10,
 ):
     """Build M0 likelihood: fixed SIE+shear, uniform pixelized source."""
     sie, shear = _sie_mass_from_stage_a(medians_a)
@@ -606,6 +559,8 @@ def build_stage_m0_likelihood(
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
     return PixelizedImageProbModelOperator(
+        evidence_logdet=evidence_logdet,
+        evidence_block_size=evidence_block_size,
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
@@ -618,20 +573,56 @@ def build_stage_m0_likelihood(
 
 
 def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
-                  medians_a, position_likelihood, circular_mask=None, *, source_interpolation=None):
-    """Stage M0: uniform-reg source inversion used as the fixed S0 template."""
+                  medians_a, position_likelihood, circular_mask=None, *, source_interpolation=None,
+                  cached=None, upstream=None,
+):
+    """Stage M0: uniform-reg source inversion used to export the S0 reference arc."""
     print("\n" + "=" * 60)
     print(" Stage M0 : fixed SIE + shear + uniform pix source ")
     print("=" * 60)
     t0 = time.time()
 
-    likelihood = build_stage_m0_likelihood(
+    build = partial(
+        build_stage_m0_likelihood,
         image_data, noise_map, psf_kernel, feature_mask,
         medians_a, position_likelihood, circular_mask=circular_mask,
         source_interpolation=source_interpolation,
     )
+    likelihood = build()
     loglike_batch = make_likelihood(likelihood, vectorized=True)
     n_grid = 200
+
+    objective = pixelized_objective_provenance(
+        likelihood, upstream=upstream,
+        sampling=dict(
+            method="grid_search", vectorized=True, grid_size=n_grid,
+            coarse_lambda_bounds=[1e-8, 1e8], fine_width_decades=1,
+        ),
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m0", producer=True)
+    if checkpoint is not None:
+        try:
+            log_lambda = checkpoint["extra"]["lambda_best"]
+            medians = {**medians_a, "log_lambda_reg": log_lambda}
+            package = recover_pixelized_producer(
+                likelihood, checkpoint, "s0", medians, ["log_lambda_reg"],
+            )
+        except (KeyError, TypeError, ValueError) as err:
+            print(f"[stage-M0] cannot verify cached source reference ({err}); recomputing.")
+        else:
+            print("[stage-M0] reusing verified source reference")
+            extra = checkpoint["extra"]
+            if package is not extra["s0"]:
+                _dump_stage(
+                    "m0", None, None, ["log_lambda_reg"], checkpoint["log_z"],
+                    extra={**extra, "s0": package},
+                    source_interpolation=likelihood.source_model.interpolation,
+                )
+            plot_cached_pixelized_stage(
+                _plot_pix_stage, OUT_DIR, "m0", likelihood, medians, ["log_lambda_reg"],
+                producer=(package, build),
+            )
+            return package, log_lambda
 
     log_lam_min, log_lam_max = jnp.log(1e-8), jnp.log(1e8)
     print(f"[stage-M0] Running coarse grid (200 pts, λ in [{float(jnp.exp(log_lam_min)):.1e}, {float(jnp.exp(log_lam_max)):.1e}]) ...")
@@ -668,7 +659,6 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
         log_lambda_best=log_lam_best,
         stage_a_medians=dict(medians_a),
     )
-    source_package["scale_map"] = np.asarray(_make_source_scale(source_package), dtype=np.float32)
     _validate_source_package(source_package)
 
     t1 = time.time()
@@ -685,6 +675,7 @@ def run_stage_m0(image_data, noise_map, psf_kernel, feature_mask,
             log_ev_coarse=np.asarray(log_ev_coarse, dtype=np.float64),
             lambda_grid_fine=np.asarray(log_lam_grid_fine, dtype=np.float64),
             log_ev_fine=np.asarray(log_ev_fine, dtype=np.float64),
+            objective=objective,
             time_taken=t1 - t0,
         ),
         source_interpolation=likelihood.source_model.interpolation,
@@ -746,7 +737,8 @@ def build_stage_m1_likelihood(
     combined_mask = feature_mask
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
-    return PixelizedImageProbModelOperator(
+    likelihood = PixelizedImageProbModelOperator(
+        evidence_logdet="overlap",
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
@@ -757,6 +749,8 @@ def build_stage_m1_likelihood(
         position_likelihood=position_likelihood,
         **_fixed_source_kwargs(source_package),
     )
+    require_reference_observation(likelihood, source_package)
+    return likelihood
 
 
 def run_stage_m1(
@@ -770,6 +764,7 @@ def run_stage_m1(
     circular_mask=None,
     *,
     source_interpolation=None,
+                  cached=None, upstream=None,
 ):
     """Stage M1: Nautilus fit for adaptive source-regularization hyperparams.
 
@@ -785,9 +780,19 @@ def run_stage_m1(
         medians_a, position_likelihood, source_package, circular_mask=circular_mask,
         source_interpolation=source_interpolation,
     )
-    stage = _run_sampler(
-        likelihood, n_live=250, n_eff=600, tag="stage-M1", vectorized=True,
+    sampling = SamplingConfig(n_live=250, n_eff=600, vectorized=True, n_batch=100)
+    objective = pixelized_objective_provenance(
+        likelihood, reference=source_package, sampling=sampling, upstream=upstream,
     )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m1")
+    if checkpoint is not None:
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m1", likelihood, medians, checkpoint["param_names"],
+        )
+        return _reg_hyperparams_from_m1_payload(checkpoint)
+
+    stage = run_sampling(likelihood, sampling, tag="stage-M1", sampler_factory=Sampler)
     samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     t1 = time.time()
     _print_summary("stage-M1", samples, weights, names)
@@ -804,8 +809,8 @@ def run_stage_m1(
         extra=dict(
             medians=medians,
             lambda_best=reg_hyperparams["log_lambda_reg"],
-            s0_fingerprint=_s0_fingerprint(source_package),
             reg_hyperparams=reg_hyperparams,
+            objective=objective,
             time_taken=t1 - t0,
         ),
         source_interpolation=likelihood.source_model.interpolation,
@@ -992,7 +997,8 @@ def build_stage_m2_likelihood(
     combined_mask = feature_mask
     if circular_mask is not None:
         combined_mask = combined_mask | circular_mask
-    return PixelizedImageProbModelOperator(
+    likelihood = PixelizedImageProbModelOperator(
+        evidence_logdet="overlap",
         image_data=image_data,
         noise_map=noise_map,
         psf_kernel=psf_kernel,
@@ -1003,12 +1009,16 @@ def build_stage_m2_likelihood(
         position_likelihood=position_likelihood,
         **_fixed_source_kwargs(source_package),
     )
+    require_reference_observation(likelihood, source_package)
+    return likelihood
 
 
 def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
                   samples_a, weights_a, names_a,
                   position_likelihood, reg_hyperparams_fixed: dict, source_package,
-                  circular_mask=None, *, source_interpolation=None):
+                  circular_mask=None, *, source_interpolation=None,
+                  cached=None, upstream=None,
+):
     """Stage M2: Nautilus sampling of EPL+shear with M1 source-reg medians fixed.
 
     ``image_data`` is already lens-subtracted so we use it directly.
@@ -1031,9 +1041,19 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         circular_mask=circular_mask,
         source_interpolation=source_interpolation,
     )
-    stage = _run_sampler(
-        likelihood, n_live=300, n_eff=600, tag="stage-M2", vectorized=True,
+    sampling = SamplingConfig(n_live=300, n_eff=600, vectorized=True, n_batch=100)
+    objective = pixelized_objective_provenance(
+        likelihood, reference=source_package, sampling=sampling, upstream=upstream,
     )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m2")
+    if checkpoint is not None:
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m2", likelihood, medians, checkpoint["param_names"],
+        )
+        return checkpoint["samples"], checkpoint["weights"], checkpoint["param_names"], medians
+
+    stage = run_sampling(likelihood, sampling, tag="stage-M2", sampler_factory=Sampler)
     samples, weights, names, logz = stage.samples, stage.weights, stage.param_names, stage.log_z
     t1 = time.time()
     _print_summary("stage-M2", samples, weights, names)
@@ -1043,7 +1063,7 @@ def run_stage_m2(image_data, noise_map, psf_kernel, feature_mask,
         medians=medians,
         lambda_fixed=reg_hyperparams_fixed["log_lambda_reg"],
         reg_hyperparams_fixed=dict(reg_hyperparams_fixed),
-        s0_fingerprint=_s0_fingerprint(source_package),
+        objective=objective,
         time_taken=t1 - t0,
     ), source_interpolation=likelihood.source_model.interpolation)
     try:
@@ -1098,156 +1118,30 @@ def main(skip_done: bool = False, *, source_interpolation=None):
     # ---- position likelihood ----------------------------------------- #
     position_likelihood = _position_likelihood_from_stage_a(medians_a)
 
-    # ---- stage M0 --------------------------------------------------- #
-    time_m0 = 0.0
-    if skip_done and (OUT_DIR / "stage_m0.pkl").exists():
-        print("[stage-M0] loading cached output_adpt_reg/stage_m0.pkl")
-        d = _load_stage("m0", **source_options)
-        source_package = _validate_source_package(d["extra"]["s0"])
-        log_lambda_m0 = d["extra"]["lambda_best"]
-        time_m0 = d["extra"].get("time_taken", 0.0)
-    else:
-        source_package, log_lambda_m0 = run_stage_m0(
-            image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        time_m0 = _load_stage("m0", **source_options)["extra"].get("time_taken", 0.0)
+    def checkpoint(tag):
+        return load_pixelized_checkpoint(_load_stage, OUT_DIR, tag, resume=skip_done)
 
-    # If M0 output exists but the plot is missing, re-plot now.
-    if (OUT_DIR / "stage_m0.pkl").exists() and not (OUT_DIR / "stage_m0_model.png").exists():
-        print("[stage-M0] stage_m0_model.png missing — re-plotting")
-        lkl_m0_replot = build_stage_m0_likelihood(
-            image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, circular_mask=circular_mask,
-            **source_options,
-        )
-        medians_m0_replot = {**medians_a, "log_lambda_reg": log_lambda_m0}
-        try:
-            _plot_pix_stage("stage-M0", lkl_m0_replot, medians_m0_replot, ["log_lambda_reg"],
-                            str(OUT_DIR / "stage_m0_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M0] re-plotting failed (non-fatal): {err}")
-
-    # ---- stage M1 --------------------------------------------------- #
-    time_m1 = 0.0
-    reg_hyperparams_m1 = None
-    if skip_done and (OUT_DIR / "stage_m1.pkl").exists():
-        print("[stage-M1] loading cached output_adpt_reg/stage_m1.pkl")
-        d = _load_stage("m1", **source_options)
-        if _cache_matches_s0(d, source_package, "m1"):
-            try:
-                reg_hyperparams_m1 = _reg_hyperparams_from_m1_payload(d)
-                time_m1 = d["extra"].get("time_taken", 0.0)
-            except KeyError as err:
-                print(f"[stage-M1] cached output has old/incomplete format ({err}); recomputing.")
-                reg_hyperparams_m1 = run_stage_m1(
-                    image_data, noise_map, psf_kernel, feature_mask,
-                    medians_a, position_likelihood, source_package,
-                    circular_mask=circular_mask,
-                    **source_options,
-                )
-                time_m1 = _load_stage("m1", **source_options)["extra"].get("time_taken", 0.0)
-        else:
-            reg_hyperparams_m1 = run_stage_m1(
-                image_data, noise_map, psf_kernel, feature_mask,
-                medians_a, position_likelihood, source_package,
-                circular_mask=circular_mask,
-                **source_options,
-            )
-            time_m1 = _load_stage("m1", **source_options)["extra"].get("time_taken", 0.0)
-    else:
-        reg_hyperparams_m1 = run_stage_m1(
-            image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, source_package,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        time_m1 = _load_stage("m1", **source_options)["extra"].get("time_taken", 0.0)
-
-    if reg_hyperparams_m1 is None:
-        raise RuntimeError(
-            "[stage-M1] Failed to determine source regularization hyperparameters — "
-            "stage_m1.pkl may be corrupted (missing posterior medians in extra dict)."
-        )
-
-    # If M1 posteriors exist but the plot is missing, re-plot now
-    if (OUT_DIR / "stage_m1.pkl").exists() and not (OUT_DIR / "stage_m1_model.png").exists():
-        print("[stage-M1] stage_m1_model.png missing — re-plotting")
-        lkl_m1_replot = build_stage_m1_likelihood(
-            image_data, noise_map, psf_kernel, feature_mask,
-            medians_a, position_likelihood, source_package, circular_mask=circular_mask,
-            **source_options,
-        )
-        medians_m1_replot = dict(reg_hyperparams_m1)
-        try:
-            _plot_pix_stage(
-                "stage-M1",
-                lkl_m1_replot,
-                medians_m1_replot,
-                ["log_lambda_reg", "adaptive_reg_rho"],
-                str(OUT_DIR / "stage_m1_model.png"),
-            )
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M1] re-plotting failed (non-fatal): {err}")
-
-    # ---- stage M2 --------------------------------------------------- #
-    time_m2 = 0.0
-    if skip_done and (OUT_DIR / "stage_m2.pkl").exists():
-        print("[stage-M2] loading cached output_adpt_reg/stage_m2.pkl")
-        d = _load_stage("m2", **source_options)
-        if _cache_matches_s0(d, source_package, "m2") and _cache_matches_reg_hyperparams(
-            d, reg_hyperparams_m1, "m2"
-        ):
-            samples_m2, weights_m2, names_m2 = d["samples"], d["weights"], d["param_names"]
-            medians_m2 = d["extra"]["medians"]
-            time_m2 = d["extra"].get("time_taken", 0.0)
-        else:
-            samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
-                image_data, noise_map, psf_kernel, feature_mask,
-                samples_a, weights_a, names_a,
-                position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
-                source_package=source_package,
-                **source_options,
-            )
-            time_m2 = _load_stage("m2", **source_options)["extra"].get("time_taken", 0.0)
-    else:
-        samples_m2, weights_m2, names_m2, medians_m2 = run_stage_m2(
-            image_data, noise_map, psf_kernel, feature_mask,
-            samples_a, weights_a, names_a,
-            position_likelihood, reg_hyperparams_m1, circular_mask=circular_mask,
-            source_package=source_package,
-            **source_options,
-        )
-        time_m2 = _load_stage("m2", **source_options)["extra"].get("time_taken", 0.0)
-
-    # Re-plot M2 if the png is missing but posteriors exist
-    if not (OUT_DIR / "stage_m2_model.png").exists():
-        passer_m2 = StagePosterior(samples_a, weights_a, names_a)
-        lkl_m2 = build_stage_m2_likelihood(
-            image_data,
-            noise_map,
-            psf_kernel,
-            feature_mask,
-            passer_m2,
-            position_likelihood,
-            reg_hyperparams_m1,
-            source_package,
-            circular_mask=circular_mask,
-            **source_options,
-        )
-        try:
-            _plot_pix_stage("stage-M2", lkl_m2, medians_m2, names_m2,
-                            str(OUT_DIR / "stage_m2_model.png"))
-        except InvalidReconstructionError:
-            raise
-        except Exception as err:
-            print(f"[stage-M2] plotting failed (non-fatal): {err}")
+    data = (image_data, noise_map, psf_kernel, feature_mask)
+    options = dict(circular_mask=circular_mask, **source_options)
+    stage_a_id = pixelized_stage_identity(_load_stage("a"))
+    source_package, log_lambda_m0 = run_stage_m0(
+        *data, medians_a, position_likelihood,
+        cached=checkpoint("m0"), upstream={"a": stage_a_id}, **options,
+    )
+    m0_id = pixelized_stage_identity(_load_stage("m0"))
+    reg_hyperparams_m1 = run_stage_m1(
+        *data, medians_a, position_likelihood, source_package,
+        cached=checkpoint("m1"), upstream={"m0": m0_id}, **options,
+    )
+    _, _, _, medians_m2 = run_stage_m2(
+        *data, samples_a, weights_a, names_a, position_likelihood,
+        reg_hyperparams_m1, source_package, cached=checkpoint("m2"),
+        upstream={"a": stage_a_id, "m0": m0_id, "m1": pixelized_stage_identity(_load_stage("m1"))},
+        **options,
+    )
+    time_m0, time_m1, time_m2 = (
+        _load_stage(tag)["extra"].get("time_taken", 0.0) for tag in ("m0", "m1", "m2")
+    )
 
     print("\n" + "=" * 60)
     print(" Pipeline complete")

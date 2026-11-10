@@ -62,9 +62,8 @@ def test_validate_source_package_accepts_square_grid_and_bbox(model_adpt_reg):
     validated = model_adpt_reg._validate_source_package(package)
 
     assert validated is package
-    assert validated["scale_map"].shape == (model_adpt_reg.NSRC * model_adpt_reg.NSRC,)
-    assert np.all(np.isfinite(validated["scale_map"]))
-    assert np.all(validated["scale_map"] > 0.0)
+    assert "scale_map" not in validated
+    np.testing.assert_array_equal(validated["source_pixels"], np.ones(model_adpt_reg.NSRC**2))
 
 
 @pytest.mark.unit
