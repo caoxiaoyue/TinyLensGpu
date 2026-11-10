@@ -1,7 +1,7 @@
 # Image-driven adaptive source regularization and Overlap evidence
 
 **Status:** ready-for-agent
-**State:** open
+**State:** resolved
 
 ## Problem Statement
 
@@ -118,3 +118,11 @@ Make Overlap the default operator evidence method and retain explicit Block scor
 - This spec supersedes the [fixed-source-template adaptive specification](../adaptive-regularization/spec.md) for the integration. The [dense fixed-grid cache record](../dense-pixelized-fixed-grid-cache/spec.md) and [source interpolation specification](../pixelized-source-interpolation/spec.md) explain the existing interfaces that it builds on. The [Block–Schur ADR](../../docs/adr/0001-use-block-schur-for-joint-operator-inversion.md) and [unit-amplitude basis ADR](../../docs/adr/0002-require-unit-amplitude-lens-light-bases.md) govern joint semi-linear inversion.
 - The archived mock uses an 80×80 grid and its SIE M1 reference. The maintained VIS workflow has a distinct grid and EPL M1. Attribute numerical comparisons to the workflow that produced them. The available legacy VIS M1 cache lacks the required source package, so the real-data qualification needs a valid M1 producer.
 - The earlier fixed-mass template comparison and conditional-prior slope scan motivate the squared Hermite projection and the initial coverage offset. The complete Overlap and multi-start runs qualify their use in optimization. The separate [L-BFGS-B potential-correction specification](../lbfgs-potential-correction/spec.md) governs optimization over source and potential fields using a fixed scale.
+
+## Implementation record
+
+Implemented on `codex/adaptive-image-overlap-integration` with all 15 tickets resolved. The release ticket records the exact verification commands and results. [Release verification](issues/15-release-adapt-image-and-overlap.md#comments)
+
+Independent Standards and Spec reviews covered `0ede03d...272f7e4`. Review fix `53a5b70` added dense score-failure reporting and invalid gradients, handled unresolved rho and mixed precision, repaired Euclid cache recovery, and recorded reproducible verification selectors.
+
+The resource qualification uses Overlap tile width 10. When a chosen window spans the source grid, its exact local determinant uses source-sized curvature and factors. [Mock replay](../../docs/validation/adaptive-image-overlap-euclid-mock.md) · [Float64 optimizer](../../docs/validation/adaptive-image-overlap-m3-optimizer.md) · [GPU qualification](../../docs/validation/adaptive-image-overlap-gpu.md) · [Real VIS qualification](../../docs/validation/adaptive-image-overlap-euclid-vis.md)

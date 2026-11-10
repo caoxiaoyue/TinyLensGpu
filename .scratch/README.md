@@ -6,7 +6,7 @@ This directory holds specs, tickets, research, and reproduction material. Follow
 
 | Record | Entry point | Reading note |
 | --- | --- | --- |
-| Image-driven adaptive source regularization and Overlap evidence | [Spec](adaptive-image-overlap-evidence/spec.md) · [Tickets](adaptive-image-overlap-evidence/issues/) | Ready for implementation. Covers both backends, Overlap, Euclid, J0946 migration and qualification. |
+| Image-driven adaptive source regularization and Overlap evidence | [Spec](adaptive-image-overlap-evidence/spec.md) · [Tickets](adaptive-image-overlap-evidence/issues/) | Implemented on `codex/adaptive-image-overlap-integration`. The spec links the release and qualification records. |
 | Fixed-source-template adaptive regularization | [Historical specification](adaptive-regularization/spec.md) | Records the fixed-template contract at the integration baseline. |
 | Dense fixed-grid cache | [Spec](dense-pixelized-fixed-grid-cache/spec.md); [tickets](dense-pixelized-fixed-grid-cache/issues/) | The spec has partial supersession notes. Existing tickets have checked acceptance lists and `ready-for-agent` labels but no lifecycle state; classify them from evidence before claiming or marking complete. |
 | Operator constrained solvers | [Historical spec](operator-fista-nnls/spec.md) | FISTA requirements are explicitly superseded by the solver-consolidation note at the top. |
