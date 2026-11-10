@@ -102,7 +102,9 @@ def load_problem(macro_dir=HERE / "macro", potential_spacing=0.1, lambda_amplitu
     problem.initialization_provenance.update(
         source_initialization="saved_M3_source",
         gradient_policy=f"JAX_autodiff_current_{interpolation}_source",
-        adaptive_scale="fixed_M1_template_and_M2_rho_as_used_in_M3",
+        adaptive_scale=metadata.get(
+            "source_scale_provenance", "fixed_M1_template_and_M2_rho_as_used_in_M3",
+        ),
     )
     return problem, metadata, arrays
 
