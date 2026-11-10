@@ -415,6 +415,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         return project_adapt_image(
             self._adapt_brightness, op_data.weights, op_data.indices,
             op_data.n_source, op_data.nsub,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
         )
 
     def _get_reg_scale(self, op_data=None) -> Array | None:
