@@ -18,3 +18,4 @@
 
 - Claimed on `codex/overlap-05-grad-batch`.
 - Implemented in `3ff5f74`. From `tests/` in `tinylens_gpu` on CPU, the three `test_hermite_overlap_derivatives_follow_mass_and_adaptive_strengths` cases and four compiled workspace and sampler-chunk cases in `test_overlap_evidence.py` all passed. The primary and auxiliary invalid-gradient regression also passed. `pytest -q test_multiband_parametric.py -k make_likelihood` passed 10 cases.
+- The eight targeted source-only, joint and PNPG derivative, forward and reverse workspace, batching, and primary and auxiliary failure cases also passed on CUDA.
