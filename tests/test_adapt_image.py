@@ -29,27 +29,48 @@ class _Translation(ck.Module):
         return jnp.full_like(x, self.shift_x.value), jnp.full_like(y, self.shift_y)
 
 
-def _bilinear_reference(image, mask, reference, psf, dpix, nsub, bbox, n, shift):
+def _hermite_kernel(distance, array_module=np):
+    """Cardinal cubic kernel for a node at a given distance in grid units."""
+    distance = array_module.abs(distance)
+    return array_module.where(
+        distance < 1,
+        1 + (1.5 * distance - 2.5) * distance**2,
+        array_module.where(distance < 2, -0.5 * (distance - 1) * (distance - 2)**2, 0),
+    )
+
+
+def _reference_projection(image, mask, reference, psf, dpix, nsub, bbox, n, shift,
+                          interpolation="bilinear"):
     """Independently form the geometric coverage and periodic blurred design."""
     xmin, xmax, ymin, ymax = bbox
     positive = np.maximum(reference, 0)
     normalized = np.minimum(positive / max(np.percentile(positive[~mask], 99.5), 1e-10), 1)
     mapping = np.zeros((*image.shape, n**2))
+    hermite = interpolation == "cubic_hermite"
+    projected = np.zeros_like(mapping) if hermite else mapping
+    nodes = np.arange(n)
     for iy, ix in np.argwhere(~mask):
         for sy, sx in np.ndindex(nsub, nsub):
             x = dpix * (ix + (sx + 0.5) / nsub - image.shape[1] / 2) - shift[0]
             y = dpix * (iy + (sy + 0.5) / nsub - image.shape[0] / 2) - shift[1]
             gx = (x - xmin) / ((xmax - xmin) / (n - 1))
             gy = (y - ymin) / ((ymax - ymin) / (n - 1))
-            if not (0 <= gx <= n - 1 and 0 <= gy <= n - 1):
+            if hermite:
+                weights = np.outer(_hermite_kernel(gy - nodes), _hermite_kernel(gx - nodes))
+                projected[iy, ix] += weights.ravel()**2 / nsub**2
+            elif 0 <= gx <= n - 1 and 0 <= gy <= n - 1:
+                weights = np.outer(np.maximum(0, 1 - abs(gy - nodes)),
+                                   np.maximum(0, 1 - abs(gx - nodes)))
+            else:
                 continue
-            for jy, jx in np.ndindex(n, n):
-                weight = max(0, 1 - abs(gx - jx)) * max(0, 1 - abs(gy - jy))
-                mapping[iy, ix, jy * n + jx] += weight / nsub**2
+            mapping[iy, ix] += weights.ravel() / nsub**2
 
-    coverage = mapping.sum(axis=(0, 1))
-    signal = (mapping * normalized[..., None]).sum(axis=(0, 1))
-    brightness = np.divide(signal, coverage, out=np.zeros_like(signal), where=coverage > 1e-8)
+    coverage = projected.sum(axis=(0, 1))
+    signal = (projected * normalized[..., None]).sum(axis=(0, 1))
+    if hermite:
+        brightness = signal / (coverage + 1e-4)
+    else:
+        brightness = np.divide(signal, coverage, out=np.zeros_like(signal), where=coverage > 1e-8)
     convolved = sum(
         psf[jy, jx] * np.roll(
             mapping, (jy - psf.shape[0] // 2, jx - psf.shape[1] // 2), axis=(0, 1)
@@ -74,11 +95,11 @@ def _fixture():
     return image, noise, reference, mask, psf
 
 
-def _model(model_type, image, noise, psf, rho, shift, **kwargs):
+def _model(model_type, image, noise, psf, rho, shift, *, interpolation="bilinear", **kwargs):
     rho_is_pointer = isinstance(rho, ck.Param) and rho.pointer
     source = PixelizedSourceModel(
         n=5, log_lambda_reg=float(np.log(0.7)), regularization_type="zero-order",
-        adaptive_reg_rho=0.0 if rho_is_pointer else rho,
+        adaptive_reg_rho=0.0 if rho_is_pointer else rho, interpolation=interpolation,
     )
     if rho_is_pointer:
         del source.adaptive_reg_rho
@@ -93,15 +114,20 @@ def _model(model_type, image, noise, psf, rho, shift, **kwargs):
 
 
 @pytest.mark.unit
-def test_masked_bilinear_adapt_image_matches_independent_inversion():
+@pytest.mark.parametrize("interpolation", ["bilinear", "cubic_hermite"])
+def test_masked_adapt_image_matches_independent_inversion(interpolation):
     image, noise, reference, mask, psf = _fixture()
-    bbox = tuple(np.float64(v) for v in (-0.49, 0.49, -0.49, 0.49))
-    shift = (0.055, -0.065)
+    hermite = interpolation == "cubic_hermite"
+    limit = np.float64(0.4 if hermite else 0.49)
+    bbox = (-limit, limit, -limit, limit)
+    shift = (0.4 if hermite else 0.055, -0.065)
     rho = 1.4
-    brightness, coverage, design = _bilinear_reference(
-        image, mask, reference, psf, 0.2, 2, bbox, 5, shift,
+    brightness, coverage, design = _reference_projection(
+        image, mask, reference, psf, 0.2, 2, bbox, 5, shift, interpolation,
     )
     assert np.any(coverage == 0)
+    if hermite:
+        assert np.min(design) < -0.02
     scale = np.exp(rho * (1 - brightness))
     whitened = design / noise[~mask, None]
     prior = 0.7 * np.diag(scale)
@@ -119,7 +145,7 @@ def test_masked_bilinear_adapt_image_matches_independent_inversion():
         for model_type in (PixelizedImageProbModel, PixelizedImageProbModelOperator):
             model = _model(
                 model_type, image, noise, psf, rho, shift, mask=mask, nsub=2,
-                fixed_source_bbox=bbox, adapt_image=reference,
+                fixed_source_bbox=bbox, adapt_image=reference, interpolation=interpolation,
             )
             result, diagnostics = model.evaluate_with_diagnostics(include_components=True)
             assert diagnostics.valid
@@ -187,7 +213,7 @@ def test_bilinear_adapt_image_discards_weak_nonzero_coverage():
     with jax.experimental.enable_x64():
         for fractional_x in (0.5e-8, 2e-8):
             shift = (-0.1 - 0.2 * fractional_x, -0.14)
-            brightness, coverage, _ = _bilinear_reference(
+            brightness, coverage, _ = _reference_projection(
                 image, mask, reference, psf, 0.2, 1, bbox, 5, shift,
             )
             assert np.any((coverage > 0) & (coverage <= 1e-8))
@@ -208,7 +234,8 @@ def test_bilinear_adapt_image_discards_weak_nonzero_coverage():
 @pytest.mark.unit
 @pytest.mark.parametrize("model_type", _MODEL_TYPES)
 @pytest.mark.parametrize("vary", ["mass_pointer", "rho_pointer"])
-def test_adapt_image_updates_registered_dependencies_across_batches(model_type, vary):
+@pytest.mark.parametrize("interpolation", ["bilinear", "cubic_hermite"])
+def test_adapt_image_updates_registered_dependencies_across_batches(model_type, vary, interpolation):
     image, noise, reference, mask, psf = _fixture()
     bbox = tuple(np.float64(v) for v in (-0.49, 0.49, -0.49, 0.49))
     shift_y = -0.065
@@ -229,7 +256,10 @@ def test_adapt_image_updates_registered_dependencies_across_batches(model_type, 
             rho = ck.Param("adaptive_reg_rho", lambda _: driver.value, link=(driver,))
             shift_x = fixed_shift_x
 
-        options = dict(mask=mask, nsub=2, fixed_source_bbox=bbox, adapt_image=reference)
+        options = dict(
+            mask=mask, nsub=2, fixed_source_bbox=bbox, adapt_image=reference,
+            interpolation=interpolation,
+        )
         model = _model(model_type, image, noise, psf, rho, (shift_x, shift_y), **options)
         assert [parameter.name for parameter in model.get_dynamic_params()] == [driver.name]
         compiled = jax.jit(jax.vmap(model.evaluate))(proposals)
@@ -240,8 +270,9 @@ def test_adapt_image_updates_registered_dependencies_across_batches(model_type, 
             value = float(proposal[0])
             current_x = value if vary == "mass_pointer" else fixed_shift_x
             current_rho = value if vary == "rho_pointer" else fixed_rho
-            brightness, _, _ = _bilinear_reference(
+            brightness, _, _ = _reference_projection(
                 image, mask, reference, psf, 0.2, 2, bbox, 5, (current_x, shift_y),
+                interpolation,
             )
             expected_scale = np.exp(current_rho * (1 - brightness))
             _, diagnostics = model.evaluate_with_diagnostics(proposal)
@@ -257,3 +288,59 @@ def test_adapt_image_updates_registered_dependencies_across_batches(model_type, 
             )
             np.testing.assert_allclose(compiled.log_evidence[index], fixed.log_evidence, rtol=1e-8)
         assert not np.allclose(compiled.source_pixels[0], compiled.source_pixels[1])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("column,shifts", [
+    (2, (-0.15002, -0.15, -0.14998)),
+    (1, (-0.33,)),
+], ids=["knot_crossing", "weak_coverage"])
+def test_hermite_conditional_prior_derivative(column, shifts):
+    image, noise, reference, _, _ = _fixture()
+    mask = np.ones(image.shape, dtype=bool)
+    mask[1, 1] = False
+    reference[1, 1] = 7.0
+    psf = np.ones((1, 1))
+    bbox = tuple(np.float64(v) for v in (-0.4, 0.4, -0.4, 0.4))
+    node = 2 * 5 + column
+    rho, shift_y = 1.4, -0.1
+    interpolation = "cubic_hermite"
+
+    def expected_energy(shift_x):
+        brightness, coverage, _ = _reference_projection(
+            image, mask, reference, psf, 0.2, 2, bbox, 5, (shift_x, shift_y), interpolation,
+        )
+        if column == 1:
+            assert 0 < coverage[node] < 1e-4
+        return 0.5 * 0.7 * np.exp(rho * (1 - brightness[node]))
+
+    with jax.experimental.enable_x64():
+        shift_x = ParamU("shift_x", shifts[0])
+        shift_x.to_dynamic()
+        model = _model(
+            PixelizedImageProbModel, image, noise, psf, rho, (shift_x, shift_y),
+            mask=mask, nsub=2, fixed_source_bbox=bbox, adapt_image=reference,
+            interpolation=interpolation,
+        )
+        assert model.get_dynamic_params() == (shift_x,)
+
+        def conditional_energy(theta):
+            model_image, source = model.forward_model(theta, return_source=True)
+            # Recover the diagonal prior precision from the normal equation.
+            # The conditional energy uses a fixed unit coefficient at this node.
+            dx = (jnp.array([-0.15, -0.05]) - theta[0]) / 0.2 + 2 - column
+            dy = jnp.array([-0.25, 0.25])
+            response = _hermite_kernel(dx, jnp).mean() * _hermite_kernel(dy, jnp).mean()
+            residual = (image[1, 1] - model_image[1, 1]) / noise[1, 1]**2
+            return 0.5 * response * residual / source[node]
+
+        value_and_grad = jax.jit(jax.value_and_grad(conditional_energy))
+        for shift in shifts:
+            value, gradient = value_and_grad(jnp.array([shift], dtype=jnp.float64))
+            step = 1e-6
+            finite_difference = (
+                expected_energy(shift + step) - expected_energy(shift - step)
+            ) / (2 * step)
+            assert abs(finite_difference) > 1e-5
+            np.testing.assert_allclose(value, expected_energy(shift), rtol=2e-10)
+            np.testing.assert_allclose(gradient[0], finite_difference, rtol=2e-5, atol=1e-7)

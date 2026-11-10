@@ -312,6 +312,7 @@ class PixelizedImageProbModel(ck.Module):
         return project_adapt_image(
             self._adapt_brightness, weights, indices,
             self.sim_obj.n_source_pixels, self.sim_obj.nsub,
+            interpolation=getattr(self.source_model, "interpolation", "bilinear"),
         )
 
     def _get_reg_scale(self, source_bbox=None, source_stencil=None) -> Array | None:

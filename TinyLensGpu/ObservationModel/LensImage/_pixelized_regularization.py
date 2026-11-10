@@ -13,6 +13,7 @@ from TinyLensGpu.utils.inversion.regularization import (
 ADAPT_REFERENCE_PERCENTILE = 99.5
 ADAPT_REFERENCE_FLOOR = 1e-10
 BILINEAR_COVERAGE_THRESHOLD = 1e-8
+HERMITE_COVERAGE_OFFSET = 1e-4
 
 
 def is_fixed(value):
@@ -101,9 +102,6 @@ def prepare_adaptive_inputs(
         return None, None
     if fixed_source_bbox is None:
         raise ValueError("adaptive regularization requires fixed_source_bbox.")
-    if simulator.source_model.interpolation != "bilinear":
-        raise ValueError("adapt_image currently requires bilinear source interpolation.")
-
     positive = jnp.maximum(reference.ravel()[simulator.flat_indices], 0.0)
     if positive.size:
         reference_brightness = jnp.maximum(
@@ -116,11 +114,21 @@ def prepare_adaptive_inputs(
     return ray_brightness, None
 
 
-def project_adapt_image(ray_brightness, weights, indices, n_source, nsub):
-    """Project the prepared reference with the same bilinear stencil as the fit."""
-    ray_weights = weights.astype(ray_brightness.dtype) / nsub**2
+def project_adapt_image(ray_brightness, weights, indices, n_source, nsub, *, interpolation):
+    """Project the reference before the signed imaging stencil is integrated.
+
+    Hermite projection squares each ray's weights and uses an offset to
+    smooth the transition to uncovered nodes.
+    """
+    hermite = interpolation == "cubic_hermite"
+    ray_weights = weights.astype(ray_brightness.dtype)
+    if hermite:
+        ray_weights = jnp.square(ray_weights)
+    ray_weights = ray_weights / nsub**2
     zeros = jnp.zeros(n_source, dtype=ray_weights.dtype)
     coverage = zeros.at[indices].add(ray_weights)
     signal = zeros.at[indices].add(ray_weights * ray_brightness[:, None])
+    if hermite:
+        return signal / (coverage + HERMITE_COVERAGE_OFFSET)
     covered = coverage > BILINEAR_COVERAGE_THRESHOLD
     return jnp.where(covered, signal / jnp.where(covered, coverage, 1.0), 0.0)
