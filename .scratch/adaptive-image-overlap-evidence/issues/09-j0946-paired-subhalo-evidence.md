@@ -5,7 +5,7 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] The comparison fingerprints the relevant observation, interpolation, adaptation and evidence settings and records the actual scoring method for each fit.
 - [ ] A saved M4 can serve as a comparison denominator when its provenance matches. Detect an old fixed-template M4 or a different score and require the applicable matched refit.
 - [ ] Focused J0946 regressions exercise both matched comparison and mismatched recovery through the maintained entry point.
+
+## Comments
+
+- Claimed on `codex/overlap-09-j0946-evidence`.

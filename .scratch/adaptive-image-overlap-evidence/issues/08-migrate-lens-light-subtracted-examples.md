@@ -5,10 +5,14 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
 - [ ] Each of the three maintained examples supplies its fitted native source arc and fixed grid through `adapt_image`.
 - [ ] Use each example's configured lens-light subtraction, mask, PSF and stage sequence when generating and consuming the reference.
 - [ ] Focused example regressions exercise assembly of the adaptive fit and matched recovery. Check that changed reference or scoring settings trigger the applicable recomputation.
+
+## Comments
+
+- Claimed on `codex/overlap-08-subtracted-migrations`.
