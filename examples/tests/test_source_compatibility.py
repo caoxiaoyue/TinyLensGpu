@@ -333,7 +333,7 @@ def test_survey_source_export_preserves_public_products(
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=rho)
     theta = jnp.asarray([medians[name] for name in names])
     initial = np.asarray(model.get_values("flat")).copy()
-    records_arc = relative_path == "euclid_examples/pipeline.py"
+    records_arc = relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:2]
     options = {"include_components": True} if records_arc else {}
     expected, diagnostics = model.evaluate_with_diagnostics(theta, **options)
     assert diagnostics.valid
@@ -431,7 +431,7 @@ def test_survey_invalid_reconstruction_stops_output(
     if "_solve_pixel_source_for_package" in namespace:
         with pytest.raises(RuntimeError, match="failed"):
             namespace["_solve_pixel_source_for_package"](model, medians, names)
-        export_options = {"include_components": True} if relative_path == "euclid_examples/pipeline.py" else {}
+        export_options = {"include_components": True} if relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:2] else {}
         assert calls == [{"include_effective_dof": True}, export_options]
     assert list(tmp_path.iterdir()) == [existing]
     assert existing.read_bytes() == b"previous stage"
@@ -492,7 +492,7 @@ def test_survey_stage_propagates_invalid_plot_and_retains_posterior(
         center_x_mass=0.0, center_y_mass=0.0, gamma1=0.0, gamma2=0.0,
     )
     image, psf = np.full((10, 10), np.nan), jnp.asarray([[1.0]])
-    if relative_path == "euclid_examples/pipeline.py":
+    if relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:2]:
         # A verified reference must match its observation. Force the primary
         # solver to stop on that same observation instead of replacing it.
         image, psf = model.image_data, model.sim_obj.psf_kernel

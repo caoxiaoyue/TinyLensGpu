@@ -571,11 +571,10 @@ def test_slacs_export_validate_next_stage_and_plot(
         EPL, PhysicalModel, Shear, PixelizedSourceModel,
     )
     from TinyLensGpu.example_support import (
-        export_source_package, validate_source_package,
+        adapt_image_kwargs, export_source_package, require_reference_observation, validate_source_package,
         require_valid_reconstruction, resolve_source_interpolation, source_axes_from_bbox,
         draw_image_panel,
     )
-    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
     from TinyLensGpu.visualizer import overlay_critical_and_caustics
 
     path = examples_dir / "pix_src_demo_operator" / "pipe" / "slacs_examples" / "pipeline.py"
@@ -602,7 +601,8 @@ def test_slacs_export_validate_next_stage_and_plot(
         resolve_source_interpolation=resolve_source_interpolation,
         source_axes_from_bbox=source_axes_from_bbox,
         draw_image_panel=draw_image_panel,
-        source_template_scale_map=source_template_scale_map,
+        adapt_image_kwargs=adapt_image_kwargs,
+        require_reference_observation=require_reference_observation,
         InvalidReconstructionError=InvalidReconstructionError,
         overlay_critical_and_caustics=overlay_critical_and_caustics,
         DPIX=0.08, NSUB_PIX=1, NSRC=3, SOLVER_TYPE="pcg",
@@ -619,7 +619,7 @@ def test_slacs_export_validate_next_stage_and_plot(
     medians = {n: float(np.asarray(p.value)) for n, p in
                zip(names, model.get_dynamic_params())}
 
-    # Raw export schema: public arrays only, np.float64.
+    # Keep the native source arc separate from the fitted source raster.
     pkg = namespace["_solve_pixel_source_for_package"](model, medians, names)
     assert pkg["source_pixels"].dtype == np.float64
     assert pkg["source_image"].shape == (3, 3)
@@ -627,10 +627,12 @@ def test_slacs_export_validate_next_stage_and_plot(
     np.testing.assert_allclose(x_ax, np.linspace(*pkg["source_bbox"][:2], 3))
     assert len(x_ax) == len(y_ax) == 3
 
-    # Prepared template + next-stage builder.
+    assert pkg["adapt_image"].shape == model.image_data.shape
+
+    # Validate the fitted source grid before the adaptive builder.
     prepared = validate_source_package(
         pkg | {"lambda_best": 1.0, "log_lambda_best": 0.0},
-        expected_n=3, rho=1.0,
+        expected_n=3, rho=1.0, require_regularization=False,
     )
     m1_medians = dict(
         theta_E=0.17, gamma=2.1, e1_mass=0.1, e2_mass=0.03,
@@ -638,11 +640,10 @@ def test_slacs_export_validate_next_stage_and_plot(
         log_lambda_reg=0.0,
     )
     m2 = namespace["build_stage_m2_likelihood"](
-        np.full((10, 10), 0.05), np.full((10, 10), 0.1),
-        np.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
-        np.zeros((10, 10), dtype=bool), m1_medians, None, prepared,
+        model.image_data, model.noise_map, model.sim_obj.psf_kernel,
+        ~np.asarray(model.unmask), m1_medians, None, prepared,
     )
-    # Public reconstruction uses the fixed bbox/template package.
+    # Public reconstruction uses the fixed grid and native reference arc.
     result, diagnostics = m2.evaluate_with_diagnostics()
     require_valid_reconstruction(result, diagnostics, context="m2 build check")
     assert tuple(float(v) for v in result.source_bbox) == tuple(prepared["source_bbox"])
@@ -660,13 +661,9 @@ def test_slacs_export_validate_next_stage_and_plot(
         include_effective_dof=True,
     )
     require_valid_reconstruction(m2_result, m2_diag, context="m2 plot check")
-    expected_scale = source_template_scale_map(
-        prepared["source_pixels"], 3, rho=m2_diag.adaptive_reg_rho,
-    ).reshape(3, 3)
-    np.testing.assert_allclose(
-        np.asarray(m2_diag.regularization_scale), expected_scale, rtol=2e-5, atol=1e-6,
-    )
-    assert np.unique(expected_scale).size > 1  # template scale is nonuniform
+    expected_scale = np.asarray(m2_diag.regularization_scale)
+    assert np.unique(expected_scale).size > 1
+    assert m2_diag.evidence_logdet == "overlap"
 
     from matplotlib.axes import Axes
 
