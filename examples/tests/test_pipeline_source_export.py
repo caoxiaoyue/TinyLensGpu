@@ -27,6 +27,9 @@ _PIPE_PACKAGE_HELPERS = (
 )
 
 _ADAPT_IMAGE_PACKAGE_HELPERS = {
+    "pre_subtract_lens/pix_src_pipe/model.py",
+    "pre_subtract_lens/pix_src_pipe_sersic/model.py",
+    "pre_subtract_lens/pix_src_pipe_mge/model.py",
     "slacs_examples/pipeline.py",
     "euclid_examples/pipeline.py",
     "no_lens_light/model.py",
