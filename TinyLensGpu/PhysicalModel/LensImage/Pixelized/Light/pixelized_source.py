@@ -107,7 +107,7 @@ class PixelizedSourceModel(ck.Module):
             if isinstance(adaptive_reg_rho, ParamU)
             else adaptive_reg_rho
         )
-        if not 0.0 <= float(rho_value):
+        if rho_value is not None and not 0.0 <= float(rho_value):
             raise ValueError(f"adaptive_reg_rho must be >= 0, got {adaptive_reg_rho}")
         if not isinstance(adaptive_reg_rho, ParamU):
             return

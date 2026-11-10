@@ -226,11 +226,24 @@ def _cached_pixel_stage(tag, objective, skip_done, *, allow_legacy_reference=Fal
     if not skip_done or not (OUT_DIR / f"stage_{tag}.pkl").exists():
         return None
     payload = _load_stage(tag)
-    saved_objective = payload["extra"].get("objective")
-    if saved_objective == objective or (allow_legacy_reference and saved_objective is None):
-        return payload
-    print(f"[stage-{tag.upper()}] cached objective differs; recomputing.")
-    return None
+    extra = payload.get("extra")
+    if not isinstance(extra, dict):
+        print(f"[stage-{tag.upper()}] cached metadata is invalid; recomputing.")
+        return None
+    saved_objective = extra.get("objective")
+    if saved_objective != objective and not (allow_legacy_reference and saved_objective is None):
+        print(f"[stage-{tag.upper()}] cached objective differs; recomputing.")
+        return None
+    if "source_interpolation" in extra or "source_boundary" in extra:
+        try:
+            resolve_source_interpolation(
+                objective["grid"]["source_interpolation"], metadata=extra,
+                context=f"stage_{tag}.pkl",
+            )
+        except ValueError as err:
+            print(f"[stage-{tag.upper()}] cached interpolation is incompatible ({err}); recomputing.")
+            return None
+    return payload
 
 
 def _stage_identity(tag):
@@ -1454,9 +1467,27 @@ def main(
     if out_dir is not None:
         OUT_DIR = Path(out_dir)
 
+    mode_tags = ("a", "l", "m0", "m1", "m2", "m3")
+    producer_path = OUT_DIR / "stage_m1.pkl"
+    if skip_done and producer_path.exists():
+        # Use M1's stage metadata for mode selection. Its source package and
+        # the dependent adaptive fits are checked when their objectives are built.
+        producer_metadata = _load_stage("m1").get("extra") or {}
+        if isinstance(producer_metadata, dict) and (
+            "source_interpolation" in producer_metadata or "source_boundary" in producer_metadata
+        ):
+            try:
+                resolve_source_interpolation(metadata=producer_metadata, context=str(producer_path))
+            except ValueError:
+                # The M1 stage will reject unusable metadata and refit.
+                pass
+            else:
+                source_interpolation = resolve_source_interpolation(
+                    source_interpolation, metadata=producer_metadata, context=str(producer_path),
+                )
+        mode_tags = ("a", "l", "m0")
     source_interpolation = resolve_stage_source_interpolation(
-        OUT_DIR, ("a", "l", "m0", "m1", "m2", "m3"),
-        requested=source_interpolation, resume=skip_done,
+        OUT_DIR, mode_tags, requested=source_interpolation, resume=skip_done,
     )
     source_options = dict(source_interpolation=source_interpolation)
     image_data, noise_map, psf_kernel, bad_pixel_mask = load_lens_data(

@@ -38,7 +38,9 @@ Automatic Overlap width **1** keeps the allocator peaks at 73.4 MiB for the sour
 
 ## Workspace audit
 
-The lowered and optimized GPU HLO and live device arrays contained no complete native or active PSF matrix, full image-by-source design or global source curvature for scalar scores, their reverse-mode gradients, or either sampler batch width. The check covered permuted and batched axes and flattened element counts. Optimized byte workspaces from CUDA custom calls enter the device allocator measurements as bytes. The source-only score used a 400×3,240 FFT panel. Explicit width five produced 5×400×3,240 and 3×400×3,240 panels for full chunks and the remainder. The same width control appears in the joint HLO.
+With tile width 10 on the tested 80×80 grid, the lowered and optimized GPU HLO and live device arrays contained no complete native or active PSF matrix, full image-by-source design or global source curvature for scalar scores, their reverse-mode gradients, or either sampler batch width. The check covered permuted and batched axes and flattened element counts. Optimized byte workspaces from CUDA custom calls enter the device allocator measurements as bytes. The source-only score used a 400×3,240 FFT panel. Explicit width five produced 5×400×3,240 and 3×400×3,240 panels for full chunks and the remainder. The same width control appears in the joint HLO.
+
+The local matrices for an exact window have one row and column per node in that window. A tile width of 40 on this grid would give one exact full-grid window and would allocate full-size local curvature matrices and factors. That path assembles its Gram with bounded normal-operator column batches. The measured configurations use multiple smaller windows.
 
 ## Reproduce
 

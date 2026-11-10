@@ -17,3 +17,10 @@
 
 - Claimed on `codex/overlap-08-subtracted-migrations`.
 - Implemented in `2d5c970`. From `examples/tests/` in `tinylens_gpu` on CPU, the focused selections from `test_pre_subtracted_adapt_image.py`, `test_pipeline_source_export.py`, `test_source_compatibility.py`, and `test_survey_shared_support.py` passed 65 cases, with 87 deselected. A final `pytest -q test_pre_subtracted_adapt_image.py` run passed all six cases with strengthened mask and actual-scale assertions. Tests cover matching recovery and recomputation on changed score or reference. CLI `--help` and Python compilation checks passed for all three maintained drivers.
+
+Verification ran from `examples/tests/` in `tinylens_gpu` with the checkout on `PYTHONPATH`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `JAX_PLATFORMS=cpu`, and `MPLBACKEND=Agg`.
+
+```bash
+pytest -q test_pre_subtracted_adapt_image.py test_pipeline_source_export.py test_source_compatibility.py test_survey_shared_support.py -k 'pre_subtract or test_survey_source_transition_and_render_data or test_survey_source_export_preserves_public_products or test_survey_template_validation_keeps_identity'
+pytest -q test_pre_subtracted_adapt_image.py
+```

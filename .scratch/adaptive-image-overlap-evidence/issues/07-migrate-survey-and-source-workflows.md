@@ -18,3 +18,10 @@
 
 - Claimed on `codex/overlap-07-survey-migrations`.
 - Implemented in `47d00cd`. From `examples/tests/` in `tinylens_gpu` on CPU, the in-scope selections from `test_basic_shared_support.py`, `test_adaptive_demo_s0_package.py`, `test_survey_shared_support.py`, `test_pixelized_support.py`, `test_pipeline_source_export.py`, and `test_source_compatibility.py` passed 73 cases, with 106 deselected. The final focused `test_basic_shared_support.py` provenance run passed 9 cases. Checks cover matching and stale resume, archived M0 S0 replay and rebuild, tampered arc rejection, and retention of the fixed Galán grid.
+
+Verification ran from `examples/tests/` in `tinylens_gpu` with the checkout on `PYTHONPATH`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `JAX_PLATFORMS=cpu`, and `MPLBACKEND=Agg`.
+
+```bash
+pytest -q test_basic_shared_support.py test_adaptive_demo_s0_package.py test_survey_shared_support.py test_pixelized_support.py test_pipeline_source_export.py test_source_compatibility.py -k 'basic_sampling_and_cache_contract or adaptive_pipeline_resumes or source_export_to_adaptive or validate_source_package_accepts_square or validate_source_package_rejects or slacs or m1_reference_pipelines or run_stage_m1_propagates_invalid or no_lens_light or galan24'
+pytest -q test_basic_shared_support.py -k 'adaptive_pipeline_resumes or source_export_to_adaptive or m1_reference_pipelines'
+```

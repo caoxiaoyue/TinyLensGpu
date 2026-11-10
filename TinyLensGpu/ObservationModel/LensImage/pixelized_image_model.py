@@ -27,7 +27,8 @@ from TinyLensGpu.utils.inversion.regularization import (
 )
 from TinyLensGpu.utils.linear_solver import fnnls_jax
 from .inversion_result import InversionDiagnostics, InversionResult
-from ._inversion_diagnostics import reconstruction_diagnostics
+from ._inversion_diagnostics import evidence_diagnostics, reconstruction_diagnostics
+from ._inversion_score import penalize_invalid_evidence
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
     adaptive_reg_scale,
@@ -155,7 +156,7 @@ class PixelizedImageProbModel(ck.Module):
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
         source_n = int(self.source_model.n)
         self._adapt_brightness = prepare_adapt_image(
-            adapt_image, self.image_data, self.sim_obj,
+            adapt_image, self.image_data, self.noise_map, self.sim_obj,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
         object.__setattr__(self, "_prepared", _DensePrepared())
@@ -407,7 +408,8 @@ class PixelizedImageProbModel(ck.Module):
         return image.at[self.sim_obj.flat_indices].set(values).reshape(self.image_data.shape)
 
     def _evaluate(
-        self, *, compute_evidence: bool, return_details: bool = False
+        self, *, compute_evidence: bool, include_position: bool = False,
+        return_details: bool = False,
     ) -> InversionResult | tuple[InversionResult, tuple]:
         """Prepare, solve and reconstruct once; optionally compute exact determinant terms."""
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
@@ -424,7 +426,7 @@ class PixelizedImageProbModel(ck.Module):
         source_pixels = linear_params[:n_source]
         lens_amplitudes = linear_params[n_source:] if self.has_lens_light else None
         model_1d = design_matrix @ linear_params
-        log_evidence = None
+        log_evidence = evidence_valid = None
         if compute_evidence:
             logdet_h = self._evidence_logdet(source_bbox, reg_matrix)
             resid = self.data_1d - model_1d
@@ -442,13 +444,24 @@ class PixelizedImageProbModel(ck.Module):
                     log_evidence - 0.5 * self.eps_reg * jnp.sum(lens_amplitudes ** 2)
                     + 0.5 * self.n_lens_light * jnp.log(self.eps_reg)
                 )
-            log_evidence = jnp.where(jnp.isfinite(log_evidence), log_evidence, -1.0e10)
+            primary_valid = jnp.all(jnp.isfinite(linear_params)) & jnp.all(jnp.isfinite(model_1d))
+            evidence_valid = primary_valid & jnp.isfinite(log_evidence)
+            penalty = jnp.full_like(log_evidence, -1.0e10)
+            if include_position and self._has_pos_penalty:
+                position_penalty = self._position_likelihood_penalty_jax()
+                log_evidence = log_evidence + position_penalty
+                evidence_valid = evidence_valid & jnp.isfinite(log_evidence)
+                primary_penalty = penalty + position_penalty
+                penalty = jnp.where(
+                    ~primary_valid & jnp.isfinite(primary_penalty), primary_penalty, penalty,
+                )
+            log_evidence = penalize_invalid_evidence(log_evidence, evidence_valid, penalty)
         result = InversionResult(
             log_evidence, self._image_from_active(model_1d), source_pixels,
             lens_amplitudes, source_bbox, None,
         )
         if return_details:
-            return result, (design_matrix, reg_matrix, lambda_reg, chol, curvature, scale)
+            return result, (design_matrix, reg_matrix, lambda_reg, chol, curvature, scale, evidence_valid)
         return result
 
     def _log_evidence(self) -> Array:
@@ -459,7 +472,10 @@ class PixelizedImageProbModel(ck.Module):
         self, source_bbox: tuple, scale: Array | None = None,
     ) -> Array:
         """Build one regularization matrix without reading or writing the cache."""
-        return jnp.asarray(self.reg_builder.matrix(*source_bbox, scale=scale), dtype=self.image_data.dtype)
+        dtype = (
+            self.image_data.dtype if scale is None else jnp.result_type(self.image_data, scale)
+        )
+        return jnp.asarray(self.reg_builder.matrix(*source_bbox, scale=scale), dtype=dtype)
 
     def _evidence_logdet(self, source_bbox, reg_matrix: Array) -> Array:
         """Return the regularization log determinant added to the evidence.
@@ -488,11 +504,7 @@ class PixelizedImageProbModel(ck.Module):
     @ck.forward
     def evaluate(self) -> InversionResult:
         """Return evidence and reconstructions from one solve, including position constraints."""
-        result = self._evaluate(compute_evidence=True)
-        log_ev = result.log_evidence
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        return result._replace(log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10))
+        return self._evaluate(compute_evidence=True, include_position=True)
 
     @ck.forward
     def evaluate_with_diagnostics(
@@ -510,15 +522,13 @@ class PixelizedImageProbModel(ck.Module):
         ``None``. Invalid reconstructions set ``valid=False`` with a reason
         instead of raising.
         """
-        result, details = self._evaluate(compute_evidence=True, return_details=True)
-        log_ev = result.log_evidence
-        if self._has_pos_penalty:
-            log_ev = log_ev + self._position_likelihood_penalty_jax()
-        result = result._replace(
-            log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
+        result, details = self._evaluate(
+            compute_evidence=True, include_position=True, return_details=True,
         )
-        design_matrix, reg_matrix, lambda_reg, chol, curvature, scale = details
-        diagnostics = reconstruction_diagnostics(self, result, scale)
+        design_matrix, reg_matrix, lambda_reg, chol, curvature, scale, evidence_valid = details
+        diagnostics = evidence_diagnostics(
+            reconstruction_diagnostics(self, result, scale), "exact", evidence_valid,
+        )
         n_source = self.sim_obj.n_source_pixels
         if include_effective_dof:
             if diagnostics.valid:

@@ -362,3 +362,109 @@ def test_hermite_conditional_prior_derivative(column, shifts):
             assert abs(finite_difference) > 1e-5
             np.testing.assert_allclose(value, expected_energy(shift), rtol=2e-10)
             np.testing.assert_allclose(gradient[0], finite_difference, rtol=2e-5, atol=1e-7)
+
+
+@pytest.mark.unit
+def test_dense_invalid_exact_evidence_preserves_reconstruction_and_rejects_gradients():
+    with jax.experimental.enable_x64(False):
+        data = np.linspace(0.25, 1.0, 16, dtype=np.float32).reshape(4, 4)
+        rho = ParamU("adaptive_reg_rho", 1.0, prior_settings=[0.0, 60.0], limits=[0.0, 60.0])
+        rho.to_dynamic()
+        source = PixelizedSourceModel(
+            n=2, log_lambda_reg=-3.0, adaptive_reg_rho=rho,
+            regularization_type="first-order",
+        )
+        source.log_lambda_reg.to_dynamic()
+        model = PixelizedImageProbModel(
+            data, np.full_like(data, 0.1), np.ones((1, 1), dtype=np.float32), 0.2,
+            PhysicalModel(source_light=[source]), fixed_source_bbox=(-0.4, 0.4, -0.4, 0.4),
+            adapt_image=np.zeros_like(data),
+            position_likelihood=dict(
+                positions=[[-0.2, 0.0], [0.2, 0.0]], threshold_arcsec=0.1,
+                min_log_like=-1.0e4,
+            ),
+        )
+        # The Float32 prior loses its small boundary eigenvalue before scaling,
+        # while the design keeps the posterior curvature invertible.
+        values = {"log_lambda_reg": -40.0, "adaptive_reg_rho": 40.0}
+        point = jnp.asarray([values[parameter.name] for parameter in model.get_dynamic_params()])
+        result, diagnostics = model.evaluate_with_diagnostics(point, include_components=True)
+        score, gradient = jax.jit(jax.value_and_grad(model))(point)
+
+        assert len(result) == 6
+        assert diagnostics.valid and diagnostics.position.penalty < 0.0
+        assert np.isfinite(result.source_pixels).all() and np.any(result.model_image != 0.0)
+        assert diagnostics.evidence_logdet == "exact"
+        assert diagnostics.evidence_valid is False
+        assert "nonfinite" in diagnostics.evidence_invalid_reason
+        assert score == result.log_evidence == -1e10
+        assert np.isnan(gradient).all()
+        np.testing.assert_allclose(model.forward_model(point), result.model_image, atol=1e-6)
+        np.testing.assert_array_equal(diagnostics.source_image, result.model_image)
+
+        valid_point = model.get_values("flat")
+        _, diagnostics = model.evaluate_with_diagnostics(valid_point)
+        assert diagnostics.evidence_valid and diagnostics.evidence_invalid_reason is None
+        valid_score, directional = jax.jvp(model, (valid_point,), (jnp.ones_like(valid_point),))
+        assert np.isfinite(valid_score) and np.isfinite(directional)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("model_type", _MODEL_TYPES)
+def test_uninitialized_rho_requires_adapt_inputs_and_accepts_proposals(model_type):
+    image, noise, reference, mask, psf = _fixture()
+    rho = ParamU("adaptive_reg_rho", prior_settings=[0.0, 2.0], limits=[0.0, 2.0])
+    assert rho.dynamic and rho.value is None
+    bbox = (-0.49, 0.49, -0.49, 0.49)
+    shift = (0.055, -0.065)
+
+    def build(**kwargs):
+        return _model(model_type, image, noise, psf, rho, shift, mask=mask, **kwargs)
+
+    with pytest.raises(ValueError, match="fixed_source_bbox"):
+        build(adapt_image=reference)
+    with pytest.raises(ValueError, match="adapt_image"):
+        build(fixed_source_bbox=bbox)
+    model = build(adapt_image=reference, fixed_source_bbox=bbox)
+    assert [param.name for param in model.get_dynamic_params()] == ["adaptive_reg_rho"]
+    for strength in (0.0, 1.4):
+        result, diagnostics = model.evaluate_with_diagnostics(jnp.asarray([strength]))
+        assert diagnostics.valid and diagnostics.evidence_valid
+        assert np.isfinite(result.log_evidence)
+        if strength == 0.0:
+            np.testing.assert_array_equal(diagnostics.regularization_scale, np.ones((5, 5)))
+        else:
+            assert np.ptp(diagnostics.regularization_scale) > 0.0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("model_type", _MODEL_TYPES)
+def test_adapt_image_uses_mixed_fit_precision(model_type):
+    with jax.experimental.enable_x64():
+        image, _, reference, mask, psf = _fixture()
+        image = image.astype(np.float32)
+        # Power-of-two noise keeps whitening exact in both precisions.
+        noise = np.full_like(image, 0.5)
+        bbox = tuple(np.float64(v) for v in (-0.49, 0.49, -0.49, 0.49))
+        shift, rho = (0.055, -0.065), 1.4
+        brightness, _, design = _reference_projection(
+            image, mask, reference, psf, 0.2, 2, bbox, 5, shift, "cubic_hermite",
+        )
+        scale = np.exp(rho * (1 - brightness))
+        sigma = noise[~mask].astype(np.float64)
+        whitened = design / sigma[:, None]
+        expected = np.linalg.solve(
+            whitened.T @ whitened + 0.7 * np.diag(scale),
+            whitened.T @ (image[~mask] / sigma),
+        )
+        model = _model(
+            model_type, image, noise, psf, rho, shift, mask=mask, nsub=2,
+            fixed_source_bbox=bbox, adapt_image=reference, interpolation="cubic_hermite",
+        )
+        result, diagnostics = model.evaluate_with_diagnostics()
+
+        assert diagnostics.valid and diagnostics.evidence_valid
+        assert result.source_pixels.dtype == diagnostics.regularization_scale.dtype == np.float64
+        np.testing.assert_allclose(diagnostics.regularization_scale.ravel(), scale, rtol=1e-9)
+        tolerance = 2e-10 if model_type is PixelizedImageProbModel else 2e-7
+        np.testing.assert_allclose(result.source_pixels, expected, rtol=tolerance, atol=tolerance)

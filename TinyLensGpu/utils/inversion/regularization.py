@@ -1414,6 +1414,37 @@ class FiniteDifferenceRegularization:
 
         return diag_2d.ravel()
 
+    def scaled_off_diagonal_bands(
+        self, reg_data: RegData, strength: "jax.Array",
+    ) -> tuple[tuple[int, "jax.Array"], ...]:
+        """Return precision bands indexed by their lower flat node."""
+        reg_type = self.regularization_type
+        if reg_type == "zero-order":
+            return ()
+
+        n = self.n
+        scale = self._scale_to_2d(reg_data.scale)
+        factor = strength * reg_data.scale_factor
+        if reg_type == "first-order":
+            wx, wy = self._edge_weights_first_order(scale)
+            return (
+                (1, (-factor * jnp.pad(wx, ((0, 0), (0, 1)))).ravel()),
+                (n, (-factor * jnp.pad(wy, ((0, 1), (0, 0)))).ravel()),
+            )
+
+        wx, wy, wx_near, wy_near = self._edge_weights_second_order(scale)
+        # Uniform weights include a dummy curvature row on a two-node axis.
+        wx, wy = wx[:, :n - 2], wy[:n - 2, :]
+        x2 = jnp.pad(wx, ((0, 0), (0, 2)))
+        y2 = jnp.pad(wy, ((0, 2), (0, 0)))
+        x1 = -2.0 * (x2 + jnp.pad(wx, ((0, 0), (1, 1))))
+        y1 = -2.0 * (y2 + jnp.pad(wy, ((1, 1), (0, 0))))
+        x1 = x1.at[:, -2].add(-wx_near)
+        y1 = y1.at[-2, :].add(-wy_near)
+        return tuple((offset, (factor * band).ravel()) for offset, band in (
+            (1, x1), (n, y1), (2, x2), (2 * n, y2),
+        ))
+
     def make_reg_data(
         self,
         xmin: float, xmax: float, ymin: float, ymax: float,

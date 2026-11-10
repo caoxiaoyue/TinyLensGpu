@@ -1,6 +1,7 @@
 """Small maintained Euclid fits with independently checked stage artifacts."""
 
 import importlib.util
+import pickle
 
 import jax.numpy as jnp
 import numpy as np
@@ -179,3 +180,45 @@ def test_verified_legacy_m1_renders_reference_but_old_adaptive_stages_refit(
     euclid.main(skip_done=True)
     assert ControlledSampler.runs[-3:] == [7, 2, 6]
     assert euclid._load_stage("m1")["extra"]["objective"]["evidence_logdet"] == "overlap"
+
+
+@pytest.mark.parametrize("damaged_product", ["adaptive", "reference", "producer_metadata"])
+def test_resume_rebuilds_incompatible_products_after_m1_mode_selection(
+    euclid, small_fit, monkeypatch, damaged_product,
+):
+    from TinyLensGpu.example_support import source_interpolation_metadata
+
+    _seed_upstream(euclid, small_fit, monkeypatch)
+    euclid.main(skip_done=True)
+    assert ControlledSampler.runs == [7, 2, 6]
+
+    m1_path = euclid.OUT_DIR / "stage_m1.pkl"
+    saved_m1 = m1_path.read_bytes()
+    if damaged_product != "adaptive":
+        payload = pickle.loads(saved_m1)
+        metadata = payload["extra"]
+        if damaged_product == "reference":
+            metadata = metadata["s1"]
+        metadata["source_boundary"] = "malformed"
+        m1_path.write_bytes(pickle.dumps(payload))
+
+    for tag in ("m2", "m3"):
+        path = euclid.OUT_DIR / f"stage_{tag}.pkl"
+        payload = pickle.loads(path.read_bytes())
+        payload["extra"].update(source_interpolation_metadata("cubic_hermite"))
+        path.write_bytes(pickle.dumps(payload))
+
+    euclid.main(skip_done=True)
+    expected_reruns = [2, 6] if damaged_product == "adaptive" else [7, 2, 6]
+    assert ControlledSampler.runs == [7, 2, 6] + expected_reruns
+    if damaged_product == "adaptive":
+        assert m1_path.read_bytes() == saved_m1
+
+    reference = euclid._load_stage("m1")["extra"]["s1"]
+    assert reference["source_boundary"] == "hard_zero_outside_bbox"
+    for tag in ("m2", "m3"):
+        extra = euclid._load_stage(tag)["extra"]
+        assert extra["source_interpolation"] == "bilinear"
+        assert extra["objective"]["reference_id"] == euclid.artifact_fingerprint(
+            reference["reference_provenance"],
+        )

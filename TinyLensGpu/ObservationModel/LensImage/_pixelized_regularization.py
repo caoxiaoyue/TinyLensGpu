@@ -48,7 +48,7 @@ def adaptive_reg_scale(projected_brightness, rho):
     return _source_template_scale_from_normalized(projected_brightness, _param_value(rho))
 
 
-def prepare_adapt_image(adapt_image, image_data, simulator, rho, fixed_source_bbox):
+def prepare_adapt_image(adapt_image, image_data, noise_map, simulator, rho, fixed_source_bbox):
     """Validate the reference and normalize its active native pixels once."""
     enabled = adaptive_reg_enabled(rho)
     if enabled and fixed_source_bbox is None:
@@ -63,7 +63,12 @@ def prepare_adapt_image(adapt_image, image_data, simulator, rho, fixed_source_bb
         raise ValueError(f"adapt_image must have shape {image_data.shape}, got {reference.shape}.")
     if jnp.issubdtype(reference.dtype, jnp.complexfloating):
         raise ValueError("adapt_image values must be real.")
-    reference = reference.astype(jnp.result_type(image_data, jnp.float32))
+    fit_dtype = jnp.result_type(
+        image_data.dtype, noise_map.dtype, simulator.psf_kernel.dtype,
+        simulator.image_x_active_sub.dtype, simulator.image_y_active_sub.dtype,
+        *(bound.dtype for bound in (fixed_source_bbox or ())), jnp.float32,
+    )
+    reference = reference.astype(fit_dtype)
     if not bool(np.asarray(jnp.all(jnp.isfinite(reference)))):
         raise ValueError("adapt_image values must be finite.")
     if not enabled:
@@ -84,7 +89,7 @@ def project_adapt_image(ray_brightness, weights, indices, n_source, nsub, *, int
     smooth the transition to uncovered nodes.
     """
     hermite = interpolation == "cubic_hermite"
-    ray_weights = weights.astype(ray_brightness.dtype)
+    ray_weights = weights.astype(jnp.result_type(weights, ray_brightness))
     if hermite:
         ray_weights = jnp.square(ray_weights)
     ray_weights = ray_weights / nsub**2
