@@ -1,0 +1,817 @@
+{
+  "configuration": {
+    "library_revision": "1f60ef18f0e2e572956a9c708a026d394f8294a8",
+    "jax_version": "0.7.1",
+    "devices": [
+      "NVIDIA GeForce RTX 5080"
+    ],
+    "inputs_sha256": {
+      "data_no_noise/image.fits": "5552cbf2042884005c33b9031757341f3c0e8994d2f9dad0c987a4765894998f",
+      "data_no_noise/noise.fits": "7b22eed82add733becaddf77244165c315bfbe0976fd107656b2834e8e93ff69",
+      "data_no_noise/psf.fits": "07009d5da7f8b0c7c22ef3fd4c17d0ad211160ced513bdd4b4a135fb14dc190a",
+      "pix_src_fit_no_noise_upstream/feature_mask.fits": "ad7d70a7a510eec66e5de79fcae56889836907db30a7b51b8fc7fdf639d3dd85",
+      "pix_src_fit_no_noise_upstream/source_grid_spec.json": "f33558ba671fe394a071ffa11d518c4f47df6f58534087f0730816cb0b9ee76b",
+      "pix_src_fit_no_noise_upstream/stage_a.pkl": "3dc1602d4281cd06a235eac7cb0c1535873e6f0a170f102d488af028458107e3",
+      "pix_src_fit_no_noise_upstream/stage_m1.pkl": "b3ed5b673a9781964731320881de1080a3f7e9c88e3d2b9bd0124ae1ac5da420",
+      "m3_ablation/no_noise_default_overlap_output/m1_psf_arc.npy": "b0dee1cd5f242c0be8562bc780f155dba6934112b1113d1dd43c45596a9782bd"
+    },
+    "image_shape": [
+      200,
+      200
+    ],
+    "active_pixels": 1339,
+    "dpix_arcsec": 0.1,
+    "subpixels_per_side": 4,
+    "source_grid_side": 80,
+    "source_node_bbox": [
+      -0.7892771671160294,
+      0.7907228328839707,
+      -0.5452274445502338,
+      1.0347725554497664
+    ],
+    "source_precision": "first-order",
+    "reference": {
+      "producer": "archived SIE plus shear M1",
+      "source_interpolation": "bilinear",
+      "source_boundary": "hard_zero_outside_bbox",
+      "model_point": {
+        "theta_E": 1.5100288279627354,
+        "e1_mass": -0.05614063410873221,
+        "e2_mass": 0.009451657389532091,
+        "gamma1": 0.03259576511694871,
+        "gamma2": 0.04650630220612207,
+        "log_lambda_reg": -5.752739199611258,
+        "center_x_mass": 0.0023380662717705342,
+        "center_y_mass": -0.0076449008067157225
+      },
+      "max_abs_renderer_difference": 4.76837158203125e-07,
+      "positive_active_percentile_99_5": 3.1027956008911133
+    },
+    "m2_m3": {
+      "source_interpolation": "cubic_hermite",
+      "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
+      "projection": "squared per-ray weights with active native image normalization",
+      "hermite_coverage_offset": 0.0001,
+      "brightness_percentile": 99.5,
+      "brightness_denominator_floor": 1e-10,
+      "position_likelihood": {
+        "positions": [
+          [
+            0.13170798122882843,
+            -1.1799838542938232
+          ],
+          [
+            0.9214922785758972,
+            1.4811217784881592
+          ]
+        ],
+        "threshold_arcsec": 0.1,
+        "min_log_like": -10000000000.0
+      }
+    }
+  },
+  "m2": {
+    "log_z": 1493.5944680351238,
+    "likelihood_calls": 4300,
+    "posterior_effective_samples": 1336.7218730380453,
+    "sampling_seconds": 68.87888071301859,
+    "n_live": 250,
+    "n_eff_target": 600,
+    "n_batch": 100,
+    "vectorized_chunk_size": 5,
+    "seed": 73,
+    "priors": [
+      {
+        "name": "log_lambda_reg",
+        "type": "uniform",
+        "settings": [
+          -13.815510557964274,
+          13.815510557964274
+        ],
+        "limits": [
+          -13.815510557964274,
+          13.815510557964274
+        ]
+      },
+      {
+        "name": "adaptive_reg_rho",
+        "type": "uniform",
+        "settings": [
+          0.0,
+          8.0
+        ],
+        "limits": [
+          0.0,
+          8.0
+        ]
+      }
+    ],
+    "solver": "pcg",
+    "pcg_max_iter": 400,
+    "pcg_rtol": 1e-05,
+    "block_size": 10,
+    "evidence_logdet": "overlap",
+    "evidence_block_size": 10,
+    "dtype": "float32",
+    "selected": {
+      "log_lambda_reg": -9.685380417074992,
+      "adaptive_reg_rho": 5.623951902964207
+    },
+    "lambda_reg": 6.2186015351511e-05,
+    "selection": "highest score among posterior peak, medians, Powell refinements and rho bounds",
+    "rho_boundary_scores": {
+      "0.0": 1400.5609130859375,
+      "8.0": 1488.3436279296875
+    },
+    "quantiles_16_50_84": {
+      "log_lambda_reg": [
+        -10.033801103466477,
+        -9.69614816180898,
+        -9.348674880830812
+      ],
+      "adaptive_reg_rho": [
+        5.161123156859723,
+        5.629347177700066,
+        6.053769641146693
+      ]
+    },
+    "diagnostics": {
+      "score": 1500.226318359375,
+      "primary_valid": true,
+      "evidence_valid": true,
+      "pcg_iterations": 61,
+      "chi2": 28.395273208618164,
+      "position_penalty": -0.0,
+      "max_source_separation": 0.0044503360986709595
+    }
+  },
+  "m3": {
+    "log_z": 1488.4063963646195,
+    "likelihood_calls": 7900,
+    "posterior_effective_samples": 1484.6126281154438,
+    "sampling_seconds": 155.72847573203035,
+    "n_live": 180,
+    "n_eff_target": 600,
+    "n_batch": 100,
+    "vectorized_chunk_size": 5,
+    "seed": 73,
+    "priors": [
+      {
+        "name": "theta_E",
+        "type": "gaussian",
+        "settings": [
+          1.5100288279627354,
+          0.15100288279627355
+        ],
+        "limits": [
+          0.0,
+          5.0
+        ]
+      },
+      {
+        "name": "gamma",
+        "type": "uniform",
+        "settings": [
+          1.0,
+          3.0
+        ],
+        "limits": [
+          1.0,
+          3.0
+        ]
+      },
+      {
+        "name": "e1_mass",
+        "type": "gaussian",
+        "settings": [
+          -0.05614063410873221,
+          0.2
+        ],
+        "limits": [
+          -1.0,
+          1.0
+        ]
+      },
+      {
+        "name": "e2_mass",
+        "type": "gaussian",
+        "settings": [
+          0.009451657389532091,
+          0.2
+        ],
+        "limits": [
+          -1.0,
+          1.0
+        ]
+      },
+      {
+        "name": "gamma1",
+        "type": "gaussian",
+        "settings": [
+          0.03259576511694871,
+          0.05
+        ],
+        "limits": [
+          -0.5,
+          0.5
+        ]
+      },
+      {
+        "name": "gamma2",
+        "type": "gaussian",
+        "settings": [
+          0.04650630220612207,
+          0.05
+        ],
+        "limits": [
+          -0.5,
+          0.5
+        ]
+      }
+    ],
+    "solver": "pcg",
+    "pcg_max_iter": 400,
+    "pcg_rtol": 1e-05,
+    "block_size": 10,
+    "evidence_logdet": "overlap",
+    "evidence_block_size": 10,
+    "dtype": "float32",
+    "fixed_strengths": {
+      "log_lambda_reg": -9.685380417074992,
+      "adaptive_reg_rho": 5.623951902964207
+    },
+    "injected_slope": 2.2,
+    "slope_quantiles_2_5_16_50_84_97_5": [
+      2.1080014462710484,
+      2.1486064776230345,
+      2.19607142367509,
+      2.238631162322279,
+      2.271937752337591
+    ],
+    "points": {
+      "injected_free_mass": {
+        "parameters": {
+          "theta_E": 1.5,
+          "gamma": 2.2,
+          "e1_mass": -0.05263157933950424,
+          "e2_mass": -4.601198977383092e-09,
+          "gamma1": 0.05,
+          "gamma2": 0.05
+        },
+        "score": 1509.25634765625,
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 57,
+        "chi2": 8.037027359008789,
+        "position_penalty": -0.0,
+        "max_source_separation": 0.005273817107081413
+      },
+      "posterior_marginal_medians": {
+        "parameters": {
+          "theta_E": 1.5002361077866067,
+          "gamma": 2.19607142367509,
+          "e1_mass": -0.054512324687743995,
+          "e2_mass": -0.008009209400067037,
+          "gamma1": 0.04944267105575835,
+          "gamma2": 0.04663239969214121
+        },
+        "score": 1509.7705078125,
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 56,
+        "chi2": 6.865178108215332,
+        "position_penalty": -0.0,
+        "max_source_separation": 0.004833234008401632
+      },
+      "posterior_peak": {
+        "parameters": {
+          "theta_E": 1.5007590055465698,
+          "gamma": 2.1849498748779297,
+          "e1_mass": -0.053972672671079636,
+          "e2_mass": -0.007397482171654701,
+          "gamma1": 0.0488295741379261,
+          "gamma2": 0.046494681388139725
+        },
+        "score": 1509.7454833984375,
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "chi2": 6.549924373626709,
+        "position_penalty": -0.0,
+        "max_source_separation": 0.004416863899677992
+      }
+    },
+    "penalized_sampler_records": 6,
+    "posterior_weight_of_penalized_records": 0.0
+  },
+  "matched_evidence": {
+    "fixed_strengths": {
+      "log_lambda_reg": -9.685380417074992,
+      "adaptive_reg_rho": 5.623951902964207
+    },
+    "comparison_proposal_count": 19,
+    "full_reference": "Float64 sparse masked design and complete data-space determinant",
+    "summary": {
+      "full_best": "posterior_marginal_medians",
+      "block": {
+        "median_signed_offset": -60.13438140617154,
+        "min_signed_offset": -63.80839865263442,
+        "max_signed_offset": -53.942059763097404,
+        "median_absolute_offset": 60.13438140617154,
+        "centered_absolute_error_p95": 4.600973779841794,
+        "centered_rmse": 2.631519545304009,
+        "spearman_rank_correlation": 0.4912280701754386,
+        "kendall_rank_correlation": 0.3567251461988304,
+        "best": "slope_stratum_02"
+      },
+      "overlap": {
+        "median_signed_offset": 6.460650197840096,
+        "min_signed_offset": 6.403393339553077,
+        "max_signed_offset": 6.4822560003351555,
+        "median_absolute_offset": 6.460650197840096,
+        "centered_absolute_error_p95": 0.039686413939216396,
+        "centered_rmse": 0.02018587962062194,
+        "spearman_rank_correlation": 0.9982456140350877,
+        "kendall_rank_correlation": 0.9883040935672514,
+        "best": "posterior_marginal_medians"
+      }
+    },
+    "proposals": [
+      {
+        "point": "injected_free_mass",
+        "parameters": {
+          "theta_E": 1.5,
+          "gamma": 2.2,
+          "e1_mass": -0.05263157933950424,
+          "e2_mass": -4.601198977383092e-09,
+          "gamma1": 0.05,
+          "gamma2": 0.05
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1656.547607421875,
+        "chi2": 8.038119316101074,
+        "prior_energy": 140.9698944091797,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 427.76953125,
+        "overlap_logdet_ratio": 294.58251953125,
+        "full_logdet_ratio": 307.5007684376568,
+        "block": 1442.662841796875,
+        "overlap": 1509.25634765625,
+        "full": 1502.7972232030465,
+        "max_abs_independent_prediction_difference": 7.763926452852843e-07
+      },
+      {
+        "point": "posterior_marginal_medians",
+        "parameters": {
+          "theta_E": 1.5002361077866067,
+          "gamma": 2.19607142367509,
+          "e1_mass": -0.054512324687743995,
+          "e2_mass": -0.008009209400067037,
+          "gamma1": 0.04944267105575835,
+          "gamma2": 0.04663239969214121
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 56,
+        "common": 1657.160400390625,
+        "chi2": 6.865218162536621,
+        "prior_energy": 140.91725158691406,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 428.845703125,
+        "overlap_logdet_ratio": 294.779541015625,
+        "full_logdet_ratio": 307.70396422360767,
+        "block": 1442.737548828125,
+        "overlap": 1509.7706298828125,
+        "full": 1503.3084182788211,
+        "max_abs_independent_prediction_difference": 1.1154411594382907e-06
+      },
+      {
+        "point": "posterior_peak",
+        "parameters": {
+          "theta_E": 1.5007590055465698,
+          "gamma": 2.1849498748779297,
+          "e1_mass": -0.053972672671079636,
+          "e2_mass": -0.007397482171654701,
+          "gamma1": 0.0488295741379261,
+          "gamma2": 0.046494681388139725
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1657.23828125,
+        "chi2": 6.549169540405273,
+        "prior_energy": 141.07742309570312,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 427.45703125,
+        "overlap_logdet_ratio": 294.985595703125,
+        "full_logdet_ratio": 307.92088758179386,
+        "block": 1443.509765625,
+        "overlap": 1509.7454833984375,
+        "full": 1503.277837459103,
+        "max_abs_independent_prediction_difference": 6.09213536950648e-07
+      },
+      {
+        "point": "slope_stratum_01",
+        "parameters": {
+          "theta_E": 1.5048582553863525,
+          "gamma": 2.1112961769104004,
+          "e1_mass": -0.08007536828517914,
+          "e2_mass": -0.00590834766626358,
+          "gamma1": 0.030089018866419792,
+          "gamma2": 0.04520661011338234
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 56,
+        "common": 1651.0540771484375,
+        "chi2": 16.30671501159668,
+        "prior_energy": 143.68844604492188,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 415.3359375,
+        "overlap_logdet_ratio": 294.530517578125,
+        "full_logdet_ratio": 307.4518179738053,
+        "block": 1443.3861083984375,
+        "overlap": 1503.788818359375,
+        "full": 1497.328168161535,
+        "max_abs_independent_prediction_difference": 6.039820612535607e-07
+      },
+      {
+        "point": "slope_stratum_02",
+        "parameters": {
+          "theta_E": 1.5032763481140137,
+          "gamma": 2.135476589202881,
+          "e1_mass": -0.06007176265120506,
+          "e2_mass": -0.0037264274433255196,
+          "gamma1": 0.043112415820360184,
+          "gamma2": 0.046558890491724014
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 54,
+        "common": 1655.9295654296875,
+        "chi2": 8.979738235473633,
+        "prior_energy": 141.26443481445312,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 419.232421875,
+        "overlap_logdet_ratio": 294.87255859375,
+        "full_logdet_ratio": 307.81197376384466,
+        "block": 1446.3133544921875,
+        "overlap": 1508.4932861328125,
+        "full": 1502.0235785477653,
+        "max_abs_independent_prediction_difference": 6.81480206488061e-07
+      },
+      {
+        "point": "slope_stratum_03",
+        "parameters": {
+          "theta_E": 1.5037051439285278,
+          "gamma": 2.148416519165039,
+          "e1_mass": -0.07856884598731995,
+          "e2_mass": -0.00872240960597992,
+          "gamma1": 0.03563694655895233,
+          "gamma2": 0.044625889509916306
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 56,
+        "common": 1652.773681640625,
+        "chi2": 13.725601196289062,
+        "prior_energy": 142.83029174804688,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 421.23828125,
+        "overlap_logdet_ratio": 294.87451171875,
+        "full_logdet_ratio": 307.8379488131401,
+        "block": 1442.154541015625,
+        "overlap": 1505.33642578125,
+        "full": 1498.854707234055,
+        "max_abs_independent_prediction_difference": 5.319576410478533e-07
+      },
+      {
+        "point": "slope_stratum_04",
+        "parameters": {
+          "theta_E": 1.5008236169815063,
+          "gamma": 2.1596627235412598,
+          "e1_mass": -0.07760203629732132,
+          "e2_mass": -0.014388462528586388,
+          "gamma1": 0.03761773183941841,
+          "gamma2": 0.04133139178156853
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 57,
+        "common": 1652.481201171875,
+        "chi2": 13.477238655090332,
+        "prior_energy": 143.66363525390625,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 423.970703125,
+        "overlap_logdet_ratio": 295.30859375,
+        "full_logdet_ratio": 308.2731057506704,
+        "block": 1440.495849609375,
+        "overlap": 1504.826904296875,
+        "full": 1498.3446482965398,
+        "max_abs_independent_prediction_difference": 4.692068071854294e-07
+      },
+      {
+        "point": "slope_stratum_05",
+        "parameters": {
+          "theta_E": 1.498962163925171,
+          "gamma": 2.168245792388916,
+          "e1_mass": -0.04207858443260193,
+          "e2_mass": -0.00398584920912981,
+          "gamma1": 0.05248812586069107,
+          "gamma2": 0.04639493674039841
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1653.7742919921875,
+        "chi2": 12.349493026733398,
+        "prior_energy": 142.20521545410156,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 427.0625,
+        "overlap_logdet_ratio": 295.5234375,
+        "full_logdet_ratio": 308.44986902622327,
+        "block": 1440.2430419921875,
+        "overlap": 1506.0125732421875,
+        "full": 1499.5493574790758,
+        "max_abs_independent_prediction_difference": 8.705822223120663e-07
+      },
+      {
+        "point": "slope_stratum_06",
+        "parameters": {
+          "theta_E": 1.5000258684158325,
+          "gamma": 2.1764187812805176,
+          "e1_mass": -0.05845005065202713,
+          "e2_mass": -0.012273984029889107,
+          "gamma1": 0.04615706577897072,
+          "gamma2": 0.04420724883675575
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1656.7598876953125,
+        "chi2": 6.692957878112793,
+        "prior_energy": 141.8905487060547,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 426.5859375,
+        "overlap_logdet_ratio": 295.222900390625,
+        "full_logdet_ratio": 308.16703260186193,
+        "block": 1443.4669189453125,
+        "overlap": 1509.1484375,
+        "full": 1502.6763713943815,
+        "max_abs_independent_prediction_difference": 7.965601138693046e-07
+      },
+      {
+        "point": "slope_stratum_07",
+        "parameters": {
+          "theta_E": 1.5034592151641846,
+          "gamma": 2.1851584911346436,
+          "e1_mass": -0.036869123578071594,
+          "e2_mass": -0.011427618563175201,
+          "gamma1": 0.05619463324546814,
+          "gamma2": 0.043494220823049545
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1654.6593017578125,
+        "chi2": 11.764937400817871,
+        "prior_energy": 141.0198211669922,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 424.73828125,
+        "overlap_logdet_ratio": 294.49755859375,
+        "full_logdet_ratio": 307.428118088858,
+        "block": 1442.2901611328125,
+        "overlap": 1507.4105224609375,
+        "full": 1500.9452427133835,
+        "max_abs_independent_prediction_difference": 7.793314082960023e-07
+      },
+      {
+        "point": "slope_stratum_08",
+        "parameters": {
+          "theta_E": 1.5006579160690308,
+          "gamma": 2.1919360160827637,
+          "e1_mass": -0.05303634703159332,
+          "e2_mass": 0.008756018243730068,
+          "gamma1": 0.0486479327082634,
+          "gamma2": 0.05427156761288643
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1654.3780517578125,
+        "chi2": 11.792154312133789,
+        "prior_energy": 141.5549774169922,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 427.65625,
+        "overlap_logdet_ratio": 294.671630859375,
+        "full_logdet_ratio": 307.59668111881325,
+        "block": 1440.5499267578125,
+        "overlap": 1507.042236328125,
+        "full": 1500.579711198406,
+        "max_abs_independent_prediction_difference": 6.226581876767057e-07
+      },
+      {
+        "point": "slope_stratum_09",
+        "parameters": {
+          "theta_E": 1.4975736141204834,
+          "gamma": 2.199251174926758,
+          "e1_mass": -0.05272386595606804,
+          "e2_mass": -0.011316651478409767,
+          "gamma1": 0.050680577754974365,
+          "gamma2": 0.04533007740974426
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1655.3902587890625,
+        "chi2": 9.228145599365234,
+        "prior_energy": 142.09457397460938,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 430.46484375,
+        "overlap_logdet_ratio": 295.00634765625,
+        "full_logdet_ratio": 307.9223957486605,
+        "block": 1440.1578369140625,
+        "overlap": 1507.8870849609375,
+        "full": 1501.4290609147322,
+        "max_abs_independent_prediction_difference": 6.136673955658978e-07
+      },
+      {
+        "point": "slope_stratum_10",
+        "parameters": {
+          "theta_E": 1.4999979734420776,
+          "gamma": 2.205772876739502,
+          "e1_mass": -0.05106133595108986,
+          "e2_mass": -0.0007634293287992477,
+          "gamma1": 0.052163854241371155,
+          "gamma2": 0.05138130113482475
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 58,
+        "common": 1655.3646240234375,
+        "chi2": 10.61866569519043,
+        "prior_energy": 140.75543212890625,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 427.759765625,
+        "overlap_logdet_ratio": 294.262939453125,
+        "full_logdet_ratio": 307.1734570955885,
+        "block": 1441.4847412109375,
+        "overlap": 1508.233154296875,
+        "full": 1501.7778954756432,
+        "max_abs_independent_prediction_difference": 6.032505543984712e-07
+      },
+      {
+        "point": "slope_stratum_11",
+        "parameters": {
+          "theta_E": 1.4949579238891602,
+          "gamma": 2.2129015922546387,
+          "e1_mass": -0.057194121181964874,
+          "e2_mass": -0.006237059831619263,
+          "gamma1": 0.04972223564982414,
+          "gamma2": 0.047786250710487366
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 60,
+        "common": 1652.5203857421875,
+        "chi2": 13.957303047180176,
+        "prior_energy": 143.10523986816406,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 432.6171875,
+        "overlap_logdet_ratio": 294.705810546875,
+        "full_logdet_ratio": 307.60603923542334,
+        "block": 1436.2117919921875,
+        "overlap": 1505.16748046875,
+        "full": 1498.7173661244758,
+        "max_abs_independent_prediction_difference": 5.449587536787703e-07
+      },
+      {
+        "point": "slope_stratum_12",
+        "parameters": {
+          "theta_E": 1.4961429834365845,
+          "gamma": 2.2194526195526123,
+          "e1_mass": -0.06525561213493347,
+          "e2_mass": -0.009256234392523766,
+          "gamma1": 0.04840313643217087,
+          "gamma2": 0.04607794061303139
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 59,
+        "common": 1652.7271728515625,
+        "chi2": 13.623486518859863,
+        "prior_energy": 143.0254669189453,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 431.8125,
+        "overlap_logdet_ratio": 294.190185546875,
+        "full_logdet_ratio": 307.08831359066573,
+        "block": 1436.8209228515625,
+        "overlap": 1505.632080078125,
+        "full": 1499.1830160562297,
+        "max_abs_independent_prediction_difference": 7.316936398993334e-07
+      },
+      {
+        "point": "slope_stratum_13",
+        "parameters": {
+          "theta_E": 1.4980939626693726,
+          "gamma": 2.2293434143066406,
+          "e1_mass": -0.04254228621721268,
+          "e2_mass": -0.0010964125394821167,
+          "gamma1": 0.05708234757184982,
+          "gamma2": 0.04948452487587929
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 60,
+        "common": 1654.6895751953125,
+        "chi2": 11.444384574890137,
+        "prior_energy": 141.27972412109375,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 434.09765625,
+        "overlap_logdet_ratio": 293.711669921875,
+        "full_logdet_ratio": 306.58286075077785,
+        "block": 1437.6407470703125,
+        "overlap": 1507.833740234375,
+        "full": 1501.3981448199236,
+        "max_abs_independent_prediction_difference": 7.060536049152688e-07
+      },
+      {
+        "point": "slope_stratum_14",
+        "parameters": {
+          "theta_E": 1.4955120086669922,
+          "gamma": 2.2390360832214355,
+          "e1_mass": -0.05291501432657242,
+          "e2_mass": -0.023923765867948532,
+          "gamma1": 0.05307719483971596,
+          "gamma2": 0.04351550713181496
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 60,
+        "common": 1653.013671875,
+        "chi2": 13.603771209716797,
+        "prior_energy": 142.47219848632812,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 430.24609375,
+        "overlap_logdet_ratio": 293.378173828125,
+        "full_logdet_ratio": 306.23872949801273,
+        "block": 1437.890625,
+        "overlap": 1506.3245849609375,
+        "full": 1499.8943071259937,
+        "max_abs_independent_prediction_difference": 6.616648793311697e-07
+      },
+      {
+        "point": "slope_stratum_15",
+        "parameters": {
+          "theta_E": 1.4953068494796753,
+          "gamma": 2.2494149208068848,
+          "e1_mass": -0.06400717794895172,
+          "e2_mass": -0.009094400331377983,
+          "gamma1": 0.04918145388364792,
+          "gamma2": 0.049799107015132904
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 59,
+        "common": 1653.597412109375,
+        "chi2": 13.283016204833984,
+        "prior_energy": 141.6254119873047,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 432.45703125,
+        "overlap_logdet_ratio": 292.84619140625,
+        "full_logdet_ratio": 305.6920235172404,
+        "block": 1437.368896484375,
+        "overlap": 1507.17431640625,
+        "full": 1500.751400350755,
+        "max_abs_independent_prediction_difference": 6.157359857539291e-07
+      },
+      {
+        "point": "slope_stratum_16",
+        "parameters": {
+          "theta_E": 1.4951777458190918,
+          "gamma": 2.2695045471191406,
+          "e1_mass": -0.05541643127799034,
+          "e2_mass": -0.012025164440274239,
+          "gamma1": 0.053947534412145615,
+          "gamma2": 0.04924667626619339
+        },
+        "primary_valid": true,
+        "evidence_valid": true,
+        "pcg_iterations": 60,
+        "common": 1652.949951171875,
+        "chi2": 15.292459487915039,
+        "prior_energy": 140.9108123779297,
+        "position_penalty": -0.0,
+        "block_logdet_ratio": 432.298828125,
+        "overlap_logdet_ratio": 291.875244140625,
+        "full_logdet_ratio": 304.68203081973104,
+        "block": 1436.800537109375,
+        "overlap": 1507.0123291015625,
+        "full": 1500.6089357620094,
+        "max_abs_independent_prediction_difference": 6.161903738366448e-07
+      }
+    ]
+  }
+}
