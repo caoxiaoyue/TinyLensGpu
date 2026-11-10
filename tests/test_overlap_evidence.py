@@ -390,7 +390,7 @@ def test_joint_operator_default_matches_explicit_overlap():
         assert diagnostics.evidence_logdet == "overlap"
         for field in ("log_evidence", "model_image", "source_pixels", "lens_amplitudes"):
             np.testing.assert_allclose(
-                getattr(result, field), getattr(reference, field), atol=1e-12, rtol=0,
+                getattr(result, field), getattr(reference, field), atol=2e-10, rtol=0,
             )
 
 

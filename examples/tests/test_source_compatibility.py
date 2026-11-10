@@ -211,17 +211,14 @@ def test_survey_plot_renders_public_reconstruction(
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=rho)
     theta = jnp.asarray([medians[name] for name in names])
     initial = np.asarray(model.get_values("flat")).copy()
-    expected, diagnostics = model.evaluate_with_diagnostics(
-        theta, include_effective_dof=True,
-    )
-    assert diagnostics.valid
     namespace = _load_survey_callers(examples_dir, relative_path)
     calls = []
     evaluate = model.evaluate_with_diagnostics
 
-    def evaluate_once(*args, **kwargs):
-        calls.append(kwargs)
-        return evaluate(*args, **kwargs)
+    def evaluate_once(parameters, **kwargs):
+        outcome = evaluate(parameters, **kwargs)
+        calls.append((parameters, kwargs, outcome))
+        return outcome
 
     monkeypatch.setattr(model, "evaluate_with_diagnostics", evaluate_once)
     figures = []
@@ -242,7 +239,11 @@ def test_survey_plot_renders_public_reconstruction(
     namespace["overlay_critical_and_caustics"] = capture_overlay
     path = tmp_path / "survey.png"
     namespace["_plot_pix_stage"]("survey", model, medians, names, path)
-    assert calls == [{"include_effective_dof": True}]
+    assert len(calls) == 1
+    parameters, options, (expected, diagnostics) = calls[0]
+    np.testing.assert_array_equal(parameters, theta)
+    assert options == {"include_effective_dof": True}
+    assert diagnostics.valid
     assert path.read_bytes().startswith(b"\x89PNG")
     axes = [axis for axis in figures[0].axes if axis.images]
     split = relative_path.endswith("model_split.py")
