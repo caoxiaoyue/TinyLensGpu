@@ -5,7 +5,7 @@
 **Blocked by:** [03 — Score source-only operator fits with Overlap](03-source-only-overlap-evidence.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Independent dense joint comparisons verify the Schur determinant and its lens-light prior normalization on the same solved coefficients. Exercise PCG and PNPG under their existing score convention.
 - [ ] One primary observation-data solve supplies the image, source, lens-light intensities and score. A reconstruction-only call skips the score-only determinants and auxiliary Schur solves.
 - [ ] A controlled auxiliary failure returns the sampling penalty and exposes the score-specific cause through diagnostics while retaining a valid primary reconstruction. A primary-solve failure follows its established output convention.
+
+## Comments
+
+- Claimed on `codex/overlap-04-joint-overlap`.
