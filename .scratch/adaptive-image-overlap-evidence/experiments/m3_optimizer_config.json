@@ -1,0 +1,118 @@
+{
+  "hermite_coverage_offset": 0.0001,
+  "dtype": "float64",
+  "evidence_logdet": "overlap",
+  "solver": {
+    "type": "pcg",
+    "max_iterations": 1200,
+    "relative_tolerance": 1e-10,
+    "absolute_tolerance": 1e-12
+  },
+  "physical_bounds": {
+    "theta_E": [
+      0.0,
+      5.0
+    ],
+    "gamma": [
+      1.0,
+      3.0
+    ],
+    "e1_mass": [
+      -1.0,
+      1.0
+    ],
+    "e2_mass": [
+      -1.0,
+      1.0
+    ],
+    "gamma1": [
+      -0.5,
+      0.5
+    ],
+    "gamma2": [
+      -0.5,
+      0.5
+    ]
+  },
+  "starts": {
+    "injection": {
+      "theta_E": 1.5,
+      "gamma": 2.2,
+      "e1_mass": -0.05263157933950424,
+      "e2_mass": -4.601198977383092e-09,
+      "gamma1": 0.05,
+      "gamma2": 0.05
+    },
+    "archive_peak": {
+      "theta_E": 1.5012739896774292,
+      "gamma": 2.178884506225586,
+      "e1_mass": -0.05357817932963371,
+      "e2_mass": -0.005896388553082943,
+      "gamma1": 0.048533447086811066,
+      "gamma2": 0.04662038013339043
+    },
+    "perturbed": {
+      "theta_E": 1.515,
+      "gamma": 2.1100000000000003,
+      "e1_mass": -0.06763157933950424,
+      "e2_mass": 0.004999995398801023,
+      "gamma1": 0.041,
+      "gamma2": 0.056
+    }
+  },
+  "scaling_origin": "injection",
+  "parameter_scales": {
+    "theta_E": 0.04,
+    "gamma": 0.12,
+    "e1_mass": 0.04,
+    "e2_mass": 0.04,
+    "gamma1": 0.03,
+    "gamma2": 0.03
+  },
+  "probes": {
+    "slope_scan": [
+      2.02,
+      2.04,
+      2.06,
+      2.08,
+      2.1,
+      2.12,
+      2.14,
+      2.16,
+      2.18,
+      2.2,
+      2.22,
+      2.24,
+      2.26,
+      2.28,
+      2.3,
+      2.32,
+      2.34,
+      2.36,
+      2.38
+    ],
+    "central_step_in_scaled_units": 2e-05,
+    "ray_crossing_bracket_radius": 0.0005,
+    "ray_crossing_flank": 1e-05,
+    "ray_crossing_step": 1e-06,
+    "relative_derivative_tolerance": 0.0003,
+    "absolute_derivative_tolerance": 0.0005
+  },
+  "lbfgsb_options": {
+    "maxiter": 100,
+    "maxfun": 220,
+    "maxls": 40,
+    "maxcor": 15,
+    "ftol": 1e-15,
+    "gtol": 2e-05
+  },
+  "pass_criteria": {
+    "require_scipy_success": true,
+    "require_finite_endpoint_and_gradient": true,
+    "require_valid_primary_and_evidence": true,
+    "max_scaled_projected_gradient_inf": 0.001,
+    "min_score_gain": 0.0,
+    "basin_scaled_parameter_inf_tolerance": 0.001,
+    "basin_score_tolerance": 1e-06
+  }
+}
