@@ -5,7 +5,7 @@
 **Blocked by:** [05 — Differentiate and batch the full Overlap score](05-overlap-gradients-and-batching.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Run a new M2 calibration and M3 fit with the image-driven prior. Record the actual model, interpolation, adaptive settings, fitted strengths and evidence method.
 - [ ] At matched proposals, compare Block, Overlap and complete determinant scores using the same primary solution. Report absolute offsets, centered errors and ranking as separate quantities.
 - [ ] Retain a reproducible runner, input identities, settings and small result summaries. Record slope recovery and validity for the actual M3 configuration.
+
+## Comments
+
+- Claimed on `codex/overlap-11-mock-replay`.
