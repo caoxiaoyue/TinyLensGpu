@@ -5,7 +5,7 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Use the PSF-convolved native source component from the workflow's existing M0 or M1 producer. Keep its fitted grid, mask, mass point and interpolation with the reference.
 - [ ] Run focused stage and export regressions for each workflow family. Verify the consumers use the exported reference and recover matching artifacts using the shared provenance checks.
 - [ ] Old adaptive stage outputs with a different prior or score require new fits. A compatible upstream source package can generate the reference through the established recovery path.
+
+## Comments
+
+- Claimed on `codex/overlap-07-survey-migrations`.

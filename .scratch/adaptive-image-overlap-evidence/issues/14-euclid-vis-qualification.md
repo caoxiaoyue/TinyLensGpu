@@ -5,7 +5,7 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] Complete M1 reference export, M2 calibration and M3 mass fitting with valid stage products. Rebuild upstream producers when old inputs lack the required provenance.
 - [ ] Verify the two adaptive stages use the same reference identity and fixed source grid, and that M3 records the selected M2 strengths.
 - [ ] Retain the run command, input identities, actual scoring and batching settings, fit diagnostics and outputs separately from the archived mock qualification.
+
+## Comments
+
+- Claimed on `codex/overlap-14-vis-qualification`.
