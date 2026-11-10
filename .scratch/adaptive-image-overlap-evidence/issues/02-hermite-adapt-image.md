@@ -18,3 +18,4 @@
 
 - Claimed on `codex/overlap-02-hermite`.
 - Implemented in `44077fc`. From `tests/` in the `tinylens_gpu` environment, CUDA `pytest -q test_adapt_image.py` passed the new Hermite cases in isolated runs, including the independent reconstruction comparison. The other 13 projection, validation, and cache cases also passed. The Float64 conditional-prior check used shifts `(-0.15002, -0.15, -0.14998)` across the crossing, `x=-0.33` for weak coverage, `nsub=2`, and a finite-difference step of `1e-6`. The gradient tolerances were `rtol=2e-5` and `atol=1e-7`.
+- The combined CUDA run from `tests/` with `pytest -q test_adapt_image.py` passed all 15 cases.
