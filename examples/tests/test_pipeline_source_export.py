@@ -82,6 +82,7 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
     )
 
     calls = []
+    records_arc = relative_path == "euclid_examples/pipeline.py"
 
     class ProbeLikelihood(ck.Module):
         solver_type = "pcg"
@@ -89,6 +90,18 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
         def __init__(self):
             super().__init__("probe_likelihood")
             self.amplitude = ck.Param("amplitude", 0.0)
+            if records_arc:
+                self.image_data = jnp.zeros((5, 5))
+                self.noise_map = jnp.ones((5, 5))
+                mask = jnp.zeros((5, 5), dtype=bool)
+                self.sim_obj = SimpleNamespace(sim_config=SimpleNamespace(
+                    psf_kernel=jnp.ones((1, 1)), mask=mask, source_seed_mask=mask,
+                    dpix=0.1, nsub=1,
+                ))
+                self.phys_model = SimpleNamespace(lens_mass=[], lens_light=[])
+
+        def get_dynamic_params(self):
+            return self.dynamic_params
 
         @ck.forward
         def evaluate(self):
@@ -96,7 +109,7 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
 
         @ck.forward
         def evaluate_with_diagnostics(self, **_kwargs):
-            calls.append(None)
+            calls.append(_kwargs)
             pixels = jnp.arange(9, dtype=jnp.float32) + self.amplitude.value
             info = SimpleNamespace(
                 converged=self._converged,
@@ -111,6 +124,7 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
             diagnostics = SimpleNamespace(
                 valid=bool(self._converged),
                 invalid_reason=None if self._converged else "probe not converged",
+                source_image=jnp.ones((5, 5)),
             )
             return result, diagnostics
 
@@ -125,11 +139,15 @@ def test_source_package_helper_uses_public_diagnostics(relative_path, converged,
         return
 
     package = helper(probe, {"amplitude": 2.5}, ["amplitude"])
-    assert len(calls) == 1
-    assert set(package) == {
+    assert calls == ([{"include_components": True}] if records_arc else [{}])
+    expected = {
         "source_pixels", "source_image", "source_bbox",
         "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
+    if records_arc:
+        expected.update(("adapt_image", "reference_provenance"))
+        np.testing.assert_array_equal(package["adapt_image"], np.ones((5, 5)))
+    assert set(package) == expected
     assert package["n"] == 3
     assert package["source_pixels"].dtype == np.float64
     assert package["source_pixels"].shape == (9,)
@@ -230,10 +248,17 @@ def test_source_package_matches_legacy_real_operator(
     helper = _load_source_package_helper(examples_dir / "pix_src_demo_operator" / "pipe" / relative_path)
     package = helper(model,medians,names)
     assert len(calls) == 1
-    assert set(package) == {
+    expected_keys = {
         "source_pixels", "source_image", "source_bbox",
         "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
+    if relative_path == "euclid_examples/pipeline.py":
+        expected_keys.update(("adapt_image", "reference_provenance"))
+        with ck.ActiveContext(model):
+            model.fill_params(theta)
+            expected_arc, _, _ = model.reconstruct_component_images(expected_source, None)
+        np.testing.assert_allclose(package["adapt_image"], expected_arc, rtol=2e-5, atol=2e-5)
+    assert set(package) == expected_keys
     assert package["n"] == 3
     assert package["source_pixels"].dtype == np.float64
     np.testing.assert_allclose(package["source_pixels"],expected_source,rtol=2e-5,atol=2e-5)
