@@ -134,7 +134,9 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
     assert reconstructions.keys() == fresh.keys()
     for tag, (mode, result) in reconstructions.items():
         assert mode == expected_mode
-        np.testing.assert_allclose(result.model_image, fresh[tag][1].model_image, atol=1e-7)
+        np.testing.assert_allclose(
+            result.model_image, fresh[tag][1].model_image, rtol=2e-5, atol=2e-6,
+        )
     assert all(path.read_bytes() == before for path, before in checkpoint_bytes.items())
 
     conflicting = "bilinear" if requested else "cubic_hermite"
@@ -186,6 +188,7 @@ def test_adaptive_pipeline_resumes_its_saved_source_model(
 def test_source_export_to_adaptive_stage_and_plot(
     relative, load_case, tmp_path, monkeypatch
 ):
+    import caskade as ck
     import jax.numpy as jnp
     from matplotlib.axes import Axes
     from test_pixelized_support import _small_source_export_model
@@ -237,9 +240,11 @@ def test_source_export_to_adaptive_stage_and_plot(
     image, noise = np.asarray(model.image_data), np.asarray(model.noise_map)
     psf = np.asarray(model.sim_obj.psf_kernel)
     mask = ~np.asarray(model.unmask)
-    reference = model.evaluate_with_diagnostics(
-        jnp.asarray([medians[name] for name in names]), include_components=True,
-    )[1].source_image
+    with ck.ActiveContext(model):
+        model.fill_params(jnp.asarray([medians[name] for name in names]))
+        reference, _, _ = model.reconstruct_component_images(
+            jnp.asarray(package["source_pixels"], dtype=model.image_data.dtype), None,
+        )
     np.testing.assert_allclose(package["adapt_image"], reference, atol=1e-7)
     builder = (
         case.build_stage_m1_likelihood

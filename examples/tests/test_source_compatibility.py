@@ -182,7 +182,7 @@ def survey_source_model():
         model = PixelizedImageProbModelOperator(
             image, jnp.ones_like(image) * 0.05, psf, 0.08, phys,
             mask=mask, solver_type="pcg", block_size=2, fixed_source_bbox=bbox,
-            fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+            adapt_image=image,
             position_likelihood=dict(
                 positions=[[0.2, 0.0], [-0.2, 0.0]],
                 threshold_arcsec=0.01, min_log_like=-20.0,
@@ -211,17 +211,14 @@ def test_survey_plot_renders_public_reconstruction(
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=rho)
     theta = jnp.asarray([medians[name] for name in names])
     initial = np.asarray(model.get_values("flat")).copy()
-    expected, diagnostics = model.evaluate_with_diagnostics(
-        theta, include_effective_dof=True,
-    )
-    assert diagnostics.valid
     namespace = _load_survey_callers(examples_dir, relative_path)
     calls = []
     evaluate = model.evaluate_with_diagnostics
 
-    def evaluate_once(*args, **kwargs):
-        calls.append(kwargs)
-        return evaluate(*args, **kwargs)
+    def evaluate_once(parameters, **kwargs):
+        outcome = evaluate(parameters, **kwargs)
+        calls.append((parameters, kwargs, outcome))
+        return outcome
 
     monkeypatch.setattr(model, "evaluate_with_diagnostics", evaluate_once)
     figures = []
@@ -242,7 +239,11 @@ def test_survey_plot_renders_public_reconstruction(
     namespace["overlay_critical_and_caustics"] = capture_overlay
     path = tmp_path / "survey.png"
     namespace["_plot_pix_stage"]("survey", model, medians, names, path)
-    assert calls == [{"include_effective_dof": True}]
+    assert len(calls) == 1
+    parameters, options, (expected, diagnostics) = calls[0]
+    np.testing.assert_array_equal(parameters, theta)
+    assert options == {"include_effective_dof": True}
+    assert diagnostics.valid
     assert path.read_bytes().startswith(b"\x89PNG")
     axes = [axis for axis in figures[0].axes if axis.images]
     split = relative_path.endswith("model_split.py")
@@ -399,7 +400,7 @@ def test_survey_invalid_reconstruction_stops_output(
             jnp.asarray([[1.0]]), 0.08, model.phys_model,
             mask=~np.asarray(model.unmask), solver_type="pcg", block_size=2,
             fixed_source_bbox=(-0.4, 0.4, -0.4, 0.4),
-            fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+            adapt_image=model.image_data,
         )
     names = [param.name for param in model.get_dynamic_params()]
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=0.0)

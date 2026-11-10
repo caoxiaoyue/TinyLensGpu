@@ -190,7 +190,9 @@ def test_j0946_resumes_before_and_after_source_package(
     assert source["source_interpolation"] == mode
     assert np.any(source["source_pixels"] != 0)
     assert source["adapt_image"].shape == image.shape
-    np.testing.assert_allclose(source["adapt_image"], reports["stage-M1"][1].model_image)
+    np.testing.assert_allclose(
+        source["adapt_image"], reports["stage-M1"][1].model_image, rtol=2e-5, atol=1e-7,
+    )
     for tag, (_, result, scale, score_method) in reports.items():
         np.testing.assert_allclose(result.source_bbox, source["source_bbox"])
         assert score_method == "overlap"

@@ -251,6 +251,7 @@ def small_macro_fit(macro_producer, tmp_path, monkeypatch):
 def test_macro_exports_the_native_reference_and_selected_m3_fields(
     macro_producer, small_macro_fit, driver, tmp_path, monkeypatch,
 ):
+    import caskade as ck
     from TinyLensGpu.Inference import StagePosterior
     from workspace.iteration import pt as iteration
 
@@ -268,11 +269,13 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
             m1, m1_params, list(m1_params),
         )
         assert s1["source_interpolation"] == "cubic_hermite"
-        _, reference = m1.evaluate_with_diagnostics(
-            jnp.asarray(list(m1_params.values())), include_components=True,
-        )
+        with ck.ActiveContext(m1):
+            m1.fill_params(jnp.asarray(list(m1_params.values())))
+            reference, _, _ = m1.reconstruct_component_images(
+                jnp.asarray(s1["source_pixels"], dtype=m1.image_data.dtype), None,
+            )
         assert s1["source_image"].shape == (3, 3)
-        np.testing.assert_allclose(s1["adapt_image"], reference.source_image, rtol=1e-6)
+        np.testing.assert_allclose(s1["adapt_image"], reference, atol=1e-7, rtol=1e-6)
         s1.update(lambda_best=0.1, log_lambda_best=log_lambda)
         m2 = macro_producer.build_stage_m2_likelihood(
             image, noise, psf, mask, m1_params, None, s1,
@@ -292,8 +295,7 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
         evaluated = [m3.evaluate_with_diagnostics(jnp.asarray(draw)) for draw in samples]
         scores = np.array([float(result.log_evidence) for result, _ in evaluated])
         selected = int(np.argmax(scores))
-        result, diagnostics = evaluated[selected]
-        assert diagnostics.valid and diagnostics.evidence_valid
+        assert evaluated[selected][1].valid and evaluated[selected][1].evidence_valid
         assert scores[0] != scores[1]
         stage_m3 = StagePosterior.from_schema(
             samples, [0.5, 0.5], param_names=names, log_z=0.0,
@@ -306,8 +308,9 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
         evaluate = type(m3).evaluate_with_diagnostics
 
         def record_evaluation(model, point):
-            calls.append(np.asarray(point))
-            return evaluate(model, point)
+            result, diagnostics = evaluate(model, point)
+            calls.append((np.asarray(point), result, diagnostics))
+            return result, diagnostics
 
         monkeypatch.setattr(type(m3), "evaluate_with_diagnostics", record_evaluation)
         macro_producer.export_m3_bundle(
@@ -315,7 +318,9 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
             None, regs, s1, mask,
         )
     assert len(calls) == 1
-    np.testing.assert_array_equal(calls[0], samples[selected].astype(np.float32))
+    selected_point, result, diagnostics = calls[0]
+    assert diagnostics.valid and diagnostics.evidence_valid
+    np.testing.assert_array_equal(selected_point, samples[selected].astype(np.float32))
     workspace = Path(macro_producer.__file__).parent.name
     consumer = driver if workspace == SLACS0946_WORKSPACE else iteration
     with jax.experimental.enable_x64(consumer is iteration):
@@ -328,13 +333,14 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
     assert record["source_scale_provenance"] == "selected_M3_native_reference_projection"
     assert problem.initialization_provenance["adaptive_scale"] == record["source_scale_provenance"]
     assert record["selected_sample_index"] == selected
-    assert record["best_sample_log_likelihood"] == pytest.approx(scores[selected])
+    assert record["best_sample_log_likelihood"] == float(result.log_evidence)
+    assert record["retained_sample_log_likelihood"] == scores[selected]
     assert problem.renderer.source_boundary == record["source_boundary"]
     np.testing.assert_array_equal(arrays["source_bbox"], s1["source_bbox"])
-    np.testing.assert_allclose(arrays["source_values"], result.source_pixels, rtol=1e-6)
-    np.testing.assert_allclose(arrays["macro_model_image"], result.model_image, rtol=1e-6)
-    np.testing.assert_allclose(
-        arrays["source_scale"], np.asarray(diagnostics.regularization_scale).ravel(), rtol=1e-6,
+    np.testing.assert_array_equal(arrays["source_values"], result.source_pixels)
+    np.testing.assert_array_equal(arrays["macro_model_image"], result.model_image)
+    np.testing.assert_array_equal(
+        arrays["source_scale"], np.asarray(diagnostics.regularization_scale).ravel(),
     )
     np.testing.assert_array_equal(problem.source_scale, arrays["source_scale"])
     assert arrays["source_values"].dtype == np.float32
