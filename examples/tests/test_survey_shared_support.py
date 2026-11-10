@@ -238,9 +238,12 @@ def test_survey_template_validation_keeps_identity(case, monkeypatch):
                    source_x_axis=np.linspace(-1, 1, 3), source_y_axis=np.linspace(-1, 1, 3),
                    lambda_best=2., log_lambda_best=np.log(2.))
     assert module._validate_source_package(package) is package
-    assert package['scale_map'].dtype == np.float32
-    assert package['scale_map'].shape == (9,)
-    assert np.all(package['scale_map'] > 0)
+    if case == CASES[1]:
+        assert 'scale_map' not in package
+    else:
+        assert package['scale_map'].dtype == np.float32
+        assert package['scale_map'].shape == (9,)
+        assert np.all(package['scale_map'] > 0)
     package['nx'] = 3
     with pytest.raises(KeyError, match='legacy'):
         module._validate_source_package(package)
@@ -272,15 +275,34 @@ def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch, i
     mask = np.zeros((10, 10), dtype=bool)
     mask[:2] = True
     psf = np.array([[0., 0., 0.], [0., 1., 0.], [0., 0., 0.]])
-    initial = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, package)
-    names = [p.name for p in initial.get_dynamic_params()]
-    values = {p.name: float(np.asarray(p.value)) for p in initial.get_dynamic_params()}
-    exported = export_source_package(
-        initial, values, names, n=3, record_source_interpolation=True,
-    )
+    if case == CASES[1]:
+        a_names = ["theta_E", "e1_mass", "e2_mass", "center_x_mass", "center_y_mass", "gamma1", "gamma2"]
+        a_samples = np.tile([medians[name] for name in a_names], (3, 1))
+        stage_a = StagePosterior(a_samples, np.ones(3), a_names)
+        producer = module.build_stage_m1_likelihood(
+            image, noise, psf, mask, stage_a, None, 0.0,
+            source_interpolation=interpolation,
+        )
+        producer_names = [param.name for param in producer.get_dynamic_params()]
+        exported = export_source_package(
+            producer, medians, producer_names, n=3, record_adapt_image=True,
+        )
+        values = dict(log_lambda_reg=0.0, adaptive_reg_rho=module.ADAPTIVE_REG_RHO)
+        names = list(values)
+        prepared = exported
+    else:
+        initial = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, package)
+        names = [p.name for p in initial.get_dynamic_params()]
+        values = {p.name: float(np.asarray(p.value)) for p in initial.get_dynamic_params()}
+        exported = export_source_package(
+            initial, values, names, n=3, record_source_interpolation=True,
+        )
+        prepared = validate_source_package(
+            dict(exported, lambda_best=1.0, log_lambda_best=0.0),
+            expected_n=3, rho=module.ADAPTIVE_REG_RHO,
+        )
     assert exported["source_interpolation"] == (interpolation or "bilinear")
-    exported.update(lambda_best=1., log_lambda_best=0.)
-    prepared = validate_source_package(exported, expected_n=3, rho=module.ADAPTIVE_REG_RHO)
+    prepared.update(lambda_best=1.0, log_lambda_best=0.0)
     next_stage = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, prepared)
     assert next_stage.source_model.interpolation == exported["source_interpolation"]
     result, diagnostics = next_stage.evaluate_with_diagnostics(include_effective_dof=True)

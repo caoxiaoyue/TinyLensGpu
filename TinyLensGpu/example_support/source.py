@@ -86,13 +86,14 @@ def require_valid_reconstruction(result, diagnostics, *, context):
 
 def export_source_package(
     likelihood, medians, param_names, *, n, context="exporting source package",
-    record_source_interpolation=False,
+    record_source_interpolation=False, record_adapt_image=False,
 ):
-    """Solve once and package the source, optionally recording its interpolation."""
+    """Solve once and package the source and optional native reference arc."""
     import jax.numpy as jnp
 
     theta = jnp.asarray([medians[name] for name in param_names])
-    result, diagnostics = likelihood.evaluate_with_diagnostics(theta)
+    options = {"include_components": True} if record_adapt_image else {}
+    result, diagnostics = likelihood.evaluate_with_diagnostics(theta, **options)
     require_valid_reconstruction(
         result, diagnostics, context=context
     )
@@ -107,10 +108,14 @@ def export_source_package(
         source_y_axis=y,
         n=int(n),
     )
-    if record_source_interpolation:
+    if record_source_interpolation or record_adapt_image:
         source_model = getattr(likelihood, "source_model", None)
         interpolation = getattr(source_model, "interpolation", "bilinear")
         package.update(source_interpolation_metadata(interpolation))
+    if record_adapt_image:
+        from .adaptation import record_source_reference
+
+        record_source_reference(likelihood, package, result, diagnostics, theta, param_names)
     return package
 
 

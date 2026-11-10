@@ -43,5 +43,8 @@ if __name__ == "__main__":
         help="Output directory relative to this script.",
     )
     parser.add_argument("--source-interpolation", choices=("bilinear", "cubic_hermite"))
-    args = parser.parse_args()
-    main(skip_done=args.skip_done, out_dir=args.out_dir, source_interpolation=args.source_interpolation)
+    parser.add_argument("--evidence-logdet", choices=("overlap", "block"), default="overlap")
+    parser.add_argument("--evidence-block-size", type=int, default=10)
+    parser.add_argument("--vectorized-chunk-size", type=int)
+    parser.add_argument("--seed", type=int, help="Nautilus seed for the pixelized stages.")
+    main(**vars(parser.parse_args()))

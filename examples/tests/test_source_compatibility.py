@@ -333,7 +333,9 @@ def test_survey_source_export_preserves_public_products(
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=rho)
     theta = jnp.asarray([medians[name] for name in names])
     initial = np.asarray(model.get_values("flat")).copy()
-    expected, diagnostics = model.evaluate_with_diagnostics(theta)
+    records_arc = relative_path == "euclid_examples/pipeline.py"
+    options = {"include_components": True} if records_arc else {}
+    expected, diagnostics = model.evaluate_with_diagnostics(theta, **options)
     assert diagnostics.valid
     namespace = _load_survey_callers(examples_dir, relative_path)
     evaluate = model.evaluate_with_diagnostics
@@ -345,14 +347,18 @@ def test_survey_source_export_preserves_public_products(
 
     monkeypatch.setattr(model, "evaluate_with_diagnostics", evaluate_once)
     package = namespace["_solve_pixel_source_for_package"](model, medians, names)
-    assert calls == [{}]
+    assert calls == [options]
     path = tmp_path / "source.pkl"
     path.write_bytes(pickle.dumps(package))
     saved = pickle.loads(path.read_bytes())
-    assert set(saved) == {
+    expected_keys = {
         "source_pixels", "source_image", "source_bbox",
         "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
+    if records_arc:
+        expected_keys.update(("adapt_image", "reference_provenance"))
+        np.testing.assert_allclose(saved["adapt_image"], diagnostics.source_image, rtol=2e-5)
+    assert set(saved) == expected_keys
     assert saved["n"] == 3
     assert saved["source_interpolation"] == "bilinear"
     assert saved["source_boundary"] == "hard_zero_outside_bbox"
@@ -425,7 +431,8 @@ def test_survey_invalid_reconstruction_stops_output(
     if "_solve_pixel_source_for_package" in namespace:
         with pytest.raises(RuntimeError, match="failed"):
             namespace["_solve_pixel_source_for_package"](model, medians, names)
-        assert calls == [{"include_effective_dof": True}, {}]
+        export_options = {"include_components": True} if relative_path == "euclid_examples/pipeline.py" else {}
+        assert calls == [{"include_effective_dof": True}, export_options]
     assert list(tmp_path.iterdir()) == [existing]
     assert existing.read_bytes() == b"previous stage"
 
@@ -484,9 +491,23 @@ def test_survey_stage_propagates_invalid_plot_and_retains_posterior(
         theta_E=0.15, gamma=2.0, e1_mass=0.05, e2_mass=0.0,
         center_x_mass=0.0, center_y_mass=0.0, gamma1=0.0, gamma2=0.0,
     )
+    image, psf = np.full((10, 10), np.nan), jnp.asarray([[1.0]])
+    if relative_path == "euclid_examples/pipeline.py":
+        # A verified reference must match its observation. Force the primary
+        # solver to stop on that same observation instead of replacing it.
+        image, psf = model.image_data, model.sim_obj.psf_kernel
+        build = namespace["build_stage_m2_likelihood"]
+
+        def early_stop(*args, **kwargs):
+            likelihood = build(*args, **kwargs)
+            likelihood.pcg_max_iter = 0
+            return likelihood
+
+        namespace["build_stage_m2_likelihood"] = early_stop
+
     with pytest.raises(RuntimeError, match="failed while plotting stage-M2"):
         namespace["run_stage_m2"](
-            np.full((10, 10), np.nan), model.noise_map, jnp.asarray([[1.0]]),
+            image, model.noise_map, psf,
             ~np.asarray(model.unmask), np.zeros((10, 10)), mass_medians, None,
             package,
         )
