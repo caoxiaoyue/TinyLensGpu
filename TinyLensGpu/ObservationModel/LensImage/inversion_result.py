@@ -51,7 +51,7 @@ class InversionDiagnostics:
     reconstruction contains nonfinite values; ``invalid_reason`` explains it.
     ``chi2`` is the chi-square over active pixels only, while
     ``normalized_residuals`` is the full image in the established plot
-    convention. ``regularization_scale`` is the (n, n) S0-template scale map,
+    convention. ``regularization_scale`` is the (n, n) scale used by the inversion,
     ones for uniform regularization. Optional effective-degrees-of-freedom and
     component-image fields stay ``None`` unless requested; an invalid
     reconstruction keeps the three statistics ``None`` and explains why in

@@ -15,7 +15,9 @@ from ...PhysicalModel.LensImage.Pixelized.Light import is_pixelized_source_model
 from ...utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
+    dense_mapping_from_weights_indices,
     infer_source_bbox,
+    lens_mapping_operator_from,
 )
 from .config import SimulatorConfig
 from .parametric import bin_image_general
@@ -348,21 +350,8 @@ class PixelizedLensSimulator:
         )
         return summed / (self.nsub ** 2)
 
-    def design_matrix(
-        self,
-        *,
-        source_bbox: tuple | None = None,
-        psf_kernel: Array | None = None,
-    ) -> tuple[Array, tuple]:
-        """Build Nd x (Ns+Nl) PSF-convolved joint design matrix M = [F | L].
-
-        When lens_light is absent, returns the source-only matrix F with
-        shape (Nd, Ns).  When lens_light is present, returns the joint
-        matrix [F | L] with shape (Nd, Ns+Nl).
-
-        Returns (M, source_bbox) where source_bbox is (xmin, xmax, ymin, ymax).
-        """
-        # --- Source mapping matrix F ---
+    def source_stencil(self, source_bbox=None) -> tuple[Array, Array, tuple]:
+        """Ray-trace the active subpixels and prepare their interpolation stencil."""
         beta_x, beta_y = self.phys_model.deflection(
             x=self.image_x_active_sub, y=self.image_y_active_sub
         )
@@ -383,9 +372,35 @@ class PixelizedLensSimulator:
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.source_n, xmin, xmax, ymin, ymax
         )
-        mapping_matrix_sub = build_lens_mapping_matrix(
-            beta_x, beta_y, source_x_axis, source_y_axis,
+        weights, indices, _ = lens_mapping_operator_from(
+            jnp.stack((beta_x.ravel(), beta_y.ravel()), axis=1),
+            source_x_axis[0], source_x_axis[-1],
+            source_y_axis[0], source_y_axis[-1], self.source_n,
             interpolation=getattr(self.source_model, "interpolation", "bilinear"),
+        )
+
+        return weights, indices, (xmin, xmax, ymin, ymax)
+
+    def design_matrix(
+        self,
+        *,
+        source_bbox: tuple | None = None,
+        psf_kernel: Array | None = None,
+        _source_stencil: tuple | None = None,
+    ) -> tuple[Array, tuple]:
+        """Build Nd x (Ns+Nl) PSF-convolved joint design matrix M = [F | L].
+
+        When lens_light is absent, returns the source-only matrix F with
+        shape (Nd, Ns).  When lens_light is present, returns the joint
+        matrix [F | L] with shape (Nd, Ns+Nl).
+
+        Returns (M, source_bbox) where source_bbox is (xmin, xmax, ymin, ymax).
+        """
+        if _source_stencil is None:
+            _source_stencil = self.source_stencil(source_bbox)
+        weights, indices, source_bbox = _source_stencil
+        mapping_matrix_sub = dense_mapping_from_weights_indices(
+            weights, indices, self.n_source_pixels,
         )
 
         if self.nsub > 1:
@@ -421,9 +436,9 @@ class PixelizedLensSimulator:
         if self.has_lens_light:
             L = self.build_lens_light_matrix(psf_kernel=psf_kernel)  # (N_d, Nl)
             M = jnp.concatenate([F, L], axis=1)  # (N_d, Ns+Nl)
-            return M, (xmin, xmax, ymin, ymax)
+            return M, source_bbox
 
-        return F, (xmin, xmax, ymin, ymax)
+        return F, source_bbox
 
     def simulate(
         self,

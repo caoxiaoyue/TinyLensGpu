@@ -44,7 +44,8 @@ from .inversion_result import InversionDiagnostics, InversionResult
 from ._inversion_diagnostics import reconstruction_diagnostics
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
-    prepare_reg_template,
+    prepare_adaptive_inputs,
+    project_adapt_image,
     template_reg_scale,
 )
 from ._position_likelihood import (
@@ -111,12 +112,14 @@ class PixelizedImageProbModelOperator(ck.Module):
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. It keeps
         the source grid invariant under mass proposals and is required for
-        S0-based adaptive regularization.
+        adaptive regularization.
+    adapt_image : array_like, optional
+        Fixed, PSF-convolved reference source arc on the native image grid.
+        The active subpixel rays project its brightness onto the fixed source
+        nodes at each mass proposal.
     fixed_reg_template : array_like, optional
-        Flat or 2D S0 source template used to generate the adaptive scale map
-        from current ``adaptive_reg_rho`` values. Required whenever adaptive
-        regularization is enabled, including a dynamic ``adaptive_reg_rho``
-        initialized at zero.
+        Transitional alternative to adapt_image. A flat or 2D fixed source
+        template weights the regularizer at the current adaptive rho.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
         ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
@@ -165,6 +168,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         pnpg_comp_rel_tol: float = 1e-4,
         *,
         initial_source: Union[np.ndarray, Array, None] = None,
+        adapt_image: Union[np.ndarray, Array, None] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "pnpg"):
@@ -217,8 +221,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             if initial.shape != (source_n**2,) or not jnp.all(jnp.isfinite(initial)):
                 raise ValueError("initial_source must contain n² finite node intensities.")
             self._initial_linear = jnp.pad(initial, (0, self.n_lens_light))
-        template_u = prepare_reg_template(
-            fixed_reg_template, source_n,
+        self._adapt_brightness, template_u = prepare_adaptive_inputs(
+            adapt_image, fixed_reg_template, self.image_data, self.sim_obj,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
 
@@ -248,27 +252,11 @@ class PixelizedImageProbModelOperator(ck.Module):
                 self.data_1d,
                 self.noise_1d,
             )
-            object.__setattr__(
-                self,
-                "_prepared",
-                _PreparedData(
-                    image_adjoint,
-                    noise_weights,
-                    template_u,
-                ),
-            )
             regularization = mapping = None
-            if self._fixed_source_bbox is not None:
-                bbox = self._fixed_source_bbox
-                if _is_fixed(self.source_model.adaptive_reg_rho):
-                    scale = self._get_reg_scale()
-                    reg_data, blocks = self._build_regularization(bbox, scale)
-                    regularization = (
-                        reg_data,
-                        blocks,
-                        self._regularization_logdet(bbox, scale, blocks),
-                    )
-                if all(_is_fixed(mass) for mass in self.phys_model.lens_mass):
+            bbox = self._fixed_source_bbox
+            if bbox is not None:
+                mass_fixed = all(_is_fixed(mass) for mass in self.phys_model.lens_mass)
+                if mass_fixed:
                     op_data = self.sim_obj.precompute_operator_data(*bbox)
                     rhs = self.sim_obj.build_rhs(
                         self.data_1d,
@@ -284,13 +272,20 @@ class PixelizedImageProbModelOperator(ck.Module):
                         noise_weights,
                     )
                     mapping = (op_data, rhs, data_blocks)
+                    if self._adapt_brightness is not None:
+                        template_u = self._project_reference(op_data)
+                rho = self.source_model.adaptive_reg_rho
+                if _is_fixed(rho) and (self._adapt_brightness is None or mass_fixed):
+                    scale = template_reg_scale(template_u, rho)
+                    reg_data, blocks = self._build_regularization(bbox, scale)
+                    regularization = (
+                        reg_data,
+                        blocks,
+                        self._regularization_logdet(bbox, scale, blocks),
+                    )
             object.__setattr__(
-                self,
-                "_prepared",
-                self._prepared._replace(
-                    regularization=regularization,
-                    mapping=mapping,
-                ),
+                self, "_prepared",
+                _PreparedData(image_adjoint, noise_weights, template_u, regularization, mapping),
             )
 
     @staticmethod
@@ -367,7 +362,23 @@ class PixelizedImageProbModelOperator(ck.Module):
         system is important during mass-model sampling: otherwise every mass
         proposal changes both the lens mapping and the pixelized source basis.
         """
-        return tuple(float(np.asarray(value)) for value in self._get_bbox()[:4])
+        bbox = self._fixed_source_bbox
+        if bbox is None:
+            bbox = self._get_bbox()[:4]
+        return tuple(float(np.asarray(value)) for value in bbox)
+
+    def _mapping_terms(self):
+        """Return proposal geometry and any invariant data normal terms."""
+        bbox = self._fixed_source_bbox
+        if self._prepared.mapping is not None:
+            return bbox, *self._prepared.mapping
+        if bbox is None:
+            *bounds, bx, by, _, _ = self._get_bbox()
+            bbox = tuple(bounds)
+            op_data = self.sim_obj.precompute_operator_data(*bbox, _betas_sub=(bx, by))
+        else:
+            op_data = self.sim_obj.precompute_operator_data(*bbox)
+        return bbox, op_data, None, None
 
     # ------------------------------------------------------------------
     # Regularization matrix
@@ -400,17 +411,20 @@ class PixelizedImageProbModelOperator(ck.Module):
     # Adaptive regularization scale map
     # ------------------------------------------------------------------
 
-    def _get_reg_scale(self) -> Array | None:
-        """Return the S0-derived adaptive scale map.
-
-        The operator backend no longer constructs adaptive scale maps from
-        image-plane seed rays.  Adaptive runs must provide an S0 source
-        template via ``fixed_reg_template`` before JIT tracing; uniform runs
-        keep the ``None`` fast path.
-        """
-        return template_reg_scale(
-            self._prepared.template_u, self.source_model.adaptive_reg_rho
+    def _project_reference(self, op_data) -> Array:
+        return project_adapt_image(
+            self._adapt_brightness, op_data.weights, op_data.indices,
+            op_data.n_source, op_data.nsub,
         )
+
+    def _get_reg_scale(self, op_data=None) -> Array | None:
+        """Compute the scale from fixed brightness or this proposal's stencil."""
+        template_u = self._prepared.template_u
+        if self._adapt_brightness is not None and template_u is None:
+            if op_data is None:
+                _, op_data, _, _ = self._mapping_terms()
+            template_u = self._project_reference(op_data)
+        return template_reg_scale(template_u, self.source_model.adaptive_reg_rho)
 
     # ------------------------------------------------------------------
     # Source solve via configured iterative solver
@@ -648,21 +662,14 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Prepare, solve and reconstruct once; optionally compute evidence."""
         log_lambda = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda)
-        source_rhs = data_blocks = None
-        if self._prepared.mapping is not None:
-            bbox = self._fixed_source_bbox
-            op_data, source_rhs, data_blocks = self._prepared.mapping
-        else:
-            *bbox_values, bx, by, _, _ = self._get_bbox()
-            bbox = tuple(bbox_values)
-            op_data = self.sim_obj.precompute_operator_data(*bbox, _betas_sub=(bx, by))
+        bbox, op_data, source_rhs, data_blocks = self._mapping_terms()
 
         logdet_h = None
         if self._prepared.regularization is not None:
             reg_data, reg_blocks, logdet_h = self._prepared.regularization
             scale = reg_data.scale
         else:
-            scale = self._get_reg_scale()
+            scale = self._get_reg_scale(op_data)
             reg_data, reg_blocks = self._build_regularization(bbox, scale)
         block_chols, block_masks = self.sim_obj.build_block_diag_preconditioner(
             self.noise_1d,
@@ -754,7 +761,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         result = InversionResult(log_evidence, image, source, lens, bbox, solver_info)
         if not return_details:
             return result
-        return result, (block_chols, reg_blocks, lambda_reg, model_source, model_lens)
+        return result, (block_chols, reg_blocks, lambda_reg, model_source, model_lens, scale)
 
     def _log_evidence(self) -> Array:
         """Evidence with log|P| and block log|R| approximations, as before.
@@ -804,8 +811,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         result = result._replace(
             log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
         )
-        diagnostics = reconstruction_diagnostics(self, result)
-        block_chols, reg_blocks, lambda_reg, model_source, model_lens = details
+        block_chols, reg_blocks, lambda_reg, model_source, model_lens, scale = details
+        diagnostics = reconstruction_diagnostics(self, result, scale)
         if include_effective_dof:
             if self.has_lens_light:
                 diagnostics = replace(
@@ -887,15 +894,9 @@ class PixelizedImageProbModelOperator(ck.Module):
             raise ValueError("lens_light_intensities is required when lens_light is present")
         if not self.has_lens_light:
             lens_light_intensities = jnp.empty((0,), dtype=jnp.asarray(source_pixels).dtype)
-        (xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-         _beta_x_seed, _beta_y_seed) = self._get_bbox()
-        op_data = self.sim_obj.precompute_operator_data(
-            xmin, xmax, ymin, ymax,
-            _betas_sub=(beta_x_sub, beta_y_sub),
-        )
+        bbox, op_data, _, _ = self._mapping_terms()
         source_1d, lens_1d = self.sim_obj.reconstruct_components(
-            source_pixels, lens_light_intensities,
-            xmin, xmax, ymin, ymax, op_data=op_data,
+            source_pixels, lens_light_intensities, *bbox, op_data=op_data,
         )
         H, W = self.sim_obj.image_shape
         source_image = jnp.zeros(H * W, dtype=source_1d.dtype)
@@ -904,7 +905,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         lens_image = lens_image.at[self.sim_obj.flat_indices].set(lens_1d)
         return (
             source_image.reshape(H, W), lens_image.reshape(H, W),
-            (xmin, xmax, ymin, ymax),
+            bbox,
         )
 
     # ------------------------------------------------------------------

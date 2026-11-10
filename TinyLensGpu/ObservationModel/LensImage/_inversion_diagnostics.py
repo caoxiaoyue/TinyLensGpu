@@ -10,7 +10,7 @@ import numpy as np
 from .inversion_result import InversionDiagnostics, PositionDiagnostics
 
 
-def reconstruction_diagnostics(model, result) -> InversionDiagnostics:
+def reconstruction_diagnostics(model, result, scale) -> InversionDiagnostics:
     """Assemble validity, residual, and regularization diagnostics.
 
     Runs inside the model's current parameter context. Invalid
@@ -31,7 +31,6 @@ def reconstruction_diagnostics(model, result) -> InversionDiagnostics:
     residuals = (model.image_data - result.model_image) / model.noise_map
     chi2 = float(jnp.sum(residuals[model.unmask] ** 2))
     n = int(model.source_model.n)
-    scale = model._get_reg_scale()
     scale = (
         jnp.ones((n, n), dtype=result.source_pixels.dtype)
         if scale is None
