@@ -5,14 +5,15 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** claimed
+**State:** resolved
 
 **Spec:** [Parent specification](../spec.md)
 
-- [ ] Each of the three maintained examples supplies its fitted native source arc and fixed grid through `adapt_image`.
-- [ ] Use each example's configured lens-light subtraction, mask, PSF and stage sequence when generating and consuming the reference.
-- [ ] Focused example regressions exercise assembly of the adaptive fit and matched recovery. Check that changed reference or scoring settings trigger the applicable recomputation.
+- [x] Each of the three maintained examples supplies its fitted native source arc and fixed grid through `adapt_image`.
+- [x] Use each example's configured lens-light subtraction, mask, PSF and stage sequence when generating and consuming the reference.
+- [x] Focused example regressions exercise assembly of the adaptive fit and matched recovery. Check that changed reference or scoring settings trigger the applicable recomputation.
 
 ## Comments
 
 - Claimed on `codex/overlap-08-subtracted-migrations`.
+- Implemented in `2d5c970`. From `examples/tests/` in `tinylens_gpu` on CPU, the focused selections from `test_pre_subtracted_adapt_image.py`, `test_pipeline_source_export.py`, `test_source_compatibility.py`, and `test_survey_shared_support.py` passed 65 cases, with 87 deselected. A final `pytest -q test_pre_subtracted_adapt_image.py` run passed all six cases with strengthened mask and actual-scale assertions. Tests cover matching recovery and recomputation on changed score or reference. CLI `--help` and Python compilation checks passed for all three maintained drivers.
