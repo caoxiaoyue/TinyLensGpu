@@ -618,7 +618,9 @@ class PixelizedLensOperator:
         if _betas_sub is not None:
             beta_x_sub, beta_y_sub = _betas_sub
         else:
-            beta_x_sub, beta_y_sub, _, _ = self._get_beta_sub_and_seed()
+            beta_x_sub, beta_y_sub = self.phys_model.deflection(
+                x=self.image_x_active_sub, y=self.image_y_active_sub,
+            )
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.source_n, xmin, xmax, ymin, ymax,
         )

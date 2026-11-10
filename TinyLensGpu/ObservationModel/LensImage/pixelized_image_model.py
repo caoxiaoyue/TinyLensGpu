@@ -30,26 +30,25 @@ from .inversion_result import InversionDiagnostics, InversionResult
 from ._inversion_diagnostics import reconstruction_diagnostics
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
-    prepare_reg_template,
+    prepare_adaptive_inputs,
+    project_adapt_image,
     template_reg_scale,
 )
 from ._position_likelihood import resolve_position_likelihood_attrs, compute_position_penalty_jax
 
 
 class _DensePrepared(NamedTuple):
-    """Invariant terms for one dense pixelized evidence model.
+    """Invariant design, source geometry and prior terms for one dense fit.
 
-    ``regularization`` is ``(matrix, log_determinant)`` when the fixed source
-    grid makes the regularizer invariant. The determinant is ``logdet(R)``.
-    ``design`` is ``(M, M^T C^{-1} M, M^T C^{-1} d)`` when the lens mapping and
-    lens-light bases are fixed too. Either slot is absent when that tier does
-    not apply. ``template_u`` is the normalized S0 template used to weight the
-    regularizer at the current ``adaptive_reg_rho``.
+    The prior cache carries the matrix, its log determinant and the scale
+    used to build it. Source brightness can be cached independently of the
+    joint design and prior when only the lens-light bases or rho vary.
     """
 
     regularization: tuple | None = None
     design: tuple | None = None
     template_u: Array | None = None
+    source_stencil: tuple | None = None
 
 
 def _modules_are_fixed(modules) -> bool:
@@ -88,25 +87,16 @@ class PixelizedImageProbModel(ck.Module):
         non-negativity via FNNLS.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. When
-        omitted, each evaluation infers a bbox from seed rays. When supplied
-        and ``adaptive_reg_rho`` is fixed, the finite-difference regularization
-        matrix and its log determinant are
-        stored at construction. Independently of rho, if that bbox, every
-        lens-mass component, and every lens-light basis are fixed, the joint
-        design matrix and its data-only normal equations are stored too. Regularization
-        strength stays outside that cache. Rebuild this model and its compiled
-        likelihood after changing a fixed value, a parameter mode, the
-        observations, or the bbox.
+        omitted, each evaluation infers a bbox from seed rays. Rebuild this
+        model after changing any fixed physical parameter, the observations
+        or grid settings.
+    adapt_image : array_like, optional
+        Fixed, PSF-convolved reference source arc on the native image grid.
+        With a fixed source bbox, the active subpixel rays project its
+        brightness onto the source nodes at each mass proposal.
     fixed_reg_template : array_like, optional
-        Flat ``(n * n,)`` or ``(n, n)`` S0 source template used to generate
-        the adaptive regularization scale map from the current
-        ``adaptive_reg_rho`` value. Required together with
-        ``fixed_source_bbox`` whenever adaptive regularization is enabled —
-        a positive fixed rho or a rho with dynamic or unresolved
-        dependencies, even one initialized at zero. When rho is fixed at zero the template is
-        optional and the uniform fast path is kept. A fixed rho caches the
-        weighted regularizer and its log determinant; a dynamic rho updates
-        both on every solve while the design-matrix cache stays independent.
+        Transitional alternative to adapt_image. A flat or 2D fixed source
+        template weights the regularizer at the current adaptive rho.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
         ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
@@ -133,6 +123,8 @@ class PixelizedImageProbModel(ck.Module):
         fixed_reg_template: Union[np.ndarray, Array, None] = None,
         source_bbox_padding: float = 0.05,
         source_bbox_outlier_frac: float = 0.0,
+        *,
+        adapt_image: Union[np.ndarray, Array, None] = None,
     ) -> None:
         super().__init__("pixelized_image_prob_model")
         if solver_type not in ("nnls", "cholesky"):
@@ -164,8 +156,8 @@ class PixelizedImageProbModel(ck.Module):
         self.noise_1d = self.noise_map[self.unmask]
         self.logdet_C = jnp.sum(jnp.log(self.noise_1d**2))
         source_n = int(self.source_model.n)
-        template_u = prepare_reg_template(
-            fixed_reg_template, source_n,
+        self._adapt_brightness, template_u = prepare_adaptive_inputs(
+            adapt_image, fixed_reg_template, self.image_data, self.sim_obj,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
         object.__setattr__(self, "_prepared", _DensePrepared(template_u=template_u))
@@ -174,6 +166,9 @@ class PixelizedImageProbModel(ck.Module):
             source_n,
             self.reg_type,
         )
+
+        # Keep dense index-space preparation outside proposal tracing.
+        self.reg_builder._prepare_dense_operators()
 
         # Lens-light configuration
         self.n_lens_light = self.sim_obj.n_lens_light
@@ -263,35 +258,31 @@ class PixelizedImageProbModel(ck.Module):
             source_bbox = tuple(jax.lax.stop_gradient(b) for b in source_bbox)
         return source_bbox
 
-    def _lens_mapping_is_fixed(self) -> bool:
-        """The joint design matrix is invariant only when mass and lens light are."""
-        if self._fixed_source_bbox is None:
-            return False
-        return _modules_are_fixed(self.phys_model.lens_mass) and _modules_are_fixed(
-            self.phys_model.lens_light
-        )
-
     def _store_fixed_grid_cache(self) -> None:
-        """Fill invariant regularization and, when possible, the design triple.
+        """Prepare terms whose geometry, bases and strength dependencies are fixed."""
+        bbox = self._fixed_source_bbox
+        if bbox is None:
+            return
 
-        The cache is not invalidated later. A changed fixed value, parameter
-        mode, observation, or bbox needs a new evidence model.
-        """
-        regularization = None
-        design = None
-        if self._fixed_source_bbox is not None:
-            with ck.ActiveContext(self):
-                if _is_fixed(self.source_model.adaptive_reg_rho):
-                    regularization = self._build_cached_regularization(self._fixed_source_bbox)
-                if self._lens_mapping_is_fixed():
-                    design_matrix, _ = self.sim_obj.design_matrix(
-                        source_bbox=self._fixed_source_bbox
-                    )
-                    design = self._normal_terms(design_matrix)
+        mass_fixed = _modules_are_fixed(self.phys_model.lens_mass)
+        design = regularization = source_stencil = None
+        template_u = self._prepared.template_u
+        rho = self.source_model.adaptive_reg_rho
+        with ck.ActiveContext(self):
+            if mass_fixed and self._adapt_brightness is not None:
+                source_stencil = self.sim_obj.source_stencil(bbox)
+                template_u = self._project_reference(source_stencil)
+            if _is_fixed(rho) and (self._adapt_brightness is None or mass_fixed):
+                scale = template_reg_scale(template_u, rho)
+                regularization = self._build_cached_regularization(bbox, scale)
+            if mass_fixed and _modules_are_fixed(self.phys_model.lens_light):
+                matrix, _ = self.sim_obj.design_matrix(
+                    source_bbox=bbox, _source_stencil=source_stencil,
+                )
+                design = self._normal_terms(matrix)
         object.__setattr__(
-            self,
-            "_prepared",
-            self._prepared._replace(regularization=regularization, design=design),
+            self, "_prepared",
+            _DensePrepared(regularization, design, template_u, source_stencil),
         )
 
     def _bbox_matches_fixed(self, source_bbox) -> bool:
@@ -316,17 +307,30 @@ class PixelizedImageProbModel(ck.Module):
             return None
         return self._prepared.regularization
 
-    def _get_reg_scale(self) -> Array | None:
-        """Return the S0-template scale map at the current ``adaptive_reg_rho``."""
-        return template_reg_scale(
-            self._prepared.template_u, self.source_model.adaptive_reg_rho
+    def _project_reference(self, stencil) -> Array:
+        weights, indices, _ = stencil
+        return project_adapt_image(
+            self._adapt_brightness, weights, indices,
+            self.sim_obj.n_source_pixels, self.sim_obj.nsub,
         )
 
-    def _build_cached_regularization(self, source_bbox) -> tuple[Array, Array]:
-        """Build the matrix and the log determinant the evidence reuses."""
-        matrix = self._regularization_from_builder(source_bbox, scale=self._get_reg_scale())
+    def _get_reg_scale(self, source_bbox=None, source_stencil=None) -> Array | None:
+        """Compute the scale from fixed brightness or this proposal's stencil."""
+        template_u = self._prepared.template_u
+        if self._adapt_brightness is not None:
+            if source_bbox is None:
+                source_bbox = self._fixed_source_bbox
+            if template_u is None or not self._bbox_matches_fixed(source_bbox):
+                if source_stencil is None:
+                    source_stencil = self.sim_obj.source_stencil(source_bbox)
+                template_u = self._project_reference(source_stencil)
+        return template_reg_scale(template_u, self.source_model.adaptive_reg_rho)
+
+    def _build_cached_regularization(self, source_bbox, scale) -> tuple[Array, Array, Array | None]:
+        """Build invariant precision, log determinant and the scale they used."""
+        matrix = self._regularization_from_builder(source_bbox, scale=scale)
         sign, logdet = jnp.linalg.slogdet(matrix)
-        return matrix, jnp.where(sign > 0.0, logdet, -jnp.inf)
+        return matrix, jnp.where(sign > 0.0, logdet, -jnp.inf), scale
 
     def _normal_terms(self, design_matrix: Array) -> tuple[Array, Array, Array]:
         """Return the design matrix and the data-only normal-equation terms."""
@@ -335,12 +339,18 @@ class PixelizedImageProbModel(ck.Module):
         rhs = weighted.T @ (self.data_1d / self.noise_1d)
         return design_matrix, gram, rhs
 
-    def _design_terms(self, source_bbox) -> tuple[Array, Array, Array]:
-        """Return ``M``, the data Gram matrix, and the data right-hand side."""
-        if self._prepared.design is not None and self._bbox_matches_fixed(source_bbox):
-            return self._prepared.design
-        design_matrix, _ = self.sim_obj.design_matrix(source_bbox=source_bbox)
-        return self._normal_terms(design_matrix)
+    def _design_terms(self, source_bbox) -> tuple[Array, Array, Array, tuple | None]:
+        """Return the data normal equations and any shared proposal stencil."""
+        fixed_grid = self._bbox_matches_fixed(source_bbox)
+        if self._prepared.design is not None and fixed_grid:
+            return *self._prepared.design, None
+        source_stencil = self._prepared.source_stencil if fixed_grid else None
+        if self._adapt_brightness is not None and source_stencil is None:
+            source_stencil = self.sim_obj.source_stencil(source_bbox)
+        design_matrix, _ = self.sim_obj.design_matrix(
+            source_bbox=source_bbox, _source_stencil=source_stencil,
+        )
+        return *self._normal_terms(design_matrix), source_stencil
 
     def _solve_source(
         self,
@@ -405,8 +415,10 @@ class PixelizedImageProbModel(ck.Module):
         log_lambda_reg = jnp.asarray(self.source_model.log_lambda_reg.value)
         lambda_reg = jnp.exp(log_lambda_reg)
         source_bbox = self._inversion_source_bbox()
-        design_matrix, gram, rhs = self._design_terms(source_bbox)
-        reg_matrix = self._regularization_matrix(source_bbox)
+        design_matrix, gram, rhs, source_stencil = self._design_terms(source_bbox)
+        reg_matrix, scale = self._regularization_terms(
+            source_bbox, source_stencil=source_stencil,
+        )
         linear_params, chol, curvature = self._solve_source(
             design_matrix, reg_matrix, lambda_reg, gram=gram, rhs=rhs,
         )
@@ -438,7 +450,7 @@ class PixelizedImageProbModel(ck.Module):
             lens_amplitudes, source_bbox, None,
         )
         if return_details:
-            return result, (design_matrix, reg_matrix, lambda_reg, chol, curvature)
+            return result, (design_matrix, reg_matrix, lambda_reg, chol, curvature, scale)
         return result
 
     def _log_evidence(self) -> Array:
@@ -463,18 +475,17 @@ class PixelizedImageProbModel(ck.Module):
         sign, logdet = jnp.linalg.slogdet(reg_matrix)
         return jnp.where(sign > 0.0, logdet, -jnp.inf)
 
-    def _regularization_matrix(self, source_bbox: tuple, scale: Array | None = None) -> Array:
-        """Return the regularization matrix for the configured regularization.
-
-        A bbox other than the stored fixed grid is built immediately and
-        does not replace the cache.
-        """
+    def _regularization_terms(self, source_bbox, *, source_stencil=None, scale=None):
         if scale is None:
             cached = self._matched_regularization(source_bbox)
             if cached is not None:
-                return cached[0]
-            scale = self._get_reg_scale()
-        return self._regularization_from_builder(source_bbox, scale=scale)
+                return cached[0], cached[2]
+            scale = self._get_reg_scale(source_bbox, source_stencil)
+        return self._regularization_from_builder(source_bbox, scale=scale), scale
+
+    def _regularization_matrix(self, source_bbox: tuple, scale: Array | None = None) -> Array:
+        """Return the configured regularization on the requested source grid."""
+        return self._regularization_terms(source_bbox, scale=scale)[0]
 
     @ck.forward
     def evaluate(self) -> InversionResult:
@@ -508,8 +519,8 @@ class PixelizedImageProbModel(ck.Module):
         result = result._replace(
             log_evidence=jnp.where(jnp.isfinite(log_ev), log_ev, -1.0e10)
         )
-        diagnostics = reconstruction_diagnostics(self, result)
-        design_matrix, reg_matrix, lambda_reg, chol, curvature = details
+        design_matrix, reg_matrix, lambda_reg, chol, curvature, scale = details
+        diagnostics = reconstruction_diagnostics(self, result, scale)
         n_source = self.sim_obj.n_source_pixels
         if include_effective_dof:
             if diagnostics.valid:
@@ -585,7 +596,10 @@ class PixelizedImageProbModel(ck.Module):
         if self._prepared.design is not None and self._bbox_matches_fixed(bbox):
             design_matrix = self._prepared.design[0]
         else:
-            design_matrix, _ = self.sim_obj.design_matrix(source_bbox=bbox)
+            stencil = self._prepared.source_stencil if self._bbox_matches_fixed(bbox) else None
+            design_matrix, _ = self.sim_obj.design_matrix(
+                source_bbox=bbox, _source_stencil=stencil,
+            )
         n_source = self.sim_obj.n_source_pixels
         source_1d = design_matrix[:, :n_source] @ jnp.asarray(source_pixels)
         lens_1d = (

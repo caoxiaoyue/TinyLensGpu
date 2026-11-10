@@ -62,13 +62,13 @@ def _source_template_scale_from_normalized(
     template_u: "jax.Array",
     rho: float,
 ) -> "jax.Array":
-    """Evaluate the Galan-style scale map from a normalized S0 template.
+    """Evaluate the Galan-style scale map from normalized source brightness.
 
     Returns ``exp(rho * (1 - u))`` per pixel; a ``rho`` within ``1e-10`` of
     zero (including traced zeros) returns the uniform fast path of ones.
     Negative rho is clamped to zero.
     """
-    rho_j = jnp.maximum(jnp.asarray(rho, dtype=jnp.float32), 0.0)
+    rho_j = jnp.maximum(jnp.asarray(rho, dtype=template_u.dtype), 0.0)
     scale = jnp.exp(rho_j * (1.0 - template_u))
     return jnp.where(jnp.abs(rho_j) < 1.0e-10, jnp.ones_like(scale), scale)
 
