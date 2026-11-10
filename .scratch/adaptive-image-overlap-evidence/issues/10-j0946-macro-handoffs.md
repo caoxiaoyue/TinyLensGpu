@@ -5,7 +5,7 @@
 **Blocked by:** [06 — Run Euclid M1 through M3 with a shared reference arc](06-euclid-adapt-image-stages.md).
 
 **Status:** ready-for-agent
-**State:** open
+**State:** claimed
 
 **Spec:** [Parent specification](../spec.md)
 
@@ -13,3 +13,7 @@
 - [ ] At the selected M3 draw, obtain the fitted fields, actual adaptive scale and score method from the same valid model evaluation. Save a finite positive scale on the handoff's fitted source grid.
 - [ ] A focused handoff round trip verifies the existing fixed `source_scale` consumer can read the new product. An archived product remains readable using its recorded scale and configuration.
 - [ ] Limit the migration to the two documented macro entry points and their handoff behavior.
+
+## Comments
+
+- Claimed on `codex/overlap-10-j0946-handoffs`.

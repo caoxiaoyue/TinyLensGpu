@@ -322,7 +322,7 @@ def test_source_export_helper_preserves_legacy_default_schema(survey_source_mode
 def test_survey_source_export_preserves_public_products(
     relative_path, rho, examples_dir, survey_source_model, tmp_path, monkeypatch,
 ):
-    """Raw source packages retain float64 arrays, axes and keys without optional work."""
+    """Source packages retain the raw pixels, axes and native source component."""
     import pickle
 
     import jax.numpy as jnp
@@ -333,8 +333,7 @@ def test_survey_source_export_preserves_public_products(
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=rho)
     theta = jnp.asarray([medians[name] for name in names])
     initial = np.asarray(model.get_values("flat")).copy()
-    records_arc = relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:2]
-    options = {"include_components": True} if records_arc else {}
+    options = {"include_components": True}
     expected, diagnostics = model.evaluate_with_diagnostics(theta, **options)
     assert diagnostics.valid
     namespace = _load_survey_callers(examples_dir, relative_path)
@@ -355,9 +354,8 @@ def test_survey_source_export_preserves_public_products(
         "source_pixels", "source_image", "source_bbox",
         "source_x_axis", "source_y_axis", "n", "source_interpolation", "source_boundary",
     }
-    if records_arc:
-        expected_keys.update(("adapt_image", "reference_provenance"))
-        np.testing.assert_allclose(saved["adapt_image"], diagnostics.source_image, rtol=2e-5)
+    expected_keys.update(("adapt_image", "reference_provenance"))
+    np.testing.assert_allclose(saved["adapt_image"], diagnostics.source_image, rtol=2e-5)
     assert set(saved) == expected_keys
     assert saved["n"] == 3
     assert saved["source_interpolation"] == "bilinear"
@@ -431,7 +429,7 @@ def test_survey_invalid_reconstruction_stops_output(
     if "_solve_pixel_source_for_package" in namespace:
         with pytest.raises(RuntimeError, match="failed"):
             namespace["_solve_pixel_source_for_package"](model, medians, names)
-        export_options = {"include_components": True} if relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:2] else {}
+        export_options = {"include_components": True} if relative_path in _SURVEY_DIAGNOSTIC_SCRIPTS[:-1] else {}
         assert calls == [{"include_effective_dof": True}, export_options]
     assert list(tmp_path.iterdir()) == [existing]
     assert existing.read_bytes() == b"previous stage"
