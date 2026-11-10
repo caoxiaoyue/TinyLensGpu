@@ -122,7 +122,7 @@ def test_ordinary_evidence_uses_native_data_and_prior_tile_determinants(
                 native_posterior, blocks, jitter_floor=1e-8
             )
             model = PixelizedImageProbModelOperator(
-                *args, **options, block_size=width, solver_type="pcg"
+                *args, **options, block_size=width, solver_type="pcg", evidence_logdet="block"
             )
             model.pcg_rtol = 1e-12
             fit = model.evaluate()

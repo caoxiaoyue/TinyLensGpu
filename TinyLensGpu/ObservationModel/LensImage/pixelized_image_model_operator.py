@@ -9,6 +9,7 @@ avoiding explicit construction of the (Nd × Ns) design matrix.
 from __future__ import annotations
 
 from dataclasses import replace
+from numbers import Integral
 from typing import Dict, NamedTuple, Optional, Union
 
 import caskade as ck
@@ -42,6 +43,7 @@ from TinyLensGpu.utils.inversion.regularization import (
 )
 from .inversion_result import InversionDiagnostics, InversionResult
 from ._inversion_diagnostics import reconstruction_diagnostics
+from ._overlap_logdet import OverlapLogdet
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
     prepare_adaptive_inputs,
@@ -109,6 +111,12 @@ class PixelizedImageProbModelOperator(ck.Module):
         Source solver. ``"pcg"`` is unconstrained. ``"pnpg"`` solves the
         matrix-free non-negative quadratic with all joint linear parameters
         constrained to be non-negative.
+    evidence_logdet : {"block", "overlap"}, optional
+        Use the historical preconditioner blocks or overlapping exact
+        principal windows for the evidence determinant ratio.
+    evidence_block_size : int, optional
+        Source tile width for Overlap (default: 10), independent of
+        the solver preconditioner block size.
     fixed_source_bbox : tuple, optional
         Fixed square ``(xmin, xmax, ymin, ymax)`` source-plane bbox. It keeps
         the source grid invariant under mass proposals and is required for
@@ -169,12 +177,24 @@ class PixelizedImageProbModelOperator(ck.Module):
         *,
         initial_source: Union[np.ndarray, Array, None] = None,
         adapt_image: Union[np.ndarray, Array, None] = None,
+        evidence_logdet: str = "block",
+        evidence_block_size: int = 10,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
         if solver_type not in ("pcg", "pnpg"):
             raise ValueError(
                 "solver_type must be 'pcg' or 'pnpg', " f"got {solver_type!r}"
             )
+        if evidence_logdet not in ("block", "overlap"):
+            raise ValueError("evidence_logdet must be 'block' or 'overlap'.")
+        if (
+            isinstance(evidence_block_size, bool)
+            or not isinstance(evidence_block_size, Integral)
+            or evidence_block_size < 1
+        ):
+            raise ValueError("evidence_block_size must be a positive integer.")
+        self.evidence_logdet = evidence_logdet
+        self.evidence_block_size = int(evidence_block_size)
         self.solver_type = solver_type
         self.lens_light_regularization = validate_lens_light_regularization(
             lens_light_regularization
@@ -199,6 +219,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         self.sim_obj = PixelizedLensOperator(self.phys_model, sim_config)
         self.n_lens_light = self.sim_obj.n_lens_light
         self.has_lens_light = self.sim_obj.has_lens_light
+        if self.has_lens_light and evidence_logdet == "overlap":
+            raise ValueError("Overlap evidence currently requires a source-only inversion.")
         self.unmask = ~jnp.asarray(sim_config.mask, dtype=bool)
         self.data_1d = self.image_data[self.unmask]
         self.noise_1d = self.noise_map[self.unmask]
@@ -281,11 +303,20 @@ class PixelizedImageProbModelOperator(ck.Module):
                     regularization = (
                         reg_data,
                         blocks,
-                        self._regularization_logdet(bbox, scale, blocks),
+                        self._regularization_logdet(bbox, scale, blocks)
+                        if evidence_logdet == "block" else None,
                     )
             object.__setattr__(
                 self, "_prepared",
                 _PreparedData(image_adjoint, noise_weights, template_u, regularization, mapping),
+            )
+
+        self._overlap_logdet = None
+        if evidence_logdet == "overlap":
+            self._overlap_logdet = OverlapLogdet(
+                self.sim_obj, self.reg_builder, self.noise_1d,
+                self.evidence_block_size,
+                fixed_geometry=(bbox, mapping[0]) if mapping is not None else None,
             )
 
     @staticmethod
@@ -723,19 +754,24 @@ class PixelizedImageProbModelOperator(ck.Module):
             e_s = 0.5 * jnp.dot(
                 source, self.reg_builder.matvec_free(source, *bbox, scale=scale)
             )
-            logdet_p = (
-                self._logdet_block_schur(preconditioner)
-                if self.has_lens_light
-                else self.sim_obj.logdet_block_diag(block_chols)
-            )
-            if logdet_h is None:
-                logdet_h = self._regularization_logdet(bbox, scale, reg_blocks)
+            log_evidence = -e_d - lambda_reg * e_s
+            if self._overlap_logdet is None:
+                logdet_p = (
+                    self._logdet_block_schur(preconditioner)
+                    if self.has_lens_light
+                    else self.sim_obj.logdet_block_diag(block_chols)
+                )
+                if logdet_h is None:
+                    logdet_h = self._regularization_logdet(bbox, scale, reg_blocks)
+                log_evidence = (
+                    log_evidence - 0.5 * logdet_p
+                    + 0.5 * n_source * log_lambda + 0.5 * logdet_h
+                )
+            else:
+                ratio = self._overlap_logdet(op_data, bbox, reg_data, lambda_reg)
+                log_evidence = log_evidence - 0.5 * ratio
             log_evidence = (
-                -e_d
-                - lambda_reg * e_s
-                - 0.5 * logdet_p
-                + 0.5 * n_source * log_lambda
-                + 0.5 * logdet_h
+                log_evidence
                 - 0.5 * self.data_1d.size * jnp.log(2.0 * jnp.pi)
                 - 0.5 * self.logdet_C
             )
@@ -765,7 +801,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         return result, (block_chols, reg_blocks, lambda_reg, model_source, model_lens, scale)
 
     def _log_evidence(self) -> Array:
-        """Evidence with log|P| and block log|R| approximations, as before.
+        """Evidence with the selected curvature determinant approximation.
 
         Constrained solvers retain the unconstrained-style determinant terms;
         this is not the exact evidence of a truncated non-negative prior.
