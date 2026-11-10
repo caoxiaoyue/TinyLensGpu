@@ -19,3 +19,4 @@
 
 - Claimed on `codex/overlap-03-source-overlap`.
 - Implemented in `e8023bb`. From `tests/` in `tinylens_gpu`, CPU `pytest -q test_overlap_evidence.py test_pixelized_interpolation_evidence.py::test_ordinary_evidence_uses_native_data_and_prior_tile_determinants --maxfail=1` passed all 7 cases. Coverage includes the full determinant, periodic and cropped asymmetric PSF, adaptive partial windows for all prior orders, matched reconstructions, the explicit Block reference, and a compiled HLO shape audit for moving mass.
+- The same 7 targeted cases passed on CUDA.
