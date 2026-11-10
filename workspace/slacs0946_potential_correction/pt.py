@@ -149,7 +149,9 @@ def load_problem(
             handoff_sha256=metadata["handoff_sha256"],
             representative=metadata["representative"],
             gradient=f"frozen_{interpolation}_derivative_of_M3_source",
-            adaptive_scale="fixed_M1_template_and_M2_rho_as_used_in_M3",
+            adaptive_scale=metadata.get(
+                "source_scale_provenance", "fixed_M1_template_and_M2_rho_as_used_in_M3",
+            ),
         ),
     )
     return problem, metadata, arrays

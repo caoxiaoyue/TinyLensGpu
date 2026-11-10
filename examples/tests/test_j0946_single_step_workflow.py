@@ -97,7 +97,9 @@ def test_j0946_consumers_use_the_handoff_interpolation(
         16 if mode == "cubic_hermite" else 4
     )
     assert arrays["source_values"].shape == (4,)
+    np.testing.assert_array_equal(problem.source_scale, arrays["source_scale"])
     provenance = problem.initialization_provenance
+    assert provenance["adaptive_scale"] == "fixed_M1_template_and_M2_rho_as_used_in_M3"
     if workspace == SLACS0946_WORKSPACE:
         assert provenance["gradient"] == f"frozen_{mode}_derivative_of_M3_source"
         gx, gy = problem.renderer.source_spatial_gradient(arrays["source_values"])
@@ -220,11 +222,9 @@ def test_macro_resume_preserves_the_recorded_source_interpolation(
     assert manifest_path.read_bytes() == preserved
 
 
-def test_macro_export_keeps_hermite_through_source_template_transition(
-    macro_producer, tmp_path, monkeypatch
-):
+@pytest.fixture
+def small_macro_fit(macro_producer, tmp_path, monkeypatch):
     from TinyLensGpu.Inference import StagePosterior
-    from workspace.iteration import pt as iteration
 
     for name, value in (
         ("NSRC", 3), ("NSUB_PIX", 1), ("OUT_DIR", tmp_path),
@@ -245,6 +245,16 @@ def test_macro_export_keeps_hermite_through_source_template_transition(
     noise = np.full_like(image, 0.1)
     psf = np.ones((1, 1), dtype=np.float32)
     mask = np.zeros_like(image, dtype=bool)
+    return image, noise, psf, mask, stage_a
+
+
+def test_macro_exports_the_native_reference_and_selected_m3_fields(
+    macro_producer, small_macro_fit, driver, tmp_path, monkeypatch,
+):
+    from TinyLensGpu.Inference import StagePosterior
+    from workspace.iteration import pt as iteration
+
+    image, noise, psf, mask, stage_a = small_macro_fit
     args = image, noise, psf, mask, stage_a, None
     log_lambda = float(np.log(0.1))
     with jax.experimental.enable_x64(False):
@@ -258,6 +268,11 @@ def test_macro_export_keeps_hermite_through_source_template_transition(
             m1, m1_params, list(m1_params),
         )
         assert s1["source_interpolation"] == "cubic_hermite"
+        _, reference = m1.evaluate_with_diagnostics(
+            jnp.asarray(list(m1_params.values())), include_components=True,
+        )
+        assert s1["source_image"].shape == (3, 3)
+        np.testing.assert_allclose(s1["adapt_image"], reference.source_image, rtol=1e-6)
         s1.update(lambda_best=0.1, log_lambda_best=log_lambda)
         m2 = macro_producer.build_stage_m2_likelihood(
             image, noise, psf, mask, m1_params, None, s1,
@@ -271,22 +286,121 @@ def test_macro_export_keeps_hermite_through_source_template_transition(
         m3_params = {
             param.name: float(param.value) for param in m3.get_dynamic_params()
         }
-        samples = np.array([list(m3_params.values())])
+        names = list(m3_params)
+        samples = np.array([list(m3_params.values())] * 2)
+        samples[1, names.index("theta_E")] += 0.05
+        evaluated = [m3.evaluate_with_diagnostics(jnp.asarray(draw)) for draw in samples]
+        scores = np.array([float(result.log_evidence) for result, _ in evaluated])
+        selected = int(np.argmax(scores))
+        result, diagnostics = evaluated[selected]
+        assert diagnostics.valid and diagnostics.evidence_valid
+        assert scores[0] != scores[1]
         stage_m3 = StagePosterior.from_schema(
-            samples, [1.0], param_names=list(m3_params), log_z=0.0,
+            samples, [0.5, 0.5], param_names=names, log_z=0.0,
         )
-        np.savez(tmp_path / "posterior_m3.npz", samples=samples, log_likelihood=[0.0])
+        np.savez(
+            tmp_path / "posterior_m3.npz", samples=samples, log_likelihood=scores,
+            param_names=names,
+        )
+        calls = []
+        evaluate = type(m3).evaluate_with_diagnostics
+
+        def record_evaluation(model, point):
+            calls.append(np.asarray(point))
+            return evaluate(model, point)
+
+        monkeypatch.setattr(type(m3), "evaluate_with_diagnostics", record_evaluation)
         macro_producer.export_m3_bundle(
             image, image, noise, psf, mask, np.zeros_like(image), stage_a, stage_m3,
             None, regs, s1, mask,
         )
-    problem, record, arrays = iteration.load_problem(tmp_path)
+    assert len(calls) == 1
+    np.testing.assert_array_equal(calls[0], samples[selected].astype(np.float32))
+    workspace = Path(macro_producer.__file__).parent.name
+    consumer = driver if workspace == SLACS0946_WORKSPACE else iteration
+    with jax.experimental.enable_x64(consumer is iteration):
+        problem, record, arrays = consumer.load_problem(tmp_path)
     assert record["source_interpolation"] == "cubic_hermite"
     assert record["gradient_provenance"] == "cubic_hermite_derivative_of_new_M3_reconstruction"
+    assert record["evidence_logdet"] == diagnostics.evidence_logdet == "overlap"
+    assert record["objective"]["reference_id"]
+    assert record["objective"]["adaptation"]["recipe"] == "native_source_arc_v1"
+    assert record["source_scale_provenance"] == "selected_M3_native_reference_projection"
+    assert problem.initialization_provenance["adaptive_scale"] == record["source_scale_provenance"]
+    assert record["selected_sample_index"] == selected
+    assert record["best_sample_log_likelihood"] == pytest.approx(scores[selected])
     assert problem.renderer.source_boundary == record["source_boundary"]
     np.testing.assert_array_equal(arrays["source_bbox"], s1["source_bbox"])
-    assert arrays["source_values"].shape == (9,)
+    np.testing.assert_allclose(arrays["source_values"], result.source_pixels, rtol=1e-6)
+    np.testing.assert_allclose(arrays["macro_model_image"], result.model_image, rtol=1e-6)
+    np.testing.assert_allclose(
+        arrays["source_scale"], np.asarray(diagnostics.regularization_scale).ravel(), rtol=1e-6,
+    )
+    np.testing.assert_array_equal(problem.source_scale, arrays["source_scale"])
     assert arrays["source_values"].dtype == np.float32
+
+
+def test_macro_resume_rejects_an_incompatible_scored_checkpoint(
+    macro_producer, small_macro_fit, tmp_path, monkeypatch,
+):
+    image, noise, psf, mask, stage_a = small_macro_fit
+    runs = []
+
+    class ControlledSampler:
+        def __init__(self, prior, loglike, *, n_dim, filepath, **options):
+            self.points = np.asarray([prior(np.full(n_dim, q)) for q in (0.49, 0.5, 0.51)])
+            self.scores = np.asarray(loglike(self.points))
+            self.n_like = self.n_eff = len(self.points)
+            self.log_z = float(np.max(self.scores))
+            filepath.touch()
+            runs.append(n_dim)
+
+        def run(self, **options):
+            return True
+
+        def posterior(self):
+            return self.points, np.log([0.2, 0.6, 0.2]), self.scores
+
+    monkeypatch.setattr(macro_producer, "Sampler", ControlledSampler)
+    monkeypatch.setattr(macro_producer, "load_lens_data", lambda **kw: (image, noise, psf, None))
+    monkeypatch.setattr(macro_producer, "run_stage_b", lambda *a, **kw: mask)
+    monkeypatch.setattr(macro_producer, "_position_likelihood_from_stage_a", lambda point: None)
+    monkeypatch.setattr(macro_producer, "_plot_pix_stage", lambda *a: None)
+    macro_producer._dump_stage(
+        "a", stage_a.samples, stage_a.weights, stage_a.param_names, stage_a.log_z,
+        extra=dict(medians=stage_a.medians(), lens_light_model=np.zeros_like(image)),
+        stage=stage_a,
+    )
+
+    options = dict(skip_done=True, source_interpolation="cubic_hermite")
+    with jax.experimental.enable_x64(False):
+        macro_producer.main(**options)
+        assert runs == [8, 2, 8]
+        objectives = {
+            tag: macro_producer._load_stage(tag)["extra"]["objective"]
+            for tag in ("m0", "m1", "m2", "m3")
+        }
+        assert {objective["evidence_logdet"] for objective in objectives.values()} == {"overlap"}
+        assert objectives["m2"]["reference_id"] == objectives["m3"]["reference_id"]
+        for tag in ("m1", "m2", "m3"):
+            checkpoint = json.loads((tmp_path / f"sampler_{tag}.json").read_text())
+            assert checkpoint["objective"] == objectives[tag]["fingerprint"]
+
+        handoff = tmp_path / "m3_handoff.npz"
+        original = handoff.read_bytes()
+        macro_producer.main(**options)
+        assert runs == [8, 2, 8]
+        assert handoff.read_bytes() == original
+
+        # Simulate a checkpoint that still uses an older adaptive objective.
+        path = tmp_path / "sampler_m2.json"
+        checkpoint = json.loads(path.read_text())
+        checkpoint.pop("objective")
+        path.write_text(json.dumps(checkpoint))
+        with pytest.raises(RuntimeError, match="Incompatible existing sampler"):
+            macro_producer.main(**options)
+        assert runs == [8, 2, 8]
+        assert handoff.read_bytes() == original
 
 
 @pytest.mark.parametrize(
