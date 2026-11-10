@@ -1,0 +1,15 @@
+# 02: Fit Hermite pixelized sources with squared-weight adaptation
+
+**What to build:** A modeler can select cubic Hermite interpolation on either backend and use the same adapt image interface. Each proposal uses the signed Hermite stencil for image prediction and squared per-ray weights for the adaptive projection.
+
+**Blocked by:** [01 — Fit bilinear pixelized sources with an adapt image](01-bilinear-adapt-image.md).
+
+**Status:** ready-for-agent
+**State:** open
+
+**Spec:** [Parent specification](../spec.md)
+
+- [ ] An independent reference with more than one subpixel ray per native pixel verifies the square-before-aggregation rule, native averaging factor and Hermite support. The forward prediction uses the signed physical stencil at the same proposal.
+- [ ] Use an internal coverage offset starting at 10⁻⁴ and the fixed reference normalization from ticket 01. Zero and weak coverage produce finite scales, and diagnostics record the scale used by each backend.
+- [ ] Matched dense and operator fits agree on the projected scale and reconstruction in a controlled Hermite case. Fixed and changing mass cases retain the specified cache behavior and preserve the configured numerical precision.
+- [ ] A Float64 conditional-prior derivative check across a controlled ray crossing verifies the continuous Hermite projection. Include a weak-coverage probe and retain the tested parameters and tolerances.

@@ -1,3 +1,9 @@
+> Planned replacement. The [image-driven adaptive regularization and Overlap
+> spec](../adaptive-image-overlap-evidence/spec.md) defines the integration
+> target for both ordinary pixelized backends and their maintained workflows.
+> This record preserves the fixed-source-template contract at the
+> implementation baseline.
+
 ## Purpose
 
 Adaptive regularization for pixelized source reconstruction supports source-template empirical-Bayes workflows. A fixed stage-m0 source reconstruction can define a luminosity-weighted regularization precision map that is reused by later operator likelihood stages.

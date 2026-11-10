@@ -1,5 +1,9 @@
 Status: ready-for-agent
 
+> The [image-driven adaptive regularization and Overlap
+> spec](../adaptive-image-overlap-evidence/spec.md) defines the planned
+> replacement of the adaptive input and prior-cache rules below.
+
 > Supersession note (2026-10-25): the statements that the dense model rejects
 > adaptive source regularization and that adaptive regularization is out of
 > scope (e.g. user story 35) are superseded. Both backends now share the
