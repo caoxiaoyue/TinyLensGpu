@@ -38,7 +38,8 @@ class PixelizedSourceModel(ck.Module):
     adaptive_reg_rho : float or ParamU, optional
         Galan-style adaptive regularization strength. ``0.0`` (default)
         disables adaptation and recovers uniform regularization. Larger
-        values strengthen regularization in faint S0 source-template regions.
+        values strengthen regularization in regions with faint projected
+        reference brightness.
     interpolation : str, optional
         Fixed interpolation mode. ``"bilinear"`` (default) has hard-box
         support. ``"cubic_hermite"`` extends two grid spacings past the fitted
@@ -61,8 +62,7 @@ class PixelizedSourceModel(ck.Module):
         if adaptive_reg_alpha is not None or adaptive_reg_floor is not None:
             raise ValueError(
                 "adaptive_reg_alpha and adaptive_reg_floor are retired. "
-                "Use adaptive_reg_rho for Galan-style source-template "
-                "adaptive regularization."
+                "Use adaptive_reg_rho for image-driven adaptive regularization."
             )
 
         if regularization_type not in VALID_REGULARIZATION_TYPES:

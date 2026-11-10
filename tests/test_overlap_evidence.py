@@ -54,13 +54,19 @@ def test_single_overlap_window_scores_the_complete_small_source():
             n, log_lambda_reg=np.log(strength), regularization_type="second-order",
         )
         physical = PhysicalModel(lens_mass=[], source_light=[source])
-        fit = PixelizedImageProbModelOperator(
-            image, noise, psf, dpix, physical, mask=mask, nsub=nsub,
-            fixed_source_bbox=bbox, block_size=1, evidence_logdet="overlap",
+        options = dict(mask=mask, nsub=nsub, fixed_source_bbox=bbox, block_size=1)
+        fit = PixelizedImageProbModelOperator(image, noise, psf, dpix, physical, **options)
+        explicit = PixelizedImageProbModelOperator(
+            image, noise, psf, dpix, physical, **options, evidence_logdet="overlap",
         )
-        fit.pcg_rtol = 1e-12
-        result = fit.evaluate()
+        fit.pcg_rtol = explicit.pcg_rtol = 1e-12
+        result, diagnostics = fit.evaluate_with_diagnostics()
+        reference = explicit.evaluate()
 
+        assert diagnostics.evidence_logdet == "overlap"
+        np.testing.assert_allclose(result.source_pixels, reference.source_pixels, atol=1e-12)
+        np.testing.assert_allclose(result.model_image, reference.model_image, atol=1e-12)
+        np.testing.assert_allclose(result.log_evidence, reference.log_evidence, atol=1e-12)
         assert fit.evidence_block_size == 10
         assert result.solver_info.converged
         np.testing.assert_allclose(result.source_pixels, expected_source, atol=1e-10, rtol=0)
@@ -312,12 +318,13 @@ def _joint_problem(
     else:
         image[~mask] = design @ np.r_[np.linspace(-0.3, 0.8, n**2), 0.18, 0.43]
     physical = PhysicalModel(lens_mass=[], source_light=[source], lens_light=lens_bases)
+    evidence = {} if mode is None else {"evidence_logdet": mode}
     model = PixelizedImageProbModelOperator(
         image, noise, psf, dpix, physical, mask=mask, nsub=nsub,
         fixed_source_bbox=bbox, adapt_image=reference, block_size=1,
-        lens_light_regularization=lens_strength, solver_type=solver, evidence_logdet=mode,
+        lens_light_regularization=lens_strength, solver_type=solver,
         pnpg_max_iter=3000, pnpg_rtol=1e-8, initial_source=initial,
-        evidence_block_size=tile, position_likelihood=position,
+        evidence_block_size=tile, position_likelihood=position, **evidence,
     )
     model.pcg_rtol = 1e-12
     return model, prior, design, image[~mask], noise[~mask], mask
@@ -369,6 +376,22 @@ def test_joint_overlap_scores_physical_curvature_on_the_primary_solution(order, 
         np.testing.assert_allclose(
             result.log_evidence, _evidence(loss, sigma, 0, ratio), atol=1e-9, rtol=0,
         )
+
+
+@pytest.mark.integration
+def test_joint_operator_default_matches_explicit_overlap():
+    with jax.experimental.enable_x64():
+        default, *_ = _joint_problem(mode=None)
+        explicit, *_ = _joint_problem(mode="overlap")
+        result, diagnostics = default.evaluate_with_diagnostics()
+        reference = explicit.evaluate()
+
+        assert diagnostics.valid and diagnostics.evidence_valid
+        assert diagnostics.evidence_logdet == "overlap"
+        for field in ("log_evidence", "model_image", "source_pixels", "lens_amplitudes"):
+            np.testing.assert_allclose(
+                getattr(result, field), getattr(reference, field), atol=1e-12, rtol=0,
+            )
 
 
 @pytest.mark.integration

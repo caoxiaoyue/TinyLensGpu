@@ -152,8 +152,12 @@ Run the complete example from its own directory so its relative data paths resol
   evidence measure rather than acting only as a sampler proposal.
 
 - **Batching**
-  - Choose the sampler's `n_batch` or equivalent batch setting according to available GPU memory
-  - Use `make_likelihood(..., vectorized=True)` for batched likelihood evaluation
+  - Use `make_likelihood(..., vectorized=True)` to accept the sampler's
+    full proposal batch. Overlap evaluates one proposal at a time by default
+    to bound GPU workspace. Set `vectorized_chunk_size` to choose how many
+    proposals run together. The sampler's `n_batch` and the returned score
+    array keep their original size, including when the last chunk is smaller.
+    [Matched GPU timings and memory](../validation/adaptive-image-overlap-gpu.md)
 
 - **Common tuning knobs**
   - `nsub`: 1 (fast) → 3+ (high accuracy)
@@ -171,53 +175,50 @@ Run the complete example from its own directory so its relative data paths resol
     `pnpg_max_iter`, `pnpg_rtol`, `pnpg_power_iter` controls; retune convergence
     instead of copying the old tolerance, because the metrics differ.
   - Tune `pnpg_max_iter`, `pnpg_rtol`, and `pnpg_power_iter` on representative
-    likelihood points before sampling; failed convergence is gated rather than
-    accepted as a finite likelihood
-  - Configure parameter modes before constructing `PixelizedImageProbModelOperator`.
-    It precomputes fixed observation terms; with `fixed_source_bbox`, it also
-    caches fixed regularization blocks/log determinants and, when lens mass is
-    fixed, mapping data, the source right-hand side and data curvature blocks.
-    Registered pointer dependencies are included in the fixedness check.
-    Rebuild the model **and its compiled likelihood** after changing fixed physical
-    parameters, parameter modes, observation data or grid settings. Dynamic
-    parameter values and solver controls are not part of the data cache.
-  - `PixelizedImageProbModel` accepts the same square `fixed_source_bbox`.
-    Without it, every evaluation still infers the source bbox from seed rays.
-    With it — provided `adaptive_reg_rho` is fixed — the model stores the
-    finite-difference regularization matrix and
-    its `logdet(R)`, and the evidence reads that stored determinant.
-    `log_lambda_reg` stays outside the cache and is applied as `lambda * R` at
-    each evaluation. When that bbox,
-    every lens-mass component, and every unit-amplitude lens-light basis are
-    also fixed, it stores the joint design matrix, the noise-weighted data Gram
-    matrix, and the data right-hand side. Each evaluation then adds
-    `lambda * R` and the weak lens-light regularization and factorizes again.
-    Lens-light intensities remain solved amplitudes. Empty mass and lens-light
-    lists count as fixed. A dynamic mass or lens-light basis skips the design
-    cache. A pointer is fixed only when it has
-    children and those dependencies are fixed. Set parameter modes before
-    construction, and rebuild the evidence model **and its compiled likelihood**
-    after changing a fixed value, a parameter mode, the observations, or the bbox.
-
-  - Adaptive source regularization uses the same inputs on both backends:
-    pass the stage-m0 reconstruction as `fixed_reg_template` (flat `(n*n,)`
-    or `(n,n)`) together with `fixed_source_bbox`, and keep the strength on
-    `PixelizedSourceModel.adaptive_reg_rho`. A fixed rho of approximately zero
-    disables adaptation and needs neither input. A positive fixed rho or a
-    rho with dynamic or unresolved dependencies — even one initialized at
-    zero — requires both
-    inputs at construction. (A pointer counts as fixed when its registered
-    dependencies are fixed.) The normalized template is prepared once; a fixed
-    rho additionally caches the weighted regularizer and its log determinant,
-    while a dynamic rho recomputes both on every evaluation. The design and
-    mapping caches are independent of rho. The dense backend keeps its exact
-    `slogdet` determinant while the operator backend keeps its block-diagonal
-    approximation, so their log evidences are not expected to be identical.
-  - `fixed_reg_scale` was removed: migrate
-    `fixed_reg_scale=source_template_scale_map(S0, n, rho)` to
-    `fixed_reg_template=S0` with the same `rho` stored on
-    `PixelizedSourceModel`. The old keyword now raises `TypeError`, and
-    arbitrary external weight maps are no longer an observation-model input.
+    likelihood points before sampling. Failed convergence returns a finite
+    evidence penalty.
+  - Both pixelized models accept `adapt_image`, a finite PSF-convolved source
+    arc on the native observation grid with the same 2D shape as `image_data`.
+    Pass the producer's square `fixed_source_bbox` with the reference and set
+    `adaptive_reg_rho` on `PixelizedSourceModel`. Fixed rho below `1e-10`
+    uses uniform regularization and permits an inferred grid. A positive fixed
+    rho at or above the cutoff or a rho with dynamic or unresolved dependencies
+    requires both inputs, including a sampled rho initialized at zero.
+  - The models clip negative reference brightness to zero and normalize by
+    its 99.5th percentile over active native pixels, with a denominator floor
+    of `1e-10` and normalized values capped at one. For each proposal, active
+    subpixel rays project their native parent brightness to the fixed source
+    nodes. Both signal and coverage include the subpixel averaging factor.
+    Bilinear projection divides signal by coverage above `1e-8` and assigns
+    zero brightness at or below that cutoff. Hermite squares each ray's stencil
+    before accumulating and divides by coverage plus the internal offset
+    `1e-4`. Image prediction and data curvature use the signed Hermite
+    weights. The projected brightness `u` weights the finite-difference
+    prior with node scale `exp(rho * (1 - u))`. Each evaluation applies
+    `exp(log_lambda_reg)` as a separate strength.
+  - Set parameter modes before constructing the model. Fixed mass and grid
+    allow both backends to reuse the mapping and projected brightness. They
+    also reuse weighted prior terms when rho is fixed. With moving mass, the
+    mapping and adaptive prior follow the proposal even when rho is fixed.
+    The dense joint design and its data-only normal equations also depend on
+    the unit-amplitude lens-light bases. The fixedness check includes
+    registered pointer dependencies. Rebuild the model and compiled
+    likelihood after changing a fixed value, parameter mode, observation,
+    reference or grid setting.
+  - Operator fits default to `evidence_logdet="overlap"`. Overlap combines
+    exact principal-window determinant ratios with signed corrections for
+    their intersections. The evidence tile width `evidence_block_size`
+    defaults to 10 and is independent of the solver's `block_size`. Joint
+    Overlap also uses the physical source–lens-light cross curvature and
+    full source curvature for its lens-light Schur term. Explicit
+    `evidence_logdet="block"` uses the historical preconditioner-based
+    score. Both choices share the same reconstruction solve and use
+    unconstrained curvature for the determinants, including with PNPG.
+    Dense fits use complete determinants. [Matched mock score comparison](../validation/adaptive-image-overlap-euclid-mock.md)
+  - The retired `fixed_reg_template` and `fixed_reg_scale` observation-model
+    keywords raise `TypeError`. Generate a native reference arc from the
+    producer reconstruction and use `adapt_image` with its fitted grid to
+    migrate an adaptive fit.
 
   - Both the dense and operator backends support the three finite-difference
     regularization types (`"zero-order"`, `"first-order"`, `"second-order"`).
@@ -282,8 +283,8 @@ Run the complete example from its own directory so its relative data paths resol
     if not diagnostics.valid:
         from TinyLensGpu.ObservationModel.LensImage.inversion_result import InvalidReconstructionError
         raise InvalidReconstructionError(diagnostics.invalid_reason)
-    # Use result.model_image/source_pixels/source_bbox and diagnostics.source_image/
-    # lens_light_image; no second reconstruction is needed.
+    adapt_image = diagnostics.source_image  # native PSF-convolved source component
+    fixed_source_bbox = result.source_bbox
     ```
 
     The single-parameter host-side diagnostic entry point returns the same
@@ -293,8 +294,12 @@ Run the complete example from its own directory so its relative data paths resol
     `include_components` default to ``False`` and skip the optional
     statistics/component work; unrequested fields stay `None`. Basic
     diagnostics always include `normalized_residuals`, `chi2`, `lambda_reg`,
-    `adaptive_reg_rho`, `regularization_scale`, and an enabled position
-    record. The dense `effective_dof_method` is `"dense_curvature"` and keeps
+    `adaptive_reg_rho`, the applied `regularization_scale`, and an enabled
+    position record. Operator diagnostics report `evidence_logdet`,
+    `evidence_valid` and `evidence_invalid_reason` separately from
+    reconstruction validity. An auxiliary evidence failure retains a valid
+    primary reconstruction and returns the finite sampling penalty. The dense
+    `effective_dof_method` is `"dense_curvature"` and keeps
     the existing lens-light-regularized curvature convention (NNLS gets no
     new constrained-DOF interpretation); the operator source-only method is
     `"operator_source_block_preconditioner"`, the existing approximation.
@@ -325,10 +330,12 @@ Run the complete example from its own directory so its relative data paths resol
     Use this array-returning model interface for autodiff; the scalar
     `make_likelihood` convenience wrapper converts its result to a Python float.
     The solver gradients use implicit differentiation, not differentiation of
-    the finite iteration sequence. PNPG requires a locally stable active set
-    with strict complementarity. Forward/adjoint non-convergence or an invalid
-    active set produces **NaN gradients**, while forward failure retains the
-    existing evidence penalty and zero reconstruction. Check `solver_info`
+    the finite iteration sequence. Overlap score gradients include the
+    adaptive projection and determinant terms. PNPG requires a locally stable
+    active set with strict complementarity. Invalid active sets and primary
+    or auxiliary solve failures produce **NaN gradients**. Primary forward
+    failure returns the evidence penalty and zero reconstruction. Check
+    `solver_info` and the diagnostic evidence status
     before accepting a gradient; the PNPG wrapper also reports
     `kkt_violation`, the largest componentwise KKT residual normalized by
     `1 + abs(b_i) + abs((Ax)_i)`, and the unnormalized `min_active_residual`
@@ -354,6 +361,8 @@ Run the complete example from its own directory so its relative data paths resol
     optimizer rejected a gradient at the configured complementarity safety
     margin after 22 accepted steps; stable optimization convergence is not
     established for the large example.
+    The complete Hermite Overlap score converged from three bounded L-BFGS-B
+    starts in the qualified Float64 Euclid mock. [Optimizer qualification](../validation/adaptive-image-overlap-m3-optimizer.md)
 
 ---
 
@@ -428,16 +437,32 @@ validation and protected-M5 overwrite checks still run at the case layer.
 In interpolation-aware workflows, `StageStorageConfig` records the selected
 mode and boundary in the existing `extra` dictionary.
 
-`export_source_package` consumes the public diagnostic result and returns the
-raw dictionary with source pixels/image, fitted square `source_bbox`, axes and
-`n`. Interpolation-aware workflows pass `record_source_interpolation=True`
-to include `source_interpolation` and `source_boundary`. A prepared template
-also carries `lambda_best` and `log_lambda_best`.
-`validate_source_package(package, expected_n=..., rho=...)` validates that
-contract, generates or coerces the float32 scale map in place, and returns the
-same dictionary. The Galan variants additionally request bbox normalization,
-axis checks and, where applicable, the expected fixed bbox. Do not substitute a
-raw export for a prepared template in a later stage.
+Use `export_source_package(..., record_adapt_image=True)` to package the
+producer's PSF-convolved native source component as `adapt_image`. The same
+package stores `source_image` as the source-plane raster, `source_pixels`,
+the fitted square grid, and reference provenance. In Euclid, M1 exports this
+package, M2 fixes the M1 mass to calibrate `log_lambda_reg` and
+`adaptive_reg_rho`, and M3 fixes those strengths while varying mass on the
+same grid and reference. Workflows with an M0 reference producer export the
+arc there. [Maintained Euclid VIS qualification](../validation/adaptive-image-overlap-euclid-vis.md)
+
+Use `--skip-done` to resume matching stage products. The objective record
+identifies the observation, masks, PSF, subpixel sampling, source grid and
+interpolation, adaptation recipe, reference and upstream stage identities,
+fixed strengths, and evidence and solver settings. Changes in these inputs
+trigger the applicable refit. A verified historical producer package can
+regenerate its arc through the component renderer if the original source
+pixels, mass point, grid, interpolation and observation provenance are
+available. Rebuild the producer when those inputs cannot be verified.
+Recalibrate M2 and refit M3 when migrating old fixed-template adaptive
+posteriors. For controlled Block comparisons, use the same observation,
+reference, grid, prior and solver settings with explicit Block evidence.
+
+J0946 paired M4 and M5 scores require matching adaptation and evidence
+provenance. A new macro handoff includes the actual scale and evidence
+method at the selected M3 draw. Fixed-scale source–potential reconstruction
+consumes the saved scale through its `source_scale` input. Archived handoffs
+continue to use the scale and objective recorded with their original fit.
 
 Formal source export and diagnostic plotting stop with
 `InvalidReconstructionError` on explicit operator non-convergence or nonfinite

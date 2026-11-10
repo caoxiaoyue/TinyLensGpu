@@ -46,9 +46,9 @@ from ._inversion_diagnostics import reconstruction_diagnostics
 from ._overlap_logdet import OverlapLogdet
 from ._pixelized_regularization import (
     is_fixed as _is_fixed,
-    prepare_adaptive_inputs,
+    adaptive_reg_scale,
+    prepare_adapt_image,
     project_adapt_image,
-    template_reg_scale,
 )
 from ._position_likelihood import (
     resolve_position_likelihood_attrs,
@@ -59,7 +59,7 @@ from ._position_likelihood import (
 class _PreparedData(NamedTuple):
     image_adjoint: Array
     noise_weights: Array
-    template_u: Array | None
+    projected_brightness: Array | None
     regularization: tuple | None = None
     mapping: tuple | None = None
 
@@ -143,9 +143,9 @@ class PixelizedImageProbModelOperator(ck.Module):
         matrix-free non-negative quadratic with all joint linear parameters
         constrained to be non-negative.
     evidence_logdet : {"block", "overlap"}, optional
-        Use the historical preconditioner blocks or overlapping exact
-        principal windows for the evidence determinant ratio. Joint Overlap
-        adds a lens-light Schur correction from the full source curvature.
+        The default "overlap" uses exact principal-window determinant
+        ratios and adds the lens-light Schur term for joint fits. Explicit
+        "block" uses the historical preconditioner-based calculation.
     evidence_block_size : int, optional
         Source tile width for Overlap (default: 10), independent of
         the solver preconditioner block size.
@@ -157,9 +157,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         Fixed, PSF-convolved reference source arc on the native image grid.
         The active subpixel rays project its brightness onto the fixed source
         nodes at each mass proposal.
-    fixed_reg_template : array_like, optional
-        Transitional alternative to adapt_image. A flat or 2D fixed source
-        template weights the regularizer at the current adaptive rho.
+        Required together with the fixed source bbox for adaptive rho,
+        including dynamic rho initialized at zero.
     source_bbox_padding : float, optional
         Fractional padding passed to source-plane bbox inference when
         ``fixed_source_bbox`` is not supplied (default: 0.05 — 5% per side).
@@ -198,7 +197,6 @@ class PixelizedImageProbModelOperator(ck.Module):
         block_size: int = 10,
         solver_type: str = "pcg",
         fixed_source_bbox: tuple[float, float, float, float] | None = None,
-        fixed_reg_template: Union[np.ndarray, Array, None] = None,
         source_bbox_padding: float = 0.05,
         source_bbox_outlier_frac: float = 0.0,
         pnpg_max_iter: int = 1000,
@@ -209,7 +207,7 @@ class PixelizedImageProbModelOperator(ck.Module):
         *,
         initial_source: Union[np.ndarray, Array, None] = None,
         adapt_image: Union[np.ndarray, Array, None] = None,
-        evidence_logdet: str = "block",
+        evidence_logdet: str = "overlap",
         evidence_block_size: int = 10,
     ) -> None:
         super().__init__("pixelized_image_prob_model_operator")
@@ -273,8 +271,8 @@ class PixelizedImageProbModelOperator(ck.Module):
             if initial.shape != (source_n**2,) or not jnp.all(jnp.isfinite(initial)):
                 raise ValueError("initial_source must contain n² finite node intensities.")
             self._initial_linear = jnp.pad(initial, (0, self.n_lens_light))
-        self._adapt_brightness, template_u = prepare_adaptive_inputs(
-            adapt_image, fixed_reg_template, self.image_data, self.sim_obj,
+        self._adapt_brightness = prepare_adapt_image(
+            adapt_image, self.image_data, self.sim_obj,
             self.source_model.adaptive_reg_rho, self._fixed_source_bbox,
         )
 
@@ -304,7 +302,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                 self.data_1d,
                 self.noise_1d,
             )
-            regularization = mapping = None
+            regularization = mapping = projected_brightness = None
             bbox = self._fixed_source_bbox
             if bbox is not None:
                 mass_fixed = all(_is_fixed(mass) for mass in self.phys_model.lens_mass)
@@ -325,10 +323,10 @@ class PixelizedImageProbModelOperator(ck.Module):
                     )
                     mapping = (op_data, rhs, data_blocks)
                     if self._adapt_brightness is not None:
-                        template_u = self._project_reference(op_data)
+                        projected_brightness = self._project_reference(op_data)
                 rho = self.source_model.adaptive_reg_rho
                 if _is_fixed(rho) and (self._adapt_brightness is None or mass_fixed):
-                    scale = template_reg_scale(template_u, rho)
+                    scale = adaptive_reg_scale(projected_brightness, rho)
                     reg_data, blocks = self._build_regularization(bbox, scale)
                     regularization = (
                         reg_data,
@@ -338,7 +336,7 @@ class PixelizedImageProbModelOperator(ck.Module):
                     )
             object.__setattr__(
                 self, "_prepared",
-                _PreparedData(image_adjoint, noise_weights, template_u, regularization, mapping),
+                _PreparedData(image_adjoint, noise_weights, projected_brightness, regularization, mapping),
             )
 
         self._overlap_logdet = None
@@ -401,8 +399,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         """Infer square source-plane bounding box from seed-region ray-tracing.
 
         Returns ``(xmin, xmax, ymin, ymax, beta_x_sub, beta_y_sub,
-        beta_x_seed, beta_y_seed)`` so that callers can reuse the seed
-        betas for adaptive regularisation without a second deflection call.
+        beta_x_seed, beta_y_seed)`` with the subpixel rays needed to build
+        the interpolation stencil.
         """
         beta_x_sub, beta_y_sub, beta_x_seed, beta_y_seed = (
             self.sim_obj._get_beta_sub_and_seed()
@@ -481,12 +479,12 @@ class PixelizedImageProbModelOperator(ck.Module):
 
     def _get_reg_scale(self, op_data=None) -> Array | None:
         """Compute the scale from fixed brightness or this proposal's stencil."""
-        template_u = self._prepared.template_u
-        if self._adapt_brightness is not None and template_u is None:
+        projected_brightness = self._prepared.projected_brightness
+        if self._adapt_brightness is not None and projected_brightness is None:
             if op_data is None:
                 _, op_data, _, _ = self._mapping_terms()
-            template_u = self._project_reference(op_data)
-        return template_reg_scale(template_u, self.source_model.adaptive_reg_rho)
+            projected_brightness = self._project_reference(op_data)
+        return adaptive_reg_scale(projected_brightness, self.source_model.adaptive_reg_rho)
 
     # ------------------------------------------------------------------
     # Source solve via configured iterative solver
@@ -643,8 +641,8 @@ class PixelizedImageProbModelOperator(ck.Module):
         ``preconditioner`` may be a dense Cholesky factor (legacy) or a
         block-diagonal ``(block_chols, block_masks)`` tuple. It is used by PCG
         and still built for constrained solvers because PNPG uses its
-        diagonal for equilibration and the evidence approximation uses the same
-        block-diagonal logdet term.
+        diagonal for equilibration. Explicit Block evidence reuses its
+        determinant.
 
         Returns ``(linear_params, solver_info)``. For constrained solvers, all
         returned linear parameters are projected to be non-negative.

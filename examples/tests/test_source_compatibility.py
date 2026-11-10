@@ -182,7 +182,7 @@ def survey_source_model():
         model = PixelizedImageProbModelOperator(
             image, jnp.ones_like(image) * 0.05, psf, 0.08, phys,
             mask=mask, solver_type="pcg", block_size=2, fixed_source_bbox=bbox,
-            fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+            adapt_image=image,
             position_likelihood=dict(
                 positions=[[0.2, 0.0], [-0.2, 0.0]],
                 threshold_arcsec=0.01, min_log_like=-20.0,
@@ -399,7 +399,7 @@ def test_survey_invalid_reconstruction_stops_output(
             jnp.asarray([[1.0]]), 0.08, model.phys_model,
             mask=~np.asarray(model.unmask), solver_type="pcg", block_size=2,
             fixed_source_bbox=(-0.4, 0.4, -0.4, 0.4),
-            fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+            adapt_image=model.image_data,
         )
     names = [param.name for param in model.get_dynamic_params()]
     medians = dict(theta_E=0.15, log_lambda_reg=0.2, adaptive_reg_rho=0.0)

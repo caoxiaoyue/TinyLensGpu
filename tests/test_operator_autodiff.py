@@ -46,14 +46,15 @@ def _build_model(solver, joint=False, adaptive=False, interpolation="bilinear"):
     psf = jnp.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
     config = SimulatorConfig(dpix=0.08, npix=10, nsub=1, psf_kernel=psf)
     simulator = PixelizedLensSimulator(phys, config)
+    source_pixels = jnp.abs(jnp.linspace(-1.0, 1.0, 25))
     mock = simulator.simulate(
-        jnp.abs(jnp.linspace(-1.0, 1.0, 25)),
-        lens_light_amplitudes=jnp.array([0.5]) if joint else None,
+        source_pixels, lens_light_amplitudes=jnp.array([0.5]) if joint else None,
     )
+    reference = simulator.simulate(source_pixels) if adaptive else None
     model = PixelizedImageProbModelOperator(
         mock, jnp.full_like(mock, 0.05), psf, 0.08, phys,
         solver_type=solver, fixed_source_bbox=(-0.3, 0.3, -0.3, 0.3),
-        fixed_reg_template=jnp.linspace(0.1, 1.0, 25) if adaptive else None,
+        adapt_image=reference, evidence_logdet="block",
         position_likelihood=dict(
             positions=[[-0.2, 0.0], [0.2, 0.0]],
             threshold_arcsec=1.0, min_log_like=-10.0,

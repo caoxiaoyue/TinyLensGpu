@@ -191,13 +191,31 @@ def test_adapt_image_requires_valid_native_reference_and_fixed_grid(model_type):
         invalid[0, 0] = value  # Masked pixels must still be finite in the input.
         with pytest.raises(ValueError, match="adapt_image values must be finite"):
             build(fixed_source_bbox=bbox, adapt_image=invalid)
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        build(fixed_source_bbox=bbox, adapt_image=reference, fixed_reg_template=np.ones(25))
+    for removed_keyword in ("fixed_reg_template", "fixed_reg_scale"):
+        with pytest.raises(TypeError, match=removed_keyword):
+            build(fixed_source_bbox=bbox, adapt_image=reference, **{removed_keyword: np.ones(25)})
 
     uniform = _model(model_type, image, noise, psf, 1e-12, shift, mask=mask)
     _, diagnostics = uniform.evaluate_with_diagnostics()
     assert diagnostics.valid
     np.testing.assert_array_equal(diagnostics.regularization_scale, np.ones((5, 5)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("model_type", _MODEL_TYPES)
+@pytest.mark.parametrize("reference_value", [-1.0, 0.0])
+def test_dark_adapt_image_uses_finite_faint_node_scale(model_type, reference_value):
+    image, noise, _, mask, psf = _fixture()
+    rho = 1.4
+    model = _model(
+        model_type, image, noise, psf, rho, (0.055, -0.065), mask=mask,
+        fixed_source_bbox=(-0.49, 0.49, -0.49, 0.49),
+        adapt_image=np.full_like(image, reference_value),
+    )
+    _, diagnostics = model.evaluate_with_diagnostics()
+
+    assert diagnostics.valid
+    np.testing.assert_allclose(diagnostics.regularization_scale, np.exp(rho), rtol=1e-6)
 
 
 @pytest.mark.unit

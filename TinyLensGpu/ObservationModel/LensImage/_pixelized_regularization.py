@@ -4,10 +4,7 @@ import caskade as ck
 import jax.numpy as jnp
 import numpy as np
 
-from TinyLensGpu.utils.inversion.regularization import (
-    _normalize_source_template,
-    _source_template_scale_from_normalized,
-)
+from TinyLensGpu.utils.inversion.regularization import _source_template_scale_from_normalized
 
 
 ADAPT_REFERENCE_PERCENTILE = 99.5
@@ -44,51 +41,22 @@ def adaptive_reg_enabled(rho):
         return True
 
 
-def prepare_reg_template(template, n, rho, fixed_source_bbox):
-    """Validate the source-grid contract and normalize a fixed S0 once.
-
-    Adaptive regularization (a positive fixed rho or a rho with dynamic or
-    unresolved dependencies) requires both ``fixed_source_bbox`` and a finite
-    template of shape ``(n * n,)`` or ``(n, n)``. A disabled (fixed, near-zero)
-    rho accepts a missing template and returns ``None`` for it.
-    """
-    if adaptive_reg_enabled(rho):
-        if fixed_source_bbox is None:
-            raise ValueError("adaptive regularization requires fixed_source_bbox.")
-        if template is None:
-            raise ValueError("adaptive regularization requires adapt_image or fixed_reg_template.")
-    if template is None:
+def adaptive_reg_scale(projected_brightness, rho):
+    """Evaluate the proposal scale, with None representing a uniform prior."""
+    if projected_brightness is None:
         return None
-    template = jnp.asarray(template, dtype=jnp.float32)
-    if template.shape not in ((int(n) * int(n),), (int(n), int(n))):
-        raise ValueError(
-            "fixed_reg_template must have shape "
-            f"({int(n) * int(n)},) or ({int(n)}, {int(n)}), got {template.shape}."
-        )
-    if not bool(np.asarray(jnp.all(jnp.isfinite(template)))):
-        raise ValueError("fixed_reg_template values must be finite.")
-    return _normalize_source_template(template, n)
+    return _source_template_scale_from_normalized(projected_brightness, _param_value(rho))
 
 
-def template_reg_scale(template_u, rho):
-    """Evaluate weights at current rho; fixed zero keeps the uniform fast path."""
-    if not adaptive_reg_enabled(rho):
-        return None
-    if template_u is None:
-        raise ValueError("adaptive regularization requires adapt_image or fixed_reg_template.")
-    return _source_template_scale_from_normalized(template_u, _param_value(rho))
-
-
-def prepare_adaptive_inputs(
-    adapt_image, fixed_reg_template, image_data, simulator, rho, fixed_source_bbox,
-):
-    """Return normalized active-ray brightness or a transitional source template."""
+def prepare_adapt_image(adapt_image, image_data, simulator, rho, fixed_source_bbox):
+    """Validate the reference and normalize its active native pixels once."""
+    enabled = adaptive_reg_enabled(rho)
+    if enabled and fixed_source_bbox is None:
+        raise ValueError("adaptive regularization requires fixed_source_bbox.")
     if adapt_image is None:
-        return None, prepare_reg_template(
-            fixed_reg_template, simulator.source_n, rho, fixed_source_bbox,
-        )
-    if fixed_reg_template is not None:
-        raise ValueError("adapt_image and fixed_reg_template are mutually exclusive.")
+        if enabled:
+            raise ValueError("adaptive regularization requires adapt_image.")
+        return None
 
     reference = jnp.asarray(adapt_image)
     if reference.ndim != 2 or reference.shape != image_data.shape:
@@ -98,20 +66,15 @@ def prepare_adaptive_inputs(
     reference = reference.astype(jnp.result_type(image_data, jnp.float32))
     if not bool(np.asarray(jnp.all(jnp.isfinite(reference)))):
         raise ValueError("adapt_image values must be finite.")
-    if not adaptive_reg_enabled(rho):
-        return None, None
-    if fixed_source_bbox is None:
-        raise ValueError("adaptive regularization requires fixed_source_bbox.")
+    if not enabled:
+        return None
     positive = jnp.maximum(reference.ravel()[simulator.flat_indices], 0.0)
     if positive.size:
         reference_brightness = jnp.maximum(
             jnp.percentile(positive, ADAPT_REFERENCE_PERCENTILE), ADAPT_REFERENCE_FLOOR,
         )
         positive = jnp.clip(positive / reference_brightness, 0.0, 1.0)
-    ray_brightness = (
-        positive[simulator._agg_segment_ids] if simulator.nsub > 1 else positive
-    )
-    return ray_brightness, None
+    return positive[simulator._agg_segment_ids] if simulator.nsub > 1 else positive
 
 
 def project_adapt_image(ray_brightness, weights, indices, n_source, nsub, *, interpolation):

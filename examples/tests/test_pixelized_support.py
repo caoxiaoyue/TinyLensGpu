@@ -401,13 +401,12 @@ def _small_source_export_model(image_data=None):
     psf = jnp.asarray([[1.0]])
     bbox = (-0.4, 0.4, -0.4, 0.4)
     sim = PixelizedLensSimulator(phys, SimulatorConfig(dpix=0.08, npix=10, psf_kernel=psf))
-    image = sim.simulate(jnp.linspace(0.1, 1.0, 9), source_bbox=bbox)
-    if image_data is not None:
-        image = jnp.asarray(image_data)
+    reference = sim.simulate(jnp.linspace(0.1, 1.0, 9), source_bbox=bbox)
+    image = reference if image_data is None else jnp.asarray(image_data)
     return PixelizedImageProbModelOperator(
         image, jnp.ones_like(image) * 0.05, psf, 0.08, phys,
         solver_type="pcg", block_size=2, fixed_source_bbox=bbox,
-        fixed_reg_template=jnp.abs(jnp.linspace(-1.0, 1.0, 9)),
+        adapt_image=reference,
     )
 
 
