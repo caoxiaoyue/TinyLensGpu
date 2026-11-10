@@ -114,6 +114,102 @@ def test_hermite_operator_reconstruction_and_evidence_jacobian(solver):
         _check_reconstruction_and_evidence_jacobian(solver, True, True, "cubic_hermite")
 
 
+def _build_overlap_model(solver, joint):
+    n, size, dpix, nsub = 5, 7, 0.125, 2
+    bbox = tuple(np.float64(value) for value in (-0.375, 0.375, -0.375, 0.375))
+    lens_mass = SIE(theta_E=0.12, e1=0.1, e2=0.02, center_x=0.015, center_y=-0.025)
+    lens_mass.theta_E.to_dynamic()
+    rho = ParamU("adaptive_reg_rho", 1.2, limits=(0., 3.))
+    rho.to_dynamic()
+    source = PixelizedSourceModel(
+        n=n, log_lambda_reg=np.log(0.025), adaptive_reg_rho=rho,
+        regularization_type="first-order", interpolation="cubic_hermite",
+    )
+    source.log_lambda_reg.to_dynamic()
+    lens_light = []
+    if joint:
+        lens = SersicEllipse(
+            R_sersic=0.35, n_sersic=1.0, Ie=1.0, e1=0.05, e2=0.02, center_x=0.02, center_y=0.0,
+        )
+        lens.Ie.to_static(1.0)
+        lens.center_x.to_dynamic()
+        lens_light = [lens]
+    physical = PhysicalModel(lens_mass=[lens_mass], source_light=[source], lens_light=lens_light)
+    y, x = np.indices((size, size))
+    mask = ((x == 0) & (y == 1)) | ((x == 3) & (y == 5))
+    psf = np.array([[0., 0.04, 0.], [0.09, 0.65, 0.12], [0.06, 0.04, 0.]])
+    config = SimulatorConfig(dpix=dpix, npix=size, nsub=nsub, psf_kernel=psf, mask=mask)
+    simulator = PixelizedLensSimulator(physical, config)
+    mock = simulator.simulate(
+        jnp.linspace(-0.4, 0.8, n**2), source_bbox=bbox,
+        lens_light_amplitudes=jnp.array([0.4]) if joint else None,
+    )
+    source_y, source_x = np.indices((n, n))
+    reference = simulator.simulate(
+        jnp.exp(-((source_x - 2.1)**2 + (source_y - 1.7)**2) / 2).ravel(),
+        source_bbox=bbox, lens_light_amplitudes=jnp.zeros(1) if joint else None,
+    )
+    model = PixelizedImageProbModelOperator(
+        mock, 0.05 + 0.003 * x + 0.002 * y, psf, dpix, physical, mask=mask, nsub=nsub,
+        solver_type=solver, fixed_source_bbox=bbox, adapt_image=reference,
+        block_size=2, evidence_logdet="overlap", evidence_block_size=2,
+        lens_light_regularization=0.001, pnpg_max_iter=3000, pnpg_rtol=1e-10,
+        position_likelihood=dict(
+            positions=[(-0.2, 0.), (0.2, 0.)], threshold_arcsec=0.1, min_log_like=-10.,
+        ),
+    )
+    model.pcg_rtol = 1e-12
+    return model
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("solver,joint", [("pcg", False), ("pcg", True), ("pnpg", True)])
+def test_hermite_overlap_derivatives_follow_mass_and_adaptive_strengths(solver, joint):
+    with jax.experimental.enable_x64():
+        model = _build_overlap_model(solver, joint)
+        theta = jnp.asarray(model.get_values(), dtype=jnp.float64)
+        source_weights = jnp.linspace(0.5, 1.5, 25)
+        image_weights = jnp.linspace(0.3, 1.2, 49).reshape(7, 7)
+
+        def observables(result):
+            values = [
+                result.log_evidence,
+                source_weights @ result.source_pixels,
+                jnp.sum(image_weights * result.model_image),
+            ]
+            if joint:
+                values.append(result.lens_amplitudes[0])
+            return jnp.stack(values)
+
+        def evaluate_valid(parameters):
+            result, diagnostics = model.evaluate_with_diagnostics(parameters)
+            assert result.log_evidence.dtype == jnp.float64
+            assert diagnostics.valid and diagnostics.evidence_valid
+            assert diagnostics.position.max_separation > 0.11
+            assert diagnostics.position.penalty < 0.0
+            return result
+
+        center = evaluate_valid(theta)
+        if solver == "pnpg":
+            active = center.source_pixels == 0
+            assert jnp.any(active) and jnp.any(~active)
+            assert center.solver_info.min_active_residual > 0.0
+
+        step = 2e-5
+        columns = []
+        for offset in step * jnp.eye(theta.size):
+            upper, lower = evaluate_valid(theta + offset), evaluate_valid(theta - offset)
+            if solver == "pnpg":
+                np.testing.assert_array_equal(upper.source_pixels == 0, active)
+                np.testing.assert_array_equal(lower.source_pixels == 0, active)
+            columns.append((observables(upper) - observables(lower)) / (2 * step))
+        expected = jnp.stack(columns, axis=1)
+        actual = jax.jit(jax.jacrev(lambda p: observables(model.evaluate(p))))(theta)
+        assert jnp.all(jnp.isfinite(actual))
+        assert jnp.all(jnp.abs(expected[0]) > 1e-3)
+        np.testing.assert_allclose(actual, expected, rtol=4e-4, atol=3e-5)
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("solver", ["pcg", "pnpg"])
 def test_operator_batched_value_and_grad_matches_individual_calls(solver):
