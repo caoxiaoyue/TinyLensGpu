@@ -151,6 +151,8 @@ def test_slacs_saves_and_resumes_one_source_model(requested, tmp_path, monkeypat
         extra = payload["extra"]
         assert extra["source_interpolation"] == mode
         assert extra["source_boundary"] == boundary
+        if tag.startswith("m"):
+            assert extra["objective"]["evidence_logdet"] == "overlap"
         if tag == "m0":
             assert "s1" not in extra
             if seed is not None:
@@ -158,15 +160,11 @@ def test_slacs_saves_and_resumes_one_source_model(requested, tmp_path, monkeypat
                 np.testing.assert_allclose(fresh_reports["stage-M0"][1].source_bbox, seed["source_bbox"])
         if tag == "m1":
             s1 = extra["s1"]
+            assert s1["adapt_image"].shape == image.shape
+            assert s1["source_image"].shape == (3, 3)
             assert s1["source_interpolation"] == mode
             assert s1["source_boundary"] == boundary
             np.testing.assert_allclose(s1["source_bbox"], fresh_reports["stage-M2"][1].source_bbox)
-        if requested is None:
-            # Restore the historical stage format and exercise legacy fallback.
-            for record in (extra, extra.get("s1", {})):
-                record.pop("source_interpolation", None)
-                record.pop("source_boundary", None)
-            path.write_bytes(pickle.dumps(payload))
 
     if requested:
         # Reopen the run at a checkpoint which has M0 evidence and no S1.
@@ -190,6 +188,16 @@ def test_slacs_saves_and_resumes_one_source_model(requested, tmp_path, monkeypat
         fresh = fresh_reports[tag][1]
         np.testing.assert_allclose(resumed.source_bbox, fresh.source_bbox)
         np.testing.assert_allclose(resumed.model_image, fresh.model_image, rtol=2e-5, atol=1e-7)
+
+    # A stage fitted under the previous objective must be sampled again.
+    m2_path = tmp_path / "stage_m2.pkl"
+    old_m2 = pickle.loads(m2_path.read_bytes())
+    old_m2["extra"].pop("objective")
+    m2_path.write_bytes(pickle.dumps(old_m2))
+    runs_before = len(ControlledSampler.instances)
+    module.main(skip_done=True, out_dir=tmp_path)
+    assert len(ControlledSampler.instances) > runs_before
+    assert "objective" in module._load_stage("m2")["extra"]
 
 
 @pytest.mark.parametrize('case', CASES)
@@ -238,25 +246,18 @@ def test_survey_template_validation_keeps_identity(case, monkeypatch):
                    source_x_axis=np.linspace(-1, 1, 3), source_y_axis=np.linspace(-1, 1, 3),
                    lambda_best=2., log_lambda_best=np.log(2.))
     assert module._validate_source_package(package) is package
-    if case == CASES[1]:
-        assert 'scale_map' not in package
-    else:
-        assert package['scale_map'].dtype == np.float32
-        assert package['scale_map'].shape == (9,)
-        assert np.all(package['scale_map'] > 0)
+    assert 'scale_map' not in package
     package['nx'] = 3
     with pytest.raises(KeyError, match='legacy'):
         module._validate_source_package(package)
 
 
-@pytest.mark.parametrize('case', [CASES[0], CASES[1], CASES[4]])
+@pytest.mark.parametrize('case', CASES[:-1])
 @pytest.mark.parametrize("interpolation", [None, "cubic_hermite"], ids=["legacy", "hermite"])
 def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch, interpolation):
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
-    from TinyLensGpu.example_support import (
-        export_source_package, source_interpolation_metadata, validate_source_package,
-    )
+    from TinyLensGpu.example_support import export_source_package
 
     module = load_case(case, monkeypatch)
     for key, value in dict(NSRC=3, DPIX=0.08, NSUB_PIX=1, SOLVER_TYPE='pcg').items():
@@ -264,43 +265,24 @@ def test_survey_source_transition_and_render_data(case, tmp_path, monkeypatch, i
     medians = dict(theta_E=0.17, gamma=2.1, e1_mass=0.1, e2_mass=0.03,
                    center_x_mass=0., center_y_mass=0., gamma1=0.02, gamma2=-0.01,
                    log_lambda_reg=0.)
-    package = dict(source_pixels=np.arange(9, dtype=float), n=3,
-                   source_bbox=(-0.3, 0.3, -0.3, 0.3),
-                   source_x_axis=np.linspace(-0.3, 0.3, 3),
-                   source_y_axis=np.linspace(-0.3, 0.3, 3),
-                   lambda_best=1., log_lambda_best=0.)
-    if interpolation is not None:
-        package.update(source_interpolation_metadata(interpolation))
     image, noise = np.full((10, 10), 0.05), np.full((10, 10), 0.1)
     mask = np.zeros((10, 10), dtype=bool)
     mask[:2] = True
     psf = np.array([[0., 0., 0.], [0., 1., 0.], [0., 0., 0.]])
-    if case == CASES[1]:
-        a_names = ["theta_E", "e1_mass", "e2_mass", "center_x_mass", "center_y_mass", "gamma1", "gamma2"]
-        a_samples = np.tile([medians[name] for name in a_names], (3, 1))
-        stage_a = StagePosterior(a_samples, np.ones(3), a_names)
-        producer = module.build_stage_m1_likelihood(
-            image, noise, psf, mask, stage_a, None, 0.0,
-            source_interpolation=interpolation,
-        )
-        producer_names = [param.name for param in producer.get_dynamic_params()]
-        exported = export_source_package(
-            producer, medians, producer_names, n=3, record_adapt_image=True,
-        )
-        values = dict(log_lambda_reg=0.0, adaptive_reg_rho=module.ADAPTIVE_REG_RHO)
-        names = list(values)
-        prepared = exported
-    else:
-        initial = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, package)
-        names = [p.name for p in initial.get_dynamic_params()]
-        values = {p.name: float(np.asarray(p.value)) for p in initial.get_dynamic_params()}
-        exported = export_source_package(
-            initial, values, names, n=3, record_source_interpolation=True,
-        )
-        prepared = validate_source_package(
-            dict(exported, lambda_best=1.0, log_lambda_best=0.0),
-            expected_n=3, rho=module.ADAPTIVE_REG_RHO,
-        )
+    a_names = ["theta_E", "e1_mass", "e2_mass", "center_x_mass", "center_y_mass", "gamma1", "gamma2"]
+    a_samples = np.tile([medians[name] for name in a_names], (3, 1))
+    stage_a = StagePosterior(a_samples, np.ones(3), a_names)
+    producer = module.build_stage_m1_likelihood(
+        image, noise, psf, mask, stage_a, None, 0.0,
+        source_interpolation=interpolation,
+    )
+    producer_names = [param.name for param in producer.get_dynamic_params()]
+    exported = export_source_package(
+        producer, medians, producer_names, n=3, record_adapt_image=True,
+    )
+    values = dict(log_lambda_reg=0.0, adaptive_reg_rho=module.ADAPTIVE_REG_RHO)
+    names = list(values)
+    prepared = exported
     assert exported["source_interpolation"] == (interpolation or "bilinear")
     prepared.update(lambda_best=1.0, log_lambda_best=0.0)
     next_stage = module.build_stage_m2_likelihood(image, noise, psf, mask, medians, None, prepared)

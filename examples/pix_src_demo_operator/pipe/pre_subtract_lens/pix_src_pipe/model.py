@@ -8,7 +8,7 @@ Stage m0 : SIE + shear + uniform pixelized source — GPU grid search for
             evidence-best lambda_reg on lens-subtracted image
 Stage m1 : EPL + shear + non-adaptive pixelized source — Nautilus sampling
             of mass parameters on lens-subtracted image with lambda_reg constrained around stage-M0,
-            then builds the fixed S1 source template
+            then exports the S1 reference arc and fitted source grid
 Stage m2 : fixed EPL + shear + adaptive pixelized source — Nautilus sampling
             of log_lambda_reg and adaptive_reg_rho only, on lens-subtracted image
 Stage m3 : EPL + shear + adaptive pixelized source — Nautilus nested sampling
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from functools import partial
 from pathlib import Path
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
@@ -51,11 +52,21 @@ from TinyLensGpu.example_support import (
     load_stage,
     stage_from_payload,
     draw_image_panel,
+    adapt_image_kwargs,
     export_source_package,
+    pixelized_objective_provenance,
+    require_reference_observation,
     require_valid_reconstruction,
     validate_source_package,
     resolve_source_interpolation,
     resolve_stage_source_interpolation,
+)
+from TinyLensGpu.example_support.pixelized_stage_cache import (
+    load_pixelized_checkpoint,
+    matching_pixelized_checkpoint,
+    pixelized_stage_identity,
+    plot_cached_pixelized_stage,
+    recover_pixelized_producer,
 )
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.ObservationModel import PointSourceProbModel
@@ -70,7 +81,6 @@ from TinyLensGpu.PhysicalModel import (
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Light import build_bspline_multipole_set
 from TinyLensGpu.PhysicalModel.LensImage.Parametric.Mass import SIE, EPL
 from TinyLensGpu.utils import load_lens_data
-from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
 from TinyLensGpu.utils.misc import arc_mask_from, weighted_quantile
 from TinyLensGpu.visualizer import plot_model_results, overlay_critical_and_caustics
 
@@ -140,12 +150,11 @@ def _make_circular_mask(image_shape, dpix, radius_arcsec=3.5):
 
 
 
-def _make_source_scale(source_package, rho=ADAPTIVE_REG_RHO):
-    return source_template_scale_map(source_package["source_pixels"], int(source_package["n"]), rho=rho)
-
-
-def _validate_source_package(source_package):
-    return validate_source_package(source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO)
+def _validate_source_package(source_package, *, require_regularization=False):
+    return validate_source_package(
+        source_package, expected_n=NSRC, rho=ADAPTIVE_REG_RHO,
+        require_regularization=require_regularization, check_axes=True,
+    )
 
 
 def _pnpg_kwargs():
@@ -153,10 +162,7 @@ def _pnpg_kwargs():
 
 
 def _fixed_source_kwargs(source_package):
-    source_package=_validate_source_package(source_package)
-    return dict(fixed_source_bbox=tuple(float(v) for v in source_package["source_bbox"]),
-                fixed_reg_template=jnp.asarray(source_package["source_pixels"],dtype=jnp.float32))
-
+    return adapt_image_kwargs(source_package, expected_n=NSRC)
 
 
 def _reg_hyperparams_from_payload(sp, tag):
@@ -182,8 +188,8 @@ def _valid_log_evidence(values) -> np.ndarray:
 def _solve_pixel_source_for_package(likelihood, medians, param_names):
     return export_source_package(
         likelihood, medians, param_names, n=NSRC,
-        context="exporting the stage source template",
-        record_source_interpolation=True,
+        context="exporting the stage source reference",
+        record_adapt_image=True,
     )
 
 
@@ -452,7 +458,11 @@ def _plot_pix_stage(tag,likelihood,medians,param_names,save_path):
 # ------------------------------------------------------------------ #
 # Stage M0-M3
 # ------------------------------------------------------------------ #
-def build_stage_m0_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,cmask=None, *, source_interpolation=None):
+def build_stage_m0_likelihood(
+    ls_img, nmap, psk, fmask,
+    stage_a, pl, cmask=None,
+    *, source_interpolation=None, evidence_logdet="overlap", evidence_block_size=10,
+):
     sie,shear=_sie_mass_from_stage_a(stage_a)
     ll=ParamU("log_lambda_reg",0.0,prior_type="uniform",prior_settings=[-13.815510557964274,13.815510557964274],limits=[-13.815510557964274,13.815510557964274]); ll.to_dynamic()
     pix_src = PixelizedSourceModel(
@@ -462,17 +472,57 @@ def build_stage_m0_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,cmask=None, *, so
         interpolation=resolve_source_interpolation(source_interpolation),
     )
     phys=PhysicalModel(lens_mass=[sie,shear],source_light=[pix_src],lens_light=[])
-    cm=fmask;
-    if cmask is not None: cm=cm|cmask
-    return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
-                                            phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_pnpg_kwargs())
+    cm = fmask
+    if cmask is not None:
+        cm = cm | cmask
+    return PixelizedImageProbModelOperator(
+        image_data=ls_img, noise_map=nmap, psf_kernel=psk,
+        dpix=DPIX, nsub=NSUB_PIX, phys_model=phys, mask=cm,
+        position_likelihood=pl, solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs(),
+    )
 
-def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None, *, source_interpolation=None):
+
+def run_stage_m0(
+    idata, nmap, psk, fmask, llm,
+    stage_a, pl, cmask=None,
+    *, source_interpolation=None, cached=None, upstream=None,
+    evidence_logdet="overlap", evidence_block_size=10,
+):
     print("\n"+"="*60); print(" Stage M0 : fixed SIE + shear + uniform pix source "); print("="*60)
     t0=time.time(); ls=idata-llm
-    lkl=build_stage_m0_likelihood(ls,nmap,psk,fmask,stage_a,pl,cmask, source_interpolation=source_interpolation)
-    llb=make_likelihood(lkl,vectorized=True); ng=200
+    lkl = build_stage_m0_likelihood(
+        ls, nmap, psk, fmask,
+        stage_a, pl, cmask,
+        source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    ng = 200
+    objective = pixelized_objective_provenance(
+        lkl, upstream=upstream,
+        sampling=dict(
+            method="grid_search", vectorized=True, grid_size=ng,
+            coarse_lambda_bounds=[1e-8, 1e8], fine_width_decades=1,
+        ),
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m0")
+    if checkpoint is not None:
+        log_lambda = checkpoint["extra"]["log_lambda_best"]
+        try:
+            s0 = _validate_source_package(checkpoint["extra"]["s0"], require_regularization=True)
+            if float(s0["log_lambda_best"]) != float(log_lambda):
+                raise ValueError("Saved S0 regularization differs from the M0 calibration.")
+        except (KeyError, TypeError, ValueError) as err:
+            print(f"[stage-M0] cannot verify cached S0 ({err}); recomputing.")
+        else:
+            medians = {**stage_a.medians(), "log_lambda_reg": log_lambda}
+            plot_cached_pixelized_stage(
+                _plot_pix_stage, OUT_DIR, "m0", lkl, medians, ["log_lambda_reg"],
+            )
+            return s0, log_lambda
+
+    llb = make_likelihood(lkl, vectorized=True)
     lmin,lmax=jnp.log(1e-8),jnp.log(1e8)
     lgc=jnp.linspace(lmin,lmax,ng); lec=jnp.asarray(llb(lgc.reshape(-1,1)))
     vc=_valid_log_evidence(lec)
@@ -485,13 +535,16 @@ def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None, *, source_inter
     bif=int(np.argmax(np.where(vf,np.asarray(lef),-np.inf))); llb_f=float(lgf[bif]); leb=float(lef[bif])
     print(f"[stage-M0] Refined best: λ = {float(jnp.exp(llb_f)):.4e}")
     ma=stage_a.medians()
-    s0=_solve_pixel_source_for_package(lkl,{**ma,"log_lambda_reg":llb_f},["log_lambda_reg"])
+    s0 = export_source_package(
+        lkl, {**ma, "log_lambda_reg": llb_f}, ["log_lambda_reg"], n=NSRC,
+        record_source_interpolation=True,
+    )
     s0.update(lambda_best=float(jnp.exp(llb_f)),log_lambda_best=llb_f,evidence_lambda_best=float(jnp.exp(llb_f)),
               evidence_log_lambda_best=llb_f,stage_a_medians=dict(ma))
-    s0["scale_map"]=np.asarray(_make_source_scale(s0),dtype=np.float32); _validate_source_package(s0)
+    _validate_source_package(s0, require_regularization=True)
     t1=time.time(); print(f"[stage-M0] time taken: {t1-t0:.2f} seconds")
     _dump_stage("m0",None,None,["log_lambda_reg"],leb,
-                extra=dict(log_lambda_best=llb_f,evidence_lambda_best=float(jnp.exp(llb_f)),evidence_log_lambda_best=llb_f,
+                extra=dict(objective=objective, log_lambda_best=llb_f,evidence_lambda_best=float(jnp.exp(llb_f)),evidence_log_lambda_best=llb_f,
                            s0=s0,time_taken=t1-t0,
                            lambda_grid_coarse=np.asarray(lgc,dtype=np.float64),log_ev_coarse=np.asarray(lec,dtype=np.float64),
                            lambda_grid_fine=np.asarray(lgf,dtype=np.float64),log_ev_fine=np.asarray(lef,dtype=np.float64)), source_interpolation=lkl.source_model.interpolation)
@@ -502,7 +555,11 @@ def run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask=None, *, source_inter
         print(f"[stage-M0] plot failed: {err}")
     return s0,llb_f
 
-def build_stage_m1_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,ll_fixed,cmask=None, *, source_interpolation=None):
+def build_stage_m1_likelihood(
+    ls_img, nmap, psk, fmask,
+    stage_a, pl, ll_fixed, cmask=None,
+    *, source_interpolation=None, evidence_logdet="overlap", evidence_block_size=10,
+):
     epl,shear=_epl_mass_from_stage(stage_a)
     ll=ParamU("log_lambda_reg",float(ll_fixed),prior_type="truncated_gaussian",
               prior_settings=[float(ll_fixed),0.15],limits=[float(ll_fixed)-0.5,float(ll_fixed)+0.5]); ll.to_dynamic()
@@ -513,24 +570,71 @@ def build_stage_m1_likelihood(ls_img,nmap,psk,fmask,stage_a,pl,ll_fixed,cmask=No
         interpolation=resolve_source_interpolation(source_interpolation),
     )
     phys=PhysicalModel(lens_mass=[epl,shear],source_light=[pix_src],lens_light=[])
-    cm=fmask;
-    if cmask is not None: cm=cm|cmask
-    return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
-                                            phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_pnpg_kwargs())
+    cm = fmask
+    if cmask is not None:
+        cm = cm | cmask
+    return PixelizedImageProbModelOperator(
+        image_data=ls_img, noise_map=nmap, psf_kernel=psk,
+        dpix=DPIX, nsub=NSUB_PIX, phys_model=phys, mask=cm,
+        position_likelihood=pl, solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        source_bbox_padding=SOURCE_BBOX_PADDING, **_pnpg_kwargs(),
+    )
 
-def run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,ll_fixed,cmask=None, *, source_interpolation=None):
+
+def run_stage_m1(
+    idata, nmap, psk, fmask, llm,
+    stage_a, pl, ll_fixed, cmask=None,
+    *, source_interpolation=None, cached=None, upstream=None,
+    evidence_logdet="overlap", evidence_block_size=10,
+):
     print("\n"+"="*60); print(" Stage M1 : EPL + shear + non-adaptive pix source (mass fit)"); print("="*60)
     t0=time.time(); ls=idata-llm
-    lkl=build_stage_m1_likelihood(ls,nmap,psk,fmask,stage_a,pl,ll_fixed,cmask, source_interpolation=source_interpolation)
-    stage=_run_sampler(lkl,n_live=300,n_eff=600,tag="stage-M1",vectorized=True)
+    build = partial(
+        build_stage_m1_likelihood,
+        ls, nmap, psk, fmask,
+        stage_a, pl, ll_fixed, cmask,
+        source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    lkl = build()
+    sampling = SamplingConfig(n_live=300, n_eff=600, vectorized=True, n_batch=100)
+    objective = pixelized_objective_provenance(
+        lkl, sampling=sampling, upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m1", producer=True)
+    if checkpoint is not None:
+        try:
+            stage = _stage_from_payload(checkpoint)
+            medians = checkpoint["extra"]["medians"]
+            package = recover_pixelized_producer(
+                lkl, checkpoint, "s1", medians, stage.param_names,
+            )
+        except (KeyError, TypeError, ValueError) as err:
+            print(f"[stage-M1] cannot verify cached source reference ({err}); recomputing.")
+        else:
+            print("[stage-M1] reusing verified source reference")
+            extra = checkpoint["extra"]
+            if package is not extra["s1"]:
+                _dump_stage(
+                    "m1", stage.samples, stage.weights, stage.param_names, stage.log_z,
+                    stage=stage, extra={**extra, "s1": package},
+                    source_interpolation=lkl.source_model.interpolation,
+                )
+            plot_cached_pixelized_stage(
+                _plot_pix_stage, OUT_DIR, "m1", lkl, medians, stage.param_names,
+                producer=(package, build),
+            )
+            return stage, medians, package
+
+    stage = run_sampling(lkl, sampling, tag="stage-M1", sampler_factory=Sampler)
     t1=time.time(); s,w,n,lz=stage.samples,stage.weights,stage.param_names,stage.log_z
     _print_summary("stage-M1",s,w,n); print(f"[stage-M1] time taken: {t1-t0:.2f} seconds")
     med=stage.medians(); sm=dict(med); llm1=float(med["log_lambda_reg"])
     s1=_solve_pixel_source_for_package(lkl,sm,n)
     s1.update(lambda_best=float(jnp.exp(llm1)),log_lambda_best=llm1,stage_m1_medians=dict(med))
-    s1["scale_map"]=np.asarray(_make_source_scale(s1),dtype=np.float32); _validate_source_package(s1)
-    _dump_stage("m1",s,w,n,lz,extra=dict(medians=med,m1_mass_model="EPL+Shear",
+    _validate_source_package(s1)
+    _dump_stage("m1",s,w,n,lz,extra=dict(objective=objective, medians=med,m1_mass_model="EPL+Shear",
                 lambda_prior_center=float(ll_fixed),lambda_prior_sigma=0.15,
                 lambda_prior_limits=[float(ll_fixed)-0.5,float(ll_fixed)+0.5],
                 s1=s1,time_taken=t1-t0),stage=stage, source_interpolation=lkl.source_model.interpolation)
@@ -541,7 +645,11 @@ def run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,ll_fixed,cmask=None, *, sou
         print(f"[stage-M1] plot failed: {err}")
     return stage,med,s1
 
-def build_stage_m2_likelihood(ls_img,nmap,psk,fmask,med_m1,pl,s1_pkg,cmask=None, *, source_interpolation=None):
+def build_stage_m2_likelihood(
+    ls_img, nmap, psk, fmask,
+    med_m1, pl, s1_pkg, cmask=None,
+    *, source_interpolation=None, evidence_logdet="overlap", evidence_block_size=10,
+):
     source_interpolation = resolve_source_interpolation(
         source_interpolation, metadata=s1_pkg, context="S1 source package"
     )
@@ -560,22 +668,54 @@ def build_stage_m2_likelihood(ls_img,nmap,psk,fmask,med_m1,pl,s1_pkg,cmask=None,
     phys=PhysicalModel(lens_mass=[epl,shear],
                        source_light=[pix_src],
                        lens_light=[])
-    cm=fmask;
-    if cmask is not None: cm=cm|cmask
-    return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
-                                            phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_pnpg_kwargs(),**_fixed_source_kwargs(s1_pkg))
+    cm = fmask
+    if cmask is not None:
+        cm = cm | cmask
+    likelihood = PixelizedImageProbModelOperator(
+        image_data=ls_img, noise_map=nmap, psf_kernel=psk,
+        dpix=DPIX, nsub=NSUB_PIX, phys_model=phys, mask=cm,
+        position_likelihood=pl, solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        source_bbox_padding=SOURCE_BBOX_PADDING,
+        **_pnpg_kwargs(), **_fixed_source_kwargs(s1_pkg),
+    )
+    require_reference_observation(likelihood, s1_pkg)
+    return likelihood
 
-def run_stage_m2(idata,nmap,psk,fmask,llm,med_m1,pl,s1_pkg,cmask=None, *, source_interpolation=None):
+
+def run_stage_m2(
+    idata, nmap, psk, fmask, llm,
+    med_m1, pl, s1_pkg, cmask=None,
+    *, source_interpolation=None, cached=None, upstream=None,
+    evidence_logdet="overlap", evidence_block_size=10,
+):
     print("\n"+"="*60); print(" Stage M2 : fixed EPL + shear + adaptive pix source (fit λ, rho)"); print("="*60)
     t0=time.time(); ls=idata-llm
-    lkl=build_stage_m2_likelihood(ls,nmap,psk,fmask,med_m1,pl,s1_pkg,cmask, source_interpolation=source_interpolation)
-    stage=_run_sampler(lkl,n_live=250,n_eff=600,tag="stage-M2",vectorized=True)
+    lkl = build_stage_m2_likelihood(
+        ls, nmap, psk, fmask,
+        med_m1, pl, s1_pkg, cmask,
+        source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    sampling = SamplingConfig(n_live=250, n_eff=600, vectorized=True, n_batch=100)
+    objective = pixelized_objective_provenance(
+        lkl, reference=s1_pkg, sampling=sampling, upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m2")
+    if checkpoint is not None:
+        stage = _stage_from_payload(checkpoint)
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m2", lkl, medians, stage.param_names,
+        )
+        return stage, medians, _reg_hyperparams_from_m2_payload(checkpoint)
+
+    stage = run_sampling(lkl, sampling, tag="stage-M2", sampler_factory=Sampler)
     t1=time.time(); s,w,n,lz=stage.samples,stage.weights,stage.param_names,stage.log_z
     _print_summary("stage-M2",s,w,n); print(f"[stage-M2] time taken: {t1-t0:.2f} seconds")
     med=stage.medians(); rhm2={"log_lambda_reg":float(med["log_lambda_reg"]),"adaptive_reg_rho":float(med["adaptive_reg_rho"])}
     print(f"[stage-M2] median source reg: {_format_reg_hyperparams(rhm2)}")
-    _dump_stage("m2",s,w,n,lz,extra=dict(medians=med,m2_mass_model="fixed-EPL+Shear",mass_medians_fixed=dict(med_m1),
+    _dump_stage("m2",s,w,n,lz,extra=dict(objective=objective, medians=med,m2_mass_model="fixed-EPL+Shear",mass_medians_fixed=dict(med_m1),
                 reg_hyperparams=rhm2,time_taken=t1-t0),stage=stage, source_interpolation=lkl.source_model.interpolation)
     try: _plot_pix_stage("stage-M2",lkl,med,n,str(OUT_DIR/"stage_m2_model.png"))
     except Exception as err:
@@ -584,7 +724,11 @@ def run_stage_m2(idata,nmap,psk,fmask,llm,med_m1,pl,s1_pkg,cmask=None, *, source
         print(f"[stage-M2] plot failed: {err}")
     return stage,med,rhm2
 
-def build_stage_m3_likelihood(ls_img,nmap,psk,fmask,stage_m1,pl,rh_fixed,s1_pkg,cmask=None, *, source_interpolation=None):
+def build_stage_m3_likelihood(
+    ls_img, nmap, psk, fmask,
+    stage_m1, pl, rh_fixed, s1_pkg, cmask=None,
+    *, source_interpolation=None, evidence_logdet="overlap", evidence_block_size=10,
+):
     source_interpolation = resolve_source_interpolation(
         source_interpolation, metadata=s1_pkg, context="S1 source package"
     )
@@ -601,22 +745,54 @@ def build_stage_m3_likelihood(ls_img,nmap,psk,fmask,stage_m1,pl,rh_fixed,s1_pkg,
     phys=PhysicalModel(lens_mass=[epl,shear],
                        source_light=[pix_src],
                        lens_light=[])
-    cm=fmask;
-    if cmask is not None: cm=cm|cmask
-    return PixelizedImageProbModelOperator(image_data=ls_img,noise_map=nmap,psf_kernel=psk,dpix=DPIX,nsub=NSUB_PIX,
-                                            phys_model=phys,mask=cm,position_likelihood=pl,solver_type=SOLVER_TYPE,
-                                            source_bbox_padding=SOURCE_BBOX_PADDING,**_pnpg_kwargs(),**_fixed_source_kwargs(s1_pkg))
+    cm = fmask
+    if cmask is not None:
+        cm = cm | cmask
+    likelihood = PixelizedImageProbModelOperator(
+        image_data=ls_img, noise_map=nmap, psf_kernel=psk,
+        dpix=DPIX, nsub=NSUB_PIX, phys_model=phys, mask=cm,
+        position_likelihood=pl, solver_type=SOLVER_TYPE,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+        source_bbox_padding=SOURCE_BBOX_PADDING,
+        **_pnpg_kwargs(), **_fixed_source_kwargs(s1_pkg),
+    )
+    require_reference_observation(likelihood, s1_pkg)
+    return likelihood
 
-def run_stage_m3(idata,nmap,psk,fmask,llm,stage_m1,pl,rh_fixed,s1_pkg,cmask=None, *, source_interpolation=None):
+
+def run_stage_m3(
+    idata, nmap, psk, fmask, llm,
+    stage_m1, pl, rh_fixed, s1_pkg, cmask=None,
+    *, source_interpolation=None, cached=None, upstream=None,
+    evidence_logdet="overlap", evidence_block_size=10,
+):
     print("\n"+"="*60); print(" Stage M3 : EPL + shear + adaptive pix source (final mass fit)"); print("="*60)
     print(f"[stage-M3] fixed source reg: {_format_reg_hyperparams(rh_fixed)}")
     t0=time.time(); ls=idata-llm
-    lkl=build_stage_m3_likelihood(ls,nmap,psk,fmask,stage_m1,pl,rh_fixed,s1_pkg,cmask, source_interpolation=source_interpolation)
-    stage=_run_sampler(lkl,n_live=300,n_eff=600,tag="stage-M3",vectorized=True)
+    lkl = build_stage_m3_likelihood(
+        ls, nmap, psk, fmask,
+        stage_m1, pl, rh_fixed, s1_pkg, cmask,
+        source_interpolation=source_interpolation,
+        evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    sampling = SamplingConfig(n_live=300, n_eff=600, vectorized=True, n_batch=100)
+    objective = pixelized_objective_provenance(
+        lkl, reference=s1_pkg, sampling=sampling, upstream=upstream,
+    )
+    checkpoint = matching_pixelized_checkpoint(cached, objective, "m3")
+    if checkpoint is not None:
+        stage = _stage_from_payload(checkpoint)
+        medians = checkpoint["extra"]["medians"]
+        plot_cached_pixelized_stage(
+            _plot_pix_stage, OUT_DIR, "m3", lkl, medians, stage.param_names,
+        )
+        return stage, medians
+
+    stage = run_sampling(lkl, sampling, tag="stage-M3", sampler_factory=Sampler)
     t1=time.time(); s,w,n,lz=stage.samples,stage.weights,stage.param_names,stage.log_z
     _print_summary("stage-M3",s,w,n); print(f"[stage-M3] time taken: {t1-t0:.2f} seconds")
     med=stage.medians()
-    _dump_stage("m3",s,w,n,lz,extra=dict(medians=med,m3_mass_model="EPL+Shear",reg_hyperparams_fixed=dict(rh_fixed),time_taken=t1-t0),stage=stage, source_interpolation=lkl.source_model.interpolation)
+    _dump_stage("m3",s,w,n,lz,extra=dict(objective=objective, medians=med,m3_mass_model="EPL+Shear",reg_hyperparams_fixed=dict(rh_fixed),time_taken=t1-t0),stage=stage, source_interpolation=lkl.source_model.interpolation)
     try: _plot_pix_stage("stage-M3",lkl,med,n,str(OUT_DIR/"stage_m3_model.png"))
     except Exception as err:
         if isinstance(err, InvalidReconstructionError):
@@ -628,7 +804,10 @@ def run_stage_m3(idata,nmap,psk,fmask,llm,stage_m1,pl,rh_fixed,s1_pkg,cmask=None
 # ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
-def main(skip_done=False, out_dir=None, *, source_interpolation=None):
+def main(
+    skip_done=False, out_dir=None, *,
+    source_interpolation=None, evidence_logdet="overlap", evidence_block_size=10,
+):
     global OUT_DIR
     if out_dir is not None: OUT_DIR=Path(out_dir)
     source_interpolation = resolve_stage_source_interpolation(
@@ -654,64 +833,41 @@ def main(skip_done=False, out_dir=None, *, source_interpolation=None):
         stage_l=_stage_from_payload(d); ml=d["extra"]["medians"]; llm=d["extra"]["lens_light_model"]; tl=d["extra"].get("time_taken",0.0)
     else: stage_l,ml,llm=run_stage_l(idata,nmap,psk,fmask,stage_a,cmask, **source_options); tl=_load_stage("l", **source_options)["extra"].get("time_taken",0.0)
 
-    ls=idata-llm; pl=_position_likelihood_from_stage_a(ma)
+    pl = _position_likelihood_from_stage_a(ma)
 
-    tm0=0.0
-    if skip_done and (OUT_DIR/"stage_m0.pkl").exists():
-        print(f"[stage-M0] loading cached {OUT_DIR}/stage_m0.pkl"); d=_load_stage("m0", **source_options)
-        s0=_validate_source_package(d["extra"]["s0"]); llm0=d["extra"]["log_lambda_best"]; tm0=d["extra"].get("time_taken",0.0)
-    else: s0,llm0=run_stage_m0(idata,nmap,psk,fmask,llm,stage_a,pl,cmask, **source_options); tm0=_load_stage("m0", **source_options)["extra"].get("time_taken",0.0)
-    if (OUT_DIR/"stage_m0.pkl").exists() and not (OUT_DIR/"stage_m0_model.png").exists():
-        lkl=build_stage_m0_likelihood(ls,nmap,psk,fmask,stage_a,pl,cmask, **source_options)
-        try: _plot_pix_stage("stage-M0",lkl,{**ma,"log_lambda_reg":float(s0["log_lambda_best"])},["log_lambda_reg"],str(OUT_DIR/"stage_m0_model.png"))
-        except Exception as err:
-            if isinstance(err, InvalidReconstructionError):
-                raise
-            print(f"[stage-M0] re-plot failed: {err}")
+    def checkpoint(tag):
+        return load_pixelized_checkpoint(_load_stage, OUT_DIR, tag, resume=skip_done)
 
-    tm1=0.0; s1=None
-    if skip_done and (OUT_DIR/"stage_m1.pkl").exists():
-        print(f"[stage-M1] loading cached {OUT_DIR}/stage_m1.pkl"); d=_load_stage("m1", **source_options)
-        try: nm1=d["param_names"]; stage_m1=_stage_from_payload(d); mm1=d["extra"]["medians"]; s1=_validate_source_package(d["extra"]["s1"]); tm1=d["extra"].get("time_taken",0.0)
-        except KeyError as err:
-            print(f"[stage-M1] old format ({err}); recomputing.")
-            stage_m1,mm1,s1=run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,llm0,cmask, **source_options); nm1=stage_m1.param_names; tm1=_load_stage("m1", **source_options)["extra"].get("time_taken",0.0)
-    else: stage_m1,mm1,s1=run_stage_m1(idata,nmap,psk,fmask,llm,stage_a,pl,llm0,cmask, **source_options); nm1=stage_m1.param_names; tm1=_load_stage("m1", **source_options)["extra"].get("time_taken",0.0)
-    if s1 is None: raise RuntimeError("[stage-M1] Failed to determine S1 source package.")
-    if (OUT_DIR/"stage_m1.pkl").exists() and not (OUT_DIR/"stage_m1_model.png").exists():
-        lkl=build_stage_m1_likelihood(ls,nmap,psk,fmask,stage_a,pl,llm0,cmask, **source_options)
-        try: _plot_pix_stage("stage-M1",lkl,mm1,nm1,str(OUT_DIR/"stage_m1_model.png"))
-        except Exception as err:
-            if isinstance(err, InvalidReconstructionError):
-                raise
-            print(f"[stage-M1] re-plot failed: {err}")
-
-    tm2=0.0; rhm2=None
-    if skip_done and (OUT_DIR/"stage_m2.pkl").exists():
-        print(f"[stage-M2] loading cached {OUT_DIR}/stage_m2.pkl"); d=_load_stage("m2", **source_options)
-        stage_m2=_stage_from_payload(d); nm2=stage_m2.param_names; mm2=d["extra"]["medians"]; rhm2=_reg_hyperparams_from_m2_payload(d); tm2=d["extra"].get("time_taken",0.0)
-    else: stage_m2,mm2,rhm2=run_stage_m2(idata,nmap,psk,fmask,llm,mm1,pl,s1,cmask, **source_options); nm2=stage_m2.param_names; tm2=_load_stage("m2", **source_options)["extra"].get("time_taken",0.0)
-    if not (OUT_DIR/"stage_m2_model.png").exists():
-        lkl=build_stage_m2_likelihood(ls,nmap,psk,fmask,mm1,pl,s1,cmask, **source_options)
-        try: _plot_pix_stage("stage-M2",lkl,mm2,nm2,str(OUT_DIR/"stage_m2_model.png"))
-        except Exception as err:
-            if isinstance(err, InvalidReconstructionError):
-                raise
-            print(f"[stage-M2] plot failed: {err}")
-    if rhm2 is None: raise RuntimeError("[stage-M2] Failed to determine source regularization hyperparameters.")
-
-    tm3=0.0
-    if skip_done and (OUT_DIR/"stage_m3.pkl").exists():
-        print(f"[stage-M3] loading cached {OUT_DIR}/stage_m3.pkl"); d=_load_stage("m3", **source_options)
-        stage_m3=_stage_from_payload(d); nm3=stage_m3.param_names; mm3=d["extra"]["medians"]; tm3=d["extra"].get("time_taken",0.0)
-    else: stage_m3,mm3=run_stage_m3(idata,nmap,psk,fmask,llm,stage_m1,pl,rhm2,s1,cmask, **source_options); nm3=stage_m3.param_names; tm3=_load_stage("m3", **source_options)["extra"].get("time_taken",0.0)
-    if not (OUT_DIR/"stage_m3_model.png").exists():
-        lkl=build_stage_m3_likelihood(ls,nmap,psk,fmask,stage_m1,pl,rhm2,s1,cmask, **source_options)
-        try: _plot_pix_stage("stage-M3",lkl,mm3,nm3,str(OUT_DIR/"stage_m3_model.png"))
-        except Exception as err:
-            if isinstance(err, InvalidReconstructionError):
-                raise
-            print(f"[stage-M3] plot failed: {err}")
+    data = (idata, nmap, psk, fmask, llm)
+    options = dict(
+        **source_options, evidence_logdet=evidence_logdet, evidence_block_size=evidence_block_size,
+    )
+    upstream = {tag: pixelized_stage_identity(_load_stage(tag)) for tag in ("a", "l")}
+    _, llm0 = run_stage_m0(
+        *data, stage_a, pl, cmask,
+        cached=checkpoint("m0"), upstream=upstream, **options,
+    )
+    stage_m1, mm1, s1 = run_stage_m1(
+        *data, stage_a, pl, llm0, cmask,
+        cached=checkpoint("m1"),
+        upstream={**upstream, "m0": pixelized_stage_identity(_load_stage("m0"))},
+        **options,
+    )
+    m1_id = pixelized_stage_identity(_load_stage("m1"))
+    _, _, rhm2 = run_stage_m2(
+        *data, mm1, pl, s1, cmask,
+        cached=checkpoint("m2"), upstream={"m1": m1_id}, **options,
+    )
+    _, mm3 = run_stage_m3(
+        *data, stage_m1, pl, rhm2, s1, cmask,
+        cached=checkpoint("m3"),
+        upstream={"m1": m1_id, "m2": pixelized_stage_identity(_load_stage("m2"))},
+        **options,
+    )
+    tm0, tm1, tm2, tm3 = (
+        _load_stage(tag)["extra"].get("time_taken", 0.0)
+        for tag in ("m0", "m1", "m2", "m3")
+    )
 
     print("\n"+"="*60); print(" Pipeline complete"); print("="*60)
     print(" Time summary:"); print(f"    Stage A:  {ta/60:.2f} min"); print(f"    Stage L:  {tl/60:.2f} min")
@@ -728,4 +884,6 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--skip-done",action="store_true"); parser.add_argument("--out-dir",default=None)
     parser.add_argument("--source-interpolation", choices=("bilinear", "cubic_hermite"))
-    args=parser.parse_args(); main(skip_done=args.skip_done,out_dir=args.out_dir, source_interpolation=args.source_interpolation)
+    parser.add_argument("--evidence-logdet", choices=("overlap", "block"), default="overlap")
+    parser.add_argument("--evidence-block-size", type=int, default=10, help="Overlap tile width.")
+    main(**vars(parser.parse_args()))

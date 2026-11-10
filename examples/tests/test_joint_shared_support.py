@@ -129,7 +129,6 @@ def test_joint_stages_keep_interpolation_and_unit_lens_light(
 def test_j0946_resumes_before_and_after_source_package(
     examples_dir, monkeypatch, tmp_path, requested,
 ):
-    from TinyLensGpu.utils.inversion.regularization import source_template_scale_map
     from test_survey_shared_support import ControlledSampler
 
     case = load_case(
@@ -157,10 +156,10 @@ def test_j0946_resumes_before_and_after_source_package(
         result, diagnostics = likelihood.evaluate_with_diagnostics(
             jnp.asarray([medians[name] for name in names])
         )
-        assert diagnostics.valid
+        assert diagnostics.valid and diagnostics.evidence_valid
         reports[tag] = (
             likelihood.source_model.interpolation, result, diagnostics.regularization_scale,
-            diagnostics.adaptive_reg_rho,
+            diagnostics.evidence_logdet,
         )
         Path(path).touch()
 
@@ -190,27 +189,29 @@ def test_j0946_resumes_before_and_after_source_package(
     source = case._load_stage("m1")["extra"]["s1"]
     assert source["source_interpolation"] == mode
     assert np.any(source["source_pixels"] != 0)
-    assert source["scale_map"].shape == (case.NSRC ** 2,)
-    for tag, (_, result, scale, rho) in reports.items():
+    assert source["adapt_image"].shape == image.shape
+    np.testing.assert_allclose(source["adapt_image"], reports["stage-M1"][1].model_image)
+    for tag, (_, result, scale, score_method) in reports.items():
         np.testing.assert_allclose(result.source_bbox, source["source_bbox"])
+        assert score_method == "overlap"
         if tag in ("stage-M2", "stage-M3", "stage-M4", "stage-M5"):
-            assert np.any(scale != 1.0)
-            expected = np.asarray(
-                source_template_scale_map(source["source_pixels"], case.NSRC, rho=rho)
-            )
-            np.testing.assert_allclose(scale, expected.reshape(scale.shape), rtol=2e-5)
+            assert np.any(scale > 1.0)
     first_reports = reports.copy()
     for tag in stages:
         path = tmp_path / f"stage_{tag}.pkl"
         payload = pickle.loads(path.read_bytes())
         assert payload["extra"]["source_interpolation"] == mode
-        if requested is None:
-            for metadata in (payload["extra"], payload["extra"].get("s1", {})):
-                metadata.pop("source_interpolation", None)
-                metadata.pop("source_boundary", None)
-            path.write_bytes(pickle.dumps(payload))
-    comparison = case._load_stage("m4")["extra"]["pipeline_schema"]
-    assert case._load_stage("m5")["extra"]["pipeline_schema"] == comparison
+        if tag != "a":
+            assert payload["extra"]["objective"]["evidence_logdet"] == "overlap"
+    m4 = case._load_stage("m4")["extra"]
+    m5 = case._load_stage("m5")["extra"]
+    assert m4["pipeline_schema"] == m5["pipeline_schema"]
+    for key in ("reference_id", "adaptation", "grid", "observation", "fixed_strengths"):
+        assert m4["objective"][key] == m5["objective"][key]
+    assert m4["objective"]["adaptation"]["recipe"] == "native_source_arc_v1"
+    null_priors = {prior["name"]: prior for prior in m4["objective"]["priors"]}
+    candidate_priors = {prior["name"]: prior for prior in m5["objective"]["priors"]}
+    assert null_priors == {name: candidate_priors[name] for name in null_priors}
 
     # Rebuild diagnostics from cached fits and the original S1 intensities.
     reports.clear()
@@ -230,13 +231,52 @@ def test_j0946_resumes_before_and_after_source_package(
         np.testing.assert_allclose(scale, first_reports[tag][2], rtol=2e-5)
 
     m5_output = tmp_path / "m5-only"
+    # The null evidence also applies to a deliberately different candidate-position prior.
+    monkeypatch.setattr(case, "SUBHALO_POSITION_MODE", "lensing_square")
+    reference_candidate = tmp_path / "stage_m5.pkl"
+    if requested is None:
+        saved_candidate = reference_candidate.read_bytes()
+        reference_candidate.unlink()
     summary = case.run_m5_from_cache(tmp_path, m5_output)
+    assert ("reference_log_z_m5" in summary) is (requested is not None)
+    if requested is None:
+        reference_candidate.write_bytes(saved_candidate)
     assert summary["source_interpolation"] == mode
     assert summary["reference_m4_schema_matches"] is True
+    assert summary["evidence_logdet"] == {"m4": "overlap", "m5": "overlap"}
     assert np.isfinite(summary["delta_log_z_m5_m4"])
     assert case._load_stage("m5")["extra"]["source_interpolation"] == mode
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
         case.run_m5_from_cache(tmp_path, m5_output)
+
+    if requested is None:
+        m4_path = tmp_path / "stage_m4.pkl"
+        stale = pickle.loads(m4_path.read_bytes())
+        # A fixed-template checkpoint had no native-arc objective record.
+        stale["extra"].pop("objective")
+        m4_path.write_bytes(pickle.dumps(stale))
+    else:
+        # A valid Block null uses the same input arc but a different determinant.
+        with monkeypatch.context() as block_null:
+            block_null.setattr(case, "OUT_DIR", tmp_path)
+            m2, m3 = (stage_from_payload(case._load_stage(tag)) for tag in ("m2", "m3"))
+            case.run_stage_m4(
+                image, noise, psf, mask, case._load_stage("a")["extra"]["lens_light_model"],
+                m2, m3, None, source, source_interpolation=mode, evidence_logdet="block",
+                upstream=m4["objective"]["upstream"],
+            )
+            assert case._load_stage("m4")["extra"]["objective"]["evidence_logdet"] == "block"
+    rejected = tmp_path / "m5-rejected"
+    with pytest.raises(ValueError, match="M4.*refit"):
+        case.run_m5_from_cache(tmp_path, rejected)
+    assert not rejected.exists()
+
+    # A matched refit in the full pipeline must replace the stale null.
+    monkeypatch.setattr(case, "SUBHALO_POSITION_MODE", "gaussian_local")
+    case.main(skip_done=True, out_dir=tmp_path)
+    repaired = case._load_stage("m4")["extra"]
+    assert repaired["objective"]["evidence_logdet"] == "overlap"
+    assert repaired["pipeline_schema"] == case._load_stage("m5")["extra"]["pipeline_schema"]
 
 
 @pytest.mark.parametrize("stage", ["m0", "m1", "m4", "m5"])
@@ -414,6 +454,10 @@ def test_subhalo_source_package_normalization_and_identity(
                    source_x_axis=np.linspace(-0.2, 0.2, 3),
                    source_y_axis=np.linspace(-0.2, 0.2, 3),
                    lambda_best=1.0, log_lambda_best=0.0)
+    if relative == "pipe/subhalo_0946/model.py":
+        with pytest.raises(ValueError, match="missing verifiable reference provenance"):
+            case._fixed_source_kwargs(package)
+        return
     validated = case._validate_source_package(package)
     assert validated is package
     assert package['scale_map'].dtype == np.float32

@@ -1,0 +1,483 @@
+{
+  "lens_id": "102018665_NEG576731213511114485",
+  "band": "VIS",
+  "sha256": {
+    "original_fits": "17537502d08add9faa90c0cbe24ab9f815be96db3773110a92abe5b7e1e5a624",
+    "metadata.json": "27525f21814f097a349415fe773c32be0572b41533931bd71cefb469e49219bd",
+    "image.fits": "90d0176c3328586a9d208b771393205dfdfd5c1a45c66b4eb3f9852b4a7599b9",
+    "noise.fits": "47d0a9756f75f696c25c3e258b7be12267acf9b1d599e5069c7a28a6bb960aa5",
+    "psf.fits": "b16aa61381d5c713d145602c5a0c98b13573fefe2e66efac16978c8950e06237",
+    "mask.fits": "11a0d9c20dc51e4671ad210d4a436ca529054787d11931e6479d1cfb0e1d6b3a"
+  },
+  "checkout": "1336264ecd6b6ec8011995547291f1f79e88e4a2",
+  "device": "NVIDIA GeForce RTX 5080",
+  "jax": "0.7.1",
+  "nautilus": "1.0.6",
+  "matched_resume_verified": true,
+  "active_pixels": 619,
+  "feature_mask_sha256": "e2a7d8a4a9904e937025b5d54598aa441bd39b04a5b486c206a6e46205a54f97",
+  "upstream_artifact_sha256": {
+    "stage_a.pkl": "bd751894887f0224cf4caca89cb58a886e1cec513b7a2eed3e3f743f3177656f",
+    "stage_l.pkl": "adb37cfcc84a64d9738b9e0829b16d556b61fdb448d059c3d5bfae1709cc9d45"
+  },
+  "reference_id": "ddeaa6b841bc668b960ef3e9edd8e703f1e71e3581d7e2b8121c07c53fb2d0ea",
+  "reference": {
+    "version": 1,
+    "observation": {
+      "image_data": "eef0649549a7ddfc2c510cc184c0771b1f22e9535597414835eb52e7be593f06",
+      "noise_map": "2f30707b4909dfeb4990aa06c2eccd2307e0871edbef472331243c25954e3b35",
+      "psf_kernel": "ad9c2dcf9380609000aefee45e57eb59612144fd54d0d29f37aa72430b43b4fd",
+      "mask": "0825fdfd8cc3e0fb41713aec8c039c1f4bc3d2722589377e0a9d4fffc251924e",
+      "source_seed_mask": "0825fdfd8cc3e0fb41713aec8c039c1f4bc3d2722589377e0a9d4fffc251924e",
+      "image_shape": [
+        300,
+        300
+      ],
+      "dpix": 0.100000000000008,
+      "nsub": 4
+    },
+    "grid": {
+      "n": 30,
+      "source_bbox": [
+        -0.8467671275138855,
+        0.9027827382087708,
+        -0.8409335613250732,
+        0.908616304397583
+      ],
+      "source_x_axis": "fa20bda8406db38a981060bb75970f4e43f559ee338a83313c5cf50fee4f7950",
+      "source_y_axis": "5b7f87d21fd0296b09dfee1372efbbcdf7b9403074f02b05d2125bf7673019cb",
+      "source_interpolation": "bilinear",
+      "source_boundary": "hard_zero_outside_bbox"
+    },
+    "parent_point": {
+      "param_names": [
+        "theta_E",
+        "gamma",
+        "e1_mass",
+        "e2_mass",
+        "gamma1",
+        "gamma2",
+        "log_lambda_reg"
+      ],
+      "values": [
+        1.0578949451446533,
+        1.8764861822128296,
+        0.36049941182136536,
+        -0.007439920678734779,
+        0.20149314403533936,
+        -0.00022271776106208563,
+        2.801851511001587
+      ],
+      "lens_mass": [
+        {
+          "profile": "EPL",
+          "parameters": [
+            [
+              "center_x_mass",
+              0.03230752423405647
+            ],
+            [
+              "center_y_mass",
+              -0.041702862828969955
+            ],
+            [
+              "theta_E",
+              1.0578949451446533
+            ],
+            [
+              "gamma",
+              1.8764861822128296
+            ],
+            [
+              "e1_mass",
+              0.36049941182136536
+            ],
+            [
+              "e2_mass",
+              -0.007439920678734779
+            ]
+          ]
+        },
+        {
+          "profile": "Shear",
+          "parameters": [
+            [
+              "gamma1",
+              0.20149314403533936
+            ],
+            [
+              "gamma2",
+              -0.00022271776106208563
+            ]
+          ]
+        }
+      ],
+      "lens_light": []
+    },
+    "producer_evidence_logdet": "overlap",
+    "producer_evidence_block_size": 10,
+    "source_dtype": "float32",
+    "source_pixels": "c57c8ce8f49f605cdde3a836b32b0d5995840ba6f4b95ef8a72b994f263afb42",
+    "lens_light_intensities": null,
+    "source_bbox_dtype": "float32",
+    "adapt_image": "d64f693d160b8e4ae87fb428c2706f78c62a27b644abdca7f8104dbdab784ee1"
+  },
+  "reference_positive_percentile_99_5": 0.021180208772420883,
+  "selected_m2_strengths": {
+    "log_lambda_reg": -1.460518401169307,
+    "adaptive_reg_rho": 6.67540476303982
+  },
+  "stages": {
+    "m0": {
+      "stage_score": 2560.552490234375,
+      "posterior_draws": null,
+      "posterior_effective_samples": null,
+      "time_taken_seconds": 5.840409755706787,
+      "medians": {
+        "log_lambda_reg": 2.8521969318389893
+      },
+      "objective": {
+        "fingerprint": "31af1941cbcf4d3b041e638c3c9b3d2df45dab0d0607958fc4f174a9c12c00f1",
+        "evidence_logdet": "overlap",
+        "evidence_block_size": 10,
+        "block_size": 10,
+        "solver": {
+          "type": "pcg",
+          "pcg_max_iter": 400,
+          "pcg_rtol": 1e-05
+        },
+        "sampling": {
+          "method": "grid_search",
+          "vectorized": true,
+          "vectorized_chunk_size": 5,
+          "grid_size": 200,
+          "coarse_lambda_bounds": [
+            1e-08,
+            100000000.0
+          ],
+          "fine_width_decades": 1
+        },
+        "grid": {
+          "n": 30,
+          "source_bbox": null,
+          "source_interpolation": "bilinear",
+          "source_boundary": "hard_zero_outside_bbox",
+          "source_bbox_padding": 0.3,
+          "source_bbox_outlier_frac": 0.0
+        },
+        "reference_id": null,
+        "adaptation": null,
+        "fixed_strengths": {
+          "adaptive_reg_rho": 0.0
+        },
+        "upstream": {
+          "a": "89fe8fd394d5b13248ecc1e03cfff6c120e683a72dd5e97a12e05075a9347d93",
+          "l": "2b868304e5beafe874cd8e387f1a8fa90c1b1fa73de5d53163812ba787395c1e"
+        },
+        "regularization_type": "first-order",
+        "precision": {
+          "enable_x64": false,
+          "default_matmul": "float32"
+        }
+      },
+      "diagnostics": {
+        "log_evidence": 2560.552734375,
+        "chi2": 336.48809814453125,
+        "reduced_chi2": 0.5871313190393193,
+        "pcg_iterations": 30,
+        "pcg_residual_norm": 0.21581622958183289,
+        "reconstruction_valid": true,
+        "evidence_valid": true,
+        "evidence_logdet": "overlap",
+        "position_penalty": -0.0,
+        "max_source_separation_arcsec": 3.752201394036092e-07,
+        "lambda_reg": 17.325803756713867,
+        "adaptive_reg_rho": 0.0,
+        "scale_range": [
+          1.0,
+          1.0
+        ],
+        "source_bbox": [
+          -0.912116527557373,
+          0.9821599721908569,
+          -0.8865363597869873,
+          1.0077401399612427
+        ]
+      },
+      "artifact_sha256": "564a6d52f8cbd955fd629ae8ccf3339cd63d174e1a80c2c664c805ac8e537805"
+    },
+    "m1": {
+      "stage_score": 2567.965891811141,
+      "posterior_draws": 11200,
+      "posterior_effective_samples": 2780.1843082508813,
+      "time_taken_seconds": 49.83437514305115,
+      "medians": {
+        "theta_E": 1.057894922259126,
+        "gamma": 1.8764862094555366,
+        "e1_mass": 0.36049940760532906,
+        "e2_mass": -0.007439920779814072,
+        "gamma1": 0.20149314162297038,
+        "gamma2": -0.00022271775885561657,
+        "log_lambda_reg": 2.801851557191952
+      },
+      "objective": {
+        "fingerprint": "d381c1fe3e1a249f6823e19633ce35eb78f5da5c71edbd6f357520f95cf50be1",
+        "evidence_logdet": "overlap",
+        "evidence_block_size": 10,
+        "block_size": 10,
+        "solver": {
+          "type": "pcg",
+          "pcg_max_iter": 400,
+          "pcg_rtol": 1e-05
+        },
+        "sampling": {
+          "method": "nautilus",
+          "n_live": 300,
+          "n_eff": 600,
+          "vectorized": true,
+          "n_batch": 100,
+          "vectorized_chunk_size": 5,
+          "sampler_kwargs": {
+            "seed": 73
+          },
+          "run_kwargs": {},
+          "stabilize_weights": false
+        },
+        "grid": {
+          "n": 30,
+          "source_bbox": null,
+          "source_interpolation": "bilinear",
+          "source_boundary": "hard_zero_outside_bbox",
+          "source_bbox_padding": 0.3,
+          "source_bbox_outlier_frac": 0.0
+        },
+        "reference_id": null,
+        "adaptation": null,
+        "fixed_strengths": {
+          "adaptive_reg_rho": 0.0
+        },
+        "upstream": {
+          "a": "89fe8fd394d5b13248ecc1e03cfff6c120e683a72dd5e97a12e05075a9347d93",
+          "l": "2b868304e5beafe874cd8e387f1a8fa90c1b1fa73de5d53163812ba787395c1e",
+          "m0": "87b784b38bd95144ed62aa24ce3d342dae135d3bff2d8c2f4062530ca86a7c51"
+        },
+        "regularization_type": "first-order",
+        "precision": {
+          "enable_x64": false,
+          "default_matmul": "float32"
+        }
+      },
+      "diagnostics": {
+        "log_evidence": 2584.89404296875,
+        "chi2": 297.55841064453125,
+        "reduced_chi2": 0.5131403891162638,
+        "pcg_iterations": 30,
+        "pcg_residual_norm": 0.19832056760787964,
+        "reconstruction_valid": true,
+        "evidence_valid": true,
+        "evidence_logdet": "overlap",
+        "position_penalty": -0.0,
+        "max_source_separation_arcsec": 0.07063800096511841,
+        "lambda_reg": 16.475122451782227,
+        "adaptive_reg_rho": 0.0,
+        "scale_range": [
+          1.0,
+          1.0
+        ],
+        "source_bbox": [
+          -0.8467671275138855,
+          0.9027827382087708,
+          -0.8409335613250732,
+          0.908616304397583
+        ],
+        "reference_renderer_max_abs_error": 3.725290298461914e-09
+      },
+      "artifact_sha256": "f5f3d35569d33cd1ef4cc4bd5bd930eddf2f6da97378064f063f8b43b0c9a6c2"
+    },
+    "m2": {
+      "stage_score": 2594.9917089104947,
+      "posterior_draws": 3600,
+      "posterior_effective_samples": 1240.434683558494,
+      "time_taken_seconds": 32.72941875457764,
+      "medians": {
+        "log_lambda_reg": -1.460518401169307,
+        "adaptive_reg_rho": 6.67540476303982
+      },
+      "objective": {
+        "fingerprint": "e38e5c8d4edb301d9f9ab4d9e6ae82290aeb319eaf6222561edf33df944443a3",
+        "evidence_logdet": "overlap",
+        "evidence_block_size": 10,
+        "block_size": 10,
+        "solver": {
+          "type": "pcg",
+          "pcg_max_iter": 400,
+          "pcg_rtol": 1e-05
+        },
+        "sampling": {
+          "method": "nautilus",
+          "n_live": 250,
+          "n_eff": 600,
+          "vectorized": true,
+          "n_batch": 100,
+          "vectorized_chunk_size": 5,
+          "sampler_kwargs": {
+            "seed": 73
+          },
+          "run_kwargs": {},
+          "stabilize_weights": false
+        },
+        "grid": {
+          "n": 30,
+          "source_bbox": [
+            -0.8467671275138855,
+            0.9027827382087708,
+            -0.8409335613250732,
+            0.908616304397583
+          ],
+          "source_interpolation": "bilinear",
+          "source_boundary": "hard_zero_outside_bbox"
+        },
+        "reference_id": "ddeaa6b841bc668b960ef3e9edd8e703f1e71e3581d7e2b8121c07c53fb2d0ea",
+        "adaptation": {
+          "recipe": "native_source_arc_v1",
+          "percentile": 99.5,
+          "normalization_floor": 1e-10,
+          "coverage": {
+            "threshold": 1e-08
+          }
+        },
+        "fixed_strengths": {},
+        "upstream": {
+          "m1": "b9c01bb5f4fb2dfa58eeb8863471c2012ce4bc1f4dea5919c3bddecd979e5607"
+        },
+        "regularization_type": "first-order",
+        "precision": {
+          "enable_x64": false,
+          "default_matmul": "float32"
+        }
+      },
+      "diagnostics": {
+        "log_evidence": 2599.62548828125,
+        "chi2": 298.6728210449219,
+        "reduced_chi2": 0.5042633751318764,
+        "pcg_iterations": 38,
+        "pcg_residual_norm": 0.2390056550502777,
+        "reconstruction_valid": true,
+        "evidence_valid": true,
+        "evidence_logdet": "overlap",
+        "position_penalty": -0.0,
+        "max_source_separation_arcsec": 0.07063800096511841,
+        "lambda_reg": 0.23211592435836792,
+        "adaptive_reg_rho": 6.6754045486450195,
+        "scale_range": [
+          2.300891876220703,
+          792.6680908203125
+        ],
+        "source_bbox": [
+          -0.8467671275138855,
+          0.9027827382087708,
+          -0.8409335613250732,
+          0.908616304397583
+        ]
+      },
+      "artifact_sha256": "69973dabab63c7b7a939d5255b84da23a906e61e2e392d5658c6d16eea80af78"
+    },
+    "m3": {
+      "stage_score": 2587.803020656377,
+      "posterior_draws": 9500,
+      "posterior_effective_samples": 2865.8878888059735,
+      "time_taken_seconds": 123.65302777290344,
+      "medians": {
+        "theta_E": 1.0432021452041307,
+        "gamma": 2.1571595283089056,
+        "e1_mass": 0.4055689822383152,
+        "e2_mass": 0.003339920371833289,
+        "gamma1": 0.17227621636571716,
+        "gamma2": 0.005532139699362758
+      },
+      "objective": {
+        "fingerprint": "56fb01f64673401782378607d9ec37bd1ace7dc3f067f2d6b5057f95575a5aad",
+        "evidence_logdet": "overlap",
+        "evidence_block_size": 10,
+        "block_size": 10,
+        "solver": {
+          "type": "pcg",
+          "pcg_max_iter": 400,
+          "pcg_rtol": 1e-05
+        },
+        "sampling": {
+          "method": "nautilus",
+          "n_live": 300,
+          "n_eff": 600,
+          "vectorized": true,
+          "n_batch": 100,
+          "vectorized_chunk_size": 5,
+          "sampler_kwargs": {
+            "seed": 73
+          },
+          "run_kwargs": {},
+          "stabilize_weights": false
+        },
+        "grid": {
+          "n": 30,
+          "source_bbox": [
+            -0.8467671275138855,
+            0.9027827382087708,
+            -0.8409335613250732,
+            0.908616304397583
+          ],
+          "source_interpolation": "bilinear",
+          "source_boundary": "hard_zero_outside_bbox"
+        },
+        "reference_id": "ddeaa6b841bc668b960ef3e9edd8e703f1e71e3581d7e2b8121c07c53fb2d0ea",
+        "adaptation": {
+          "recipe": "native_source_arc_v1",
+          "percentile": 99.5,
+          "normalization_floor": 1e-10,
+          "coverage": {
+            "threshold": 1e-08
+          }
+        },
+        "fixed_strengths": {
+          "log_lambda_reg": -1.4605183601379395,
+          "adaptive_reg_rho": 6.6754045486450195
+        },
+        "upstream": {
+          "a": "89fe8fd394d5b13248ecc1e03cfff6c120e683a72dd5e97a12e05075a9347d93",
+          "m1": "b9c01bb5f4fb2dfa58eeb8863471c2012ce4bc1f4dea5919c3bddecd979e5607",
+          "m2": "c8e30cfcc2c180086b8a64fc15f3e9a527475743e1f46460d34f7a872a124db6"
+        },
+        "regularization_type": "first-order",
+        "precision": {
+          "enable_x64": false,
+          "default_matmul": "float32"
+        }
+      },
+      "diagnostics": {
+        "log_evidence": 2601.3896484375,
+        "chi2": 282.2539978027344,
+        "reduced_chi2": 0.48415767893247746,
+        "pcg_iterations": 32,
+        "pcg_residual_norm": 0.21124427020549774,
+        "reconstruction_valid": true,
+        "evidence_valid": true,
+        "evidence_logdet": "overlap",
+        "position_penalty": -0.0,
+        "max_source_separation_arcsec": 0.05661839246749878,
+        "lambda_reg": 0.23211592435836792,
+        "adaptive_reg_rho": 6.6754045486450195,
+        "scale_range": [
+          1.78932523727417,
+          792.6680908203125
+        ],
+        "source_bbox": [
+          -0.8467671275138855,
+          0.9027827382087708,
+          -0.8409335613250732,
+          0.908616304397583
+        ]
+      },
+      "artifact_sha256": "5b459f3695cfd1fc5064ff5bc9104691ddf7ca606928a4460cde277e15e60dbe"
+    }
+  }
+}
