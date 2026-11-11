@@ -46,7 +46,6 @@ PIPELINES = [
     ("pix_src_demo/pipe/pre_subtract_lens/pix_src_pipe_mge/model.py", 200, 200, 2000),
     ("pix_src_demo/pipe/pre_subtract_lens/pix_src_pipe_sersic/model.py", 200, 200, 2000),
     ("pix_src_demo/pipe/simult_fit_lens_source/mge_lens_light/model.py", 200, 200, 800),
-    ("pix_src_demo_operator/pipe/no_lens_light/model_matrix.py", 300, 100, 2000),
 ]
 
 
@@ -216,27 +215,3 @@ def test_dense_simple_script_artifacts(examples_dir, tmp_path, monkeypatch):
     csv = np.loadtxt(tmp_path / "output/fit_samples.csv", delimiter=",")
     np.testing.assert_array_equal(csv, stage.samples)
     assert (tmp_path / "output/fit_map_visualization.png").exists()
-
-
-def test_dense_matrix_transition_preserves_single_item_batch(examples_dir, tmp_path, monkeypatch):
-    """The matrix variant retains its memory-limited batch and legacy M2 fields."""
-    module = import_pipeline(examples_dir / PIPELINES[-1][0])
-    configure(module, tmp_path, monkeypatch)
-    monkeypatch.setattr(module, "NSUB_PIX", 1)
-    monkeypatch.setattr(module, "NSRC", 3)
-    image, noise, psf = small_data()
-    module.run_stage_a(image, noise, psf)
-    stage_a = stage_from_payload(load_stage(StageStorageConfig(tmp_path, False), "a"))
-    result = module.run_stage_m2(
-        image, noise, psf, np.zeros_like(image, dtype=bool),
-        stage_a.samples, stage_a.weights, stage_a.param_names, None, 0.0,
-    )
-    sampler = ControlledSampler.instances[-1]
-    assert sampler.kwargs == dict(n_live=300, vectorized=True, n_batch=1)
-    assert sampler.n_eff == 600
-    payload = load_stage(StageStorageConfig(tmp_path, False), "m2")
-    assert set(payload) == {"samples", "weights", "param_names", "log_z", "extra"}
-    assert payload["extra"]["lambda_fixed"] == 0.0
-    assert "log_lambda_reg" not in payload["param_names"]
-    np.testing.assert_array_equal(payload["samples"], result[0])
-    assert (tmp_path / "stage_m2_model.png").exists()

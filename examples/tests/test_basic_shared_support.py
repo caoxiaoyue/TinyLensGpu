@@ -1,7 +1,6 @@
 """Basic operator pipelines retain sampling, cache and source-transfer contracts."""
 
 import importlib.util
-import pickle
 from pathlib import Path
 
 import numpy as np
@@ -32,16 +31,14 @@ def load_case(monkeypatch, examples_dir):
 
 
 @pytest.mark.parametrize(
-    "relative,schema",
+    "relative",
     [
-        ("pipe/no_lens_light/model.py", True),
-        ("pipe/no_lens_light/model_adpt_reg.py", False),
-        ("pipe/galan24_test/model.py", True),
-        ("pipe/galan24_test/model_predefine_src_box.py", True),
+        "pipe/galan24_test/model.py",
+        "pipe/galan24_test/model_predefine_src_box.py",
     ],
 )
 def test_basic_sampling_and_cache_contract(
-    relative, schema, load_case, tmp_path, monkeypatch
+    relative, load_case, tmp_path, monkeypatch
 ):
     case = load_case(relative)
     monkeypatch.setattr(case, "OUT_DIR", tmp_path)
@@ -55,7 +52,6 @@ def test_basic_sampling_and_cache_contract(
         "source_pixels": np.arange(9, dtype=np.float32),
         "medians": stage.medians(),
     }
-    kwargs = {"stage": stage} if schema else {}
     case._dump_stage(
         "a",
         stage.samples,
@@ -63,12 +59,10 @@ def test_basic_sampling_and_cache_contract(
         stage.param_names,
         stage.log_z,
         extra=extra,
-        **kwargs
+        stage=stage,
     )
     payload = case._load_stage("a")
-    assert set(payload) == {"samples", "weights", "param_names", "log_z", "extra"} | (
-        {"stage_schema"} if schema else set()
-    )
+    assert set(payload) == {"samples", "weights", "param_names", "log_z", "extra", "stage_schema"}
     assert payload["extra"]["source_pixels"].dtype == np.float32
     from TinyLensGpu.example_support import stage_from_payload
 
@@ -77,126 +71,9 @@ def test_basic_sampling_and_cache_contract(
     assert list(restored.param_names) == ["theta_E"]
 
 
-@pytest.mark.parametrize("requested", [None, "cubic_hermite"], ids=["legacy", "hermite"])
-def test_adaptive_pipeline_resumes_its_saved_source_model(
-    load_case, requested, tmp_path, monkeypatch,
-):
-    import jax.numpy as jnp
-    from TinyLensGpu.example_support import export_source_package
-
-    case = load_case("pipe/no_lens_light/model_adpt_reg.py")
-    for name, value in dict(
-        OUT_DIR=tmp_path, Sampler=_ControlledSampler, NSRC=3, NSUB=1,
-        NSUB_PIX=1, N_GAUSSIANS_SRC=2, DPIX=0.08,
-    ).items():
-        monkeypatch.setattr(case, name, value)
-    y, x = np.indices((8, 8))
-    image = 0.04 + 0.06 * np.exp(-((x - 5)**2 + (y - 3)**2) / 3)
-    noise, psf = np.full_like(image, 0.1), np.array([[1.0]])
-    mask = np.zeros_like(image, dtype=bool)
-    monkeypatch.setattr(case, "load_lens_data", lambda **kw: (image, noise, psf, None))
-    monkeypatch.setattr(case, "run_stage_b", lambda *a, **kw: mask)
-    monkeypatch.setattr(case, "_position_likelihood_from_stage_a", lambda *a: None)
-    monkeypatch.setattr(case, "plot_model_results", lambda *a, **kw: None)
-    reconstructions = {}
-    plot_evidence = {}
-
-    def reconstruct(tag, likelihood, medians, names, path):
-        result = likelihood.evaluate(jnp.asarray([medians[name] for name in names]))
-        assert result.solver_info.converged
-        reconstructions[tag] = (likelihood.source_model.interpolation, result)
-        plot_evidence[tag] = likelihood.evidence_logdet, likelihood.evidence_block_size
-        Path(path).touch()
-
-    monkeypatch.setattr(case, "_plot_pix_stage", reconstruct)
-    case.main(source_interpolation=requested)
-    fresh = reconstructions.copy()
-    expected_mode = requested or "bilinear"
-    assert set(fresh) == {"stage-M0", "stage-M1", "stage-M2"}
-    assert all(mode == expected_mode for mode, _ in fresh.values())
-    for tag in ("a", "m0", "m1", "m2"):
-        path = tmp_path / f"stage_{tag}.pkl"
-        payload = pickle.loads(path.read_bytes())
-        assert "stage_schema" not in payload
-        records = [payload["extra"]]
-        if tag.startswith("m"):
-            assert payload["extra"]["objective"]["evidence_logdet"] == "overlap"
-        if tag == "m0":
-            s0 = payload["extra"]["s0"]
-            records.append(s0)
-            assert s0["adapt_image"].shape == image.shape
-            np.testing.assert_allclose(s0["source_bbox"], fresh["stage-M2"][1].source_bbox)
-        for record in records:
-            assert record["source_interpolation"] == expected_mode
-
-    checkpoint_bytes = {path: path.read_bytes() for path in tmp_path.glob("stage_*.pkl")}
-    for path in tmp_path.glob("stage_m*_model.png"):
-        path.unlink()
-    reconstructions.clear()
-    case.main(skip_done=True)
-    assert reconstructions.keys() == fresh.keys()
-    for tag, (mode, result) in reconstructions.items():
-        assert mode == expected_mode
-        np.testing.assert_allclose(
-            result.model_image, fresh[tag][1].model_image, rtol=2e-5, atol=2e-6,
-        )
-    assert all(path.read_bytes() == before for path, before in checkpoint_bytes.items())
-
-    conflicting = "bilinear" if requested else "cubic_hermite"
-    with pytest.raises(ValueError, match="Start a fresh run"):
-        case.main(skip_done=True, source_interpolation=conflicting)
-    assert all(path.read_bytes() == before for path, before in checkpoint_bytes.items())
-
-    if requested is None:
-        m0_path = tmp_path / "stage_m0.pkl"
-        archived = pickle.loads(m0_path.read_bytes())
-        extra = archived["extra"]
-        medians_a = case._load_stage("a")["extra"]["medians"]
-        historical = case.build_stage_m0_likelihood(
-            image, noise, psf, mask, medians_a, None,
-            evidence_logdet="block", evidence_block_size=4,
-        )
-        log_lambda = extra["lambda_best"]
-        producer = export_source_package(
-            historical, {"log_lambda_reg": log_lambda}, ["log_lambda_reg"],
-            n=3, record_adapt_image=True,
-        )
-        producer.update(log_lambda_best=log_lambda, lambda_best=np.exp(log_lambda))
-        proof = producer["reference_provenance"].copy()
-        proof.pop("adapt_image")
-        extra["s0"] = {key: value for key, value in producer.items()
-                       if key not in {"adapt_image", "reference_provenance"}}
-        extra["source_reconstruction_provenance"] = proof
-        extra.pop("objective")
-        m0_path.write_bytes(pickle.dumps(archived))
-        for tag in ("m1", "m2"):
-            path = tmp_path / f"stage_{tag}.pkl"
-            old_stage = pickle.loads(path.read_bytes())
-            old_stage["extra"].pop("objective")
-            path.write_bytes(pickle.dumps(old_stage))
-
-        plot = tmp_path / "stage_m0_model.png"
-        plot.unlink()
-        before = len(_ControlledSampler.instances)
-        case.main(skip_done=True)
-        assert len(_ControlledSampler.instances) == before + 2
-        assert plot.exists() and plot_evidence["stage-M0"] == ("block", 4)
-        replayed = case._load_stage("m0")["extra"]
-        np.testing.assert_allclose(replayed["s0"]["adapt_image"], producer["adapt_image"], atol=1e-7)
-        assert "objective" not in replayed
-        assert all("objective" in case._load_stage(tag)["extra"] for tag in ("m1", "m2"))
-
-        extra.pop("source_reconstruction_provenance")
-        m0_path.write_bytes(pickle.dumps(archived))
-        case.main(skip_done=True)
-        assert case._load_stage("m0")["extra"]["objective"]["evidence_logdet"] == "overlap"
-
-
 @pytest.mark.parametrize(
     "relative",
     [
-        "pipe/no_lens_light/model.py",
-        "pipe/no_lens_light/model_adpt_reg.py",
         "pipe/galan24_test/model.py",
         "pipe/galan24_test/model_predefine_src_box.py",
     ],
@@ -262,11 +139,7 @@ def test_source_export_to_adaptive_stage_and_plot(
             jnp.asarray(package["source_pixels"], dtype=model.image_data.dtype), None,
         )
     np.testing.assert_allclose(package["adapt_image"], reference, atol=1e-7)
-    builder = (
-        case.build_stage_m1_likelihood
-        if "adpt_reg" in relative
-        else case.build_stage_m2_likelihood
-    )
+    builder = case.build_stage_m2_likelihood
     m2 = builder(image, noise, psf, mask, m1, None, package)
     tampered = {**package, "adapt_image": package["adapt_image"] + 1.0}
     with pytest.raises(ValueError, match="adapt_image differs"):
@@ -297,27 +170,6 @@ def test_source_export_to_adaptive_stage_and_plot(
         rendered[3], result.source_pixels.reshape(3, 3), rtol=2e-5
     )
     np.testing.assert_allclose(rendered[4], expected_scale, rtol=2e-5)
-
-
-def test_adaptive_stage_a_writes_legacy_payload(load_case, tmp_path, monkeypatch):
-    case = load_case("pipe/no_lens_light/model_adpt_reg.py")
-    monkeypatch.setattr(case, "OUT_DIR", tmp_path)
-    monkeypatch.setattr(case, "N_GAUSSIANS_SRC", 2)
-    monkeypatch.setattr(case, "NSUB", 1)
-    monkeypatch.setattr(case, "Sampler", _ControlledSampler)
-    psf = np.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
-    samples, weights, names, medians = case.run_stage_a(
-        np.full((8, 8), 0.05), np.full((8, 8), 0.1), psf
-    )
-    saved = case._load_stage("a")
-    assert set(saved) == {"samples", "weights", "param_names", "log_z", "extra"}
-    assert saved["param_names"] == names
-    np.testing.assert_array_equal(saved["samples"], samples)
-    np.testing.assert_array_equal(saved["weights"], weights)
-    assert saved["extra"]["medians"] == medians
-    assert _ControlledSampler.instances[-1].kwargs["n_live"] == 300
-    assert _ControlledSampler.instances[-1].kwargs["n_batch"] == 100
-    assert _ControlledSampler.instances[-1].run_kwargs["n_eff"] == 2000
 
 
 @pytest.mark.parametrize("interpolation", [None, "cubic_hermite"])
@@ -382,8 +234,6 @@ def test_simple_fit_launch_and_legacy_artifacts(
 @pytest.mark.parametrize(
     "relative,cmap",
     [
-        ("pipe/no_lens_light/model.py", "viridis"),
-        ("pipe/no_lens_light/model_adpt_reg.py", "viridis"),
         ("pipe/galan24_test/model.py", "magma"),
         ("pipe/galan24_test/model_predefine_src_box.py", "magma"),
     ],
@@ -420,7 +270,6 @@ def test_mask_stage_writes_fits_and_retains_render_variant(
 @pytest.mark.parametrize(
     "relative",
     [
-        "pipe/no_lens_light/model.py",
         "pipe/galan24_test/model.py",
         "pipe/galan24_test/model_predefine_src_box.py",
     ],

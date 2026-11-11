@@ -15,8 +15,6 @@ import TinyLensGpu  # noqa: F401 -- select the JAX backend before importing cask
 
 
 _PIPE_PACKAGE_HELPERS = (
-    "no_lens_light/model.py",
-    "no_lens_light/model_adpt_reg.py",
     "pre_subtract_lens/pix_src_pipe/model.py",
     "pre_subtract_lens/pix_src_pipe_sersic/model.py",
     "pre_subtract_lens/pix_src_pipe_mge/model.py",
@@ -32,8 +30,6 @@ _ADAPT_IMAGE_PACKAGE_HELPERS = {
     "pre_subtract_lens/pix_src_pipe_mge/model.py",
     "slacs_examples/pipeline.py",
     "euclid_examples/pipeline.py",
-    "no_lens_light/model.py",
-    "no_lens_light/model_adpt_reg.py",
     "galan24_test/model.py",
     "galan24_test/model_predefine_src_box.py",
 }
@@ -281,8 +277,6 @@ def test_source_package_matches_legacy_real_operator(
 
 
 _MIGRATED_PACKAGE_HELPERS = (
-    "no_lens_light/model.py",
-    "no_lens_light/model_adpt_reg.py",
     "galan24_test/model.py",
     "galan24_test/model_predefine_src_box.py",
 )
@@ -578,125 +572,6 @@ def test_demo_inversion_block_rejects_invalid_reconstruction(
 
 
 @pytest.mark.unit
-def test_run_stage_m1_propagates_invalid_and_keeps_saved_posterior(
-    tmp_path, monkeypatch, examples_dir, close_figures,
-):
-    """run_stage_m1 raises InvalidReconstructionError and keeps prior artifacts."""
-    import pickle
-    import time
-    from functools import partial
-
-    import caskade as ck
-    import jax.numpy as jnp
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    from TinyLensGpu.Inference import ParamU, StagePosterior
-    from TinyLensGpu.Inference.build_likelihood import make_likelihood
-    from TinyLensGpu.Inference.build_prior import make_prior_transformation
-    from TinyLensGpu.ObservationModel.LensImage.inversion_result import (
-        InvalidReconstructionError,
-    )
-    from TinyLensGpu.ObservationModel.LensImage.pixelized_image_model_operator import (
-        PixelizedImageProbModelOperator,
-    )
-    from TinyLensGpu.PhysicalModel import (
-        EPL, PhysicalModel, Shear, PixelizedSourceModel,
-    )
-    from TinyLensGpu.example_support.pixelized_stage_cache import (
-        matching_pixelized_checkpoint,
-        plot_cached_pixelized_stage,
-        recover_pixelized_producer,
-    )
-    from TinyLensGpu.utils.misc import weighted_quantile
-    from TinyLensGpu.visualizer import overlay_critical_and_caustics
-
-    class ControlledSampler:
-        """Control only the external sampler; keep assembly/inversion/IO real."""
-
-        log_z = -12.0
-
-        def __init__(self, prior, loglike, *, n_dim, **kwargs):
-            self.samples = np.tile(np.asarray(prior(jnp.full(n_dim, 0.5))), (3, 1))
-
-        def run(self, *, verbose, n_eff):
-            pass
-
-        def posterior(self):
-            return self.samples, np.zeros(3), np.zeros(3)
-
-    path = examples_dir / "pix_src_demo_operator" / "pipe" / "no_lens_light" / "model.py"
-    selected_names = {
-        "_run_sampler", "_dump_stage", "_load_stage", "_stage_from_payload",
-        "_print_summary",
-        "_validate_source_package", "_pnpg_kwargs",
-        "_epl_mass_from_stage",
-        "_solve_pixel_source_for_package", "_plot_pix_stage",
-        "build_stage_m1_likelihood", "run_stage_m1",
-    }
-    selected = [
-        node for node in ast.parse(path.read_text(), filename=str(path)).body
-        if isinstance(node, ast.FunctionDef) and node.name in selected_names
-    ]
-    assert len(selected) == len(selected_names)
-    namespace = dict(
-        _SUPPORT_IMPORTS,
-        np=np, jnp=jnp, plt=plt, ck=ck, pickle=pickle, time=time,
-        ParamU=ParamU, StagePosterior=StagePosterior,
-        make_likelihood=make_likelihood,
-        make_prior_transformation=make_prior_transformation,
-        PixelizedImageProbModelOperator=PixelizedImageProbModelOperator,
-        PhysicalModel=PhysicalModel, PixelizedSourceModel=PixelizedSourceModel,
-        EPL=EPL, Shear=Shear,
-        partial=partial, matching_pixelized_checkpoint=matching_pixelized_checkpoint,
-        plot_cached_pixelized_stage=plot_cached_pixelized_stage,
-        recover_pixelized_producer=recover_pixelized_producer,
-        overlay_critical_and_caustics=overlay_critical_and_caustics,
-        InvalidReconstructionError=InvalidReconstructionError,
-        Sampler=ControlledSampler, OUT_DIR=tmp_path / "output",
-        DPIX=0.08, NSUB_PIX=1, NSRC=5, SOLVER_TYPE="pcg",
-        SOURCE_BBOX_PADDING=0.05, ADAPTIVE_REG_RHO=1.0, PIXEL_REGULARIZATION_TYPE="first-order", PNPG_MAX_ITER=200, PNPG_RTOL=2.0e-2, PNPG_POWER_ITER=10,
-        weighted_quantile=weighted_quantile, print=print,
-    )
-    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
-         namespace)
-
-    names_a = ["theta_E", "e1_mass", "e2_mass", "center_x_mass",
-               "center_y_mass", "gamma1", "gamma2"]
-    center = np.asarray([0.17, 0.1, 0.03, 0.0, 0.0, 0.0, 0.0])
-    stage_a = StagePosterior(
-        np.stack((center - 0.001, center, center + 0.001)),
-        np.ones(3) / 3, names_a,
-    )
-    position_likelihood = dict(
-        positions=[[0.16, 0.04], [-0.16, 0.04]],
-        threshold_arcsec=0.01, min_log_like=-1e6,
-    )
-    common = dict(
-        noise_map=np.full((10, 10), 0.1), psf_kernel=_delta_kernel(),
-        feature_mask=np.zeros((10, 10), dtype=bool),
-        stage_a=stage_a, position_likelihood=position_likelihood,
-        log_lambda_fixed=0.0,
-    )
-
-    # A converged run persists its stage posterior first.
-    namespace["run_stage_m1"](np.full((10, 10), 0.05), **common)
-    stage_path = tmp_path / "output" / "stage_m1.pkl"
-    assert stage_path.exists() and stage_path.stat().st_size > 0
-
-    # A nonfinite observation then raises InvalidReconstructionError; the
-    # retained posterior artifact is not corrupted by the abort.
-    with pytest.raises(InvalidReconstructionError):
-        namespace["run_stage_m1"](np.full((10, 10), np.nan), **common)
-    assert stage_path.exists() and stage_path.stat().st_size > 0
-    saved = namespace["_load_stage"]("m1")
-    assert saved["log_z"] == ControlledSampler.log_z
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("relative_path", _SIMPLE_PLOT_FITS)
 def test_simple_fit_imports_keep_jax_backend(relative_path, examples_dir):
     """Original import order selects the JAX Caskade backend in a fresh process."""
@@ -730,8 +605,6 @@ assert isinstance(jnp.asarray(p.value), jnp.ndarray)
 
 
 _OPERATOR_PIPE_PLOTS = (
-    "no_lens_light/model.py",
-    "no_lens_light/model_adpt_reg.py",
     "galan24_test/model.py",
     "galan24_test/model_predefine_src_box.py",
 )

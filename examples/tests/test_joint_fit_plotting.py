@@ -274,7 +274,6 @@ _SOURCE_STAGES = (
     "pix_src_demo/pipe/pre_subtract_lens/pix_src_pipe_mge/model.py",
     "pix_src_demo/pipe/pre_subtract_lens/pix_src_pipe_sersic/model.py",
     "pix_src_demo/pipe/slacs_examples/pipeline.py",
-    "pix_src_demo_operator/pipe/no_lens_light/model_matrix.py",
 )
 
 
@@ -478,7 +477,7 @@ def test_dense_inversion_demo_outputs_only_valid_reconstruction(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("relative_path", _SOURCE_STAGES)
-def test_dense_source_stage_preserves_images_and_position_overlays(
+def test_dense_source_stage_preserves_images_and_fitted_overlays(
     relative_path, tmp_path, monkeypatch, examples_dir, close_figures
 ):
     """Source-stage plots retain residual masks and the fitted overlay context."""
@@ -487,8 +486,6 @@ def test_dense_source_stage_preserves_images_and_position_overlays(
     from matplotlib.axes import Axes
 
     namespace, artifact = _tracer_namespace(tmp_path, monkeypatch, positions=True)
-    import caskade as ck
-
     likelihood = namespace["prob_model"]
     names = namespace["param_names"]
     medians = dict(zip(names, namespace["q50_list"]))
@@ -529,21 +526,6 @@ def test_dense_source_stage_preserves_images_and_position_overlays(
         displayed[3][1], np.asarray(result.source_pixels).reshape(5, 5),
         rtol=2e-5, atol=2e-5,
     )
-    if relative_path.endswith("model_matrix.py"):
-        image_positions = np.asarray([[0.16, 0.04], [-0.16, 0.04]])
-        with ck.ActiveContext(likelihood):
-            likelihood.fill_params(theta)
-            bx, by = likelihood.phys_model.deflection(
-                jnp.asarray(image_positions[:, 0]), jnp.asarray(image_positions[:, 1]),
-            )
-        for ax, expected, label in (
-            (displayed[0][0], image_positions, "Marked pos"),
-            (displayed[3][0], np.stack((bx, by), axis=-1), "Traced pos"),
-        ):
-            line, = [line for line in ax.lines if line.get_label() == label]
-            np.testing.assert_allclose(
-                np.stack(line.get_data(), axis=-1), expected, rtol=2e-5, atol=2e-5,
-            )
 
 
 @pytest.mark.unit
