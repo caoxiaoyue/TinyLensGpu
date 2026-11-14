@@ -16,7 +16,6 @@ install_requires = [
     "matplotlib>=3.5.0",
     "corner>=2.2.0",
     "pyyaml>=6.0",
-    "numba>=0.57.0",
     "nautilus-sampler>=0.6.0",
     "dynesty>=2.0.0",
     "jaxnnls>=1.0.0",

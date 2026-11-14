@@ -11,7 +11,6 @@ from .mapping import (
     source_bbox_from_center_reff,
     infer_source_bbox,
 )
-from .psf import build_psf_matrix_dense, build_psf_matrix_sparse, apply_psf_to_mapping_matrix
 from .point_source_solver import (
     solve_lens_equation_optimization_core,
     solve_lens_equation_mesh_refine_core,
@@ -39,9 +38,6 @@ __all__ = [
     'make_square_bbox',
     'source_bbox_from_center_reff',
     'infer_source_bbox',
-    'build_psf_matrix_dense',
-    'build_psf_matrix_sparse',
-    'apply_psf_to_mapping_matrix',
     'solve_lens_equation_optimization_core',
     'solve_lens_equation_mesh_refine_core',
     'solve_lens_equation_optimization',

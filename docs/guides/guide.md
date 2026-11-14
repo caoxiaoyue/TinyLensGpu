@@ -197,6 +197,13 @@ Run the complete example from its own directory so its relative data paths resol
     across dense and operator paths.
     Prepared operator data use `n_render` and `render_parents` for the PSF-expanded
     rendering domain; `n_active` continues to count fitted native pixels.
+    The unused `TinyLensGpu.utils.lensing.psf` module and its public helpers
+    `apply_psf_to_mapping_matrix`, `build_psf_matrix_dense`, and
+    `build_psf_matrix_sparse` have been removed. Their shared input/output
+    unmasked domain cannot represent the render-to-fit response. The simulator's
+    `psf_response.forward` maps native render brightness to fitted pixels;
+    `adjoint` maps fitted values back to render pixels. Use `convolved_columns`
+    for render-subpixel source stencils; it returns `(n_columns, n_fit)`.
   - The models clip negative reference brightness to zero and normalize by
     its 99.5th percentile over active native pixels, with a denominator floor
     of `1e-10` and normalized values capped at one. For each proposal, active

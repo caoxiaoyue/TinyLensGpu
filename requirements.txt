@@ -24,9 +24,6 @@ corner>=2.2.0
 # Configuration file parsing
 pyyaml>=6.0
 
-# JIT compilation for CPU fallback
-numba>=0.57.0
-
 # Nested sampling algorithms
 nautilus-sampler>=0.6.0
 dynesty>=2.0.0
