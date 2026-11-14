@@ -17,6 +17,14 @@ import jax.numpy as jnp
 import jax.scipy.signal as jsp_signal
 from jax import Array
 
+from TinyLensGpu.ForwardSimulation.LensImage._pixelized_psf import (
+    PSFData,
+    PixelizedPSFResponse,
+    psf_adjoint,
+    psf_forward,
+    render_source,
+    render_source_adjoint,
+)
 from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
 from TinyLensGpu.ForwardSimulation.LensImage.parametric import bin_image_general
 from TinyLensGpu.ForwardSimulation.LensImage.pixelized import (
@@ -46,16 +54,14 @@ from TinyLensGpu.utils.lensing.mapping import (
 class LensOperatorData(NamedTuple):
     """Precomputed data for lens mapping operator matvec / rmatvec.
 
-    All fields are plain JAX arrays so they can be captured by JIT closures.
+    Stencils are ordered by render subpixel, including the PSF footprint.
     """
-    weights: Array       # (Nd_sub, stencil_width) interpolation weights
-    indices: Array       # (Nd_sub, stencil_width) flat source-pixel indices
-    flat_indices: Array  # (Nd_native,) native active pixel flat indices
+    weights: Array       # (N_render_sub, stencil_width) interpolation weights
+    indices: Array       # (N_render_sub, stencil_width) flat source-pixel indices
     n_source: int
     nsub: int
-    agg_segment_ids: Array | None  # (Nd_sub,) for sub→native aggregation
-    agg_n_active: int
-    psf_fft_conj: Array  # conj(FFT(PSF)) for adjoint convolution Bᵀ
+    render_parents: Array | None
+    n_render: int
 
 
 class SourceCurvatureData(NamedTuple):
@@ -63,10 +69,8 @@ class SourceCurvatureData(NamedTuple):
 
     weights: Array
     indices: Array
-    flat_indices: Array
-    agg_segment_ids: Array | None
-    psf_fft: Array
-    psf_fft_conj: Array
+    render_parents: Array | None
+    psf: PSFData
     noise_variance: Array
     regularization: RegData
     lambda_reg: Array
@@ -75,11 +79,10 @@ class SourceCurvatureData(NamedTuple):
 class SourceCurvatureSpec(NamedTuple):
     """Hashable source topology used as static JIT metadata."""
 
-    height: int
-    width: int
+    psf_shape: tuple[int, int]
     n_source: int
     nsub: int
-    agg_n_active: int
+    n_render: int
     grid_size: int
     regularization_type: str
 
@@ -98,33 +101,21 @@ class JointCurvatureSpec(NamedTuple):
     source: SourceCurvatureSpec
 
 
+@partial(jax.jit, static_argnames=("spec",))
 def _source_curvature_kernel(
     source: Array,
     data: SourceCurvatureData,
     spec: SourceCurvatureSpec,
 ) -> Array:
     """Apply source curvature from typed dynamic data and static topology."""
-    return _A_matvec_jit(
-        source,
-        data.weights,
-        data.indices,
-        data.flat_indices,
-        H=spec.height,
-        W=spec.width,
-        n_source=spec.n_source,
-        nsub=spec.nsub,
-        agg_segment_ids=data.agg_segment_ids,
-        agg_n_active=spec.agg_n_active,
-        psf_fft=data.psf_fft,
-        psf_fft_conj=data.psf_fft_conj,
-        noise_var=data.noise_variance,
-        reg_data=data.regularization,
-        lambda_reg=data.lambda_reg,
-        n=spec.grid_size,
-        reg_type=spec.regularization_type,
+    fitted = _source_data_forward(source, data, spec)
+    return (
+        _source_data_adjoint(fitted / data.noise_variance, data, spec)
+        + _source_prior_matvec(source, data, spec)
     )
 
 
+@partial(jax.jit, static_argnames=("spec",))
 def _joint_curvature_kernel(
     x: Array,
     data: JointCurvatureData,
@@ -135,26 +126,13 @@ def _joint_curvature_kernel(
     n_source = source_spec.n_source
     source = x[:n_source]
     lens = x[n_source:]
-    source_curvature = _source_curvature_kernel(
-        source, data.source, source_spec,
+    fitted = _source_data_forward(source, data.source, source_spec) + data.lens_matrix @ lens
+    weighted = fitted / data.source.noise_variance
+    source_out = (
+        _source_data_adjoint(weighted, data.source, source_spec)
+        + _source_prior_matvec(source, data.source, source_spec)
     )
-    lens_image = data.lens_matrix @ lens
-    weighted_lens_image = lens_image / data.source.noise_variance
-
-    # F^T C^-1 L a, evaluated with the matrix-free source adjoint.
-    H_times_lens = _source_data_adjoint(
-        weighted_lens_image, data.source, source_spec,
-    )
-    source_out = source_curvature + H_times_lens
-
-    source_image = _source_data_forward(
-        source, data.source, source_spec,
-    )
-    lens_out = data.lens_matrix.T @ (
-        source_image / data.source.noise_variance
-    )
-    lens_out = lens_out + data.lens_matrix.T @ weighted_lens_image
-    lens_out = lens_out + data.lens_light_regularization * lens
+    lens_out = data.lens_matrix.T @ weighted + data.lens_light_regularization * lens
     return jnp.concatenate([source_out, lens_out])
 
 
@@ -163,20 +141,10 @@ def _source_data_forward(
     data: SourceCurvatureData,
     spec: SourceCurvatureSpec,
 ) -> Array:
-    full = _apply_L_jit(
-        source,
-        data.weights,
-        data.indices,
-        data.flat_indices,
-        spec.height,
-        spec.width,
-        spec.nsub,
-        data.agg_segment_ids,
-        spec.agg_n_active,
+    brightness = render_source(
+        source, data.weights, data.indices, data.render_parents, spec.nsub, spec.n_render,
     )
-    return _psf_convolve_full_jit(
-        full, data.psf_fft, spec.height, spec.width,
-    )[data.flat_indices]
+    return psf_forward(brightness, data.psf, spec.psf_shape)
 
 
 def _source_data_adjoint(
@@ -184,100 +152,15 @@ def _source_data_adjoint(
     data: SourceCurvatureData,
     spec: SourceCurvatureSpec,
 ) -> Array:
-    full = jnp.zeros(spec.height * spec.width, dtype=weighted_active.dtype)
-    full = full.at[data.flat_indices].set(weighted_active)
-    correlated = _psf_convolve_full_jit(
-        full, data.psf_fft_conj, spec.height, spec.width,
-    )
-    return _apply_Lt_jit(
-        correlated,
-        data.weights,
-        data.indices,
-        data.flat_indices,
-        spec.height,
-        spec.width,
-        spec.n_source,
-        spec.nsub,
-        data.agg_segment_ids,
+    return render_source_adjoint(
+        psf_adjoint(weighted_active, data.psf, spec.psf_shape),
+        data.weights, data.indices, data.render_parents, spec.nsub, spec.n_source,
     )
 
 
 # ==================================================================
 # JIT-compiled operator primitives  (no ``self`` — pure array args)
 # ==================================================================
-
-
-def _prepare_psf_fft(kernel: Array, image_shape: tuple[int, int]) -> Array:
-    """Center and transform the PSF for circular native-image convolution."""
-    psf_pad = jnp.zeros(image_shape, dtype=kernel.dtype)
-    psf_pad = psf_pad.at[:kernel.shape[0], :kernel.shape[1]].set(kernel)
-    psf_shifted = jnp.roll(
-        psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1),
-    )
-    return jnp.fft.rfft2(psf_shifted)
-
-
-@partial(jax.jit, static_argnames=("H", "W"))
-def _psf_convolve_full_jit(img_flat: Array, psf_fft: Array, H: int, W: int) -> Array:
-    """PSF convolution on a full native image via FFT."""
-    img_2d = img_flat.reshape(H, W)
-    img_fft = jnp.fft.rfft2(img_2d)
-    conv_2d = jnp.fft.irfft2(img_fft * psf_fft, s=(H, W))
-    return conv_2d.ravel()
-
-
-@partial(jax.jit, static_argnames=("H", "W", "nsub", "agg_n_active"))
-def _apply_L_jit(
-    s: Array,
-    weights: Array,
-    indices: Array,
-    flat_indices: Array,
-    H: int, W: int,
-    nsub: int,
-    agg_segment_ids: Array | None,
-    agg_n_active: int,
-) -> Array:
-    """L(s): source → native full image, with optional sub-grid aggregation."""
-    # Bilinear interp at (sub-grid) active pixels
-    active = jnp.sum(weights * s[indices], axis=1)  # (Nd_sub,)
-
-    # Aggregate sub → native if needed
-    if nsub > 1:
-        summed = jax.ops.segment_sum(active, agg_segment_ids, num_segments=agg_n_active)
-        active = summed / (nsub ** 2)
-
-    # Scatter into native full image
-    img = jnp.zeros(H * W, dtype=active.dtype)
-    img = img.at[flat_indices].set(active)
-    return img
-
-
-@partial(jax.jit, static_argnames=("H", "W", "n_source", "nsub"))
-def _apply_Lt_jit(
-    img: Array,
-    weights: Array,
-    indices: Array,
-    flat_indices: Array,
-    H: int, W: int,
-    n_source: int,
-    nsub: int,
-    agg_segment_ids: Array | None,
-) -> Array:
-    """Lᵀ(img): native full image → source plane, with optional sub-grid expansion."""
-    # Extract native active pixels
-    active_native = img[flat_indices]  # (Nd_native,)
-
-    # Expand to sub-grid if needed
-    if nsub > 1:
-        active_sub = active_native[agg_segment_ids] / (nsub ** 2)
-    else:
-        active_sub = active_native
-
-    # Accumulate weighted contributions to the fitted source nodes.
-    contributions = (weights * active_sub[:, None]).ravel()
-    result = jnp.zeros(n_source, dtype=contributions.dtype)
-    result = result.at[indices.ravel()].add(contributions)
-    return result
 
 
 def _geom_mean(a: Array, b: Array) -> Array:
@@ -380,61 +263,10 @@ def _weighted_second_order_matvec_jit(
     return (scale_factor * (out_x + out_y)).ravel()
 
 
-@partial(jax.jit, static_argnames=("H", "W", "n_source", "nsub", "agg_n_active",
-                                   "n", "reg_type"))
-def _A_matvec_jit(
-    s: Array,
-    weights: Array,
-    indices: Array,
-    flat_indices: Array,
-    H: int, W: int,
-    n_source: int,
-    nsub: int,
-    agg_segment_ids: Array | None,
-    agg_n_active: int,
-    psf_fft: Array,
-    psf_fft_conj: Array,
-    noise_var: Array,        # σ² at active pixels (Nd_native,)
-    reg_data: RegData,
-    lambda_reg: Array,
-    n: int,                   # static: source grid dimension
-    reg_type: str,            # static: "zero-order" / "first-order" / "second-order"
-) -> Array:
-    """JIT-compiled A(s) = Mᵀ C⁻¹ M s + λ R s.
-
-    All data passed as explicit arrays so JAX traces cleanly.
-    ``psf_fft_conj`` is ``conj(FFT(PSF))`` for the adjoint convolution Bᵀ.
-    ``reg_data`` is a :class:`~TinyLensGpu.utils.inversion.regularization.RegData`
-    tuple holding the per-pixel adaptive ``scale`` array and physical spacing
-    factor for the edge-weighted finite-difference regularisation.
-    ``n`` and ``reg_type`` are static grid dimension / type.
-    """
-    # ---- L(s) ----
-    img_lensed = _apply_L_jit(
-        s, weights, indices, flat_indices,
-        H, W, nsub, agg_segment_ids, agg_n_active,
-    )  # (H*W,)
-
-    # ---- B(L(s)) ----
-    img_conv = _psf_convolve_full_jit(img_lensed, psf_fft, H, W)  # (H*W,)
-
-    # ---- extract active, C⁻¹ ----
-    active = img_conv[flat_indices]          # (Nd,)
-    weighted = active / noise_var             # C⁻¹ = 1/σ²
-
-    # ---- inject, Bᵀ (adjoint uses conj(FFT(PSF))) ----
-    img_w = jnp.zeros(H * W, dtype=weighted.dtype)
-    img_w = img_w.at[flat_indices].set(weighted)
-    img_corr = _psf_convolve_full_jit(img_w, psf_fft_conj, H, W)  # (H*W,)
-
-    # ---- Lᵀ ----
-    src = _apply_Lt_jit(
-        img_corr, weights, indices, flat_indices,
-        H, W, n_source, nsub, agg_segment_ids,
-    )  # (Ns,)
-
-    # ---- + λ R s  (edge-weighted matrix-free Laplacian) ----
-    scale, scale_factor = reg_data
+def _source_prior_matvec(s: Array, data: SourceCurvatureData, spec: SourceCurvatureSpec) -> Array:
+    """Apply the source prior in the same normal operator as the PSF response."""
+    scale, scale_factor = data.regularization
+    n, reg_type = spec.grid_size, spec.regularization_type
     if reg_type == "zero-order":
         reg_term = scale * s if scale is not None else s
     elif reg_type == "first-order":
@@ -445,7 +277,7 @@ def _A_matvec_jit(
         # Unreachable: reg_type is a static arg validated in __init__ to be
         # one of {zero, first, second}-order.  Kept for type-narrowing.
         raise ValueError(f"Unsupported reg_type for operator backend: {reg_type!r}")
-    return src + lambda_reg * reg_term
+    return data.lambda_reg * reg_term
 
 
 # ==================================================================
@@ -514,6 +346,12 @@ class PixelizedLensOperator:
         self.image_x_active = jnp.asarray(sim_config.xgrid)[self.active_mask]
         self.image_y_active = jnp.asarray(sim_config.ygrid)[self.active_mask]
         self.psf_kernel = jnp.asarray(sim_config.psf_kernel)
+        self._psf_response = PixelizedPSFResponse(sim_config.mask, self.psf_kernel, self.nsub)
+        self._render_coords = self._psf_response.ray_coordinates(sim_config)
+        self._render_native_coords = (
+            sim_config.xgrid.ravel()[self._psf_response.render_indices],
+            sim_config.ygrid.ravel()[self._psf_response.render_indices],
+        )
 
         # Source seed mask
         self.source_seed_mask = jnp.asarray(sim_config.source_seed_mask, dtype=bool)
@@ -526,51 +364,32 @@ class PixelizedLensOperator:
         self.image_x_seed = jnp.asarray(sim_config.xgrid)[self.seed_active_mask]
         self.image_y_seed = jnp.asarray(sim_config.ygrid)[self.seed_active_mask]
 
-        # Sub-grid setup
-        if self.nsub > 1:
-            self.image_shape_sub = sim_config.subgrid_shape
-            self.flat_indices_sub = sim_config.flat_indices
-            self.image_x_active_sub = jnp.asarray(sim_config.xgrid_sub_1d)
-            self.image_y_active_sub = jnp.asarray(sim_config.ygrid_sub_1d)
-            npix = int(sim_config.npix)
-            nsub = self.nsub
-            fis = self.flat_indices_sub
-            i_native = (fis // (npix * nsub)) // nsub
-            j_native = (fis % (npix * nsub)) // nsub
-            native_flat_all = i_native * npix + j_native
-            self._agg_segment_ids = jnp.searchsorted(
-                self.flat_indices, native_flat_all
-            ).astype(jnp.int32)
-            self._agg_n_active = self.n_active
-        else:
-            self.image_shape_sub = self.image_shape
-            self.flat_indices_sub = self.flat_indices
-            self.image_x_active_sub = self.image_x_active
-            self.image_y_active_sub = self.image_y_active
-            self._agg_segment_ids = None
-            self._agg_n_active = 0
-
-        self._psf_fft = _prepare_psf_fft(self.psf_kernel, self.image_shape)
-        self._psf_fft_conj = jnp.conj(self._psf_fft)
+        self.image_shape_sub = sim_config.subgrid_shape
+        self.flat_indices_sub = sim_config.flat_indices
+        self.image_x_active_sub = sim_config.xgrid_sub_1d
+        self.image_y_active_sub = sim_config.ygrid_sub_1d
 
         self._source_curvature_spec = SourceCurvatureSpec(
-            height=self.image_shape[0],
-            width=self.image_shape[1],
+            psf_shape=self._psf_response.fft_shape,
             n_source=self.n_source_pixels,
             nsub=self.nsub,
-            agg_n_active=self._agg_n_active if self.nsub > 1 else 0,
+            n_render=self._psf_response.n_render,
             grid_size=self.source_n,
             regularization_type=self.reg_type,
         )
+
+    @property
+    def psf_response(self) -> PixelizedPSFResponse:
+        """Shared fitted/rendered image response and source-stencil operations."""
+        return self._psf_response
 
     # ------------------------------------------------------------------
     # Bbox helpers
     # ------------------------------------------------------------------
 
     def _get_beta_sub_and_seed(self):
-        beta_x_sub, beta_y_sub = self.phys_model.deflection(
-            x=self.image_x_active_sub, y=self.image_y_active_sub
-        )
+        x, y = self._render_coords
+        beta_x_sub, beta_y_sub = self.phys_model.deflection(x=x, y=y)
         beta_x_seed, beta_y_seed = self.phys_model.deflection(
             x=self.image_x_seed, y=self.image_y_seed
         )
@@ -612,16 +431,16 @@ class PixelizedLensOperator:
 
         Prepare once per geometry and reuse for all matvecs.
 
-        If ``_betas_sub`` is provided as ``(beta_x_sub, beta_y_sub)``, the
-        deflection call is skipped — useful when the caller has already
-        computed them (e.g., from ``_get_bbox``).
+        If ``_betas_sub`` is provided, it must cover the render subpixels in
+        their fixed order; the deflection call is then skipped.
         """
         if _betas_sub is not None:
             beta_x_sub, beta_y_sub = _betas_sub
+            if beta_x_sub.shape != self._render_coords[0].shape or beta_y_sub.shape != beta_x_sub.shape:
+                raise ValueError("Precomputed rays must cover the render subpixels")
         else:
-            beta_x_sub, beta_y_sub = self.phys_model.deflection(
-                x=self.image_x_active_sub, y=self.image_y_active_sub,
-            )
+            x, y = self._render_coords
+            beta_x_sub, beta_y_sub = self.phys_model.deflection(x=x, y=y)
         source_x_axis, source_y_axis, _, _ = build_source_grid(
             self.source_n, xmin, xmax, ymin, ymax,
         )
@@ -640,12 +459,10 @@ class PixelizedLensOperator:
         return LensOperatorData(
             weights=weights,
             indices=indices,
-            flat_indices=self.flat_indices,
             n_source=self.n_source_pixels,
             nsub=self.nsub,
-            agg_segment_ids=self._agg_segment_ids,
-            agg_n_active=self._agg_n_active,
-            psf_fft_conj=self._psf_fft_conj,
+            render_parents=self._psf_response.render_parents,
+            n_render=self._psf_response.n_render,
         )
 
     # ------------------------------------------------------------------
@@ -656,20 +473,14 @@ class PixelizedLensOperator:
         self, s: Array, xmin, xmax, ymin, ymax,
         op_data: LensOperatorData | None = None,
     ) -> Array:
-        """Evaluate M(s) = B(L(s)) at native active pixels.
-
-        If ``op_data`` is provided, it is reused; otherwise computed fresh.
-        """
+        """Render, convolve and select the native fitted pixels."""
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
-        H, W = self.image_shape
-        img_lensed = _apply_L_jit(
-            jnp.asarray(s),
-            op_data.weights, op_data.indices, op_data.flat_indices,
-            H, W, op_data.nsub, op_data.agg_segment_ids, op_data.agg_n_active,
+        brightness = render_source(
+            jnp.asarray(s), op_data.weights, op_data.indices,
+            op_data.render_parents, op_data.nsub, op_data.n_render,
         )
-        img_conv = _psf_convolve_full_jit(img_lensed, self._psf_fft, H, W)
-        return img_conv[self.flat_indices]
+        return self._psf_response.forward(brightness)
 
     def build_lens_light_matrix(self) -> Array:
         """Return the PSF-convolved unit-amplitude lens-light basis matrix."""
@@ -774,23 +585,11 @@ class PixelizedLensOperator:
 
     def prepare_observation(self, data_1d: Array, noise_1d: Array):
         """Precompute the data adjoint and the preconditioner's noise weights."""
-        H, W = self.image_shape
-        weighted_data = data_1d / noise_1d**2
-        weighted = jnp.zeros(H * W, dtype=weighted_data.dtype)
-        weighted = weighted.at[self.flat_indices].set(weighted_data)
-        image_adjoint = _psf_convolve_full_jit(weighted, self._psf_fft_conj, H, W)
+        image_adjoint = self._psf_response.adjoint(data_1d / noise_1d**2)
         return image_adjoint, self._effective_noise_weights(noise_1d)
 
     def _effective_noise_weights(self, noise_1d):
-        H, W = self.image_shape
-        noise_map = jnp.zeros(H * W, dtype=noise_1d.dtype)
-        noise_map = noise_map.at[self.flat_indices].set(1.0 / noise_1d**2)
-        weights = jsp_signal.fftconvolve(
-            noise_map.reshape(H, W),
-            (self.psf_kernel**2)[::-1, ::-1],
-            mode="same",
-        )
-        return weights.ravel()[self.flat_indices]
+        return self._psf_response.precision_diagonal(1.0 / noise_1d**2)
 
     def build_rhs(
         self,
@@ -806,22 +605,12 @@ class PixelizedLensOperator:
         """Compute b = Lᵀ Bᵀ C⁻¹ d, optionally reusing the fixed data adjoint."""
         if op_data is None:
             op_data = self.precompute_operator_data(xmin, xmax, ymin, ymax)
-        H, W = self.image_shape
         if image_adjoint is None:
-            weighted = jnp.asarray(data_1d) / jnp.asarray(noise_1d) ** 2
-            full = jnp.zeros(H * W, dtype=weighted.dtype)
-            full = full.at[op_data.flat_indices].set(weighted)
-            image_adjoint = _psf_convolve_full_jit(full, self._psf_fft_conj, H, W)
-        return _apply_Lt_jit(
-            image_adjoint,
-            op_data.weights,
-            op_data.indices,
-            op_data.flat_indices,
-            H,
-            W,
-            op_data.n_source,
-            op_data.nsub,
-            op_data.agg_segment_ids,
+            weighted = jnp.asarray(data_1d) / jnp.asarray(noise_1d)**2
+            image_adjoint = self._psf_response.adjoint(weighted)
+        return render_source_adjoint(
+            image_adjoint, op_data.weights, op_data.indices,
+            op_data.render_parents, op_data.nsub, op_data.n_source,
         )
 
     # ------------------------------------------------------------------
@@ -848,10 +637,8 @@ class PixelizedLensOperator:
         data = SourceCurvatureData(
             weights=op_data.weights,
             indices=op_data.indices,
-            flat_indices=op_data.flat_indices,
-            agg_segment_ids=op_data.agg_segment_ids,
-            psf_fft=self._psf_fft,
-            psf_fft_conj=self._psf_fft_conj,
+            render_parents=op_data.render_parents,
+            psf=self._psf_response.data,
             noise_variance=jnp.asarray(noise_1d) ** 2,
             regularization=reg_data,
             lambda_reg=jnp.asarray(lambda_reg),
@@ -894,10 +681,8 @@ class PixelizedLensOperator:
         """
         if noise_weights is None:
             noise_weights = self._effective_noise_weights(jnp.asarray(noise_1d))
-        beta_x, beta_y = self.phys_model.deflection(
-            x=self.image_x_active,
-            y=self.image_y_active,
-        )
+        x, y = self._render_native_coords
+        beta_x, beta_y = self.phys_model.deflection(x=x, y=y)
         weights, indices, _ = lens_mapping_operator_from(
             jnp.stack([beta_x.ravel(), beta_y.ravel()], axis=1),
             xmin,

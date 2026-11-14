@@ -189,12 +189,16 @@ preserved; the source box never expands automatically. Source gradients
 differentiate the same brightness interpolation within its selected cell.
 
 Core potential nodes **C** are the four coarse-grid interpolation corners
-needed by every actual selected image-subpixel query. Fitted unknowns live on
+needed by the subpixels in the PSF render region. This includes fitted pixels
+and any other pixels in the cutout that can contribute to them through the PSF.
+Fitted unknowns live on
 **U**, the union of C and its axial one- and two-node neighbors. Nodes in U
 outside C are fitted support unknowns, including those outside the observed
 arc; they are not fixed-zero padding or additional observations. The observation
 mask is preserved, including holes, disconnected arcs and isolated pixels.
-Incomplete explicit geometry raises a validation error instead of eroding data.
+Incomplete explicit geometry raises a validation error. When migrating an
+explicit grid, construct it from the new renderer's `query_x` and `query_y`
+using the desired spacing, origin, and any extra support nodes.
 
 Potential spacing is independent of source resolution and defaults to twice
 the native image-pixel spacing. Centered physical derivatives use angular
@@ -203,8 +207,11 @@ from the macro source coordinates. The same map is used in linear responses,
 current Jacobians and nonlinear rendering. The convergence correction is
 `delta_kappa = (delta_psi_xx + delta_psi_yy)/2`. Derivative maps are valid only
 on C: `derivative_valid` marks that domain and support-only entries are NaN.
-The existing native circular-FFT PSF, masking and subpixel integration remain
-unchanged; potential support does not add a PSF halo.
+Subpixel averaging and zero-extended PSF convolution use the same image
+operator as ordinary pixelized modeling. At zero potential correction the
+predictions agree on the fitted pixels for the same macro, source and sampling.
+Full-image diagnostics show the convolution of the modeled render region;
+only the fitted pixels enter the likelihood.
 
 Smoothing enumerates each complete horizontal/vertical five-node window lying
 wholly in U, once, with pixel-unit coefficients `[1,-4,6,-4,1]`. It neither

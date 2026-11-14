@@ -130,8 +130,7 @@ def test_overlap_score_uses_exact_partial_windows_on_the_block_solution(order, i
         image = 0.3 + 0.07 * np.cos(x + 2 * y)
         reference = 0.2 + 0.6 * np.cos(x / 3 + 0.7 * y)
         noise = 0.06 + 0.004 * x + 0.003 * y
-        # Preserve periodic convolution along the full-height axis while
-        # leaving room for the native FFT workspace to crop the other axis.
+        # Exercise both cutout edges in y and a cropped FFT canvas in x.
         mask = (x < 3) | (x > 7) | ((x == 4) & (y == 5))
         psf = np.array([[0.0, 0.04, 0.0], [0.09, 0.65, 0.12], [0.06, 0.04, 0.0]])
         brightness, _, design = _reference_projection(
@@ -223,9 +222,15 @@ def test_overlap_compiled_score_keeps_only_window_sized_design_panels(
 
     # Audit the public score's allocation shapes, including flattened forms.
     native, active, source = image.size, int(np.count_nonzero(~mask)), n**2
+    response = model.sim_obj.psf_response
+    render = response.n_render
+    fft_height, fft_width = response.fft_shape
+    real_canvas = fft_height * fft_width
+    half_spectrum = fft_height * (fft_width // 2 + 1)
     forbidden = {
         (native, native), (active, active), (source, source),
-        tuple(sorted((active, source))), tuple(sorted((native, source))),
+        tuple(sorted((active, render))),
+        *(tuple(sorted((size, source))) for size in (active, native, render, real_canvas, half_spectrum)),
     }
     forbidden_sizes = {prod(shape) for shape in forbidden}
     shapes = _real_ir_shapes(lowered)
@@ -233,6 +238,8 @@ def test_overlap_compiled_score_keeps_only_window_sized_design_panels(
     assert max(prod(shape[:-2]) for shape in shapes if shape[-2:] == (window, window)) == 1
     assert not any(
         prod(shape) in forbidden_sizes
+        or (len(shape) >= 3 and source in shape
+            and prod(shape) in (source * real_canvas, source * half_spectrum))
         or any(tuple(sorted(pair)) in forbidden for pair in combinations(shape, 2))
         for shape in shapes
     )

@@ -14,10 +14,12 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
-    _apply_L_jit,
-    _apply_Lt_jit,
-    _psf_convolve_full_jit,
+from TinyLensGpu.ForwardSimulation.LensImage._pixelized_psf import (
+    PixelizedPSFResponse,
+    average_subpixels,
+    average_subpixels_adjoint,
+    render_source,
+    render_source_adjoint,
 )
 from TinyLensGpu.utils.lensing.mapping import (
     _hermite_axis_support,
@@ -51,8 +53,8 @@ class SourceMapping(NamedTuple):
 class PotentialRenderResult:
     """Nonlinear rendering and derivative products on their stated domains.
 
-    ``model_image`` is the full native PSF-convolved image. ``image_active`` is
-    its selected observation vector. Derivative arrays are defined on the
+    ``model_image`` is the native PSF convolution of the modeled render region.
+    ``image_active`` is its selected observation vector. Derivative arrays are defined on the
     potential unknowns, with NaN at support-only nodes and ``derivative_valid``
     explicitly marking the core. They do not assert coverage throughout U.
     """
@@ -93,7 +95,8 @@ class PotentialCorrectionRenderer:
     potential_spacing : float, optional
         Angular spacing, default twice the native image pixel spacing.
     potential_grid : PotentialGrid, optional
-        Explicit prepared geometry matching all actual subpixel queries.
+        Explicit geometry matching all subpixels that can illuminate the fit
+        through the PSF, including those outside the fit mask.
     dtype : {"float64", "float32"}
         Explicit numerical precision. Calls use a scoped precision context;
         process defaults outside the call are unchanged. Caller-created input
@@ -168,40 +171,13 @@ class PotentialCorrectionRenderer:
             self.flat_indices = jnp.asarray(
                 np.flatnonzero(~mask.ravel()), dtype=jnp.int32
             )
-            self.query_x = jnp.asarray(sim_config.xgrid_sub_1d, dtype=self.dtype)
-            self.query_y = jnp.asarray(sim_config.ygrid_sub_1d, dtype=self.dtype)
-            expected_queries = self.n_active * self.nsub**2
-            if self.query_x.shape != (expected_queries,) or self.query_y.shape != (
-                expected_queries,
-            ):
-                raise ValueError(
-                    "Image subpixel queries must cover every selected observation pixel"
-                )
-            if self.nsub > 1:
-                sub_indices = np.asarray(sim_config.flat_indices)
-                native_y = (sub_indices // (sim_config.npix * self.nsub)) // self.nsub
-                native_x = (sub_indices % (sim_config.npix * self.nsub)) // self.nsub
-                native_flat = native_y * sim_config.npix + native_x
-                self.agg_segment_ids = jnp.asarray(
-                    np.searchsorted(np.asarray(self.flat_indices), native_flat),
-                    dtype=jnp.int32,
-                )
-            else:
-                self.agg_segment_ids = None
-            kernel = jnp.asarray(sim_config.psf_kernel, dtype=self.dtype)
-            padded = jnp.zeros(self.image_shape, dtype=self.dtype)
-            padded = padded.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
-            shifted = jnp.roll(
-                padded,
-                (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)),
-                axis=(0, 1),
+            self._psf_response = PixelizedPSFResponse(
+                mask, jnp.asarray(sim_config.psf_kernel, dtype=self.dtype), self.nsub,
             )
-            self.psf_fft = jnp.fft.rfft2(shifted)
-            self.psf_fft_conj = jnp.conj(self.psf_fft)
-            # Identity interpolation lets arbitrary subpixel responses reuse
-            # the exact existing aggregation/scatter and transpose kernels.
-            self._query_weights = jnp.ones((expected_queries, 1), dtype=self.dtype)
-            self._query_indices = jnp.arange(expected_queries, dtype=jnp.int32)[:, None]
+            x, y = self._psf_response.ray_coordinates(sim_config)
+            self.query_x = jnp.asarray(x, dtype=self.dtype)
+            self.query_y = jnp.asarray(y, dtype=self.dtype)
+            self.agg_segment_ids = self._psf_response.render_parents
             if potential_grid is None:
                 spacing = (
                     2 * sim_config.dpix
@@ -232,10 +208,21 @@ class PotentialCorrectionRenderer:
                 )
             ):
                 raise ValueError(
-                    "Explicit potential geometry must match actual image subpixel queries and dtype"
+                    "Explicit potential geometry must match the PSF render subpixel queries "
+                    "and dtype. Rebuild from the current renderer's query_x and query_y."
                 )
             self.potential_grid = potential_grid
             self.macro_mapping = self.prepare_macro()
+
+    @property
+    def psf_response(self) -> PixelizedPSFResponse:
+        """Shared fitted/rendered image response and source-stencil operations."""
+        return self._psf_response
+
+    @property
+    def psf_fft(self) -> Array:
+        """Spectrum of the kernel on the padded PSF workspace."""
+        return self._psf_response.data.spectrum
 
     @property
     def source_interpolation(self) -> str:
@@ -336,97 +323,55 @@ class PotentialCorrectionRenderer:
                 interpolation=interpolation,
             )
 
-    def _source_image_full(self, source_values, mapping):
-        height, width = self.image_shape
-        full = _apply_L_jit(
-            self._source_values(source_values),
-            mapping.weights,
-            mapping.indices,
-            self.flat_indices,
-            height,
-            width,
-            self.nsub,
-            self.agg_segment_ids,
-            self.n_active if self.nsub > 1 else 0,
+    def _source_render_brightness(self, source_values, mapping):
+        return render_source(
+            self._source_values(source_values), mapping.weights, mapping.indices,
+            self.agg_segment_ids, self.nsub, self._psf_response.n_render,
         )
-        return _psf_convolve_full_jit(full, self.psf_fft, height, width)
 
     def source_forward(self, source_values, mapping=None) -> Array:
         """Map a signed source to selected data pixels using current mapping."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             mapping = self.source_mapping() if mapping is None else mapping
-            return self._source_image_full(source_values, mapping)[self.flat_indices]
+            return self._psf_response.forward(self._source_render_brightness(source_values, mapping))
 
-    def _image_adjoint_full(self, image_values):
+    def _psf_adjoint(self, image_values):
         values = jnp.asarray(image_values, dtype=self.dtype)
         if values.shape != (self.n_active,):
             raise ValueError(f"image_values must have shape ({self.n_active},)")
-        height, width = self.image_shape
-        full = (
-            jnp.zeros(height * width, dtype=self.dtype)
-            .at[self.flat_indices]
-            .set(values)
-        )
-        return _psf_convolve_full_jit(full, self.psf_fft_conj, height, width)
+        return self._psf_response.adjoint(values)
 
     def source_adjoint(self, image_values, mapping=None) -> Array:
         """Transpose of source_forward for the same corrected source mapping."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             mapping = self.source_mapping() if mapping is None else mapping
-            return _apply_Lt_jit(
-                self._image_adjoint_full(image_values),
-                mapping.weights,
-                mapping.indices,
-                self.flat_indices,
-                *self.image_shape,
-                self.n_source,
-                self.nsub,
-                self.agg_segment_ids,
+            return render_source_adjoint(
+                self._psf_adjoint(image_values), mapping.weights, mapping.indices,
+                self.agg_segment_ids, self.nsub, self.n_source,
             )
 
     def image_forward(self, subpixel_values, *, full_image=False) -> Array:
-        """Integrate and convolve a subpixel response with the existing PSF.
+        """Integrate and convolve a response on the PSF render subpixels.
 
         The default returns selected data pixels. ``full_image=True`` returns
-        the full native image, including PSF light outside the selected mask.
+        the native PSF convolution of the modeled render region.
         """
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
             values = jnp.asarray(subpixel_values, dtype=self.dtype)
             if values.shape != self.query_x.shape:
                 raise ValueError("subpixel_values must match image query shape")
-            full = _apply_L_jit(
-                values,
-                self._query_weights,
-                self._query_indices,
-                self.flat_indices,
-                *self.image_shape,
-                self.nsub,
-                self.agg_segment_ids,
-                self.n_active if self.nsub > 1 else 0,
+            brightness = average_subpixels(
+                values, self.agg_segment_ids, self.nsub, self._psf_response.n_render,
             )
-            convolved = _psf_convolve_full_jit(
-                full,
-                self.psf_fft,
-                *self.image_shape,
-            )
-            return (
-                convolved.reshape(self.image_shape)
-                if full_image
-                else convolved[self.flat_indices]
-            )
+            if full_image:
+                return self._psf_response.full_image(brightness)
+            return self._psf_response.forward(brightness)
 
     def image_adjoint(self, image_values) -> Array:
-        """Transpose of image_forward, returning one value per image subpixel."""
+        """Transpose of image_forward to the PSF render subpixels."""
         with jax.experimental.enable_x64(self.dtype == jnp.float64):
-            return _apply_Lt_jit(
-                self._image_adjoint_full(image_values),
-                self._query_weights,
-                self._query_indices,
-                self.flat_indices,
-                *self.image_shape,
-                self.query_x.shape[0],
-                self.nsub,
-                self.agg_segment_ids,
+            return average_subpixels_adjoint(
+                self._psf_adjoint(image_values), self.agg_segment_ids, self.nsub,
             )
 
     def render(
@@ -441,7 +386,8 @@ class PotentialCorrectionRenderer:
             ):
                 raise ValueError("Supplied source and potential values must be finite")
             mapping = self.source_mapping(potential, macro_mapping=macro_mapping)
-            image = self._source_image_full(source, mapping)
+            brightness = self._source_render_brightness(source, mapping)
+            image = self._psf_response.full_image(brightness)
             derivatives = self.potential_grid.derivatives(potential)
             diagnostic = (
                 lambda value: jnp.full_like(potential, jnp.nan)
@@ -450,8 +396,8 @@ class PotentialCorrectionRenderer:
             )
             ax, ay = self.potential_grid.deflection(potential)
             return PotentialRenderResult(
-                image.reshape(self.image_shape),
-                image[self.flat_indices],
+                image,
+                image.ravel()[self.flat_indices],
                 source,
                 self.source_x_axis,
                 self.source_y_axis,

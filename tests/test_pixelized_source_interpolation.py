@@ -230,9 +230,39 @@ def test_source_light_interpolation_is_fixed_at_construction():
     )
 
 
+def test_dense_jitted_psf_override_can_expand_the_render_footprint():
+    from TinyLensGpu.ForwardSimulation import SimulatorConfig
+    from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+    from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel
+
+    with jax.experimental.enable_x64():
+        size = 5
+        mask = np.ones((size, size), dtype=bool)
+        mask[2, 1] = False
+        config = SimulatorConfig(0.125, size, jnp.ones((1, 1)), mask=mask)
+        physical = PhysicalModel(lens_mass=[], source_light=[PixelizedSourceModel(size)])
+        dense = PixelizedLensSimulator(physical, config)
+        bbox = (-0.25, 0.25, -0.25, 0.25)
+        source = jnp.zeros((size, size)).at[2, 2].set(1.0).ravel()
+
+        def predict(kernel):
+            matrix, _ = dense.design_matrix(source_bbox=bbox, psf_kernel=kernel)
+            return (matrix @ source)[0]
+
+        psf = jnp.array([[0.2, 0.7, 0.1]])
+        value, gradient = jax.jit(jax.value_and_grad(predict))(psf)
+        image = dense.simulate(source, source_bbox=bbox, psf_kernel=psf)
+
+    np.testing.assert_allclose(value, 0.2, atol=2e-15)
+    np.testing.assert_allclose(image[2, 1], 0.2, atol=2e-15)
+    np.testing.assert_allclose(gradient, [[1, 0, 0]], atol=2e-15)
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
 def test_dense_reconstruction_matches_masked_subpixel_brightness(interpolation):
+    from scipy.signal import convolve2d
+
     from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
     from TinyLensGpu.ObservationModel import PixelizedImageProbModel
     from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel
@@ -260,12 +290,9 @@ def test_dense_reconstruction_matches_masked_subpixel_brightness(interpolation):
             source.light(config.xgrid_sub, config.ygrid_sub, values, bbox) for values in basis
         ])
         native = direct.reshape(n * n, size, nsub, size, nsub).mean(axis=(2, 4))
-        native[:, mask] = 0.0
-        blurred = sum(
-            psf[i, j] * np.roll(native, (i - 1, j - 1), axis=(1, 2))
-            for i, j in np.ndindex(psf.shape)
+        expected_design = np.stack(
+            [convolve2d(column, psf, mode="same")[~mask] for column in native], axis=1,
         )
-        expected_design = blurred[:, ~mask].T
         image_data = np.zeros_like(mask, dtype=np.float64)
         image_data[~mask] = expected_design @ np.linspace(0.2, 1.0, n * n)
         reference_source = np.linalg.solve(

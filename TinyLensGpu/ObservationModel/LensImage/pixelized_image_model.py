@@ -73,7 +73,8 @@ class PixelizedImageProbModel(ck.Module):
     phys_model : PhysicalModel
         Physical model accepted by :class:`PixelizedLensSimulator`.
     mask : array_like, optional
-        Boolean mask where ``True`` pixels are excluded.
+        Boolean mask where ``True`` pixels are excluded from the fit after PSF
+        convolution. They can still contribute light to fitted pixels.
     nsub : int, optional
         Subsampling factor for image-plane ray-tracing (default: 1).
     position_likelihood : dict, optional
@@ -307,6 +308,7 @@ class PixelizedImageProbModel(ck.Module):
 
     def _project_reference(self, stencil) -> Array:
         weights, indices, _ = stencil
+        weights, indices = self.sim_obj.psf_response.fit_stencil(weights, indices)
         return project_adapt_image(
             self._adapt_brightness, weights, indices,
             self.sim_obj.n_source_pixels, self.sim_obj.nsub,

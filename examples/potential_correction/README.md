@@ -47,7 +47,8 @@ subsequent inversions configure their own integration independently.
 `true_potential`, `true_deflection_x/y`, `true_convergence`, and
 `true_convergence_valid`. Arrays require no pickle. `configuration.json`
 records physical values, noise seed/generator, units, integration, initialization
-provenance, and truth conventions. Regenerate the identical inputs with:
+provenance, and truth conventions. Regenerate inputs from a configuration saved
+with the same PSF convention with:
 
 ```bash
 python examples/potential_correction/generate_mock.py \
@@ -56,12 +57,15 @@ python examples/potential_correction/generate_mock.py \
 ```
 
 The observations share the same independent Gaussian noise draw. The default
-annular observation mask has `True` for excluded pixels. The generator follows
-the current pixelized imaging convention: excluded native pixels contribute
-zero brightness before native-grid circular FFT PSF convolution. It does not
-add a PSF halo. No lens light is included. Source brightness is evaluated
-analytically at subpixels before averaging; it is not first sampled on the
-inversion source grid.
+annular observation mask has `True` for pixels excluded from the fit. The
+generator evaluates analytic source brightness across the cutout, averages
+subpixels and convolves with zero extension. Light emitted outside the
+observation mask can therefore contribute to the fitted pixels through the
+PSF. No lens light is included.
+
+Archived runs that masked brightness before convolution used a different
+observation model. Regenerate both control and subhalo runs before comparing
+them with the current renderer.
 
 The Python interface supports truth-derived initialization directly:
 

@@ -297,6 +297,8 @@ def test_frozen_hermite_callback_excludes_exact_float64_support_edges():
 
 
 def test_frozen_response_has_lens_equation_sign_and_quadratic_linearization_error():
+    from scipy.signal import convolve2d
+
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
         SimulatorConfig,
@@ -330,12 +332,17 @@ def test_frozen_response_has_lens_equation_sign_and_quadratic_linearization_erro
         grid = renderer.potential_grid
         potential = 0.03 * grid.x**2 - 0.02 * grid.x * grid.y + 0.01 * grid.y**2
         base = renderer.render(source, jnp.zeros_like(potential)).image_active
-        bx, by = renderer.macro_mapping
-        ax = 0.06 * renderer.query_x - 0.02 * renderer.query_y
-        ay = -0.02 * renderer.query_x + 0.02 * renderer.query_y
-        expected_response = renderer.image_forward(
-            -(0.7 + 0.4 * by) * ax - (-0.3 + 0.4 * bx) * ay
-        )
+        # Compute both expectations across the full cutout, including the
+        # masked emitter at (2, 2), then convolve independently of the renderer.
+        x, y = config.xgrid_sub, config.ygrid_sub
+        bx, by = macro.deflection(x, y)
+        ax, ay = 0.06 * x - 0.02 * y, -0.02 * x + 0.02 * y
+
+        def convolve_and_select(values):
+            native = np.asarray(values).reshape(5, 3, 5, 3).mean(axis=(1, 3))
+            return convolve2d(native, np.asarray(kernel), mode="same")[~mask]
+
+        expected_response = convolve_and_select(-(0.7 + 0.4 * by) * ax - (-0.3 + 0.4 * bx) * ay)
         response = problem.forward(jnp.r_[jnp.zeros_like(source), potential])
         np.testing.assert_allclose(response, expected_response, atol=2e-16)
         # Changing the external provider after preparation must not change G0.
@@ -348,6 +355,9 @@ def test_frozen_response_has_lens_equation_sign_and_quadratic_linearization_erro
         for scale in (0.1, 0.05):
             linear = problem.forward(jnp.r_[source, scale * potential])
             nonlinear = renderer.render(source, scale * potential).image_active
+            cx, cy = bx - scale * ax, by - scale * ay
+            expected_nonlinear = convolve_and_select(1 + 0.7 * cx - 0.3 * cy + 0.4 * cx * cy)
+            np.testing.assert_allclose(nonlinear, expected_nonlinear, atol=8e-16, rtol=0)
             np.testing.assert_allclose(
                 linear, base + scale * expected_response, atol=3e-16
             )
@@ -519,7 +529,8 @@ def test_masked_observation_result_preserves_data_and_both_image_diagnostics():
     assert result.configuration["n_potential"] == renderer.potential_grid.n_unknown
     assert result.initialization_provenance["source"] == "mock truth derivative"
     np.testing.assert_array_equal(result.data_active, image[~mask])
-    np.testing.assert_allclose(result.nonlinear_model_image, rerendered.model_image)
+    # Compiled and eager FFT paths can differ by roundoff at zero-brightness pixels.
+    np.testing.assert_allclose(result.nonlinear_model_image, rerendered.model_image, atol=1e-15)
     np.testing.assert_allclose(
         result.linear_image_active, np.asarray(result.linear_model_image)[~mask]
     )

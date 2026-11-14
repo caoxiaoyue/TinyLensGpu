@@ -9,12 +9,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, lax
-from scipy.fft import next_fast_len
-
-from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
-    _prepare_psf_fft,
-    _psf_convolve_full_jit,
-)
 
 
 class _WindowGroup(NamedTuple):
@@ -50,31 +44,6 @@ def _window_groups(n: int, tile: int) -> tuple[_WindowGroup, ...]:
     return tuple(windows)
 
 
-def _masked_psf_workspace(simulator):
-    """Restrict FFT work to the active extent where its cyclic action permits."""
-    shape = simulator.image_shape
-    kernel = simulator.psf_kernel
-    active = np.asarray(simulator.flat_indices)
-    if active.size == 0:
-        return shape, simulator.flat_indices, simulator._psf_fft
-    coordinates = np.array(np.unravel_index(active, shape))
-    lower = coordinates.min(axis=1)
-    extent = coordinates.max(axis=1) - lower + 1
-
-    # Active pixel pairs are at most extent-1 apart on each axis. Padding
-    # to extent + kernel radius prevents wraparound between them. Axes
-    # where the original convolution can wrap keep their original period.
-    cropped = tuple(
-        min(size, next_fast_len(max(int(span) + width // 2, width), real=True))
-        for size, span, width in zip(shape, extent, kernel.shape)
-    )
-    if cropped == shape:
-        return shape, simulator.flat_indices, simulator._psf_fft
-    origin = np.where(np.asarray(cropped) < shape, lower, 0)
-    indices = np.ravel_multi_index(coordinates - origin[:, None], cropped)
-    return cropped, jnp.asarray(indices, dtype=jnp.int32), _prepare_psf_fft(kernel, cropped)
-
-
 class OverlapLogdet:
     """Compute source log determinant differences from exact principal blocks."""
 
@@ -85,10 +54,7 @@ class OverlapLogdet:
         self._n_source = simulator.n_source_pixels
         self._windows = _window_groups(simulator.source_n, block_size)
         self._fixed_grams = None
-        if self._windows:
-            self._fft_shape, self._active_pixels, self._psf_fft = _masked_psf_workspace(simulator)
-            parents = simulator._agg_segment_ids
-            self._ray_pixels = self._active_pixels if parents is None else self._active_pixels[parents]
+        self._response = simulator.psf_response
 
         if fixed_geometry is not None:
             bbox, mapping = fixed_geometry
@@ -106,16 +72,9 @@ class OverlapLogdet:
         local = jnp.full(self._n_source, width, dtype=jnp.int32)
         local = local.at[pixels].set(jnp.arange(width, dtype=local.dtype))
         dtype = jnp.result_type(mapping.weights, self._noise, self._simulator.psf_kernel)
-        weights = mapping.weights.astype(dtype) / mapping.nsub**2
-        height, image_width = self._fft_shape
-        panel = jnp.zeros((width, height * image_width), dtype=weights.dtype)
-        panel = panel.at[local[mapping.indices], self._ray_pixels[:, None]].add(
-            weights, mode="drop",
-        )
-        blurred = jax.vmap(
-            lambda column: _psf_convolve_full_jit(column, self._psf_fft, height, image_width),
-        )(panel)
-        whitened = blurred[:, self._active_pixels] / self._noise
+        whitened = self._response.convolved_columns(
+            mapping.weights.astype(dtype), local[mapping.indices], width,
+        ) / self._noise
         return jnp.matmul(whitened, whitened.T, precision=lax.Precision.HIGHEST)
 
     def _full_gram(self, bbox, mapping) -> Array:

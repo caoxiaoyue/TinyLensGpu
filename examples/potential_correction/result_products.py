@@ -451,6 +451,10 @@ def compare_reconstructions(reference, candidate):
                 candidate.termination_reason,
             ],
         )
+    if reference.configuration.get("psf_response") != candidate.configuration.get("psf_response"):
+        raise ValueError(
+            "Reconstruction comparison requires the same PSF rendering convention."
+        )
     for field in (
         "source_x_axis",
         "source_y_axis",

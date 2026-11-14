@@ -184,6 +184,19 @@ Run the complete example from its own directory so its relative data paths resol
     uses uniform regularization and permits an inferred grid. A positive fixed
     rho at or above the cutoff or a rho with dynamic or unresolved dependencies
     requires both inputs, including a sampled rho initialized at zero.
+  - The observation mask selects pixels after PSF convolution. Both backends
+    ray-trace any native pixel in the cutout whose light can reach the fitted
+    pixels through a nonzero PSF tap. The cutout is zero-extended and the
+    kernel uses the same crop as `fftconvolve(..., mode="same")`. Neither the
+    RMS map nor the source seed and adaptive projection regions expand. Use
+    fresh pixelized stage outputs when migrating from the old mask-before-PSF
+    convention; regenerate the reference arc and calibrate regularization.
+    The simulators expose this shared geometry through `psf_response`:
+    `fit_stencil`, `expand_fit_values`, `integrate_fit_rays`, and
+    `convolved_columns` keep fitted-ray selection and column assembly consistent
+    across dense and operator paths.
+    Prepared operator data use `n_render` and `render_parents` for the PSF-expanded
+    rendering domain; `n_active` continues to count fitted native pixels.
   - The models clip negative reference brightness to zero and normalize by
     its 99.5th percentile over active native pixels, with a denominator floor
     of `1e-10` and normalized values capped at one. For each proposal, active

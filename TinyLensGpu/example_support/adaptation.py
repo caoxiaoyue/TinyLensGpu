@@ -7,6 +7,8 @@ import json
 
 import numpy as np
 
+from TinyLensGpu.ForwardSimulation.LensImage._pixelized_psf import PIXELIZED_PSF_CONVENTION
+
 from .source import (
     normalize_source_bbox,
     resolve_source_interpolation,
@@ -47,6 +49,7 @@ def pixelized_observation_provenance(likelihood):
         "image_data": array_fingerprint(likelihood.image_data),
         "noise_map": array_fingerprint(likelihood.noise_map),
         "psf_kernel": array_fingerprint(config.psf_kernel),
+        "psf_response": PIXELIZED_PSF_CONVENTION,
         "mask": array_fingerprint(config.mask),
         "source_seed_mask": array_fingerprint(config.source_seed_mask),
         "image_shape": list(likelihood.image_data.shape),
@@ -198,6 +201,10 @@ def require_reference_observation(likelihood, package, *, check_seed_mask=False)
     """
     observed = pixelized_observation_provenance(likelihood)
     recorded = package["reference_provenance"]["observation"]
+    if observed["psf_response"] != recorded.get("psf_response"):
+        raise ValueError(
+            "Source reference uses a different PSF rendering convention. Refit the producer stage."
+        )
     if any(
         value != recorded.get(key) for key, value in observed.items()
         if check_seed_mask or key != "source_seed_mask"

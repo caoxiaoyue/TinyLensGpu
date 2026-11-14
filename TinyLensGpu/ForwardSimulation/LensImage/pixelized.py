@@ -15,10 +15,10 @@ from ...PhysicalModel.LensImage.Pixelized.Light import is_pixelized_source_model
 from ...utils.lensing.mapping import (
     build_lens_mapping_matrix,
     build_source_grid,
-    dense_mapping_from_weights_indices,
     infer_source_bbox,
     lens_mapping_operator_from,
 )
+from ._pixelized_psf import PixelizedPSFResponse, render_source
 from .config import SimulatorConfig
 from .parametric import bin_image_general
 from .results import SimulationResult
@@ -129,6 +129,8 @@ class PixelizedLensSimulator:
         self.image_x_active = jnp.asarray(sim_config.xgrid)[self.active_mask]
         self.image_y_active = jnp.asarray(sim_config.ygrid)[self.active_mask]
         self.psf_kernel = jnp.asarray(sim_config.psf_kernel)
+        self._psf_response = PixelizedPSFResponse(sim_config.mask, self.psf_kernel, self.nsub)
+        self._render_coords = self._psf_response.ray_coordinates(sim_config)
 
         # Source seed mask for bounding-box inference (dual-masking strategy)
         self.source_seed_mask = jnp.asarray(sim_config.source_seed_mask, dtype=bool)
@@ -148,36 +150,16 @@ class PixelizedLensSimulator:
             self.flat_indices_sub = sim_config.flat_indices
             self.image_x_active_sub = jnp.asarray(sim_config.xgrid_sub_1d)
             self.image_y_active_sub = jnp.asarray(sim_config.ygrid_sub_1d)
-            # Precompute sub→native index mapping for _aggregate_mapping_to_native.
-            # Each sub-pixel maps to a native pixel; we store the native-pixel index
-            # relative to the active-pixel list so segment_sum can work directly on
-            # the (Nd_active,) output without allocating a full (npix*npix,) buffer.
-            npix = sim_config.npix
-            nsub = self.nsub
-            fis = self.flat_indices_sub          # sub-grid active flat indices
-            i_native = (fis // (npix * nsub)) // nsub
-            j_native = (fis % (npix * nsub)) // nsub
-            native_flat_all = i_native * npix + j_native  # native flat index (0..npix²-1)
-            # Map native flat index → position in the active-pixel list.
-            # flat_indices is sorted (from jnp.flatnonzero), so searchsorted
-            # gives the exact index of each native pixel in the active list.
-            self._agg_segment_ids = jnp.searchsorted(
-                self.flat_indices, native_flat_all
-            ).astype(jnp.int32)                 # shape (Nd_sub,)
-            self._agg_n_active = int(self.flat_indices.shape[0])
         else:
             self.image_shape_sub = self.image_shape
             self.flat_indices_sub = self.flat_indices
             self.image_x_active_sub = self.image_x_active
             self.image_y_active_sub = self.image_y_active
 
-        # Precompute PSF FFT once
-        H, W = self.image_shape
-        kernel = self.psf_kernel
-        psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
-        psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
-        psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
-        self._psf_fft = jnp.fft.rfft2(psf_shifted)  # (H, W//2+1)
+    @property
+    def psf_response(self) -> PixelizedPSFResponse:
+        """Shared fitted/rendered image response and source-stencil operations."""
+        return self._psf_response
 
     def ray_trace_seed(self) -> tuple[Array, Array]:
         """Ray-trace seed mask pixels to the source plane.
@@ -328,33 +310,13 @@ class PixelizedLensSimulator:
         L = lens_1d[self.flat_indices, :]  # (Nd, Nl)
         return L
 
-    def _aggregate_mapping_to_native(self, mapping_matrix_sub: Array) -> Array:
-        """Average a sub-grid mapping matrix back to native resolution.
-
-        Parameters
-        ----------
-        mapping_matrix_sub : Array
-            Mapping matrix of shape (Nd_sub, Ns) built on the sub-grid.
-
-        Returns
-        -------
-        Array
-            Mapping matrix of shape (Nd, Ns) at native resolution.
-        """
-        # Use precomputed segment IDs to sum sub-pixels into native active pixels
-        # directly, avoiding a full (npix*npix, Ns) scatter buffer.
-        summed = jax.ops.segment_sum(
-            mapping_matrix_sub,
-            self._agg_segment_ids,
-            num_segments=self._agg_n_active,
-        )
-        return summed / (self.nsub ** 2)
-
-    def source_stencil(self, source_bbox=None) -> tuple[Array, Array, tuple]:
-        """Ray-trace the active subpixels and prepare their interpolation stencil."""
-        beta_x, beta_y = self.phys_model.deflection(
-            x=self.image_x_active_sub, y=self.image_y_active_sub
-        )
+    def source_stencil(self, source_bbox=None, *, _response=None) -> tuple[Array, Array, tuple]:
+        """Ray-trace the render subpixels and prepare their interpolation stencil."""
+        if _response is None or _response is self._psf_response:
+            x, y = self._render_coords
+        else:
+            x, y = _response.ray_coordinates(self.sim_config)
+        beta_x, beta_y = self.phys_model.deflection(x=x, y=y)
         if source_bbox is None:
             # Use seed mask for bounding box inference (dual-masking strategy)
             beta_x_seed, beta_y_seed = self.phys_model.deflection(
@@ -396,41 +358,11 @@ class PixelizedLensSimulator:
 
         Returns (M, source_bbox) where source_bbox is (xmin, xmax, ymin, ymax).
         """
-        if _source_stencil is None:
-            _source_stencil = self.source_stencil(source_bbox)
+        response = self._psf_response if psf_kernel is None else self._psf_response.with_kernel(psf_kernel)
+        if _source_stencil is None or psf_kernel is not None:
+            _source_stencil = self.source_stencil(source_bbox, _response=response)
         weights, indices, source_bbox = _source_stencil
-        mapping_matrix_sub = dense_mapping_from_weights_indices(
-            weights, indices, self.n_source_pixels,
-        )
-
-        if self.nsub > 1:
-            mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
-        else:
-            mapping_matrix = mapping_matrix_sub
-
-        kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
-
-        # Use precomputed PSF FFT when the kernel hasn't been overridden.
-        H, W = self.image_shape
-        if psf_kernel is None:
-            psf_fft = self._psf_fft
-        else:
-            psf_pad = jnp.zeros(self.image_shape, dtype=kernel.dtype)
-            psf_pad = psf_pad.at[: kernel.shape[0], : kernel.shape[1]].set(kernel)
-            psf_shifted = jnp.roll(psf_pad, (-(kernel.shape[0] // 2), -(kernel.shape[1] // 2)), axis=(0, 1))
-            psf_fft = jnp.fft.rfft2(psf_shifted)
-
-        # Scatter all N_s columns into images at once: (N_s, H, W)
-        imgs = jnp.zeros((self.n_source_pixels, H * W), dtype=mapping_matrix.dtype)
-        imgs = imgs.at[:, self.flat_indices].set(mapping_matrix.T)
-        imgs = imgs.reshape(self.n_source_pixels, H, W)
-
-        # Single batched rfft2, multiply, irfft2
-        imgs_fft = jnp.fft.rfft2(imgs)  # (N_s, H, W//2+1)
-        conv_imgs = jnp.fft.irfft2(imgs_fft * psf_fft[None], s=(H, W))  # (N_s, H, W)
-
-        conv_imgs_flat = conv_imgs.reshape(self.n_source_pixels, H * W)
-        F = conv_imgs_flat[:, self.flat_indices].T  # (N_d, N_s)
+        F = response.convolved_columns(weights, indices, self.n_source_pixels).T
 
         # --- Joint with lens light if present ---
         if self.has_lens_light:
@@ -467,46 +399,21 @@ class PixelizedLensSimulator:
         Array
             Full 2D model image.
         """
-        source_pixels = jnp.asarray(source_pixels)
-
-        # Infer bbox using seed mask coordinates (same as design_matrix)
-        if source_bbox is None:
-            beta_x_seed, beta_y_seed = self.phys_model.deflection(
-                x=self.image_x_seed, y=self.image_y_seed
-            )
-            source_bbox = self.infer_source_bbox(beta_x_seed, beta_y_seed)
-
-        mapping_matrix_sub = self.build_mapping_matrix(
-            source_bbox=source_bbox, use_subgrid=True
+        response = self._psf_response if psf_kernel is None else self._psf_response.with_kernel(psf_kernel)
+        weights, indices, _ = self.source_stencil(source_bbox, _response=response)
+        brightness = render_source(
+            jnp.asarray(source_pixels), weights, indices,
+            response.render_parents, self.nsub, response.n_render,
         )
-        m_ideal_1d_sub = mapping_matrix_sub @ source_pixels
-
-        H, W = self.image_shape
-        if self.nsub > 1:
-            H_sub, W_sub = self.image_shape_sub
-            model_image_sub = jnp.zeros((H_sub * W_sub,), dtype=m_ideal_1d_sub.dtype)
-            model_image_sub = model_image_sub.at[self.flat_indices_sub].set(m_ideal_1d_sub)
-            model_image_sub = model_image_sub.reshape(H_sub, W_sub)
-            model_image = bin_image_general(model_image_sub, self.nsub)
-        else:
-            model_image = jnp.zeros(H * W, dtype=m_ideal_1d_sub.dtype)
-            model_image = model_image.at[self.flat_indices].set(m_ideal_1d_sub)
-            model_image = model_image.reshape(H, W)
-
-        kernel = self.psf_kernel if psf_kernel is None else jnp.asarray(psf_kernel)
-        convolved_image = jsp.signal.fftconvolve(model_image, kernel, mode="same")
+        fitted = response.forward(brightness)
 
         # Add lens light contribution if present
         if self.has_lens_light and lens_light_amplitudes is not None:
-            lens_light_amplitudes = jnp.asarray(lens_light_amplitudes)
             L = self.build_lens_light_matrix(psf_kernel=psf_kernel)
-            lens_1d = L @ lens_light_amplitudes
-            lens_image = jnp.zeros(H * W, dtype=lens_1d.dtype)
-            lens_image = lens_image.at[self.flat_indices].set(lens_1d)
-            lens_image = lens_image.reshape(H, W)
-            convolved_image = convolved_image + lens_image
+            fitted = fitted + L @ jnp.asarray(lens_light_amplitudes)
 
-        return jnp.where(self.active_mask, convolved_image, jnp.zeros_like(convolved_image))
+        H, W = self.image_shape
+        return jnp.zeros(H * W, dtype=fitted.dtype).at[self.flat_indices].set(fitted).reshape(H, W)
 
     def forward(
         self,
@@ -529,14 +436,12 @@ class PixelizedLensSimulator:
         source_bbox = self.infer_source_bbox(beta_x_seed, beta_y_seed)
 
         mapping_matrix = None
-        if source_pixels is None:
+        if source_pixels is None or return_mapping:
             mapping_matrix_sub = self.build_mapping_matrix(
                 source_bbox=source_bbox, use_subgrid=(self.nsub > 1)
             )
-            if self.nsub > 1:
-                mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
-            else:
-                mapping_matrix = mapping_matrix_sub
+            mapping_matrix = self.psf_response.integrate_fit_rays(mapping_matrix_sub)
+        if source_pixels is None:
             source_pixels = jnp.zeros(self.n_source_pixels, dtype=mapping_matrix.dtype)
 
         model_image = self.simulate(
@@ -545,15 +450,6 @@ class PixelizedLensSimulator:
             source_bbox=source_bbox,
             psf_kernel=psf_kernel,
         )
-        if return_mapping and mapping_matrix is None:
-            mapping_matrix_sub = self.build_mapping_matrix(
-                source_bbox=source_bbox, use_subgrid=(self.nsub > 1)
-            )
-            if self.nsub > 1:
-                mapping_matrix = self._aggregate_mapping_to_native(mapping_matrix_sub)
-            else:
-                mapping_matrix = mapping_matrix_sub
-
         return SimulationResult(model_image=model_image, source_image=None, mapping_matrix=mapping_matrix, linear_params=None)
 
     def __repr__(self) -> str:

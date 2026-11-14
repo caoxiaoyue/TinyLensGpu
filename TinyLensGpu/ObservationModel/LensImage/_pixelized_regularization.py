@@ -79,7 +79,7 @@ def prepare_adapt_image(adapt_image, image_data, noise_map, simulator, rho, fixe
             jnp.percentile(positive, ADAPT_REFERENCE_PERCENTILE), ADAPT_REFERENCE_FLOOR,
         )
         positive = jnp.clip(positive / reference_brightness, 0.0, 1.0)
-    return positive[simulator._agg_segment_ids] if simulator.nsub > 1 else positive
+    return simulator.psf_response.expand_fit_values(positive)
 
 
 def project_adapt_image(ray_brightness, weights, indices, n_source, nsub, *, interpolation):

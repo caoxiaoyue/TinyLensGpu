@@ -70,12 +70,14 @@ def test_ordinary_evidence_uses_native_data_and_prior_tile_determinants(
         )
         source.log_lambda_reg.to_static(np.log(strength))
         physical = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[])
-        simulator = PixelizedLensSimulator(
-            physical, SimulatorConfig(dpix, 9, psf, nsub=nsub, mask=mask)
-        )
+        config = SimulatorConfig(dpix, 9, psf, nsub=nsub, mask=mask)
+        simulator = PixelizedLensSimulator(physical, config)
         design, _ = simulator.design_matrix(source_bbox=bbox)
         design = np.asarray(design)
-        native = np.asarray(simulator.build_mapping_matrix(source_bbox=bbox))
+        native = np.stack([
+            np.asarray(source.light(config.xgrid, config.ygrid, column, bbox)).ravel()
+            for column in np.eye(n**2)
+        ], axis=1)
 
         # Forward differences include a final edge to zero on each upper bound.
         spacing = 0.25
@@ -91,7 +93,7 @@ def test_ordinary_evidence_uses_native_data_and_prior_tile_determinants(
         posterior = design.T @ (design / sigma[:, None] ** 2) + prior
         pixel_weights = np.where(mask, 0, noise**-2)
         effective_weights = convolve2d(pixel_weights, psf[::-1, ::-1] ** 2, mode="same")
-        native_posterior = native.T @ (effective_weights[~mask, None] * native) + prior
+        native_posterior = native.T @ (effective_weights.reshape(-1, 1) * native) + prior
 
         args = image, noise, psf, dpix, physical
         options = dict(mask=mask, nsub=nsub, fixed_source_bbox=bbox)

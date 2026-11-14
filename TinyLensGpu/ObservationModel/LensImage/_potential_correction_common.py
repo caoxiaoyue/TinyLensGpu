@@ -232,6 +232,8 @@ class _PotentialCorrectionObservation:
             "potential_amplitude_prior": "independent_all_unknowns",
             "nsub": self.renderer.nsub,
             "image_shape": self.renderer.image_shape,
+            "psf_response": self.renderer.psf_response.convention,
+            "n_render": self.renderer.psf_response.n_render,
             "n_data": self.renderer.n_active,
             "n_source": self.n_source,
             "n_potential": self.n_potential,

@@ -73,6 +73,8 @@ def test_potential_deflection_and_transpose_satisfy_inner_product_contract():
 @pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
 @pytest.mark.parametrize("nsub", [1, 3])
 def test_zero_correction_preserves_existing_pixelized_imaging(nsub, interpolation):
+    from scipy.signal import convolve2d
+
     from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
     from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
     from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
@@ -89,29 +91,34 @@ def test_zero_correction_preserves_existing_pixelized_imaging(nsub, interpolatio
         mask[1:6, 1:6] = False
         mask[3, 3] = True
         mask[0, 0] = False
-        kernel = jnp.array([[0.0, 0.1, 0.0], [0.05, 0.6, 0.1], [0.0, 0.15, 0.0]])
+        mask[-1, 0] = mask[0, -1] = False
+        kernel = jnp.array([[0.12, 0.0, 0.08], [0.55, 0.20, 0.05]])
         config = SimulatorConfig(0.1, 7, kernel, nsub=nsub, mask=mask)
         macro = PhysicalModel(
             lens_mass=[Shear(gamma1=0.1, gamma2=0.03)], source_light=[], lens_light=[]
         )
+        source_model = PixelizedSourceModel(5, interpolation=mode)
+        source_model.log_lambda_reg.to_static(0.0)
         physical = PhysicalModel(
-            lens_mass=macro.lens_mass,
-            source_light=[PixelizedSourceModel(5, interpolation=mode)],
-            lens_light=[],
+            lens_mass=macro.lens_mass, source_light=[source_model], lens_light=[],
         )
         original = PixelizedLensSimulator(physical, config)
         source = jnp.asarray(np.random.default_rng(7).normal(size=25))
         bbox = (-0.18, 0.18, -0.18, 0.18)
+        bx, by = macro.deflection(config.xgrid_sub, config.ygrid_sub)
+        subpixels = physical.source_light[0].light(bx, by, source, bbox)
+        ideal = np.asarray(subpixels).reshape(7, nsub, 7, nsub).mean(axis=(1, 3))
+        expected = convolve2d(ideal, np.asarray(kernel), mode="same")[~mask]
         design, _ = original.design_matrix(source_bbox=bbox)
-        expected = design @ source
-        if mode == "bilinear":
-            operator = PixelizedLensOperator(physical, config)
-            np.testing.assert_allclose(
-                operator.forward_model(source, *bbox), expected, rtol=2e-13, atol=1e-14
-            )
+        operator = PixelizedLensOperator(physical, config)
+        np.testing.assert_allclose(design @ source, expected, rtol=2e-13, atol=1e-14)
+        np.testing.assert_allclose(
+            operator.forward_model(source, *bbox), expected, rtol=2e-13, atol=1e-14
+        )
         kwargs = {} if interpolation is None else {"source_interpolation": mode}
         renderer = PotentialCorrectionRenderer(macro, config, 5, bbox, **kwargs)
         result = renderer.render(source, jnp.zeros(renderer.potential_grid.n_unknown))
+        assert renderer.query_x.size > np.count_nonzero(~mask) * nsub**2
 
     np.testing.assert_allclose(result.image_active, expected, rtol=2e-13, atol=1e-14)
     np.testing.assert_allclose(
@@ -123,6 +130,46 @@ def test_zero_correction_preserves_existing_pixelized_imaging(nsub, interpolatio
     assert np.isnan(
         np.asarray(result.convergence)[~np.asarray(result.derivative_valid)]
     ).all()
+
+
+def test_masked_emitter_reaches_the_fit_without_wrapping_around_the_cutout():
+    from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
+    from TinyLensGpu.ForwardSimulation.LensImage.pixelized import PixelizedLensSimulator
+    from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import PixelizedLensOperator
+    from TinyLensGpu.PhysicalModel import PhysicalModel, PixelizedSourceModel
+
+    with jax.experimental.enable_x64():
+        size, dpix = 7, 0.125
+        mask = np.ones((size, size), dtype=bool)
+        mask[3, [0, 1, -1]] = False
+        psf = jnp.array([[0.2, 0.0, 0.1, 0.7]])
+        source = jnp.zeros((size, size)).at[3, 2].set(1.0).at[3, -1].set(5.0).ravel()
+        bbox = (-0.375, 0.375, -0.375, 0.375)
+        config = SimulatorConfig(dpix, size, psf, mask=mask)
+        physical = PhysicalModel(lens_mass=[], source_light=[PixelizedSourceModel(size)])
+        dense = PixelizedLensSimulator(physical, config)
+        operator = PixelizedLensOperator(physical, config)
+        potential = PotentialCorrectionRenderer(physical, config, size, bbox)
+        design, _ = dense.design_matrix(source_bbox=bbox)
+        source_result = potential.render(source, jnp.zeros(potential.potential_grid.n_unknown))
+
+        expected = np.array([0.0, 0.2, 0.0])
+        np.testing.assert_allclose(design @ source, expected, atol=2e-15)
+        np.testing.assert_allclose(dense.simulate(source, source_bbox=bbox)[~mask], expected, atol=2e-15)
+        np.testing.assert_allclose(operator.forward_model(source, *bbox), expected, atol=2e-15)
+        np.testing.assert_allclose(source_result.image_active, expected, atol=2e-15)
+
+        probe = jnp.array([-0.2, 0.8, 0.15])
+        expected_adjoint = design.T @ probe
+        np.testing.assert_allclose(operator.build_rhs(probe, jnp.ones_like(probe), *bbox),
+                                   expected_adjoint, atol=2e-15)
+        np.testing.assert_allclose(potential.source_adjoint(probe), expected_adjoint, atol=2e-15)
+
+        old_grid = PotentialGrid.from_queries(
+            config.xgrid_sub_1d, config.ygrid_sub_1d, spacing=potential.potential_grid.spacing,
+        )
+        with pytest.raises(ValueError, match="PSF render subpixel queries"):
+            PotentialCorrectionRenderer(physical, config, size, bbox, potential_grid=old_grid)
 
 
 @pytest.mark.parametrize("field", ["source", "subpixel_image"])
@@ -316,7 +363,7 @@ def test_incomplete_or_mismatched_explicit_geometry_fails_without_mask_erosion()
         macro = PhysicalModel(
             lens_mass=[Shear(gamma1=0.0, gamma2=0.0)], source_light=[], lens_light=[]
         )
-        with pytest.raises(ValueError, match="actual image subpixel queries"):
+        with pytest.raises(ValueError, match="PSF render subpixel queries"):
             PotentialCorrectionRenderer(
                 macro, config, 3, (-1.0, 1.0, -1.0, 1.0), potential_grid=grid
             )

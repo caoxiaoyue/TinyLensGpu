@@ -113,7 +113,8 @@ class PixelizedImageProbModelOperator(ck.Module):
     phys_model : PhysicalModel
         Physical model with exactly one pixelized source.
     mask : array_like, optional
-        Boolean mask where ``True`` pixels are excluded.
+        Boolean mask where ``True`` pixels are excluded from the fit after PSF
+        convolution. They can still contribute light to fitted pixels.
     source_seed_mask : array_like, optional
         Boolean mask for source bounding-box inference.
     nsub : int, optional
@@ -453,8 +454,9 @@ class PixelizedImageProbModelOperator(ck.Module):
     # ------------------------------------------------------------------
 
     def _project_reference(self, op_data) -> Array:
+        weights, indices = self.sim_obj.psf_response.fit_stencil(op_data.weights, op_data.indices)
         return project_adapt_image(
-            self._adapt_brightness, op_data.weights, op_data.indices,
+            self._adapt_brightness, weights, indices,
             op_data.n_source, op_data.nsub,
             interpolation=getattr(self.source_model, "interpolation", "bilinear"),
         )

@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from scipy.signal import convolve2d
 
 from TinyLensGpu.Inference.build_likelihood import make_likelihood
 from TinyLensGpu.Inference.param_u import ParamU
@@ -41,15 +42,15 @@ def _hermite_kernel(distance, array_module=np):
 
 def _reference_projection(image, mask, reference, psf, dpix, nsub, bbox, n, shift,
                           interpolation="bilinear"):
-    """Independently form the geometric coverage and periodic blurred design."""
+    """Independently project fitted rays and convolve the full source image."""
     xmin, xmax, ymin, ymax = bbox
     positive = np.maximum(reference, 0)
     normalized = np.minimum(positive / max(np.percentile(positive[~mask], 99.5), 1e-10), 1)
     mapping = np.zeros((*image.shape, n**2))
     hermite = interpolation == "cubic_hermite"
-    projected = np.zeros_like(mapping) if hermite else mapping
+    projected = np.zeros_like(mapping)
     nodes = np.arange(n)
-    for iy, ix in np.argwhere(~mask):
+    for iy, ix in np.ndindex(image.shape):
         for sy, sx in np.ndindex(nsub, nsub):
             x = dpix * (ix + (sx + 0.5) / nsub - image.shape[1] / 2) - shift[0]
             y = dpix * (iy + (sy + 0.5) / nsub - image.shape[0] / 2) - shift[1]
@@ -57,13 +58,14 @@ def _reference_projection(image, mask, reference, psf, dpix, nsub, bbox, n, shif
             gy = (y - ymin) / ((ymax - ymin) / (n - 1))
             if hermite:
                 weights = np.outer(_hermite_kernel(gy - nodes), _hermite_kernel(gx - nodes))
-                projected[iy, ix] += weights.ravel()**2 / nsub**2
             elif 0 <= gx <= n - 1 and 0 <= gy <= n - 1:
                 weights = np.outer(np.maximum(0, 1 - abs(gy - nodes)),
                                    np.maximum(0, 1 - abs(gx - nodes)))
             else:
                 continue
             mapping[iy, ix] += weights.ravel() / nsub**2
+            if not mask[iy, ix]:
+                projected[iy, ix] += (weights.ravel()**2 if hermite else weights.ravel()) / nsub**2
 
     coverage = projected.sum(axis=(0, 1))
     signal = (projected * normalized[..., None]).sum(axis=(0, 1))
@@ -71,13 +73,11 @@ def _reference_projection(image, mask, reference, psf, dpix, nsub, bbox, n, shif
         brightness = signal / (coverage + 1e-4)
     else:
         brightness = np.divide(signal, coverage, out=np.zeros_like(signal), where=coverage > 1e-8)
-    convolved = sum(
-        psf[jy, jx] * np.roll(
-            mapping, (jy - psf.shape[0] // 2, jx - psf.shape[1] // 2), axis=(0, 1)
-        )
-        for jy, jx in np.ndindex(psf.shape)
+    design = np.stack(
+        [convolve2d(column, psf, mode="same")[~mask] for column in np.moveaxis(mapping, -1, 0)],
+        axis=1,
     )
-    return brightness, coverage, convolved[~mask]
+    return brightness, coverage, design
 
 
 def _fixture():

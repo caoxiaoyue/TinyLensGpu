@@ -99,13 +99,13 @@ def run(interpolation, repeats):
         return pcg_solve(curvature, rhs, preconditioner, rtol=rtol, max_iter=max_iter)
 
     mapping, mapping_time = _measure(
-        prepare, (config.xgrid_sub_1d, config.ygrid_sub_1d, bounds), repeats, device
+        prepare, (*simulator.psf_response.ray_coordinates(config), bounds), repeats, device
     )
     # Operator metadata is static for applications, even when emitted by JIT.
     mapping = mapping._replace(
         n_source=int(mapping.n_source),
         nsub=int(mapping.nsub),
-        agg_n_active=int(mapping.agg_n_active),
+        n_render=int(mapping.n_render),
     )
     factors, precondition_time = _measure(
         precondition, (noise, bounds, lambda_reg), repeats, device
@@ -128,7 +128,7 @@ def run(interpolation, repeats):
             f"PCG failed its true residual check ({true_relative_residual:.4g}): {status}"
         )
     stencil_width = 16 if interpolation == "cubic_hermite" else 4
-    stencil_shape = (simulator.n_active * nsub**2, stencil_width)
+    stencil_shape = (mapping.n_render * nsub**2, stencil_width)
     assert mapping.weights.shape == mapping.indices.shape == stencil_shape
     assert values.shape == (mapping.n_source,) == (n**2,)
     assert factors[0].shape == ((n // block_size) ** 2, block_size**2, block_size**2)
@@ -150,6 +150,7 @@ def run(interpolation, repeats):
             nsub=nsub,
             source_bbox=bbox,
             active_pixels=simulator.n_active,
+            render_pixels=mapping.n_render,
             mask_inner_outer_radius=(0.2, 1.8),
             psf=psf.tolist(),
             lens=mass,

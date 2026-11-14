@@ -182,7 +182,9 @@ def test_verified_legacy_m1_renders_reference_but_old_adaptive_stages_refit(
     assert euclid._load_stage("m1")["extra"]["objective"]["evidence_logdet"] == "overlap"
 
 
-@pytest.mark.parametrize("damaged_product", ["adaptive", "reference", "producer_metadata"])
+@pytest.mark.parametrize(
+    "damaged_product", ["adaptive", "reference", "producer_metadata", "legacy_psf"],
+)
 def test_resume_rebuilds_incompatible_products_after_m1_mode_selection(
     euclid, small_fit, monkeypatch, damaged_product,
 ):
@@ -197,9 +199,13 @@ def test_resume_rebuilds_incompatible_products_after_m1_mode_selection(
     if damaged_product != "adaptive":
         payload = pickle.loads(saved_m1)
         metadata = payload["extra"]
-        if damaged_product == "reference":
-            metadata = metadata["s1"]
-        metadata["source_boundary"] = "malformed"
+        if damaged_product == "legacy_psf":
+            metadata.pop("objective")
+            metadata["s1"]["reference_provenance"]["observation"].pop("psf_response")
+        else:
+            if damaged_product == "reference":
+                metadata = metadata["s1"]
+            metadata["source_boundary"] = "malformed"
         m1_path.write_bytes(pickle.dumps(payload))
 
     for tag in ("m2", "m3"):

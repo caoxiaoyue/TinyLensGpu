@@ -64,16 +64,18 @@ def test_operator_forward_and_adjoint_match_dense(imaging, interpolation):
 def test_hermite_preconditioner_data_blocks_match_native_curvature(imaging):
     config, bbox = imaging
     source_model = PixelizedSourceModel(4, interpolation="cubic_hermite")
+    source_model.log_lambda_reg.to_static(0.0)
     physical = PhysicalModel(lens_mass=[], source_light=[source_model], lens_light=[])
-    dense = PixelizedLensSimulator(physical, config)
     operator = PixelizedLensOperator(physical, config)
     mask = np.asarray(config.mask)
     noise = np.linspace(0.03, 0.07, mask.size).reshape(mask.shape)
     weighted = np.where(mask, 0.0, noise**-2)
     psf_squared = np.asarray(config.psf_kernel)[::-1, ::-1] ** 2
-    effective_weights = convolve2d(weighted, psf_squared, mode="same")[~mask]
-
-    native = np.asarray(dense.build_mapping_matrix(source_bbox=bbox))
+    effective_weights = convolve2d(weighted, psf_squared, mode="same").ravel()
+    native = np.stack([
+        np.asarray(source_model.light(config.xgrid, config.ygrid, column, bbox)).ravel()
+        for column in np.eye(4**2)
+    ], axis=1)
     curvature = native.T @ (effective_weights[:, None] * native)
     blocks, pixels = operator.build_data_blocks(noise[~mask], *bbox, block_size=2)
     for block, indices in zip(blocks, pixels):
@@ -205,3 +207,44 @@ def test_saved_node_intensities_can_initialize_a_new_operator_fit(imaging):
     result = warm.evaluate()
     assert result.solver_info.converged
     np.testing.assert_array_equal(result.source_pixels, saved_nodes)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("joint", [False, True], ids=["source", "joint"])
+def test_direct_curvature_uses_changed_noise_and_prior_data(imaging, joint):
+    """Internal JIT must keep numerical data dynamic at a fixed topology."""
+    from TinyLensGpu.utils.inversion.regularization import FiniteDifferenceRegularization
+
+    config, bbox = imaging
+    n = 4
+    source = PixelizedSourceModel(n, regularization_type="zero-order", interpolation="cubic_hermite")
+    source.log_lambda_reg.to_static(0.0)
+    lens = SersicEllipse(R_sersic=0.2, n_sersic=1.0, Ie=1.0,
+                         e1=0.05, e2=0.0, center_x=0.03, center_y=0.0)
+    lens.Ie.to_static(1.0)
+    physical = PhysicalModel(lens_mass=[], source_light=[source], lens_light=[lens] if joint else [])
+    dense = PixelizedLensSimulator(physical, config)
+    simulator = PixelizedLensOperator(physical, config)
+    design, _ = dense.design_matrix(source_bbox=bbox)
+    mapping = simulator.precompute_operator_data(*bbox)
+    assert mapping.n_render == simulator.psf_response.n_render
+    assert mapping.n_render > simulator.n_active
+    regularizer = FiniteDifferenceRegularization(n, "zero-order")
+    reg_data = regularizer.make_reg_data(*bbox)
+    vector = jnp.linspace(-0.3, 0.8, n**2 + int(joint), dtype=jnp.float64)
+    for scale in (1.0, 1.7):
+        noise = scale * jnp.linspace(0.03, 0.07, simulator.n_active, dtype=jnp.float64)
+        strength, lens_strength = 0.3 * scale, 0.02 * scale
+        if joint:
+            operator, _, _ = simulator.build_joint_system(
+                noise, jnp.ones_like(noise), *bbox, strength, reg_data, lens_strength,
+                op_data=mapping,
+            )
+            prior = jnp.r_[jnp.full(n**2, strength), lens_strength]
+        else:
+            operator = simulator.build_source_curvature_operator(
+                noise, *bbox, strength, reg_data, op_data=mapping,
+            )
+            prior = jnp.full(n**2, strength)
+        expected = design.T @ ((design @ vector) / noise**2) + prior * vector
+        np.testing.assert_allclose(operator.matvec(vector), expected, rtol=1e-12, atol=1e-10)

@@ -71,6 +71,8 @@ def test_source_truth_brightness_and_analytic_gradient_support_requested_nodes()
 
 @pytest.mark.integration
 def test_mock_pair_reproduces_shared_noise_and_fixed_physical_observation():
+    from scipy.signal import convolve2d
+
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
 
     config = MockConfig(npix=16, dpix=0.18, nsub=2, psf_size=3, seed=91)
@@ -94,6 +96,17 @@ def test_mock_pair_reproduces_shared_noise_and_fixed_physical_observation():
                                atol=2e-16)
     assert np.linalg.norm(np.asarray(pair.subhalo.model_image) - np.asarray(pair.control.model_image)) > 0
     assert pair.control.subhalo_truth.b_sub == 0
+    with jax.experimental.enable_x64():
+        observation = pair.control
+        grid = observation.sim_config
+        bx, by = observation.macro.deflection(grid.xgrid_sub, grid.ygrid_sub)
+        native = np.asarray(config.source.brightness(bx, by)).reshape(16, 2, 16, 2).mean(axis=(1, 3))
+        psf = np.asarray(observation.psf_kernel)
+        expected = convolve2d(native, psf, mode="same")
+        masked = convolve2d(np.where(observation.mask, 0.0, native), psf, mode="same")
+    fit = ~np.asarray(observation.mask)
+    assert not np.allclose(expected[fit], masked[fit], atol=1e-14, rtol=1e-12)
+    np.testing.assert_allclose(observation.model_image, expected, atol=1e-14)
 
 
 @pytest.mark.integration
@@ -122,7 +135,7 @@ def test_mock_generator_saves_reconstructible_truth_and_provenance(tmp_path):
 
 
 @pytest.mark.integration
-def test_zero_strength_float32_mock_and_delta_psf_keep_mask_convention():
+def test_zero_strength_float32_mock_and_delta_psf_preserve_the_full_brightness():
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
 
     config = MockConfig(npix=12, dpix=0.25, nsub=1, psf_size=1, psf_sigma=0,
@@ -134,8 +147,7 @@ def test_zero_strength_float32_mock_and_delta_psf_keep_mask_convention():
     beta_x, beta_y = observation.macro.deflection(observation.sim_config.xgrid,
                                                  observation.sim_config.ygrid)
     direct_brightness = config.source.brightness(beta_x, beta_y)
-    expected = np.where(observation.mask, 0, direct_brightness)
-    np.testing.assert_allclose(observation.model_image, expected, atol=1e-7)
+    np.testing.assert_allclose(observation.model_image, direct_brightness, atol=1e-7)
 
 
 @pytest.mark.boundary

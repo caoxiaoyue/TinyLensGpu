@@ -159,8 +159,6 @@ def test_delta_psf_simulation_places_mapping_product_on_unmasked_pixels() -> Non
     design_matrix, _ = simulator.design_matrix(psf_kernel=_delta_psf())
     model_image = simulator.simulate(source_pixels, psf_kernel=_delta_psf())
 
-    # FFT convolution assumes periodic boundaries, so edge pixels may differ
-    # from the ideal mapping product; use a relaxed tolerance.
     assert jnp.allclose(model_image[~mask], design_matrix @ source_pixels, atol=1e-4)
 
 
@@ -568,9 +566,8 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
     the design_matrix path uses the sub-grid internally and aggregates back to
     native resolution before PSF convolution.
 
-    The PSF ground truth uses scipy.signal.fftconvolve, which shares the same
-    periodic-boundary assumption as the JAX FFT convolution inside
-    PixelizedLensSimulator.design_matrix, so the comparison is valid.
+    The PSF ground truth convolves the whole image with zero extension before
+    applying the observation mask.
     """
     npix = 30
     dpix = 0.08
@@ -656,12 +653,11 @@ def test_pixelized_mapping_and_design_matrix_match_independent_lensed_source_tru
         f"Ideal RMS relative error too large (nsub={nsub}): {ideal_rms / truth_scale:.3e}"
     )
 
-    # Both the ground-truth convolution (scipy) and the design_matrix path
-    # (JAX FFT) assume periodic boundaries, so edge wrap-around artifacts
-    # cancel in the comparison.  The annular mask further excludes the
-    # outermost pixels where boundary effects are strongest.
-    ideal_lensed_masked = np.where(~mask, ideal_lensed_truth, 0.0)
-    blurred_truth = fftconvolve(ideal_lensed_masked, psf_kernel, mode="same")
+    gx, gy = make_grid_2d(npix, dpix, nsub)
+    bx, by = gt_phys.deflection(gx, gy)
+    integrated = np.asarray(gt_phys.source_surface_brightness(bx, by))
+    integrated = integrated.reshape(npix, nsub, npix, nsub).mean(axis=(1, 3))
+    blurred_truth = fftconvolve(integrated, psf_kernel, mode="same")
     expected_blurred = blurred_truth[~mask]
 
     design_matrix, inferred_bbox = simulator.design_matrix(

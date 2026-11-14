@@ -1,5 +1,6 @@
 """Stiff physical source–potential fits retain a bounded true-residual certificate."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,6 +8,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+
+
+# The larger render footprint changes the conditioning. These test strengths
+# exercise the same true-residual gates on CPU and CUDA with the updated grid.
+_LAMBDA_SOURCE = 6e-4
+_LAMBDA_POTENTIAL = 3e10
+_FULL_BUDGET = 20000
+_LIMITED_BUDGET = 6000
 
 
 def _scientific_control():
@@ -66,26 +75,36 @@ def _scientific_control():
         )
 
 
-@pytest.mark.integration
-@pytest.mark.slow
-def test_stiff_control_operator_converges_at_unchanged_true_residual_limits(caplog):
+def _fixed_partition(problem):
     fixture = json.loads(
         (
             Path(__file__).parent
             / "fixtures/potential_correction_control_partition.json"
         ).read_text()
     )
+    renderer = problem.renderer
+    nodes = np.asarray(renderer.potential_grid.node_indices)
+    assert fixture["psf_response"] == renderer.psf_response.convention
+    assert fixture["source_n"] == renderer.source_n
+    assert fixture["potential_node_indices_sha256"] == hashlib.sha256(nodes.tobytes()).hexdigest()
+    return fixture
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_stiff_control_operator_converges_at_unchanged_true_residual_limits(caplog):
     problem = _scientific_control()
-    dense = problem.fit(6e-4, 1e11, gradient_atol=3e-5)
+    fixture = _fixed_partition(problem)
+    dense = problem.fit(_LAMBDA_SOURCE, _LAMBDA_POTENTIAL, gradient_atol=3e-5)
     with jax.log_compiles(True):
         result = problem.fit(
-            6e-4,
-            1e11,
+            _LAMBDA_SOURCE,
+            _LAMBDA_POTENTIAL,
             backend="operator",
             gradient_atol=3e-5,
             block_size=fixture["block_size"],
             block_indices=fixture["block_indices"],
-            pcg_max_iter=20000,
+            pcg_max_iter=_FULL_BUDGET,
             pcg_rtol=1e-12,
         )
     assert (
@@ -127,27 +146,23 @@ def test_stiff_control_operator_converges_at_unchanged_true_residual_limits(capl
         assert info["iterations"] == sum(
             phase["iterations"] for phase in diagnostic["phases"]
         )
-        assert info["iterations"] <= diagnostic["iteration_budget"] == 20000
+        assert info["iterations"] <= diagnostic["iteration_budget"] == _FULL_BUDGET
         assert info["residual_norm"] <= diagnostic["true_residual_threshold"]
 
 
 @pytest.mark.integration
 @pytest.mark.slow
 def test_residual_correction_uses_remaining_budget_and_failed_steps_stay_failed():
-    fixture = json.loads(
-        (
-            Path(__file__).parent
-            / "fixtures/potential_correction_control_partition.json"
-        ).read_text()
-    )
-    result = _scientific_control().fit(
-        6e-4,
-        1e11,
+    problem = _scientific_control()
+    fixture = _fixed_partition(problem)
+    result = problem.fit(
+        _LAMBDA_SOURCE,
+        _LAMBDA_POTENTIAL,
         backend="operator",
         gradient_atol=3e-5,
         block_size=fixture["block_size"],
         block_indices=fixture["block_indices"],
-        pcg_max_iter=4000,
+        pcg_max_iter=_LIMITED_BUDGET,
         pcg_rtol=1e-12,
     )
     assert not result.success and result.log_evidence is None
@@ -155,7 +170,7 @@ def test_residual_correction_uses_remaining_budget_and_failed_steps_stay_failed(
     assert result.solver_info.reason == "pcg_iteration_limit"
     diagnostic = result.solver_info.diagnostics
     assert diagnostic["refinement_attempted"]
-    assert result.solver_info.iterations == diagnostic["iteration_budget"] == 4000
-    assert sum(phase["iterations"] for phase in diagnostic["phases"]) == 4000
+    assert result.solver_info.iterations == diagnostic["iteration_budget"] == _LIMITED_BUDGET
+    assert sum(phase["iterations"] for phase in diagnostic["phases"]) == _LIMITED_BUDGET
     assert diagnostic["phases"][0]["recursive_converged"]
     assert not diagnostic["phases"][1]["recursive_converged"]

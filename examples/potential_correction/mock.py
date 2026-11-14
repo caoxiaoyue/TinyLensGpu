@@ -205,20 +205,17 @@ def generate_mock_pair(config=MockConfig()):
     """Generate a deterministic pair with fixed true SIS+shear macro parameters.
 
     Analytic source brightness is integrated at ``nsub`` midpoint samples per
-    native axis. Native pixels excluded by the observation mask contribute zero
-    before the existing pixelized native-grid circular PSF convolution. There
-    is no lens light. The same independent Gaussian noise realization is added
+    native axis. The full native image is convolved with zero extension before
+    selecting fitted pixels. There is no lens light. The same Gaussian draw is added
     to both noiseless images, making their difference a controlled perturbation.
     Generation requests its dtype inside a scoped JAX precision context and
     leaves process-wide precision unchanged.
     """
     import jax
+    from jax.scipy.signal import fftconvolve
 
     from TinyLensGpu.ForwardSimulation.LensImage.config import SimulatorConfig
     from TinyLensGpu.ForwardSimulation.LensImage.parametric import bin_image_general
-    from TinyLensGpu.ForwardSimulation.LensImage.pixelized_operator import (
-        _psf_convolve_full_jit,
-    )
     from TinyLensGpu.PhysicalModel import PhysicalModel, PseudoJaffeSubhalo, SIS, Shear
 
     with jax.experimental.enable_x64(config.dtype == "float64"):
@@ -246,11 +243,6 @@ def generate_mock_pair(config=MockConfig()):
             source_light=[], lens_light=[],
         )
         beta_x, beta_y = macro.deflection(sim.xgrid_sub, sim.ygrid_sub)
-        kernel_pad = jnp.zeros((config.npix, config.npix), dtype=dtype)
-        kernel_pad = kernel_pad.at[:config.psf_size, :config.psf_size].set(psf)
-        kernel_pad = jnp.roll(kernel_pad, (-(config.psf_size//2),
-                                         -(config.psf_size//2)), axis=(0, 1))
-        psf_fft = jnp.fft.rfft2(kernel_pad)
         rng = np.random.default_rng(config.seed)
         noise = jnp.asarray(rng.standard_normal((config.npix, config.npix)) * config.noise_sigma,
                             dtype=dtype)
@@ -263,9 +255,7 @@ def generate_mock_pair(config=MockConfig()):
             alpha_x, alpha_y = mass.deriv(sim.xgrid_sub, sim.ygrid_sub)
             brightness_sub = config.source.brightness(beta_x - alpha_x, beta_y - alpha_y)
             brightness = bin_image_general(brightness_sub, config.nsub)
-            brightness = jnp.where(mask, 0, brightness)
-            model = _psf_convolve_full_jit(brightness.ravel(), psf_fft,
-                                            config.npix, config.npix).reshape(config.npix, config.npix)
+            model = brightness * psf[0, 0] if psf.shape == (1, 1) else fftconvolve(brightness, psf, mode="same")
             observations.append(MockObservation(
                 image_data=model + noise, noise_map=noise_map, psf_kernel=psf, mask=mask,
                 model_image=model, noise_realization=noise, sim_config=sim, macro=macro,
@@ -297,8 +287,8 @@ def save_mock_pair(pair, output):
         "noise_convention": "same independent Gaussian realization in both observations",
         "integration": {"mock_nsub": config.nsub,
                         "rule": "midpoint average per native pixel",
-                        "psf": "existing pixelized native-grid circular FFT",
-                        "masked_input_light": "zero before PSF; no halo expansion"},
+                        "psf": "zero-extended linear convolution, same crop",
+                        "masked_input_light": "full cutout evaluated before PSF"},
         "truth_conventions": {
             "potential": "analytic singular profile; psi(center)=0",
             "deflection": "existing component numerical radius=max(R,1e-8 arcsec)",

@@ -468,6 +468,9 @@ def test_nonfinite_trial_is_rejected_without_replacing_last_finite_fields(backen
         def deflection(self, x, y):
             return x + 3e-160, y + 3e-160
 
+    # Keep the prior in the normal float64 range on CPU. With unit noise,
+    # this signal still overflows the candidate gradient after a valid solve.
+    signal_amplitude = 1e30
     with jax.experimental.enable_x64():
         renderer = PotentialCorrectionRenderer(
             ConstantDeflection(),
@@ -477,21 +480,23 @@ def test_nonfinite_trial_is_rejected_without_replacing_last_finite_fields(backen
         )
         problem = IterativePotentialCorrection(
             renderer,
-            [[-1.0, 1.0], [-1.0, 1.0]],
+            signal_amplitude * np.array([[-1.0, 1.0], [-1.0, 1.0]]),
             np.ones((2, 2)),
             np.zeros(4),
             lambda_amplitude=1.0,
             source_regularization="zero-order",
             solve_atol=1e-10,
         )
-        result = problem.fit(1e-320, 0.1, backend=backend, max_rejections=1)
+        result = problem.fit(1e-250, 0.1, backend=backend, max_rejections=1)
     assert not result.success and result.log_evidence is None
     assert result.termination_reason == "nonfinite_candidate_limit"
     assert result.solver_info.converged
+    assert len(result.history) > 1
     assert all(item["reason"] == "nonfinite_candidate" for item in result.history[1:])
+    assert all(not item["accepted"] for item in result.history[1:])
     np.testing.assert_array_equal(result.source_values, 0.0)
     np.testing.assert_array_equal(result.potential_values, 0.0)
-    np.testing.assert_allclose(result.objective, 2.0)
+    np.testing.assert_allclose(result.objective, 2.0 * signal_amplitude**2)
 
 
 def test_iteration_kernels_reuse_compilation_for_changed_strengths_and_damping(caplog):
