@@ -20,14 +20,14 @@ import numpy as np
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
-from examples.potential_correction.result_products import write_json
+from examples.potential_correction.shared.result_products import write_json
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    config = json.loads((ROOT / "examples/potential_correction/scientific_configuration.json").read_text())
+    config = json.loads((ROOT / "examples/potential_correction/mock/single_step/configurations/scientific.json").read_text())
     report = {"configuration": config, "scope": __doc__, "cases": {}}
     with jax.experimental.enable_x64():
         mock = MockConfig.from_dict(config["mock"])

@@ -7,6 +7,8 @@
 **Status:** ready-for-agent
 **State:** resolved
 
+> Retired workflow: this resolved ticket records an archive-specific implementation. Its validation entry point and report are no longer maintained. Use the [current J0946 example](../../../examples/potential_correction/j0946/README.md) for new analyses; the checked items below are historical, not current verification claims.
+
 **Spec:** [Parent specification](../spec.md)
 
 - [x] The maintained J0946 entry point runs the operator fit with the same archived observation, geometry, actual start, whitening reference, and strengths as the dense refit from ticket 03. Retain the exact operator partition and controls used for qualification.
@@ -19,6 +21,6 @@
 
 Claimed by `codex/lbfgs-07-j0946-qualification` for integration into `codex/lbfgs-potential-correction`.
 
-Implemented in `a4d39e3` and merged in `1484f43`. `pytest -xq test_potential_correction_lbfgs_j0946.py` passed all 14 regenerated workflow checks on CPU and CUDA from `examples/tests/`. The independent CUDA principal-block check passed with `pytest -xq test_potential_correction_lbfgs.py::test_operator_fixed_strengths_qualify_against_principal_block_reference` from `tests/`. Both fresh isolated CUDA commands in the [qualification report](../../../docs/validation/potential-correction-lbfgs-j0946.md) passed. The [dense fit](../output/j0946-qualified/dense/result.json) and [operator comparison](../output/j0946-qualified/operator/result.json) retain their fields, methods, partition, diagnostics and resource measurements.
+Implemented in `a4d39e3` and merged in `1484f43`. `pytest -xq test_potential_correction_lbfgs_j0946.py` passed all 14 regenerated workflow checks on CPU and CUDA from `examples/tests/`. The independent CUDA principal-block check passed with `pytest -xq test_potential_correction_lbfgs.py::test_operator_fixed_strengths_qualify_against_principal_block_reference` from `tests/`. Both fresh isolated CUDA commands in the then-current qualification report passed. The dense fit and operator comparison records retained their fields, methods, partition, diagnostics and resource measurements at that revision.
 
-After review, both CUDA backends requalified at the same strengths and controls. The final [dense](../output/j0946-final/dense/result.json) and [operator](../output/j0946-final/operator/result.json) records replace the earlier run as the current verification evidence.
+After review, both CUDA backends requalified at the same strengths and controls. The final dense and operator records replaced the earlier run. Those records were the historical verification evidence at that revision.

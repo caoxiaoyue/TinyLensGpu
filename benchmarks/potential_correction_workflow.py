@@ -92,7 +92,7 @@ def prepare(args):
         SimulatorConfig,
     )
     from TinyLensGpu.PhysicalModel import PhysicalModel, Shear
-    from examples.potential_correction.calibrate_single_step import (
+    from examples.potential_correction.mock.single_step.calibrate import (
         source_incidence_blocks,
     )
     from examples.potential_correction.mock import (
@@ -146,7 +146,7 @@ def prepare(args):
             cfg = json.loads(
                 (
                     ROOT
-                    / "examples/potential_correction/iterative_scientific_configuration.json"
+                    / "examples/potential_correction/mock/iterative/configurations/scientific.json"
                 ).read_text()
             )
             n = int(args.case.removeprefix("scientific"))
@@ -238,13 +238,13 @@ def prepare(args):
             mapping = renderer.source_mapping()
             gx, gy = truth.gradient(mapping.beta_x, mapping.beta_y)
             if n == 200 and args.source_n is None:
-                from examples.potential_correction.iterative_scientific import (
+                from examples.potential_correction.mock.iterative.run import (
                     geometry_fingerprint,
                 )
 
                 recorded = json.loads(
                     (
-                        ROOT / "examples/potential_correction/scientific_partition.json"
+                        ROOT / "examples/potential_correction/shared/scientific_partition.json"
                     ).read_text()
                 )
                 if recorded["geometry_sha256"] != geometry_fingerprint(renderer):

@@ -105,7 +105,7 @@ This reuses the existing edge-weighted adaptive finite differences in both
 the penalty and the normalized prior determinant; only `lambda_source`
 changes during strength selection. Preserve the macro fit's template and
 adaptive parameters when exporting that scale, rather than recalculating it
-from each new jointly reconstructed source. The [SLACS J0946 workspace](../../workspace/slacs0946_potential_correction/)
+from each new jointly reconstructed source. The [SLACS J0946 example](../../examples/potential_correction/j0946/)
 illustrates the M3 handoff, a single-step three-strength Nautilus search with
 the dense Float32 backend, and an iterative L-BFGS-B fit.
 
@@ -163,13 +163,10 @@ determinants, call `fitter.fit(strengths, backend="operator")`. The operator
 defaults to field-separated contiguous blocks of at most 64 coefficients and
 accepts the partition and PCG controls above.
 
-The default `gn_stationarity_tol=10000` effectively disables rejection by
-GN magnitude for typical fits. In a matched J0946 Float32 operator search,
-the relaxed setting qualified six candidates above the former `0.01` cutoff
-and recovered the upper-arc convergence peak at the same grid node. Its
-largest qualified GN value was `0.04445`, well below the finite default cap.
-Set `gn_stationarity_tol=0.01` to use the previous stricter cutoff.
-[J0946 threshold comparison](../../.scratch/lbfgs-potential-correction/research/j0946-gn-threshold.md)
+The default `gn_stationarity_tol=10000` is a permissive finite cutoff.
+Record the actual GN statistic and set a stricter explicit tolerance when
+the application requires it; a successful fit under this default is not by
+itself evidence of tight stationarity.
 
 Both backends require native optimizer success, finite endpoints, and a GN
 stationarity statistic `0.5 * g.T @ H_GN^{-1} @ g` at or below the configured
@@ -322,17 +319,18 @@ choose fresh output directories to preserve existing evidence:
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export MPLBACKEND=Agg
-python examples/potential_correction/iterate_fixed_strength.py --backend operator
-python examples/potential_correction/tune_iterative.py --backend operator \
+python examples/potential_correction/mock/iterative/demos/fixed_strength.py --backend operator
+python examples/potential_correction/mock/iterative/tune.py --backend operator \
   --output output/pc_nested_new
-python examples/potential_correction/single_step_scientific.py \
-  --config examples/potential_correction/scientific_configuration.json \
+python examples/potential_correction/mock/single_step/run.py \
+  --config examples/potential_correction/mock/single_step/configurations/scientific.json \
   --backend both --output output/pc_single_new
-python examples/potential_correction/iterative_scientific.py \
-  --config examples/potential_correction/iterative_scientific_configuration.json \
+python examples/potential_correction/mock/iterative/run.py \
+  --config examples/potential_correction/mock/iterative/configurations/scientific.json \
   --backend both --mode fixed --single-step-reference output/pc_single_new \
   --output output/pc_iterative_new
-python -m examples.potential_correction.lbfgs_mock \
+python -m examples.potential_correction.mock.lbfgs.run \
+  --config examples/potential_correction/mock/lbfgs/configurations/validated_mock.json \
   --backend both --output output/pc_lbfgs_mock_new
 ```
 
@@ -345,13 +343,13 @@ No PyAuto runtime or reference environment is needed.
 
 Scientific exports contain safe `reconstruction.npz`, `result.json`, complete
 configuration/provenance/history and diagnostic figures. The shared
-`examples.potential_correction.result_products.export_result(...)` consumes a
+`examples.potential_correction.shared.result_products.export_result(...)` consumes a
 public result plus explicit observation/truth context. Failure exports retain
 `failure.json` and histories and remove the exporter's known stale success
 products. Restore a successful public result without fitting:
 
 ```python
-from examples.potential_correction.result_products import load_result
+from examples.potential_correction.shared.result_products import load_result
 saved = load_result("output/pc_iterative_new/subhalo/dense")
 assert saved.success and saved.linear_model_image is None
 ```

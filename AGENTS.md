@@ -90,6 +90,12 @@ Runnable examples: `examples/*/run_model.py` (parametric) or `single_step_invers
 
 ## Specs and experiment records
 
+`workspace/` is an ignored, disposable local scratch directory. Keep maintained
+implementations and regenerable test fixtures in the library, examples, or test
+directories. Code, tests, instructions, and required evidence must work without
+`workspace/`; keep its files out of Git and out of documentation dependency chains.
+Verify repository-boundary changes in an isolated copy without that directory.
+
 For spec-based reviews, use an explicitly designated spec or an issue-tracker
 `spec.md`/issue as the requirements source. `docs/technical-notes/` and research
 notes under `.scratch/` record experiments, hypotheses, and recommendations;

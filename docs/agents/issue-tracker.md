@@ -1,6 +1,6 @@
 # Issue tracker: Local Markdown
 
-Specs and tickets live in `.scratch/<feature-slug>/`. Read [the workspace index](../../.scratch/README.md) when locating existing work.
+Specs and tickets live in `.scratch/<feature-slug>/`. Read [the work-record index](../../.scratch/README.md) when locating existing work.
 
 ## Paths and publishing
 
@@ -62,6 +62,8 @@ Wayfinding tickets resolve decisions. They use `Type` and lifecycle `Status`, fo
 ## Research, experiments, and retained history
 
 `.scratch/` is also a working area for temporary Python scripts, experiments, reproduction material, and results. These are repository conventions; the upstream local tracker template defines spec and ticket locations without prescribing a layout for experimental assets.
+
+The disposable local directory follows the [repository boundary policy](../../AGENTS.md#specs-and-experiment-records); the retention guidance below applies to maintained records under `.scratch/`.
 
 Each feature should have a short entry point, either a `README.md` or an existing note linked from `.scratch/README.md`, explaining the question, the useful files, and how to run them. Record required inputs, the applicable model and configuration, and the location of outputs. Distinguish historical experiments from checks of current behavior.
 

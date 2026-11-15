@@ -12,7 +12,7 @@ CONSUMER_FIXTURE = Path(__file__).parent / "fixtures/potential_correction_consum
 
 
 def test_source_incidence_votes_with_signed_source_weights():
-    from examples.potential_correction.calibrate_single_step import (
+    from examples.potential_correction.mock.single_step.calibrate import (
         source_incidence_blocks,
     )
 
@@ -82,7 +82,7 @@ def tiny_partition_renderer():
 def test_saved_partition_reuse_checks_provenance(
     tmp_path, tiny_partition_renderer, mismatch
 ):
-    from examples.potential_correction._scientific_partitions import prepare_partition
+    from examples.potential_correction.shared.partitions import prepare_partition
 
     renderer = tiny_partition_renderer
     fresh = [[0, 1], [2, 3], [4, 5], [6]]
@@ -119,11 +119,11 @@ def test_source_incidence_partition_rechecks_inputs_on_the_same_grids(tmp_path, 
     import jax
     from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
     from TinyLensGpu.PhysicalModel import PhysicalModel, SIS
-    from examples.potential_correction._scientific_partitions import (
+    from examples.potential_correction.shared.partitions import (
         geometry_fingerprint,
         prepare_partition,
     )
-    from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+    from examples.potential_correction.mock.single_step.calibrate import source_incidence_blocks
 
     def renderer(theta_e):
         macro = PhysicalModel(
@@ -176,18 +176,19 @@ def test_bundled_legacy_partition_reuses_only_matching_bilinear_geometry():
         PotentialCorrectionRenderer,
         SimulatorConfig,
     )
-    from examples.potential_correction import iterative_scientific
-    from examples.potential_correction._scientific_partitions import (
+    from examples.potential_correction.mock.iterative import run as iterative_scientific
+    from examples.potential_correction.shared.partitions import (
         geometry_fingerprint,
         prepare_partition,
     )
-    from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+    from examples.potential_correction.mock.single_step.calibrate import source_incidence_blocks
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
 
     directory = Path(iterative_scientific.__file__).parent
-    config_path = directory / "iterative_scientific_configuration.json"
+    package = directory.parents[1]
+    config_path = directory / "configurations" / "scientific.json"
     config = json.loads(config_path.read_text())
-    archive = directory / "scientific_partition.json"
+    archive = package / "shared" / "scientific_partition.json"
     recorded = json.loads(archive.read_text())
     mock = MockConfig.from_dict(config["mock"])
     observation = generate_mock_pair(mock).control
@@ -291,13 +292,13 @@ def _assert_metrics(actual, expected):
 def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
     tmp_path, layout, mode
 ):
-    from examples.potential_correction.calibrate_single_step import run_calibration
+    from examples.potential_correction.mock.single_step.calibrate import run_calibration
     from examples.potential_correction.mock import (
         MockConfig,
         SourceTruth,
         generate_mock_pair,
     )
-    from examples.potential_correction.result_products import summarize_result
+    from examples.potential_correction.shared.result_products import summarize_result
 
     configuration = {
         "mock": asdict(
@@ -423,7 +424,7 @@ def test_small_calibration_exports_raw_fields_domains_and_candidate_status(
 @pytest.mark.parametrize("case", ["subhalo", "control"])
 def test_saved_public_results_keep_pre_review_truth_domains_and_recovery(case):
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
-    from examples.potential_correction.result_products import (
+    from examples.potential_correction.shared.result_products import (
         load_result,
         summarize_result,
         truth_products,

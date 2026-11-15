@@ -49,8 +49,8 @@ def small_configuration():
 
 
 def test_scientific_hermite_exports_selected_model_and_partition(tmp_path):
-    from examples.potential_correction.result_products import load_result
-    from examples.potential_correction.single_step_scientific import run_scientific
+    from examples.potential_correction.shared.result_products import load_result
+    from examples.potential_correction.mock.single_step.run import run_scientific
 
     config = small_configuration()
     config.update(
@@ -75,8 +75,8 @@ def test_scientific_hermite_exports_selected_model_and_partition(tmp_path):
 def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
     tmp_path,
 ):
-    from examples.potential_correction.single_step_scientific import run_scientific
-    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.mock.single_step.run import run_scientific
+    from examples.potential_correction.shared.result_products import load_result
 
     config = small_configuration()
     run = run_scientific(config, output=tmp_path)
@@ -163,8 +163,8 @@ def test_scientific_pair_preserves_raw_results_truth_domains_and_two_renderings(
 
 
 def test_failed_tuning_replaces_previous_success_with_diagnostic_records_only(tmp_path):
-    from examples.potential_correction.single_step_scientific import run_scientific
-    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.mock.single_step.run import run_scientific
+    from examples.potential_correction.shared.result_products import load_result
 
     config = small_configuration()
     config.update(backends=["operator"], make_plots=False)
@@ -197,7 +197,7 @@ def test_failed_tuning_replaces_previous_success_with_diagnostic_records_only(tm
 
 
 def test_scientific_cli_tuning_retains_budget_status_and_explicit_bounds(tmp_path):
-    from examples.potential_correction.single_step_scientific import main
+    from examples.potential_correction.mock.single_step.run import main
 
     config = small_configuration()
     config.update(

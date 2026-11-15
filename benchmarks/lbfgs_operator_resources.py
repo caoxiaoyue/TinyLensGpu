@@ -24,8 +24,8 @@ def _fit_worker():
     import jax.numpy as jnp
     import numpy as np
 
-    from examples.potential_correction._lbfgs_resources import measure_lbfgs_fit
-    from examples.potential_correction.result_products import json_safe
+    from examples.potential_correction.shared.lbfgs_resources import measure_lbfgs_fit
+    from examples.potential_correction.shared.result_products import json_safe
     from TinyLensGpu.ForwardSimulation import (
         PotentialCorrectionRenderer,
         SimulatorConfig,

@@ -118,7 +118,7 @@ def main(argv=None):
         ROOT / "TinyLensGpu/Inference/potential_correction.py",
         ROOT / "tests/test_potential_correction_iterative_inference.py",
         ROOT / "tests/potential_correction_nested_reference.py",
-        ROOT / "examples/potential_correction/tune_iterative.py",
+        ROOT / "examples/potential_correction/mock/iterative/tune.py",
         Path(__file__),
     ]
     record["software"] = dict(

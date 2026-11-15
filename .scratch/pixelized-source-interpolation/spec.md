@@ -3,6 +3,8 @@
 **Status:** ready-for-agent
 **State:** resolved
 
+> Maintenance scope: archived experimental J0946 replay is retired. Source interpolation, support-edge behavior and handoff provenance remain maintained through production-library tests and the [current J0946 example](../../examples/potential_correction/j0946/README.md). Historical replay requirements below do not require retaining experimental scripts.
+
 ## Problem Statement
 
 Lens modelers can reconstruct a pixelized source with either a dense matrix or an operator. Both currently use bilinear source interpolation. Its spatial gradient can jump when a ray crosses a grid line. Brightness can also jump when a ray crosses the fitted bounding box and the model drops its entire interpolation row. These jumps matter when changing lens or potential parameters moves the rays during optimization.
@@ -96,7 +98,7 @@ Both backends use a shared calculation of each ray's neighbor indices and weight
 
 - This spec records the agreed public testing seams and the final decision to keep bilinear as the default. The earlier proposal to default to Hermite was superseded in the design discussion.
 - The related square-grid and potential-correction specs establish the fitted geometry and the existing bilinear path. The new mode is explicitly selected and preserves the existing default contracts. Joint semi-linear inversion continues to follow the block-Schur and lens-light basis ADRs. [Square-grid spec](../square-pixelized-source-grid/spec.md) · [Potential-correction spec](../potential-correction/spec.md) · [Block-Schur ADR](../../docs/adr/0001-use-block-schur-for-joint-operator-inversion.md) · [Lens-light basis ADR](../../docs/adr/0002-require-unit-amplitude-lens-light-bases.md)
-- The J0946 records explain the grid-line gradient mechanism and identify the fixed handoff and archived cubic fields needed for replay. The timing report compares a particular signed source–potential optimization and includes an experimental zero-ring bilinear comparator. These records supply a reference implementation and configuration-specific evidence. [Interpolation lessons](../../workspace/iteration/lbfgs_source_interpolation_lessons.md) · [Cubic experiment](../../workspace/iteration/cubic_source_results.md) · [Timing comparison](../../workspace/iteration/stability_timing_results.md) · [Existing fixed-state probe](../../workspace/iteration/check_source_knots.py)
+- The production interpolation reference is exercised by [mapping tests](../../tests/test_pixelized_source_interpolation.py); J0946 interpolation provenance is exercised by [handoff tests](../../examples/tests/test_j0946_single_step_workflow.py).
 - A later default change needs its own scientific comparison of recovery on injected mocks and representative real lenses, including sensitivity to solve tolerance, block partition, and evidence approximation. The existing bilinear potential-correction calibration illustrates why fixed-strength parity and evidence-based strength selection need separate checks. [Partition calibration](../../docs/validation/potential-correction-iterative-inference.md#partition-calibration-and-selected-recovery)
 
 ## Comments
@@ -107,4 +109,4 @@ All nine implementation tickets are resolved on
 `codex/pixelized-source-interpolation`. The review fixes are integrated
 at `015daaf`. [Tickets](issues/) · [Review and verification](review.md) ·
 [Evidence and GPU measurements](../../docs/validation/pixelized-source-interpolation.md) ·
-[J0946 fixed-state replay](../../docs/validation/pixelized-source-interpolation-j0946-replay.md)
+[current J0946 example](../../examples/potential_correction/j0946/README.md)

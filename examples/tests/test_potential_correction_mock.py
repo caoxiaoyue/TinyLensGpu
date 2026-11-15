@@ -113,7 +113,7 @@ def test_mock_pair_reproduces_shared_noise_and_fixed_physical_observation():
 def test_mock_generator_saves_reconstructible_truth_and_provenance(tmp_path):
     import json
 
-    from examples.potential_correction.generate_mock import main
+    from examples.potential_correction.mock.generate_mock import main
     from examples.potential_correction.mock import MockConfig, generate_mock_pair
 
     main(["--npix", "12", "--dpix", "0.25", "--nsub", "1", "--psf-size", "3",
@@ -159,3 +159,196 @@ def test_mock_rejects_malformed_configuration(kwargs):
 
     with pytest.raises(ValueError):
         MockConfig(**kwargs)
+
+
+def _small_pair_and_dataset(tmp_path):
+    from examples.potential_correction.mock import (
+        MockConfig,
+        SourceTruth,
+        generate_mock_pair,
+        save_mock_pair,
+    )
+
+    config = MockConfig(
+        npix=12,
+        dpix=0.2,
+        nsub=2,
+        theta_E=0.7,
+        b_sub=0.03,
+        subhalo_x=0.65,
+        subhalo_y=0.1,
+        mask_inner=0.4,
+        mask_outer=1.0,
+        psf_size=3,
+        noise_sigma=0.03,
+        source=SourceTruth(sigma_x=0.16, sigma_y=0.12, clump_scale=0.7),
+    )
+    pair = generate_mock_pair(config)
+    data = save_mock_pair(pair, tmp_path / "dataset")
+    return config, pair, data
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("dtype", ["float64", "float32"])
+def test_saved_mock_pair_loads_identical_observations_and_truth(tmp_path, dtype):
+    import jax
+
+    from examples.potential_correction.mock import (
+        MockConfig,
+        SourceTruth,
+        generate_mock_pair,
+        load_mock_pair,
+        save_mock_pair,
+    )
+    from examples.potential_correction.mock.dataset import DEFAULT_DATA
+
+    config = MockConfig(
+        npix=12,
+        dpix=0.2,
+        nsub=2,
+        theta_E=0.7,
+        b_sub=0.03,
+        subhalo_x=0.65,
+        subhalo_y=0.1,
+        mask_inner=0.4,
+        mask_outer=1.0,
+        psf_size=3,
+        noise_sigma=0.03,
+        dtype=dtype,
+        source=SourceTruth(sigma_x=0.16, sigma_y=0.12, clump_scale=0.7),
+    )
+    generated = generate_mock_pair(config)
+    data = save_mock_pair(generated, tmp_path / "dataset")
+    assert data != DEFAULT_DATA
+    before = jax.config.x64_enabled
+    loaded = load_mock_pair(data)
+    assert jax.config.x64_enabled == before
+    for case in ("subhalo", "control"):
+        expected = getattr(generated, case)
+        actual = getattr(loaded, case)
+        for name in (
+            "image_data",
+            "noise_map",
+            "noise_realization",
+            "model_image",
+            "psf_kernel",
+            "mask",
+        ):
+            np.testing.assert_array_equal(
+                np.asarray(getattr(actual, name)),
+                np.asarray(getattr(expected, name)),
+            )
+            assert getattr(actual, name).dtype == getattr(expected, name).dtype
+        assert actual.has_subhalo == expected.has_subhalo
+        assert actual.config == config
+        beta_x, beta_y = actual.macro.deflection(
+            actual.sim_config.xgrid, actual.sim_config.ygrid
+        )
+        ex_bx, ex_by = expected.macro.deflection(
+            expected.sim_config.xgrid, expected.sim_config.ygrid
+        )
+        np.testing.assert_array_equal(np.asarray(beta_x), np.asarray(ex_bx))
+        np.testing.assert_array_equal(np.asarray(beta_y), np.asarray(ex_by))
+        gx, gy = actual.source_truth.gradient(beta_x, beta_y)
+        ex_gx, ex_gy = expected.source_truth.gradient(ex_bx, ex_by)
+        np.testing.assert_array_equal(np.asarray(gx), np.asarray(ex_gx))
+        np.testing.assert_array_equal(np.asarray(gy), np.asarray(ex_gy))
+
+
+@pytest.mark.integration
+def test_load_mock_pair_never_regenerates(tmp_path, monkeypatch):
+    from examples.potential_correction.mock import load_mock_pair
+    from examples.potential_correction.mock import dataset
+
+    _, _, data = _small_pair_and_dataset(tmp_path)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("dataset loading must not regenerate")
+
+    monkeypatch.setattr(dataset, "generate_mock_pair", forbidden)
+    loaded = load_mock_pair(data)
+    assert loaded.subhalo.image_data.shape == (12, 12)
+
+
+@pytest.mark.integration
+def test_load_mock_pair_rejects_missing_mismatched_and_malformed(tmp_path):
+    import json
+
+    from examples.potential_correction.mock import load_mock_pair
+
+    _, _, data = _small_pair_and_dataset(tmp_path)
+    with pytest.raises(OSError):
+        load_mock_pair(tmp_path / "missing")
+
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "configuration.json").write_text(
+        (data / "configuration.json").read_text()
+    )
+    with np.load(data / "subhalo.npz") as arrays:
+        np.savez_compressed(
+            broken / "subhalo.npz",
+            **{k: arrays[k] for k in arrays.files},
+        )
+    with pytest.raises(OSError):
+        load_mock_pair(broken)
+
+    metadata = json.loads((data / "configuration.json").read_text())
+    for name, mutant, match in (
+        (
+            "convention",
+            {"integration": {"masked_input_light": "legacy masked input"}},
+            "PSF/mask",
+        ),
+        (
+            "dtype",
+            {"configuration": {**metadata["configuration"], "dtype": "float32"}},
+            "finite float32",
+        ),
+        (
+            "shape",
+            {"configuration": {**metadata["configuration"], "npix": 10}},
+            "image shape",
+        ),
+    ):
+        target = tmp_path / name
+        target.mkdir()
+        (target / "configuration.json").write_text(
+            json.dumps({**metadata, **mutant})
+        )
+        for case in ("subhalo", "control"):
+            (target / f"{case}.npz").write_bytes((data / f"{case}.npz").read_bytes())
+        with pytest.raises(ValueError, match=match):
+            load_mock_pair(target)
+
+    mismatched = tmp_path / "mismatched"
+    mismatched.mkdir()
+    (mismatched / "configuration.json").write_bytes(
+        (data / "configuration.json").read_bytes()
+    )
+    (mismatched / "subhalo.npz").write_bytes((data / "subhalo.npz").read_bytes())
+    with np.load(data / "control.npz") as arrays:
+        np.savez_compressed(
+            mismatched / "control.npz",
+            **{
+                k: (arrays[k] + 1.0 if k == "noise_realization" else arrays[k])
+                for k in arrays.files
+            },
+        )
+    with pytest.raises(ValueError, match="share"):
+        load_mock_pair(mismatched)
+
+
+@pytest.mark.integration
+def test_save_mock_pair_refuses_to_overwrite_existing_dataset(tmp_path):
+    from examples.potential_correction.mock import save_mock_pair
+
+    config, pair, data = _small_pair_and_dataset(tmp_path)
+    before = {p.name: p.read_bytes() for p in data.iterdir()}
+    with pytest.raises(FileExistsError):
+        save_mock_pair(pair, data)
+    assert {p.name: p.read_bytes() for p in data.iterdir()} == before
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    save_mock_pair(pair, empty)
+    assert (empty / "configuration.json").exists()

@@ -6,33 +6,99 @@ status/evidence interpretation, exports, scientific reproduction and precision
 limits. The [coverage record](../../docs/validation/potential-correction-coverage.md)
 connects the approved requirements to implementation and verification.
 
-`generate_mock.py` creates single-band, lens-light-subtracted Pseudo-Jaffe
+## Layout
+
+```
+potential_correction/
+  mock/
+    model.py            MockConfig, SourceTruth/SubhaloTruth, generate/save pair
+    dataset.py          load_mock_pair and shared prepare_mock_input
+    generate_mock.py    dataset generator CLI
+    configuration.json  shared mock input (200x200 scientific dataset)
+    data/default/       generated default dataset (git-ignored)
+    single_step/        run.py, calibrate.py, tune.py, demos/operator.py
+    iterative/          run.py, tune.py, demos/fixed_strength.py
+    lbfgs/              run.py
+    */configuration.json    inversion-only defaults for the common dataset
+    */configurations/       historical presets (embedded mock)
+  shared/               result_products, recovery_diagnostics, partitions,
+                        lbfgs_resources, scientific_partition.json
+  j0946/                self-contained end-to-end J0946 workflow
+                        (macro_model.py, pt.py, pt_iter_lbfgs.py,
+                        run_pipeline.py, data/)
+```
+
+Primary commands, run from the repository root:
+
+```bash
+source ~/anaconda3/bin/activate && conda activate tinylens_gpu
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.generate_mock
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.single_step.run --backend both
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.iterative.run --backend both
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.lbfgs.run --backend both
+```
+
+`mock/generate_mock.py` writes the shared dataset to `mock/data/default/`.
+The three runners load that saved dataset by default (`--data` selects another
+dataset directory); their sibling `configuration.json` files describe the
+inversion only and contain no `mock` section. All defaults resolve through
+`__file__`, not the working directory: input comes from `mock/data/default`
+and results go to each algorithm's `output/` directory. Explicit relative
+CLI arguments such as `--config`, `--data`, and `--output` still resolve
+relative to the working directory. The runners consume the same saved
+observation arrays but are not a controlled identical inversion: each
+algorithm configuration selects its own reconstruction grids, source
+interpolation, priors, strengths, and numerical controls in addition to the
+inversion algorithm and initialization. `run.json` records the dataset path
+and SHA-256 digests.
+
+Passing a historical combined `configurations/*.json` (which still embeds
+`mock`) to `mock/generate_mock.py`, to a runner through
+`--config examples/potential_correction/mock/*/configurations/*.json`, or
+through an explicit Python configuration dict reproduces the earlier
+generated-input behavior. In
+particular, the L-BFGS-B results below were validated at 32x32; the bundled
+`mock/lbfgs/configuration.json` default runs on the shared dataset and is
+not that validation. Demos and tuning drivers remain separate small
+numerical examples. J0946 is a self-contained end-to-end workflow under
+`j0946/`: `run_pipeline.py` runs the macro fit (`macro_model.py`), the
+single-step correction (`pt.py`) and the L-BFGS strength search
+(`pt_iter_lbfgs.py`) in isolated subprocesses against locally prepared raw FITS
+in `j0946/data/`, writing to `j0946/output/{macro,single_step,lbfgs}`.
+J0946 uses the raw-input workflow documented in
+[its README](j0946/README.md); routine checks generate their own small
+inputs.
+
+`mock/generate_mock.py` creates single-band, lens-light-subtracted Pseudo-Jaffe
 subhalo observations and a matched no-subhalo control. It does not fit a
 correction. Use the `tinylens_gpu` environment; PyAuto packages are unnecessary.
 
 For the small fixed-strength nonlinear algorithm demonstration, run
-`iterate_fixed_strength.py --backend dense` or `--backend operator`; see the
+`mock/iterative/demos/fixed_strength.py --backend dense` or `--backend operator`; see the
 [dense validation](../../docs/validation/potential-correction-dense-iteration.md)
 and [operator validation](../../docs/validation/potential-correction-operator-iteration.md).
 
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/generate_mock.py \
-  --output output/potential_correction_mock
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.generate_mock
 ```
 
-The default image is 200×200 at 0.02 arcsec/pixel, with two midpoint integration
-samples per axis, a fixed true SIS+external-shear macro, two Gaussian source
-clumps, and `PseudoJaffeSubhalo(b_sub=0.01, theta_E_host=1.0, center=(0.9,0.1))`.
-The component's adopted tidal-radius relation is `rt=sqrt(b_sub*theta_E_host)`;
-it is separate from the cored `PseudoJaffe` profile.
+The default `--config` is the sibling `mock/configuration.json`: a 200×200
+image at 0.012 arcsec/pixel, two midpoint integration samples per axis, a
+fixed true SIS+external-shear macro, two Gaussian source clumps, and
+`PseudoJaffeSubhalo(b_sub=0.04, theta_E_host=0.8, center=(0.75,0.1))`. The
+`MockConfig` Python defaults (200×200 at 0.02 arcsec/pixel, `b_sub=0.01`,
+`theta_E_host=1.0`, center `(0.9,0.1)`) remain available through overrides
+and the Python interface. The component's adopted tidal-radius relation is
+`rt=sqrt(b_sub*theta_E_host)`; it is separate from the cored `PseudoJaffe`
+profile.
 
 A small invocation suitable for inspection is:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/generate_mock.py \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/generate_mock.py \
   --npix 16 --dpix 0.18 --nsub 2 --psf-size 3 --seed 91 \
-  --output output/potential_correction_small
+  --output examples/potential_correction/mock/data/small
 ```
 
 `--config` accepts JSON fields from `MockConfig`, including nested `source`
@@ -51,10 +117,19 @@ provenance, and truth conventions. Regenerate inputs from a configuration saved
 with the same PSF convention with:
 
 ```bash
-python examples/potential_correction/generate_mock.py \
-  --config output/potential_correction_small/configuration.json \
-  --output output/potential_correction_small_repeated
+python -m examples.potential_correction.mock.generate_mock \
+  --config examples/potential_correction/mock/data/small/configuration.json \
+  --output examples/potential_correction/mock/data/small_repeated
 ```
+
+Saving never overwrites an existing `configuration.json`, `subhalo.npz`, or
+`control.npz`; choose a new (or empty) output directory. Load a saved dataset
+without any regeneration through
+`examples.potential_correction.mock.load_mock_pair(path)`, which reconstructs
+only the analytical truth and macro from metadata. A missing or malformed
+dataset fails with generator instructions rather than falling back to
+generation. A `--config` may also be a historical combined runner JSON; its
+embedded `mock` section is used.
 
 The observations share the same independent Gaussian noise draw. The default
 annular observation mask has `True` for pixels excluded from the fit. The
@@ -106,8 +181,8 @@ The small runnable slice uses a 12×12 observation, a 5×5 source, the analytic
 mock-truth source gradient at fixed macro rays, and explicit fixed strengths:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/single_step_operator.py \
-  --output output/potential_correction_operator
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/single_step/demos/operator.py \
+  --output examples/potential_correction/mock/single_step/output/operator-demo
 ```
 
 Add `--control` for the matched no-subhalo observation. `--source-n`,
@@ -136,15 +211,15 @@ reference. Calibration of strength selection and recovery belongs to ticket 07.
 
 ## Dense strength tuning
 
-`tune_single_step.py` runs a small dense single-step reconstruction with the
+`mock/single_step/tune.py` runs a small dense single-step reconstruction with the
 fixed true macro and frozen analytic mock gradient. Supply the independent
 amplitude strength and both natural-log search bounds explicitly:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_single_step.py \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/single_step/tune.py \
   --lambda-amplitude 0.4 --log-source-bounds -2 2 \
   --log-potential-bounds -4 2 --maxfun 80 \
-  --output output/potential_correction_tuning
+  --output examples/potential_correction/mock/single_step/output/tuning
 ```
 
 The example uses a 12x12 Pseudo-Jaffe image at 0.25 arcsec/pixel, nsub=1,
@@ -178,9 +253,9 @@ The calibration driver scans fixed strengths and independently runs bounded
 DIRECT with both backends on matched Pseudo-Jaffe/control images:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/calibrate_single_step.py \
-  --config examples/potential_correction/calibration_configuration.json \
-  --output output/potential_correction_calibration
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/single_step/calibrate.py \
+  --config examples/potential_correction/mock/single_step/configurations/calibration.json \
+  --output examples/potential_correction/mock/single_step/output/calibration
 ```
 
 The explicit input fixes a 64x64 image, 49x49 source in `[-0.4,0.4]^2`,
@@ -202,7 +277,7 @@ their coarse grids do not establish scientific recovery.
 The example-level partition helper is reusable with explicit initial arrays:
 
 ```python
-from examples.potential_correction.calibrate_single_step import source_incidence_blocks
+from examples.potential_correction.shared.partitions import source_incidence_blocks
 
 mapping = renderer.source_mapping()
 # Evaluate the chosen initial-source derivative once, at mapping.beta_x/y.
@@ -255,15 +330,23 @@ to the 200x200 scientific example.
 
 ## Scientific single-step pair
 
-`single_step_scientific.py` runs both the Pseudo-Jaffe observation and its
+`mock/single_step/run.py` runs both the Pseudo-Jaffe observation and its
 matched no-subhalo control, with the fixed true macro and frozen analytic
 truth gradient. It supports complete dense evidence and the calibrated sparse
 source-incidence block approximation:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/single_step_scientific.py \
-  --config examples/potential_correction/scientific_configuration.json \
-  --backend both --output output/potential_correction_scientific
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.single_step.run \
+  --backend both --output examples/potential_correction/mock/single_step/output/scientific
+```
+
+The bundled default loads the shared `mock/data/default` dataset. The
+historical preset below instead regenerates its embedded mock at run time:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.single_step.run \
+  --config examples/potential_correction/mock/single_step/configurations/scientific.json \
+  --backend both --output examples/potential_correction/mock/single_step/output/scientific_preset
 ```
 
 The explicit scientific configuration uses a 200x200 image at 0.012
@@ -348,7 +431,7 @@ potential, then updates the source and potential together using current
 bilinear mappings and gradients:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterate_fixed_strength.py \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/iterative/demos/fixed_strength.py \
   --backend operator --block-size 16 --pcg-max-iter 800 --pcg-rtol 1e-12
 ```
 
@@ -375,8 +458,8 @@ The small numerical nodal example runs a complete fixed-strength nonlinear
 reconstruction for every two-dimensional DIRECT candidate:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_iterative.py \
-  --backend operator --output output/potential_correction_iterative_tuning
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/iterative/tune.py \
+  --backend operator --output examples/potential_correction/mock/iterative/output/tuning
 ```
 
 Use `--backend dense` for complete local determinants. The explicit defaults
@@ -416,20 +499,29 @@ This case makes no scientific subhalo-recovery, detection or performance claim.
 
 ## Iterative scientific reconstruction and comparison
 
-`iterative_scientific.py` uses the same analytic 200x200 physical mock,
+`mock/iterative/run.py` uses the same analytic 200x200 physical mock,
 fixed macro, noise, PSF, source box and potential geometry as the scientific
 single-step configuration above. Every fit/candidate samples truth brightness
 at the source **nodes** and starts with zero potential. All subsequent source
 derivatives come from the current bilinear source at corrected rays.
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterative_scientific.py \
-  --config examples/potential_correction/iterative_scientific_configuration.json \
-  --backend both --output output/potential_correction_iterative_scientific \
-  --single-step-reference output/potential_correction_scientific
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.iterative.run \
+  --backend both --output examples/potential_correction/mock/iterative/output/scientific \
+  --single-step-reference examples/potential_correction/mock/single_step/output/scientific
 ```
 
-The optional reference directory is a saved `single_step_scientific.py` run;
+The historical preset below regenerates its embedded mock at run time and
+requests the bundled historical single-step partition:
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false python -m examples.potential_correction.mock.iterative.run \
+  --config examples/potential_correction/mock/iterative/configurations/scientific.json \
+  --backend both --output examples/potential_correction/mock/iterative/output/scientific_preset \
+  --single-step-reference examples/potential_correction/mock/single_step/output/scientific
+```
+
+The optional reference directory is a saved `mock/single_step/run.py` run;
 comparison loads its public results without refitting. Dense single-step versus
 dense iterative is the primary algorithm comparison. Each algorithm's
 operator-minus-dense comparison reports determinant contributions separately.
@@ -437,8 +529,8 @@ The default scientific configuration requests the bundled historical
 single-step partition. A byte-identical copy is reusable with matching
 bilinear geometry, traced macro rays, tile size, and cap. The pinned
 gradient fingerprints come from the analytic gradient in
-`scientific_configuration.json` and the paired initial nodal derivative in
-`iterative_scientific_configuration.json`. Floating-point coordinates can
+`mock/single_step/configurations/scientific.json` and the paired initial nodal derivative in
+`mock/iterative/configurations/scientific.json`. Floating-point coordinates can
 produce different hashes across devices. The iterative example
 builds a partition from the initial pixelized-source gradient when automatic
 reuse fails. With `partition_source="initial_nodal"` and no `partition_file`,
@@ -503,17 +595,24 @@ directory for each run.
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
 JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false OPENBLAS_NUM_THREADS=1 \
-  NVIDIA_TF32_OVERRIDE=0 MPLBACKEND=Agg python -m examples.potential_correction.lbfgs_mock \
-  --backend both --output output/potential_correction_lbfgs_mock
+  NVIDIA_TF32_OVERRIDE=0 MPLBACKEND=Agg python -m examples.potential_correction.mock.lbfgs.run \
+  --backend both --output examples/potential_correction/mock/lbfgs/output/run
 ```
 
-The [default configuration](lbfgs_mock_configuration.json) records the 32 × 32
+The bundled `mock/lbfgs/configuration.json` default applies these inversion
+settings to the shared `mock/data/default` dataset. The
+[validated mock preset](mock/lbfgs/configurations/validated_mock.json)
+below records the 32 × 32
 observation with seed 17 and 2 × 2 subpixel integration, the 17 × 17 cubic
 Hermite source, and the 0.15 arcsec potential grid. Each fit starts at
 analytic mock brightness sampled on the fixed source nodes and zero
 potential. The same Hermite source initializes the whitening metric. The
 first-order source, fourth-difference, and all-node amplitude strengths are
-`0.001`, `10000`, and `10000`. Select `--backend dense` (the default) or
+`0.001`, `10000`, and `10000`. Regenerate that 32 × 32 dataset with
+`python -m examples.potential_correction.mock.generate_mock --config .../validated_mock.json --output DATA` and
+pass `--config configurations/validated_mock.json --data DATA` to reproduce
+the reported table; the default run on the shared dataset is not that
+validation. Select `--backend dense` (the default) or
 `--backend operator` for one backend. The operator configuration uses a
 field-separated contiguous partition capped at 64 coefficients, a PCG limit
 of 2000 iterations and a recursive relative tolerance of `1e-10`.
@@ -544,7 +643,7 @@ of `1.92e-11` and `9.96e-12`, respectively.
 The output contains reusable `configuration.json` and per-run summaries and
 backend differences in `run.json`. Load any successful result directory
 such as `subhalo/operator` with
-`examples.potential_correction.result_products.load_result` to inspect the
+`examples.potential_correction.shared.result_products.load_result` to inspect the
 raw fields, nonlinear images, and `optimizer_info`. Both local GN evidence
 methods carry `evidence_is_exact=False`. Dense uses `full_data_space`
 determinants and operator uses `principal_block_cholesky`. An unqualified

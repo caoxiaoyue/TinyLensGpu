@@ -14,13 +14,14 @@ import numpy as np
 import pytest
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
-SLACS0946_WORKSPACE = "slacs0946_potential_correction"
+J0946_EXAMPLE = (
+    Path(__file__).resolve().parents[1] / "potential_correction" / "j0946"
+)
 
 
 @pytest.fixture
 def driver():
-    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "pt.py"
+    path = J0946_EXAMPLE / "pt.py"
     spec = importlib.util.spec_from_file_location("j0946_single_step_pt", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -63,22 +64,18 @@ def _handoff(path):
         source_n=2,
         source_regularization="first-order",
         lambda_source=0.1,
+        selected_sample_index=0,
     )
     (path / "m3_handoff.json").write_text(json.dumps(record))
 
 
-@pytest.mark.parametrize("workspace", [SLACS0946_WORKSPACE, "iteration"])
+@pytest.mark.parametrize("consumer", ["single_step", "lbfgs"])
 @pytest.mark.parametrize("interpolation", [None, "bilinear", "cubic_hermite"])
 def test_j0946_consumers_use_the_handoff_interpolation(
-    tmp_path, monkeypatch, workspace, interpolation
+    tmp_path, driver, consumer, interpolation
 ):
     from TinyLensGpu.example_support import source_interpolation_metadata
-
-    monkeypatch.setattr(sys, "path", sys.path.copy())
-    path = WORKSPACE_ROOT / workspace / "pt.py"
-    spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_handoff_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    from examples.potential_correction.j0946 import pt_iter_lbfgs
 
     handoff = tmp_path / "macro"
     _handoff(handoff)
@@ -87,83 +84,57 @@ def test_j0946_consumers_use_the_handoff_interpolation(
     if interpolation is not None:
         metadata.update(source_interpolation_metadata(interpolation))
         metadata_file.write_text(json.dumps(metadata))
-    with jax.experimental.enable_x64(workspace == "iteration"):
-        problem, saved, arrays = module.load_problem(handoff)
     mode = interpolation or "bilinear"
+    with jax.experimental.enable_x64(consumer == "lbfgs"):
+        if consumer == "single_step":
+            problem, saved, arrays = driver.load_problem(handoff)
+        else:
+            problem, saved, arrays = pt_iter_lbfgs.prepare_problem(handoff, 0.2)
     assert saved == metadata == json.loads(metadata_file.read_text())
-    assert problem.renderer.source_interpolation == mode
-    assert problem.renderer.source_boundary == source_interpolation_metadata(mode)["source_boundary"]
-    assert problem.renderer.source_mapping().weights.shape[1] == (
-        16 if mode == "cubic_hermite" else 4
+    fitted_mode = mode if consumer == "single_step" else "cubic_hermite"
+    assert problem.renderer.source_interpolation == fitted_mode
+    assert (
+        problem.renderer.source_boundary
+        == source_interpolation_metadata(fitted_mode)["source_boundary"]
     )
+    with jax.experimental.enable_x64(consumer == "lbfgs"):
+        assert problem.renderer.source_mapping().weights.shape[1] == (
+            16 if fitted_mode == "cubic_hermite" else 4
+        )
     assert arrays["source_values"].shape == (4,)
     np.testing.assert_array_equal(problem.source_scale, arrays["source_scale"])
     provenance = problem.initialization_provenance
-    assert provenance["adaptive_scale"] == "fixed_M1_template_and_M2_rho_as_used_in_M3"
-    if workspace == SLACS0946_WORKSPACE:
+    assert provenance["handoff_sha256"] == metadata["handoff_sha256"]
+    if consumer == "single_step":
+        assert (
+            provenance["adaptive_scale"]
+            == "fixed_M1_template_and_M2_rho_as_used_in_M3"
+        )
         assert provenance["gradient"] == f"frozen_{mode}_derivative_of_M3_source"
-        gx, gy = problem.renderer.source_spatial_gradient(arrays["source_values"])
+        with jax.experimental.enable_x64(False):
+            gx, gy = problem.renderer.source_spatial_gradient(
+                arrays["source_values"]
+            )
         np.testing.assert_array_equal(problem.gradient_x, gx)
         np.testing.assert_array_equal(problem.gradient_y, gy)
     else:
-        assert provenance["gradient_policy"] == f"JAX_autodiff_current_{mode}_source"
-        np.testing.assert_array_equal(problem.initial_values[:4], arrays["source_values"])
-
-
-@pytest.mark.parametrize(
-    "record, boundary, expected",
-    [
-        ({"source_boundary": "hard"}, "hard_zero_outside_bbox", 0.0),
-        (
-            {
-                "source_interpolation": "bilinear",
-                "initialization": {"source_boundary": "one_fixed_zero_ghost_ring"},
-            },
-            "bilinear_fixed_zero_ghost_ring",
-            0.75,
-        ),
-        (
-            {
-                "source_interpolation": "cubic",
-                "initialization": {
-                    "source_boundary": "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
-                },
-                "preconditioner_reference_boundary": "hard_zero_outside_bbox",
-            },
-            "C1_cardinal_bicubic_fixed_zero_exterior_nodes",
-            0.796875,
-        ),
-    ],
-)
-def test_archive_replay_keeps_distinct_source_boundaries(
-    tmp_path, monkeypatch, record, boundary, expected
-):
-    from TinyLensGpu.ForwardSimulation.LensImage.potential_correction import MacroMapping
-    monkeypatch.setattr(sys, "path", sys.path.copy())
-    from workspace.iteration.replay_source_interpolation import archive_renderer, pt
-
-    handoff = tmp_path / "macro"
-    _handoff(handoff)
-    saved = json.dumps(record)
-    with jax.experimental.enable_x64():
-        problem, _, _ = pt.load_problem(handoff)
-        renderer = archive_renderer(problem.renderer, record)
-        mapping = renderer.source_mapping(
-            macro_mapping=MacroMapping(jnp.array([0.75]), jnp.array([-0.5])),
+        assert problem.reference_interpolation == mode
+        assert provenance["whitening_source_interpolation"] == mode
+        assert provenance["m3_sample_index"] == 0
+        np.testing.assert_array_equal(
+            problem.initial_values[:4], arrays["source_values"]
         )
-        # All fitted nodes have unit brightness. This ray lies past the fitted box.
-        brightness = np.asarray(mapping.weights).sum()
-    assert renderer.source_boundary == boundary
-    assert json.dumps(record) == saved
-    np.testing.assert_allclose(brightness, expected, rtol=0, atol=1e-14)
+        np.testing.assert_array_equal(
+            problem.reference_values[:4], arrays["source_values"]
+        )
+        np.testing.assert_array_equal(problem.initial_values[4:], 0.0)
 
 
-@pytest.fixture(params=[SLACS0946_WORKSPACE, "iteration"])
-def macro_producer(request, monkeypatch):
-    workspace = request.param
+@pytest.fixture
+def macro_producer(monkeypatch):
     monkeypatch.setattr(sys, "path", sys.path.copy())
-    path = WORKSPACE_ROOT / workspace / "macro_model.py"
-    spec = importlib.util.spec_from_file_location(f"j0946_{workspace}_macro_test", path)
+    path = J0946_EXAMPLE / "macro_model.py"
+    spec = importlib.util.spec_from_file_location("j0946_macro_test", path)
     module = importlib.util.module_from_spec(spec)
     precision = jax.config.jax_default_matmul_precision
     try:
@@ -253,7 +224,6 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
 ):
     import caskade as ck
     from TinyLensGpu.Inference import StagePosterior
-    from workspace.iteration import pt as iteration
 
     image, noise, psf, mask, stage_a = small_macro_fit
     args = image, noise, psf, mask, stage_a, None
@@ -321,10 +291,8 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
     selected_point, result, diagnostics = calls[0]
     assert diagnostics.valid and diagnostics.evidence_valid
     np.testing.assert_array_equal(selected_point, samples[selected].astype(np.float32))
-    workspace = Path(macro_producer.__file__).parent.name
-    consumer = driver if workspace == SLACS0946_WORKSPACE else iteration
-    with jax.experimental.enable_x64(consumer is iteration):
-        problem, record, arrays = consumer.load_problem(tmp_path)
+    with jax.experimental.enable_x64(False):
+        problem, record, arrays = driver.load_problem(tmp_path)
     assert record["source_interpolation"] == "cubic_hermite"
     assert record["gradient_provenance"] == "cubic_hermite_derivative_of_new_M3_reconstruction"
     assert record["evidence_logdet"] == diagnostics.evidence_logdet == "overlap"
@@ -338,6 +306,24 @@ def test_macro_exports_the_native_reference_and_selected_m3_fields(
     assert problem.renderer.source_boundary == record["source_boundary"]
     np.testing.assert_array_equal(arrays["source_bbox"], s1["source_bbox"])
     np.testing.assert_array_equal(arrays["source_values"], result.source_pixels)
+    from examples.potential_correction.j0946.pt_iter_lbfgs import prepare_problem
+
+    with jax.experimental.enable_x64():
+        nonlinear, nonlinear_record, nonlinear_arrays = prepare_problem(
+            tmp_path, 0.2
+        )
+    assert nonlinear_record == record
+    assert nonlinear.reference_interpolation == record["source_interpolation"]
+    assert nonlinear.initialization_provenance["m3_sample_index"] == selected
+    np.testing.assert_array_equal(
+        nonlinear.source_scale, arrays["source_scale"]
+    )
+    np.testing.assert_array_equal(
+        nonlinear.initial_values[: nonlinear.n_source], arrays["source_values"]
+    )
+    np.testing.assert_array_equal(
+        nonlinear_arrays["source_values"], arrays["source_values"]
+    )
     np.testing.assert_array_equal(arrays["macro_model_image"], result.model_image)
     np.testing.assert_array_equal(
         arrays["source_scale"], np.asarray(diagnostics.regularization_scale).ravel(),
@@ -671,42 +657,6 @@ def test_plot_only_validates_handoff_before_overwriting_figures(
         } == before
 
 
-@pytest.mark.parametrize("symlink", [False, True])
-def test_qr_audit_rejects_original_run_as_output_before_preparation(
-    tmp_path, monkeypatch, symlink
-):
-    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "audit_joint_qr.py"
-    spec = importlib.util.spec_from_file_location("j0946_qr_auditor", path)
-    auditor = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(auditor)
-    run = tmp_path / "original-run"
-    run.mkdir()
-    for name in ("manifest.json", "posterior.npz", "progress.json"):
-        (run / name).write_bytes(b"original artifact")
-    reconstruction = run / "maximum_evidence/reconstruction.npz"
-    reconstruction.parent.mkdir()
-    reconstruction.write_bytes(b"original reconstruction")
-    output = run
-    if symlink:
-        output = tmp_path / "run-alias"
-        output.symlink_to(run, target_is_directory=True)
-    before = {p.relative_to(run): p.read_bytes() for p in run.rglob("*") if p.is_file()}
-
-    def unexpected_preparation():
-        pytest.fail("Output alias must be rejected before loading the numerical driver")
-
-    monkeypatch.setattr(auditor, "load_driver", unexpected_preparation)
-    with pytest.raises(ValueError, match="must differ from the original run"):
-        auditor.evaluate(
-            SimpleNamespace(
-                run=run, output=output, macro=tmp_path / "macro", resume=False
-            )
-        )
-    assert {
-        p.relative_to(run): p.read_bytes() for p in run.rglob("*") if p.is_file()
-    } == before
-
-
 def test_resume_rejects_pre_qr_scores_before_dense_preparation(
     driver, tmp_path, monkeypatch
 ):
@@ -822,7 +772,7 @@ def test_macro_source_plot_centers_match_nodes_and_physical_overlays(
         overlays.append(source_ax)
 
     # Load the actual plot functions without importing the CLI's runtime policy.
-    path = WORKSPACE_ROOT / SLACS0946_WORKSPACE / "macro_model.py"
+    path = J0946_EXAMPLE / "macro_model.py"
     functions = [
         node
         for node in ast.parse(path.read_text(), filename=str(path)).body

@@ -7,6 +7,8 @@
 **Status:** ready-for-agent
 **State:** resolved
 
+> Maintenance scope: the archived replay portion is retired. Current coverage tests the maintained J0946 macro producer, single-step consumer and L-BFGS consumer with generated handoffs. Historical checks below do not establish availability of the original archives.
+
 **Spec:** [Parent specification](../spec.md)
 
 - [x] Active handoff production and consumption use the shared interpolation provenance contract. A known older library handoff with no mode field constructs a bilinear source, and a recorded Hermite choice is carried into the configured renderer.
@@ -19,17 +21,14 @@
 Claimed for implementation on `codex/psi-08-handoff-replay`.
 
 Implemented in `196f5fa`, merged as `fed3762`. The
-[J0946 replay report](../../../docs/validation/pixelized-source-interpolation-j0946-replay.md)
-records the commands, checksum-pinned inputs and numerical comparisons
-for the Float64 cubic trial and the two archived boundary controls.
+historical replay report recorded the commands, checksum-pinned inputs and numerical comparisons
+for the Float64 cubic trial and the two archived boundary controls at that revision.
 The Hermite ray brightness and PSF-convolved image matched to
 `6.66e-16` and `2.22e-16` absolute, respectively. The maximum
 spatial derivative error was `5.51e-14`, within the `1e-11` tolerance.
 
 From `examples/tests/`, the CUDA `pytest -xq test_j0946_single_step_workflow.py`
-run passed 43 tests. From `workspace/iteration/tests/`, the CPU
-`pytest -xq test_j0946_iteration.py test_j0946_cubic_source.py test_j0946_zero_boundary.py`
-run passed 13. A final CPU selection on the merged ticket tree passed 15
+run passed 43 tests at that revision. A final CPU selection on the merged ticket tree passed 15
 handoff, export, resume and archive cases.
 
 After the support-edge precision fix in `ee1c67d`, the refreshed cubic replay

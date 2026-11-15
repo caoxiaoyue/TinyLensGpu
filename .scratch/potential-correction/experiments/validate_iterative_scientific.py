@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 import numpy as np
 
-from examples.potential_correction.iterative_scientific import run_iterative_scientific
-from examples.potential_correction.result_products import write_json
+from examples.potential_correction.mock.iterative.run import run_iterative_scientific
+from examples.potential_correction.shared.result_products import write_json
 
 
 def terminal_gradient_audit(result, observation, configuration):
@@ -246,7 +246,7 @@ def main():
         "--config",
         type=Path,
         default=ROOT
-        / "examples/potential_correction/iterative_scientific_configuration.json",
+        / "examples/potential_correction/mock/iterative/configurations/scientific.json",
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)

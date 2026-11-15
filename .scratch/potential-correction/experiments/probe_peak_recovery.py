@@ -24,7 +24,7 @@ import numpy as np
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import IterativePotentialCorrection, SingleStepPotentialCorrection
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
-from examples.potential_correction.result_products import export_result, write_json
+from examples.potential_correction.shared.result_products import export_result, write_json
 
 
 def numbers(text):
@@ -53,7 +53,7 @@ def main():
     args = parser.parse_args()
     if args.data == "linear" and args.algorithm != "single-step":
         parser.error("Linear synthetic data are a single-step-only diagnostic")
-    config = json.loads((ROOT / "examples/potential_correction/iterative_scientific_configuration.json").read_text())
+    config = json.loads((ROOT / "examples/potential_correction/mock/iterative/configurations/scientific.json").read_text())
     config.update(source_n=args.source_n, potential_spacing=args.spacing, make_plots=False)
     config["mock"]["seed"] = args.seed
     args.output.mkdir(parents=True, exist_ok=True)

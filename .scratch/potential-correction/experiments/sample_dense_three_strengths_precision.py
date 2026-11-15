@@ -37,7 +37,7 @@ from examples.potential_correction.mock import (  # noqa: E402
     MockConfig,
     generate_mock_pair,
 )  # noqa: E402
-from examples.potential_correction.result_products import (  # noqa: E402
+from examples.potential_correction.shared.result_products import (  # noqa: E402
     export_result,
     json_safe,
     write_json,
@@ -272,7 +272,7 @@ def main():
         return
     cfg = json.loads(
         (
-            ROOT / "examples/potential_correction/scientific_configuration.json"
+            ROOT / "examples/potential_correction/mock/single_step/configurations/scientific.json"
         ).read_text()
     )
     bounds = np.array([[-8.0, -1.0], [1.0, 11.0], [0.0, 8.0]])

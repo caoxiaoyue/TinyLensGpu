@@ -7,7 +7,7 @@ import pytest
 
 
 def test_fixed_operator_example_saves_fields_both_images_and_method_metadata(tmp_path):
-    from examples.potential_correction.single_step_operator import main
+    from examples.potential_correction.mock.single_step.demos.operator import main
 
     output = main(["--output", str(tmp_path)])
     assert output == tmp_path
@@ -30,7 +30,7 @@ def test_fixed_operator_example_saves_fields_both_images_and_method_metadata(tmp
 
 @pytest.mark.integration
 def test_fixed_operator_reruns_replace_success_with_failure_and_recover(tmp_path):
-    from examples.potential_correction.single_step_operator import main
+    from examples.potential_correction.mock.single_step.demos.operator import main
 
     unrelated = tmp_path / "observer-notes.txt"
     unrelated.write_text("Retain notes across reconstruction attempts.\n")

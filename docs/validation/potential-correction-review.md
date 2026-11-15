@@ -17,7 +17,7 @@ The independently frozen reports are retained verbatim and separately:
 
 ## Spec finding: rerun artifacts
 
-Public seams: `single_step_operator.main()` and `tune_single_step.run_tuning()`.
+Public seams: `mock/single_step/demos/operator.py:main()` and `mock/single_step/tune.py:run_tuning()`.
 The approved spec's testing decisions already confirm saved example artifacts
 as test surfaces. Maintained regressions use real numerical fits through these
 entry points, including PCG's one-iteration limit and an all-invalid search
@@ -61,7 +61,7 @@ subhalo disk in controls, raw and aligned potential comparisons, signed fields,
 and derivative NaN support. Independent analytic truth and numerical references
 remain separate.
 
-Resolution: `_recovery_diagnostics.py` owns truth sampling/domains, field
+Resolution: `shared/recovery_diagnostics.py` owns truth sampling/domains, field
 metrics, affine calculations and source-box ray preparation. Export adapters
 retain their prior schemas and residual definitions. The
 [saved public fixtures](../../examples/tests/fixtures/potential_correction_consumers/README.md)

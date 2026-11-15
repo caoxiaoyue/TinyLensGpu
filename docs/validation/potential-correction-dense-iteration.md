@@ -102,7 +102,7 @@ From the repository root, in `tinylens_gpu`:
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false python \
-  examples/potential_correction/iterate_fixed_strength.py
+  examples/potential_correction/mock/iterative/demos/fixed_strength.py
 ```
 
 The 12×12 image has 0.12 arcsec pixels, delta PSF, nsub=1, and a selected

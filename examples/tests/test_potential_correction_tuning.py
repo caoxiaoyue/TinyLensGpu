@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.integration
 def test_tuning_example_saves_bounds_candidates_and_best_reconstruction(tmp_path):
-    from examples.potential_correction.tune_single_step import main
+    from examples.potential_correction.mock.single_step.tune import main
 
     result = main(
         [
@@ -56,7 +56,7 @@ def test_tuning_example_saves_bounds_candidates_and_best_reconstruction(tmp_path
 
 @pytest.mark.integration
 def test_tuning_reruns_remove_all_invalid_products_and_recover(tmp_path):
-    from examples.potential_correction.tune_single_step import run_tuning
+    from examples.potential_correction.mock.single_step.tune import run_tuning
 
     unrelated = tmp_path / "observer-notes.txt"
     unrelated.write_text("Retain notes across strength searches.\n")

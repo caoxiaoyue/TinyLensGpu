@@ -31,7 +31,7 @@ from optimize_single_step_three_strengths import Objective
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
-from examples.potential_correction.result_products import json_safe, write_json
+from examples.potential_correction.shared.result_products import json_safe, write_json
 
 
 NAMES = ["lambda_source", "lambda_potential", "lambda_amplitude"]
@@ -127,7 +127,7 @@ def main():
     args = parser.parse_args()
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=args.resume)
-    config_path = ROOT / "examples/potential_correction/scientific_configuration.json"
+    config_path = ROOT / "examples/potential_correction/mock/single_step/configurations/scientific.json"
     config = json.loads(config_path.read_text())
     bounds = np.array([[-8., -1.], [1., 11.], [0., 8.]])
     settings = dict(n_live=args.n_live, n_eff=args.n_eff, batch_size=args.batch_size,

@@ -41,8 +41,8 @@ def _configuration():
 
 
 def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
-    from examples.potential_correction.lbfgs_mock import run_lbfgs_mock
-    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.mock.lbfgs.run import run_lbfgs_mock
+    from examples.potential_correction.shared.result_products import load_result
 
     config = _configuration()
     config["backends"] = ["dense", "operator"]
@@ -214,8 +214,8 @@ def test_matched_mock_compares_and_round_trips_both_backends(tmp_path):
 
 
 def test_unqualified_mock_exports_native_failure_and_withholds_evidence(tmp_path):
-    from examples.potential_correction.lbfgs_mock import run_lbfgs_mock
-    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.mock.lbfgs.run import run_lbfgs_mock
+    from examples.potential_correction.shared.result_products import load_result
 
     config = _configuration()
     config["fit_options"] = {"max_iter": 1}

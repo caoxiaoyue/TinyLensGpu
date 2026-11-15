@@ -7,6 +7,8 @@
 **Status:** ready-for-agent
 **State:** resolved
 
+> Retired workflow: this resolved ticket records an archive-specific implementation. Its validation entry point and report are no longer maintained. Use the [current J0946 example](../../../examples/potential_correction/j0946/README.md) for new analyses; the checked items below are historical, not current verification claims.
+
 **Spec:** [Parent specification](../spec.md)
 
 - [x] A maintained validation entry point accepts the local archive inputs and checks their identity. It uses the archived M3 macro, observation, noise, mask, PSF, integration, grid geometry, adaptive source scale, and trial 497's three fixed strengths.
@@ -19,4 +21,4 @@
 
 Claimed by `codex/lbfgs-03-j0946-dense` for integration into `codex/lbfgs-potential-correction`.
 
-Implemented in `dd677ec` and merged in `198f1d6`. CUDA `pytest -xq test_potential_correction_lbfgs_j0946.py` from `examples/tests/` passed all 5 checks. The maintained [J0946 validation command and report](../../../docs/validation/potential-correction-lbfgs-j0946-dense.md) passed every gate. Retained [comparison](../output/j0946-dense/result.json) and [reconstruction](../output/j0946-dense/reconstruction.npz).
+Implemented in `dd677ec` and merged in `198f1d6`. CUDA `pytest -xq test_potential_correction_lbfgs_j0946.py` from `examples/tests/` passed all 5 checks. The then-current qualification report passed every gate. The comparison and reconstruction records were retained at that revision.

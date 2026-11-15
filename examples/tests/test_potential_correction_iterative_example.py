@@ -4,7 +4,7 @@ import numpy as np
 
 
 def test_fixed_strength_dense_iteration_runs_without_outer_optimization():
-    from examples.potential_correction.iterate_fixed_strength import main
+    from examples.potential_correction.mock.iterative.demos.fixed_strength import main
 
     result = main([])
     assert result.success, result.termination_reason
@@ -16,7 +16,7 @@ def test_fixed_strength_dense_iteration_runs_without_outer_optimization():
 
 
 def test_fixed_strength_operator_iteration_uses_shared_result_and_history():
-    from examples.potential_correction.iterate_fixed_strength import main
+    from examples.potential_correction.mock.iterative.demos.fixed_strength import main
 
     result = main(
         [

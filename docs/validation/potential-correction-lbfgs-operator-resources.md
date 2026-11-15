@@ -51,4 +51,4 @@ overhead and used JAX 0.7.1, SciPy 1.17.1, and NumPy 2.4.6 with GPU preallocatio
 disabled. The measurement helper synchronizes the fit and samples the allocator
 high-water from device initialization. It can be reused for J0946 by running each
 backend in a fresh process. Timing and peak memory are recorded measurements.
-[Measurement helper](../../examples/potential_correction/_lbfgs_resources.py)
+[Measurement helper](../../examples/potential_correction/shared/lbfgs_resources.py)

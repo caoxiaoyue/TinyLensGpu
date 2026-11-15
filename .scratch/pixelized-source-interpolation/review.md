@@ -21,7 +21,7 @@ The independent reviews examined `git diff dbb914a...b443388` on
   gives the scoped pytest node IDs. The evidence verification record gives
   the CUDA command. [Joint and J0946 ticket](issues/05-joint-subhalo-source-interpolation.md) · [Evidence ticket](issues/09-evidence-and-gpu-verification.md)
 - **P3, duplicated checkpoint policy.** The J0946 macro producers now share
-  their manifest, sampler, and stage interpolation checks. [Shared checkpoint policy](../../workspace/_j0946_macro_provenance.py)
+  their manifest, sampler, and stage interpolation checks. [Shared checkpoint policy](../../examples/potential_correction/j0946/_macro_provenance.py)
 
 ## Spec
 
@@ -39,8 +39,9 @@ rounded reciprocal. The compiled mapping and the frozen callback now use
 the same grid spacing. The regression checks both outer edges and their
 nearest representable neighbors. [Mapping checks](../../tests/test_pixelized_source_interpolation.py) · [Callback checks](../../tests/test_potential_correction_dense.py)
 
-The J0946 replay and the representative GPU measurement were repeated after
-the precision fix. [J0946 replay](../../docs/validation/pixelized-source-interpolation-j0946-replay.md) · [Evidence and GPU costs](../../docs/validation/pixelized-source-interpolation.md)
+The historical J0946 archive replay is retired. Maintained support-edge checks
+are the mapping and callback regressions linked above; GPU measurements retain
+their original configuration. [Evidence and GPU costs](../../docs/validation/pixelized-source-interpolation.md)
 
 ## Integrated verification
 

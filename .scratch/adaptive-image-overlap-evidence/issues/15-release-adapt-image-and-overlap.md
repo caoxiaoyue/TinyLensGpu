@@ -88,9 +88,11 @@ JAX_PLATFORMS=cuda pytest -q -s \
 
 ### Matched Overlap replay
 
+Supply the input archive identified by the qualification record; this example path is not a bundled fixture.
+
 ```bash
 cd "$release_checkout/benchmarks"
-archive=/home/xycao/workspace/tinylens_dev/TinyLensGpu/workspace/euclid_mock
+archive=/path/to/euclid_mock_archive
 bench_output="$(mktemp -d /tmp/tinylens-overlap-release-gpu.XXXXXX)"
 mkdir -p "$bench_output"
 (

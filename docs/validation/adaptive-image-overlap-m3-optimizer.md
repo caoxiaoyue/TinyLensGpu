@@ -40,7 +40,7 @@ conda activate tinylens_gpu
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 export JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false
 
-mock_archive=/path/to/workspace/euclid_mock
+mock_archive=/path/to/euclid_mock_archive
 mock_output=.scratch/adaptive-image-overlap-evidence/output/mock
 qualification_output=.scratch/adaptive-image-overlap-evidence/output/optimizer
 runner=.scratch/adaptive-image-overlap-evidence/experiments/qualify_m3_optimizer.py

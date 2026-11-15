@@ -3,7 +3,7 @@
 This intentionally forms complete matrices; it is neither the production
 operator path nor a memory benchmark. All layouts are fixed over the search.
 Run from the repository root with PYTHONPATH=. in tinylens_gpu. Example:
-  python .scratch/potential-correction/experiments/calibration_block_reference.py --config examples/potential_correction/calibration_configuration.json --output /tmp/block-reference.json --layouts morton128 morton256 incidence24_1024
+  python .scratch/potential-correction/experiments/calibration_block_reference.py --config examples/potential_correction/mock/single_step/configurations/calibration.json --output /tmp/block-reference.json --layouts morton128 morton256 incidence24_1024
 """
 
 import argparse
@@ -17,7 +17,7 @@ from scipy.optimize import direct
 
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
-from examples.potential_correction.calibrate_single_step import (
+from examples.potential_correction.mock.single_step.calibrate import (
     spatial_blocks,
     source_incidence_blocks,
     _fit_record,

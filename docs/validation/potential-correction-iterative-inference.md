@@ -181,7 +181,7 @@ The runnable numerical example uses the same fixed truth source, geometry and
 calibrated frozen layout:
 
 ```bash
-python examples/potential_correction/tune_iterative.py --backend operator \
+python examples/potential_correction/mock/iterative/tune.py --backend operator \
   --output output/potential_correction_iterative_tuning
 ```
 

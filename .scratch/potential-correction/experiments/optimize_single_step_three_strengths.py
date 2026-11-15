@@ -29,7 +29,7 @@ from scipy.optimize import direct, minimize
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer, SimulatorConfig
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
 from examples.potential_correction.mock import MockConfig, generate_mock_pair
-from examples.potential_correction.result_products import (
+from examples.potential_correction.shared.result_products import (
     export_result,
     json_safe,
     write_json,
@@ -153,7 +153,7 @@ def main():
     bounds = np.asarray([args.source_bounds, args.potential_bounds, args.amplitude_bounds])
     if not np.all(np.isfinite(bounds)) or not np.all(bounds[:, 1] > bounds[:, 0]):
         parser.error("Bounds must be finite increasing log10 intervals")
-    config_path = ROOT / "examples/potential_correction/scientific_configuration.json"
+    config_path = ROOT / "examples/potential_correction/mock/single_step/configurations/scientific.json"
     config = json.loads(config_path.read_text())
     config["three_strength_experiment"] = vars(args)
     mock = MockConfig.from_dict(config["mock"])

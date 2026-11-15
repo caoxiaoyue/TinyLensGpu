@@ -23,13 +23,13 @@ def main():
     sys.path.insert(0, str(root))
 
     import numpy as np
-    from examples.potential_correction.calibrate_single_step import run_calibration
+    from examples.potential_correction.mock.single_step.calibrate import run_calibration
     from examples.potential_correction.mock import (
         MockConfig,
         SourceTruth,
         generate_mock_pair,
     )
-    from examples.potential_correction.result_products import export_result
+    from examples.potential_correction.shared.result_products import export_result
 
     metric_names = (
         "source_relative_l2",
@@ -85,9 +85,9 @@ def main():
     run = run_calibration(config, output=args.output / "calibration")
     pair = generate_mock_pair(MockConfig.from_dict(config["mock"]))
     source_paths = (
-        "examples/potential_correction/calibrate_single_step.py",
-        "examples/potential_correction/result_products.py",
-        "examples/potential_correction/mock.py",
+        "examples/potential_correction/mock/single_step/calibrate.py",
+        "examples/potential_correction/shared/result_products.py",
+        "examples/potential_correction/mock/model.py",
     )
     summary = dict(
         source_commit=subprocess.check_output(

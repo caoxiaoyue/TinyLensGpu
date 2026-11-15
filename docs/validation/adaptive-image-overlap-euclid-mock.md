@@ -40,7 +40,7 @@ export PYTHONPATH="$PWD"
 export JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_PREALLOCATE=false
 export NVIDIA_TF32_OVERRIDE=0 OPENBLAS_NUM_THREADS=8
 
-mock_archive=/path/to/workspace/euclid_mock
+mock_archive=/path/to/euclid_mock_archive
 mock_output=.scratch/adaptive-image-overlap-evidence/output/mock
 python .scratch/adaptive-image-overlap-evidence/experiments/euclid_mock_replay.py \
     --archive "$mock_archive" --output "$mock_output"

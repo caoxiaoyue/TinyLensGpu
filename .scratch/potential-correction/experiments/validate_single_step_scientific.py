@@ -16,9 +16,9 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-from examples.potential_correction.single_step_scientific import run_scientific
-from examples.potential_correction.result_products import write_json
-from examples.potential_correction.result_products import (
+from examples.potential_correction.mock.single_step.run import run_scientific
+from examples.potential_correction.shared.result_products import write_json
+from examples.potential_correction.shared.result_products import (
     load_result,
     plot_result_products,
 )
@@ -191,7 +191,7 @@ def consolidate(output, destination):
     record["figure_replot"] = {
         "source": "safe load_result from retained NPZ/JSON plus identical regenerated observation context; no refit",
         "plotting_source_sha256": hashlib.sha256(
-            (ROOT / "examples/potential_correction/result_products.py").read_bytes()
+            (ROOT / "examples/potential_correction/shared/result_products.py").read_bytes()
         ).hexdigest(),
         "normalization": "shared observed/linear/nonlinear intensity range and shared truth/recovered source range",
         "field_domains": "psi on U; deflection and convergence on core C; cross = injected position",
@@ -205,7 +205,7 @@ def main():
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "examples/potential_correction/scientific_configuration.json",
+        default=ROOT / "examples/potential_correction/mock/single_step/configurations/scientific.json",
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(

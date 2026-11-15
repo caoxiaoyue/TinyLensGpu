@@ -70,12 +70,7 @@ precision checks, then exports the conditional source/subhalo reconstruction
 at the three marginal medians. Its [validation report](../../docs/validation/potential-correction-three-strength-float32-nautilus.md)
 retains both the localized peak improvement and the remaining background bias.
 
-The separate [J0946 joint-QR correction](../../workspace/slacs0946_potential_correction/joint_qr_impact.md)
-fixes the standalone 100×100-source driver's joint/fallback evidence, retaining
-the complete coupled Gaussian target through a prior-whitened augmented QR.
-Its [compact numerical record](research/j0946-joint-qr-20261102/summary.json)
-keeps the full old-support re-score, evaluated-candidate failures, independent
-Float64 arithmetic controls and a fresh run under the original J0946 settings.
+The [current J0946 example](../../examples/potential_correction/j0946/README.md) retains the full coupled Gaussian target through its data-space and prior-whitened QR paths. Regenerable checks in [the example tests](../../examples/tests/test_j0946_single_step_workflow.py) cover the algebra and checkpoint policy; historical archive replays are outside the maintained workflow.
 
 The [user guide](../../docs/guides/potential-correction.md) covers both public
 algorithms, initialization, geometry, priors, tuning, results and measured

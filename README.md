@@ -208,8 +208,8 @@ python sim_data.py && python single_step_inversion_mge_shapelet.py
 From the repository root, run the small nonlinear and nested examples:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/iterate_fixed_strength.py --backend operator
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/tune_iterative.py --backend operator --output output/pc_nested
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/iterative/demos/fixed_strength.py --backend operator
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/iterative/tune.py --backend operator --output examples/potential_correction/mock/iterative/output/pc_nested
 ```
 
 The [potential-correction guide](docs/guides/potential-correction.md) explains

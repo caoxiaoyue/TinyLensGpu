@@ -19,8 +19,8 @@ they establish neither detection significance nor a mass interval.
 From the repository root, after activating `tinylens_gpu`:
 
 ```bash
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/single_step_scientific.py \
-  --config examples/potential_correction/scientific_configuration.json \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/single_step/run.py \
+  --config examples/potential_correction/mock/single_step/configurations/scientific.json \
   --backend both --output output/potential_correction_scientific
 
 XLA_PYTHON_CLIENT_PREALLOCATE=false python .scratch/potential-correction/experiments/validate_single_step_scientific.py \
@@ -39,7 +39,7 @@ contains full configurations, implementation hashes, actual sizes, block sizes,
 backend field differences, recovery summaries, supplied-truth diagnostics,
 and prior probes. The
 [reproduction script](../../.scratch/potential-correction/experiments/validate_single_step_scientific.py)
-and [scientific configuration](../../examples/potential_correction/scientific_configuration.json)
+and [scientific configuration](../../examples/potential_correction/mock/single_step/configurations/scientific.json)
 are version controlled. Large numerical products and PNG/PDF figures are
 retained in the integration worktree's ignored
 `.scratch/potential-correction/output/single-step-scientific/`, outside the

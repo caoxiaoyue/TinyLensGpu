@@ -9,7 +9,7 @@ import pytest
 def test_small_nested_example_exports_the_retained_success_and_search(
     tmp_path, backend
 ):
-    from examples.potential_correction.tune_iterative import main
+    from examples.potential_correction.mock.iterative.tune import main
 
     search = main(["--backend", backend, "--maxfun", "5", "--output", str(tmp_path)])
     result = search.reconstruction
@@ -44,7 +44,7 @@ def test_small_nested_example_exports_the_retained_success_and_search(
 
 
 def test_all_invalid_nested_example_keeps_reasons_and_removes_stale_success(tmp_path):
-    from examples.potential_correction.tune_iterative import main
+    from examples.potential_correction.mock.iterative.tune import main
 
     main(["--maxfun", "5", "--output", str(tmp_path)])
     search = main(["--maxfun", "5", "--max-iter", "0", "--output", str(tmp_path)])

@@ -115,7 +115,7 @@ def default_settings(dtype="float64"):
 def make_root(tmp_path, cfg):
     """Temporary ROOT holding the config and earlier-posterior fixtures."""
     root = tmp_path / "root"
-    config = root / "examples/potential_correction/scientific_configuration.json"
+    config = root / "examples/potential_correction/mock/single_step/configurations/scientific.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps(cfg))
     research = root / ".scratch/potential-correction/research/three-strength-nautilus"

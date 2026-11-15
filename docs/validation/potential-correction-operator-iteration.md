@@ -195,7 +195,7 @@ The standalone small example is:
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false python \
-  examples/potential_correction/iterate_fixed_strength.py \
+  examples/potential_correction/mock/iterative/demos/fixed_strength.py \
   --backend operator --block-size 16 --pcg-max-iter 800 --pcg-rtol 1e-12
 ```
 

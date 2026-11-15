@@ -8,7 +8,7 @@ import jax
 
 from TinyLensGpu.ForwardSimulation import PotentialCorrectionRenderer
 from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
-from examples.potential_correction.calibrate_single_step import (
+from examples.potential_correction.mock.single_step.calibrate import (
     source_incidence_blocks,
     _truth,
     _fit_record,

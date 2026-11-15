@@ -55,7 +55,7 @@ def _observation_problem():
 def test_failed_iterative_export_keeps_diagnostic_history_without_success_products(
     tmp_path,
 ):
-    from examples.potential_correction.result_products import export_result
+    from examples.potential_correction.shared.result_products import export_result
 
     observation, problem = _observation_problem()
     result = problem.fit(0.001, 1000.0, max_iter=0)
@@ -94,10 +94,10 @@ def _configuration():
 def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_history(
     tmp_path, mode,
 ):
-    from examples.potential_correction.iterative_scientific import (
+    from examples.potential_correction.mock.iterative.run import (
         run_iterative_scientific,
     )
-    from examples.potential_correction.result_products import load_result
+    from examples.potential_correction.shared.result_products import load_result
 
     config = _configuration()
     if mode is not None:
@@ -155,7 +155,7 @@ def test_iterative_scientific_pair_exports_node_initialization_none_linear_and_h
 
 
 def test_iterative_scientific_nested_search_exports_only_converged_results(tmp_path):
-    from examples.potential_correction.iterative_scientific import (
+    from examples.potential_correction.mock.iterative.run import (
         run_iterative_scientific,
     )
 
@@ -197,10 +197,10 @@ def test_iterative_scientific_nested_search_exports_only_converged_results(tmp_p
 
 
 def test_iterative_scientific_accepts_explicit_fixed_partition_from_other_mode(tmp_path):
-    from examples.potential_correction.iterative_scientific import (
+    from examples.potential_correction.mock.iterative.run import (
         run_iterative_scientific,
     )
-    from examples.potential_correction.single_step_scientific import run_scientific
+    from examples.potential_correction.mock.single_step.run import run_scientific
 
     config = _configuration()
     config.update(make_plots=False, backends=["dense"])
@@ -232,7 +232,7 @@ def test_algorithm_comparison_keeps_single_step_linear_evidence_and_nonlinear_ob
         SingleStepPotentialCorrection,
         IterativePotentialCorrection,
     )
-    from examples.potential_correction.result_products import compare_reconstructions
+    from examples.potential_correction.shared.result_products import compare_reconstructions
 
     observation, prepared = _observation_problem()
     renderer = prepared.renderer
@@ -288,10 +288,10 @@ def test_iterative_runner_compares_saved_dense_single_step_without_refitting_it(
     tmp_path,
 ):
     from TinyLensGpu.ObservationModel import SingleStepPotentialCorrection
-    from examples.potential_correction.iterative_scientific import (
+    from examples.potential_correction.mock.iterative.run import (
         run_iterative_scientific,
     )
-    from examples.potential_correction.result_products import export_result
+    from examples.potential_correction.shared.result_products import export_result
 
     observation, prepared = _observation_problem()
     single = SingleStepPotentialCorrection(
@@ -329,7 +329,7 @@ def test_iterative_runner_compares_saved_dense_single_step_without_refitting_it(
 
 
 def test_case_stopping_controls_remain_explicit_in_public_results(tmp_path):
-    from examples.potential_correction.iterative_scientific import (
+    from examples.potential_correction.mock.iterative.run import (
         run_iterative_scientific,
     )
 

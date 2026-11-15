@@ -23,12 +23,12 @@ From the repository root:
 
 ```bash
 source ~/anaconda3/bin/activate && conda activate tinylens_gpu
-XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/calibrate_single_step.py \
-  --config examples/potential_correction/calibration_configuration.json \
+XLA_PYTHON_CLIENT_PREALLOCATE=false python examples/potential_correction/mock/single_step/calibrate.py \
+  --config examples/potential_correction/mock/single_step/configurations/calibration.json \
   --output output/potential_correction_calibration
 ```
 
-The complete [configuration](../../examples/potential_correction/calibration_configuration.json)
+The complete [configuration](../../examples/potential_correction/mock/single_step/configurations/calibration.json)
 contains all three independently fixed amplitude values 100,1000,10000.
 Every candidate starts with the same fixed macro and frozen analytic truth
 gradient; no fitted state is passed to another candidate. The driver saves
